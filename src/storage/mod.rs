@@ -1,10 +1,24 @@
-use crate::value::{EdgeId, VertexId};
+use std::collections::HashMap;
+
+pub mod interner;
+
+use crate::value::{EdgeId, Value, VertexId};
 
 #[derive(Clone, Debug)]
-pub struct Vertex;
+pub struct Vertex {
+    pub id: VertexId,
+    pub label: String,
+    pub properties: HashMap<String, Value>,
+}
 
 #[derive(Clone, Debug)]
-pub struct Edge;
+pub struct Edge {
+    pub id: EdgeId,
+    pub label: String,
+    pub src: VertexId,
+    pub dst: VertexId,
+    pub properties: HashMap<String, Value>,
+}
 
 pub trait GraphStorage: Send + Sync {
     fn get_vertex(&self, id: VertexId) -> Option<Vertex>;
