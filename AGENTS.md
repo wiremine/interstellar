@@ -136,6 +136,10 @@ proptest! {
 }
 ```
 
+### Coverage
+
+Aim for 100% branch coverage
+
 ## Key Design Principles
 
 1. **Lazy evaluation**: Pull-based iterator model, no work until terminal step
