@@ -4,8 +4,8 @@ use std::marker::PhantomData;
 
 use smallvec::SmallVec;
 
-use crate::graph::Graph;
-use crate::storage::{Edge, Vertex};
+use crate::graph::GraphSnapshot;
+use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::value::Value;
 
 pub struct Traversal<S, E, T> {
@@ -45,11 +45,15 @@ pub struct PathElement {
     pub labels: SmallVec<[String; 2]>,
 }
 
-pub struct GraphTraversalSource<'g> {
-    pub graph: &'g Graph,
+pub struct GraphTraversalSource<'s> {
+    pub(crate) snapshot: &'s GraphSnapshot<'s>,
 }
 
-impl<'g> GraphTraversalSource<'g> {
+impl<'s> GraphTraversalSource<'s> {
+    fn storage(&self) -> &dyn GraphStorage {
+        self.snapshot.graph.storage.as_ref()
+    }
+
     pub fn v(self) -> Traversal<Self, Vertex, Traverser<Vertex>> {
         Traversal {
             source: self,

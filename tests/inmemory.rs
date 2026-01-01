@@ -10,6 +10,9 @@ fn graph_in_memory_basic_usage() {
     // Verify empty graph
     let snapshot = graph.snapshot();
     assert_eq!(snapshot.graph.storage().vertex_count(), 0);
+
+    // Test traversal API
+    let _g = snapshot.traversal();
 }
 
 #[test]
