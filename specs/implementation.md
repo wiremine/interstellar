@@ -58,13 +58,6 @@ rustgremlin/
 │   │   ├── wal.rs             # Write-ahead logging
 │   │   └── interner.rs        # String interning
 │   │
-│   ├── index/
-│   │   ├── mod.rs             # Index traits
-│   │   ├── label.rs           # Label → ID index (RoaringBitmap)
-│   │   ├── property.rs        # Property B+ tree index
-│   │   ├── composite.rs       # Multi-property composite index
-│   │   └── fulltext.rs        # Full-text search (Phase 2+)
-│   │
 │   ├── traversal/
 │   │   ├── mod.rs             # Traversal, Traverser, Path
 │   │   ├── source.rs          # GraphTraversalSource, V(), E()
@@ -108,21 +101,15 @@ rustgremlin/
     ┌─────────────┐            ┌──────────────┐            ┌──────────────┐
     │   graph.rs  │◀───────────│   storage/   │            │  traversal/  │
     │ Graph types │            │   backends   │            │  Fluent API  │
-    └──────┬──────┘            └──────┬───────┘            └──────┬───────┘
-           │                          │                           │
-           │                          ▼                           │
-           │                   ┌──────────────┐                   │
-           │                   │    index/    │                   │
-           │                   │  B+ tree etc │                   │
-           │                   └──────┬───────┘                   │
-           │                          │                           │
-           └──────────────────────────┼───────────────────────────┘
-                                      │
-                                      ▼
-                              ┌──────────────┐
-                              │  value.rs    │
-                              │  error.rs    │
-                              └──────────────┘
+    └──────┬──────┘            └──────────────┘            └──────┬───────┘
+           │                                                       │
+           └───────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                               ┌──────────────┐
+                               │  value.rs    │
+                               │  error.rs    │
+                               └──────────────┘
 ```
 
 ---
@@ -239,7 +226,7 @@ pub trait GraphStorage: Send + Sync {
 ---
 
 ### Phase 2: In-Memory Storage
-**Duration: 2-3 weeks | Priority: Critical**
+**Duration: 2-3 weeks | Priority: Critical | Status: ✅ Complete**
 
 Implements the fast, non-persistent storage backend.
 
@@ -248,8 +235,6 @@ Implements the fast, non-persistent storage backend.
 | File | Description |
 |------|-------------|
 | `src/storage/inmemory.rs` | `InMemoryGraph` implementation |
-| `src/index/mod.rs` | Index trait abstractions |
-| `src/index/label.rs` | Label index with RoaringBitmap |
 
 #### Detailed Specifications
 
@@ -261,7 +246,7 @@ pub struct InMemoryGraph {
     next_vertex_id: AtomicU64,
     next_edge_id: AtomicU64,
     
-    // Indexes
+    // Indexes (inline - no separate index module)
     vertex_labels: HashMap<u32, RoaringBitmap>,
     edge_labels: HashMap<u32, RoaringBitmap>,
     
@@ -301,11 +286,11 @@ impl InMemoryGraph {
 ```
 
 #### Exit Criteria
-- [ ] InMemoryGraph implements GraphStorage
-- [ ] O(1) vertex/edge lookup verified
-- [ ] Label indexes work correctly
-- [ ] Add/remove operations update indexes
-- [ ] Integration test with 10K vertices, 100K edges
+- [x] InMemoryGraph implements GraphStorage
+- [x] O(1) vertex/edge lookup verified
+- [x] Label indexes work correctly (inline implementation)
+- [x] Add/remove operations update indexes
+- [x] Integration test with 10K vertices, 100K edges
 
 ---
 
@@ -388,11 +373,11 @@ where
 
 **`src/traversal/source.rs`**
 ```rust
-pub struct GraphTraversalSource<'g> {
-    graph: &'g Graph,
+pub struct GraphTraversalSource<'s> {
+    snapshot: &'s GraphSnapshot<'s>,
 }
 
-impl<'g> GraphTraversalSource<'g> {
+impl<'s> GraphTraversalSource<'s> {
     pub fn v(self) -> Traversal<Self, Vertex, impl Step<(), Vertex>>;
     pub fn v_by_ids(self, ids: impl IntoIterator<Item = VertexId>) -> Traversal<...>;
     pub fn e(self) -> Traversal<Self, Edge, impl Step<(), Edge>>;
@@ -736,6 +721,8 @@ impl<S, E, Steps> Traversal<S, E, Steps> {
 
 Implements persistent storage with memory-mapped files.
 
+**Note**: Label indexing in mmap storage will use the same inline `HashMap<u32, RoaringBitmap>` approach as in-memory storage. Property indexes and composite indexes will be added in Phase 7 as optional secondary indexes.
+
 #### Deliverables
 
 | File | Description |
@@ -829,7 +816,11 @@ pub struct MmapGraph {
     mmap: Mmap,
     file: File,
     wal: WriteAheadLog,
-    label_index: LabelIndex,
+    
+    // Label indexes (inline, same as InMemoryGraph)
+    vertex_labels: HashMap<u32, RoaringBitmap>,
+    edge_labels: HashMap<u32, RoaringBitmap>,
+    
     string_table: StringInterner,
     lock: RwLock<()>,
 }
@@ -866,19 +857,21 @@ impl GraphStorage for MmapGraph {
 ### Phase 7: Indexes & Optimization
 **Duration: 3-4 weeks | Priority: Medium**
 
-Adds secondary indexes and query optimization.
+Adds optional secondary indexes for property queries and query optimization.
+
+**Note**: Primary label indexes are already implemented inline in both storage backends. This phase adds optional property and composite indexes for accelerating specific query patterns.
 
 #### Deliverables
 
 | File | Description |
 |------|-------------|
-| `src/index/property.rs` | B+ tree property index |
-| `src/index/composite.rs` | Composite index |
+| `src/storage/property_index.rs` | B+ tree property index (optional) |
+| `src/storage/composite_index.rs` | Composite index (optional) |
 | `src/traversal/optimizer.rs` | Query planner |
 
 #### Detailed Specifications
 
-**`src/index/property.rs`**
+**`src/storage/property_index.rs`**
 ```rust
 pub struct PropertyIndex {
     root: Option<NodeId>,
@@ -1318,7 +1311,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Query
-    let g = graph.traversal();
+    let snap = graph.snapshot();
+    let g = snap.traversal();
     let friends: Vec<String> = g.v()
         .has_value("name", "Alice")
         .out_labels(&["knows"])

@@ -1,5 +1,17 @@
 # Spec 02: In-Memory Storage (Phase 2)
 
+**Status**: ✅ **IMPLEMENTED** (with deviations from original spec)
+
+**Implementation Notes**:
+- Label indexing is implemented **inline** within `InMemoryGraph` using `HashMap<u32, RoaringBitmap>`
+- No separate `src/index/` module was created (that abstraction was removed as unnecessary)
+- The `try_mutate()` method was added to `Graph` for non-blocking write lock acquisition
+- `traversal()` method was moved from `Graph` to `GraphSnapshot` for proper lock semantics
+
+See commit history for actual implementation details.
+
+---
+
 Implements the fast, non-persistent HashMap-based storage backend. Builds on Phase 1 core types and provides a complete `GraphStorage` implementation.
 
 ---

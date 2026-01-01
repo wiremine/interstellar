@@ -97,14 +97,14 @@ struct EdgeRecord {
 │                     Index Architecture                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Primary Indexes (always maintained):                           │
+│  Primary Indexes (inline in storage backends):                  │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ • Node ID → NodeRecord offset    (direct array lookup)  │   │
-│  │ • Edge ID → EdgeRecord offset    (direct array lookup)  │   │
-│  │ • Label → Node/Edge ID set       (hash map)             │   │
+│  │ • Node ID → NodeData           (HashMap lookup)         │   │
+│  │ • Edge ID → EdgeData           (HashMap lookup)         │   │
+│  │ • Label → Node/Edge ID set     (HashMap<u32, Bitmap>)   │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
-│  Secondary Indexes (optional, user-created):                    │
+│  Secondary Indexes (optional, future):                          │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ • Property Index: (label, key, value) → Element IDs     │   │
 │  │   Implementation: B+ tree for range queries             │   │
@@ -113,15 +113,15 @@ struct EdgeRecord {
 │  │   Implementation: Concatenated key B+ tree              │   │
 │  │                                                         │   │
 │  │ • Full-text Index: text property → Element IDs          │   │
-│  │   Implementation: Inverted index with BK-tree           │   │
+│  │   Implementation: Inverted index                        │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  Adjacency Structure (embedded in records):                     │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Node ──first_out──→ Edge ──next_out──→ Edge ──→ ...     │   │
-│  │      ←─first_in───       ←─next_in───       ←── ...     │   │
+│  │ Node ──out_edges──→ Vec<EdgeId>                         │   │
+│  │      ←─in_edges───   Vec<EdgeId>                        │   │
 │  │                                                         │   │
-│  │ Doubly-linked edge lists per vertex for O(1) iteration  │   │
+│  │ Vec-based edge lists per vertex for O(degree) iteration │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -132,8 +132,8 @@ struct EdgeRecord {
 ```rust
 /// Thread-safe graph handle with RwLock-based concurrency
 pub struct Graph {
-    storage: Arc<Storage>,
-    read_lock: RwLock<()>,
+    storage: Arc<dyn GraphStorage>,
+    lock: Arc<RwLock<()>>,
 }
 
 /// Read-only snapshot for consistent traversals
@@ -146,8 +146,17 @@ pub struct GraphSnapshot<'g> {
 /// Mutable transaction with write buffering
 pub struct GraphMut<'g> {
     graph: &'g Graph,
-    write_buffer: WriteBuffer,
     _guard: RwLockWriteGuard<'g, ()>,
+}
+
+impl Graph {
+    pub fn snapshot(&self) -> GraphSnapshot<'_>;
+    pub fn mutate(&self) -> GraphMut<'_>;
+    pub fn try_mutate(&self) -> Option<GraphMut<'_>>; // Non-blocking write lock
+}
+
+impl<'g> GraphSnapshot<'g> {
+    pub fn traversal(&self) -> GraphTraversalSource<'_>; // Traversal is on snapshot
 }
 ```
 
@@ -166,28 +175,29 @@ rustgremlin/
 │   ├── graph.rs            # Graph, GraphSnapshot, GraphMut
 │   ├── storage/
 │   │   ├── mod.rs
-│   │   ├── mmap.rs         # Memory-mapped file handling
-│   │   ├── records.rs      # On-disk record formats
-│   │   ├── arena.rs        # Property/string allocation
-│   │   └── wal.rs          # Write-ahead logging
-│   ├── index/
-│   │   ├── mod.rs
-│   │   ├── label.rs        # Label → ID index
-│   │   ├── property.rs     # Property B+ tree index
-│   │   └── fulltext.rs     # Full-text search index
+│   │   ├── inmemory.rs     # HashMap-based in-memory storage
+│   │   ├── interner.rs     # String interning
+│   │   ├── mmap.rs         # Memory-mapped file handling (future)
+│   │   ├── records.rs      # On-disk record formats (future)
+│   │   ├── arena.rs        # Property/string allocation (future)
+│   │   └── wal.rs          # Write-ahead logging (future)
 │   ├── traversal/
-│   │   ├── mod.rs
-│   │   ├── source.rs       # V(), E() starting steps
-│   │   ├── filter.rs       # has(), hasLabel(), where()
-│   │   ├── map.rs          # out(), in(), both(), values()
-│   │   ├── branch.rs       # union(), coalesce(), choose()
-│   │   ├── reduce.rs       # count(), sum(), fold()
-│   │   ├── sideeffect.rs   # store(), aggregate()
-│   │   └── terminal.rs     # toList(), next(), iterate()
+│   │   ├── mod.rs          # Traversal types (basic)
+│   │   ├── source.rs       # V(), E() starting steps (future)
+│   │   ├── filter.rs       # has(), hasLabel(), where() (future)
+│   │   ├── map.rs          # out(), in(), both(), values() (future)
+│   │   ├── branch.rs       # union(), coalesce(), choose() (future)
+│   │   ├── reduce.rs       # count(), sum(), fold() (future)
+│   │   ├── sideeffect.rs   # store(), aggregate() (future)
+│   │   └── terminal.rs     # toList(), next(), iterate() (future)
 │   ├── value.rs            # Value enum and conversions
-│   └── error.rs            # Error types
+│   ├── error.rs            # Error types
+│   └── algorithms/         # Graph algorithms (future)
+│       └── mod.rs
 └── Cargo.toml
 ```
+
+**Note**: Label indexes are implemented inline within storage backends (`InMemoryGraph` and future `MmapGraph`) using `HashMap<u32, RoaringBitmap>`. Optional property indexes will be added as separate modules in future phases for advanced query optimization.
 
 ---
 
@@ -197,25 +207,28 @@ rustgremlin/
 
 ```rust
 /// The main traversal builder - zero-cost abstractions via monomorphization
-pub struct Traversal<S, E, T: Traverser<E>> {
+pub struct Traversal<S, E, T> {
     source: S,
     _phantom: PhantomData<(E, T)>,
 }
 
 /// Represents a position in the traversal with path history
-pub trait Traverser<E>: Clone {
-    fn current(&self) -> &E;
-    fn path(&self) -> &Path;
-    fn sack<T: Any>(&self) -> Option<&T>;
+#[derive(Clone)]
+pub struct Traverser<E> {
+    pub element: E,
+    pub path: Path,
+    pub loops: u32,
+    pub sack: Option<Box<dyn Any + Send>>,
+    pub bulk: u64,
 }
 
 /// Traversal source - entry point for all traversals
-pub struct GraphTraversalSource<'g> {
-    graph: GraphSnapshot<'g>,
+pub struct GraphTraversalSource<'s> {
+    snapshot: &'s GraphSnapshot<'s>,
 }
 
-impl<'g> GraphTraversalSource<'g> {
-    pub fn new(graph: &'g Graph) -> Self;
+impl<'s> GraphTraversalSource<'s> {
+    // Created from GraphSnapshot via snapshot.traversal()
 }
 ```
 
@@ -649,10 +662,11 @@ use rustgremlin::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Open or create graph
-    let graph = Graph::open("my_graph.db")?;
+    let graph = Graph::in_memory();
     
-    // Get traversal source (snapshot)
-    let g = graph.traversal();
+    // Get traversal source via snapshot
+    let snap = graph.snapshot();
+    let g = snap.traversal();
     
     // Find all people
     let people: Vec<Vertex> = g.v()
@@ -660,6 +674,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .to_list();
     
     // Find person by name and get their friends' names
+    let snap = graph.snapshot();
+    let g = snap.traversal();
     let friend_names: Vec<String> = g.v()
         .has_label("person")
         .has_value("name", "Alice")
@@ -669,6 +685,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .to_list();
     
     // Complex query: People who know someone over 30
+    let snap = graph.snapshot();
+    let g = snap.traversal();
     let results = g.v()
         .has_label("person")
         .where_(__.out_labels(&["knows"]).has_where("age", p::gt(30)))
@@ -753,26 +771,54 @@ let avg_ages = g.v()
 
 ## 5. Roadmap
 
-### Phase 1: Core Graph Database (Current Focus)
-- ✅ Dual storage architecture (in-memory + memory-mapped)
-- ✅ Gremlin-style fluent API
-- ✅ Anonymous traversals
-- ✅ Basic graph algorithms (BFS, DFS, path finding)
-- ✅ Property indexes and label indexes
-- ✅ WAL for durability
-- ✅ Simple RwLock concurrency
+### Phase 1: Core Foundation ✅ Complete
+- ✅ Core value types (`Value`, `VertexId`, `EdgeId`)
+- ✅ Error hierarchy (`StorageError`, `TraversalError`)
+- ✅ `GraphStorage` trait abstraction
+- ✅ String interning
+- ✅ Graph handle types (`Graph`, `GraphSnapshot`, `GraphMut`)
+- ✅ RwLock-based concurrency with `try_mutate()`
 
-### Phase 2: Query Language & Advanced Features
-- 🔄 GQL subset implementation (see [gql.md](./gql.md))
-- 🔄 Full-text search indexes
-- 🔄 MVCC concurrency model
-- 🔄 Compression and partitioning
+### Phase 2: In-Memory Storage ✅ Complete
+- ✅ HashMap-based `InMemoryGraph`
+- ✅ O(1) vertex/edge lookup
+- ✅ Inline label indexes (`HashMap<u32, RoaringBitmap>`)
+- ✅ Adjacency list traversal
+- ✅ Add/remove vertex/edge operations
+- ✅ Integration tests (10K vertices, 100K edges)
 
-### Phase 3: Scale & Performance
-- 📋 Distributed graph storage
-- 📋 Advanced query optimization
-- 📋 Graph algorithms library
-- 📋 Adaptive caching
+### Phase 3: Traversal Engine (In Progress)
+- ✅ Basic traversal types (`Traversal`, `Traverser`, `Path`)
+- ✅ `GraphTraversalSource` with `v()` and `e()` starting points
+- 🔄 Navigation steps (out, in, both)
+- 🔄 Filter steps (hasLabel, has, where)
+- 🔄 Terminal steps (toList, next, count)
+- 📋 Anonymous traversals (`__` factory)
+- 📋 Predicates (`p::` module)
+
+### Phase 4: Advanced Traversal Features (Planned)
+- 📋 Branch steps (union, coalesce, repeat)
+- 📋 Reduce steps (count, sum, group, fold)
+- 📋 Side-effect steps (store, aggregate, as_)
+- 📋 Graph algorithms (BFS, DFS, path finding)
+
+### Phase 5: Persistent Storage (Planned)
+- 📋 Memory-mapped file storage
+- 📋 On-disk record formats
+- 📋 Write-ahead logging (WAL)
+- 📋 Crash recovery
+
+### Phase 6: Optional Indexes & Optimization (Planned)
+- 📋 Property B+ tree indexes (optional secondary indexes)
+- 📋 Composite indexes
+- 📋 Query optimization
+- 📋 Statistics collection
+
+### Phase 7: Advanced Features (Future)
+- 📋 GQL subset implementation
+- 📋 Full-text search indexes
+- 📋 MVCC concurrency model
+- 📋 Compression and partitioning
 
 Legend: ✅ Complete | 🔄 In Progress | 📋 Planned
 

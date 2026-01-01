@@ -10,7 +10,7 @@ RustGremlin is a high-performance Rust graph traversal library with:
 - **Anonymous traversals**: Composable fragments via the `__` factory module
 - **Zero-cost abstractions**: Monomorphized traversal pipelines
 
-**Current state**: Design/specification phase. Source code implementation pending.
+**Current state**: Phase 1 (Core Foundation) and Phase 2 (In-Memory Storage) are implemented. Traversal engine is stubbed.
 
 ## Build & Test Commands
 
@@ -39,7 +39,6 @@ src/
 ├── value.rs         # Value enum, VertexId, EdgeId
 ├── error.rs         # Error types (thiserror)
 ├── storage/         # GraphStorage trait + backends
-├── index/           # Label/property indexes
 ├── traversal/       # Fluent API steps
 └── algorithms/      # BFS, DFS, path algorithms
 ```
