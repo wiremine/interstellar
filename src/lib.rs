@@ -3,7 +3,6 @@
 pub mod algorithms;
 pub mod error;
 pub mod graph;
-pub mod index;
 pub mod storage;
 pub mod traversal;
 pub mod value;
