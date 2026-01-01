@@ -297,37 +297,73 @@ impl InMemoryGraph {
 ### Phase 3: Traversal Engine Core
 **Duration: 4-5 weeks | Priority: Critical**
 
-The heart of the library - implements the Gremlin-style fluent API.
+The heart of the library - implements the Gremlin-style fluent API using **type-erased steps** internally while maintaining **compile-time type safety** at API boundaries.
+
+#### Architecture
+
+The traversal engine uses `Box<dyn AnyStep>` internally for flexibility while `Traversal<In, Out>` provides type-safe APIs:
+
+- **Unified Traversal type**: Same `Traversal<In, Out>` for both bound and anonymous traversals
+- **ExecutionContext**: Graph access passed at execution time, not construction time
+- **BoundTraversal wrapper**: Holds graph references for bound traversals
+- **Phase 4 ready**: Anonymous traversals (`__`) work seamlessly
 
 #### Deliverables
 
 | File | Description |
 |------|-------------|
-| `src/traversal/mod.rs` | Core types: `Traversal`, `Traverser`, `Path` |
-| `src/traversal/step.rs` | `Step` trait and composition |
-| `src/traversal/source.rs` | `GraphTraversalSource`, `V()`, `E()` |
-| `src/traversal/filter.rs` | Filter steps |
-| `src/traversal/map.rs` | Navigation and transform steps |
-| `src/traversal/terminal.rs` | Terminal steps |
+| `src/traversal/mod.rs` | Core types: `Traversal`, `Traverser`, `Path`, re-exports |
+| `src/traversal/context.rs` | `ExecutionContext`, `SideEffects` |
+| `src/traversal/step.rs` | `AnyStep` trait and helper macros |
+| `src/traversal/source.rs` | `GraphTraversalSource`, `BoundTraversal`, `StartStep` |
+| `src/traversal/filter.rs` | Filter steps: `has_label`, `has`, `dedup`, `limit`, etc. |
+| `src/traversal/navigation.rs` | Navigation steps: `out`, `in_`, `both`, `outE`, etc. |
+| `src/traversal/transform.rs` | Transform steps: `values`, `id`, `label`, `map`, etc. |
+| `src/traversal/terminal.rs` | Terminal steps: `to_list`, `next`, `count`, etc. |
 
 #### Detailed Specifications
 
-**`src/traversal/mod.rs`**
+**`src/traversal/context.rs`**
 ```rust
-/// Main traversal builder - monomorphized for zero-cost
-pub struct Traversal<S, E, Steps> {
-    source: S,
-    steps: Steps,
-    _phantom: PhantomData<E>,
+/// Execution context passed to steps at runtime
+/// Key to supporting anonymous traversals - graph access provided at execution time
+pub struct ExecutionContext<'g> {
+    pub snapshot: &'g GraphSnapshot<'g>,
+    pub interner: &'g StringInterner,
+    pub side_effects: SideEffects,
 }
 
-/// Traverser carries element + metadata through pipeline
+impl<'g> ExecutionContext<'g> {
+    pub fn resolve_label(&self, label: &str) -> Option<u32>;
+    pub fn resolve_labels(&self, labels: &[&str]) -> Vec<u32>;
+    pub fn get_label(&self, id: u32) -> Option<&str>;
+}
+
+/// Storage for traversal side effects (store, aggregate, sack)
+pub struct SideEffects {
+    collections: HashMap<String, Vec<Value>>,
+    data: HashMap<String, Box<dyn Any + Send + Sync>>,
+}
+```
+
+**`src/traversal/mod.rs`**
+```rust
+/// Main traversal type - type-erased internally, type-safe externally
+/// Same type for bound and anonymous traversals
+pub struct Traversal<In, Out> {
+    steps: Vec<Box<dyn AnyStep>>,
+    source: Option<TraversalSource>,
+    _phantom: PhantomData<fn(In) -> Out>,
+}
+
+/// Traverser carries a Value through the pipeline with metadata
+/// Uses Value internally (not generic E) to enable type erasure
 #[derive(Clone)]
-pub struct Traverser<E> {
-    pub element: E,
+pub struct Traverser {
+    pub value: Value,
     pub path: Path,
     pub loops: u32,
-    pub sack: Option<Box<dyn Any + Send>>,
+    pub sack: Option<Box<dyn CloneSack>>,
     pub bulk: u64,
 }
 
@@ -338,155 +374,216 @@ pub struct Path {
     labels: HashMap<String, Vec<usize>>,
 }
 
-#[derive(Clone)]
-pub struct PathElement {
-    value: Value,
-    labels: SmallVec<[String; 2]>,
+pub enum TraversalSource {
+    AllVertices,
+    Vertices(Vec<VertexId>),
+    AllEdges,
+    Edges(Vec<EdgeId>),
+    Inject(Vec<Value>),
 }
 ```
 
 **`src/traversal/step.rs`**
 ```rust
-/// Core trait for traversal steps
-pub trait Step<In, Out>: Clone {
-    type Iter: Iterator<Item = Traverser<Out>>;
+/// Type-erased step trait enabling Box<dyn AnyStep> storage
+pub trait AnyStep: Send + Sync {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a>;
     
-    fn apply<I>(self, input: I) -> Self::Iter
-    where
-        I: Iterator<Item = Traverser<In>>;
+    fn clone_box(&self) -> Box<dyn AnyStep>;
+    fn name(&self) -> &'static str;
 }
 
-/// Compose two steps into a single step
-pub struct Compose<S1, S2> {
-    step1: S1,
-    step2: S2,
-}
-
-impl<S1, S2, A, B, C> Step<A, C> for Compose<S1, S2>
-where
-    S1: Step<A, B>,
-    S2: Step<B, C>,
-{
-    // Nested iterator composition
-}
+// Helper macros for implementing AnyStep
+macro_rules! impl_filter_step { ... }
+macro_rules! impl_flatmap_step { ... }
 ```
 
 **`src/traversal/source.rs`**
 ```rust
-pub struct GraphTraversalSource<'s> {
-    snapshot: &'s GraphSnapshot<'s>,
+/// Entry point for bound traversals
+pub struct GraphTraversalSource<'g> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
 }
 
-impl<'s> GraphTraversalSource<'s> {
-    pub fn v(self) -> Traversal<Self, Vertex, impl Step<(), Vertex>>;
-    pub fn v_by_ids(self, ids: impl IntoIterator<Item = VertexId>) -> Traversal<...>;
-    pub fn e(self) -> Traversal<Self, Edge, impl Step<(), Edge>>;
-    pub fn e_by_ids(self, ids: impl IntoIterator<Item = EdgeId>) -> Traversal<...>;
-    pub fn inject<T>(self, values: impl IntoIterator<Item = T>) -> Traversal<...>;
+impl<'g> GraphTraversalSource<'g> {
+    pub fn v(&self) -> BoundTraversal<'g, (), Value>;
+    pub fn v_ids<I>(&self, ids: I) -> BoundTraversal<'g, (), Value>;
+    pub fn e(&self) -> BoundTraversal<'g, (), Value>;
+    pub fn e_ids<I>(&self, ids: I) -> BoundTraversal<'g, (), Value>;
+    pub fn inject<T, I>(&self, values: I) -> BoundTraversal<'g, (), Value>;
+}
+
+/// Wrapper holding traversal + graph references for execution
+pub struct BoundTraversal<'g, In, Out> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    traversal: Traversal<In, Out>,
+}
+
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    pub fn add_step<NewOut>(self, step: impl AnyStep) -> BoundTraversal<'g, In, NewOut>;
+    pub fn append<Mid>(self, anon: Traversal<Out, Mid>) -> BoundTraversal<'g, In, Mid>;
+    pub fn execute(self) -> impl Iterator<Item = Traverser> + 'g;
 }
 ```
 
 **`src/traversal/filter.rs`**
 ```rust
-// Step implementations
-pub struct HasLabelStep { labels: Vec<u32> }
-pub struct HasStep { key: String, predicate: Box<dyn Predicate> }
+// Filter steps - check conditions, pass through or reject
+pub struct HasLabelStep { labels: Vec<String> }
+pub struct HasStep { key: String }
 pub struct HasValueStep { key: String, value: Value }
-pub struct WhereStep<Sub> { sub: Sub }
-pub struct NotStep<Sub> { sub: Sub }
-pub struct DedupStep<F, K> { key_fn: F, _phantom: PhantomData<K> }
+pub struct HasIdStep { ids: Vec<Value> }
+pub struct FilterStep<F> { predicate: F }  // F: Fn(&ExecutionContext, &Value) -> bool
+pub struct DedupStep;
 pub struct LimitStep { n: usize }
 pub struct SkipStep { n: usize }
 pub struct RangeStep { start: usize, end: usize }
-pub struct FilterStep<F> { predicate: F }
 
-// Traversal builder methods
-impl<S, E, Steps> Traversal<S, E, Steps> {
-    pub fn has_label(self, label: &str) -> Traversal<...>;
-    pub fn has_label_any(self, labels: &[&str]) -> Traversal<...>;
-    pub fn has(self, key: &str) -> Traversal<...>;
-    pub fn has_value(self, key: &str, value: impl Into<Value>) -> Traversal<...>;
-    pub fn has_where<P: Predicate>(self, key: &str, predicate: P) -> Traversal<...>;
-    pub fn where_<Sub>(self, sub: Sub) -> Traversal<...>;
-    pub fn not<Sub>(self, sub: Sub) -> Traversal<...>;
-    pub fn dedup(self) -> Traversal<...>;
-    pub fn limit(self, n: usize) -> Traversal<...>;
-    pub fn filter<F: Fn(&E) -> bool>(self, f: F) -> Traversal<...>;
+// Builder methods
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    pub fn has_label(self, label: &str) -> BoundTraversal<'g, In, Out>;
+    pub fn has_label_any(self, labels: &[&str]) -> BoundTraversal<'g, In, Out>;
+    pub fn has(self, key: &str) -> BoundTraversal<'g, In, Out>;
+    pub fn has_value(self, key: &str, value: impl Into<Value>) -> BoundTraversal<'g, In, Out>;
+    pub fn filter<F>(self, predicate: F) -> BoundTraversal<'g, In, Out>;
+    pub fn dedup(self) -> BoundTraversal<'g, In, Out>;
+    pub fn limit(self, n: usize) -> BoundTraversal<'g, In, Out>;
+    pub fn skip(self, n: usize) -> BoundTraversal<'g, In, Out>;
+    pub fn range(self, start: usize, end: usize) -> BoundTraversal<'g, In, Out>;
 }
 ```
 
-**`src/traversal/map.rs`**
+**`src/traversal/navigation.rs`**
 ```rust
-// Navigation steps (Vertex → Vertex)
-pub struct OutStep { label_filters: Option<Vec<u32>> }
-pub struct InStep { label_filters: Option<Vec<u32>> }
-pub struct BothStep { label_filters: Option<Vec<u32>> }
-
-// Edge navigation (Vertex → Edge)
-pub struct OutEStep { label_filters: Option<Vec<u32>> }
-pub struct InEStep { label_filters: Option<Vec<u32>> }
-pub struct BothEStep { label_filters: Option<Vec<u32>> }
-
-// Edge to Vertex
+// Navigation steps - traverse graph structure
+pub struct OutStep { labels: Vec<String> }
+pub struct InStep { labels: Vec<String> }
+pub struct BothStep { labels: Vec<String> }
+pub struct OutEStep { labels: Vec<String> }
+pub struct InEStep { labels: Vec<String> }
+pub struct BothEStep { labels: Vec<String> }
 pub struct OutVStep;
 pub struct InVStep;
 pub struct BothVStep;
-pub struct OtherVStep;
 
-// Property access
+// Builder methods
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    pub fn out(self) -> BoundTraversal<'g, In, Value>;
+    pub fn out_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
+    pub fn in_(self) -> BoundTraversal<'g, In, Value>;
+    pub fn in_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
+    pub fn both(self) -> BoundTraversal<'g, In, Value>;
+    pub fn out_e(self) -> BoundTraversal<'g, In, Value>;
+    pub fn in_e(self) -> BoundTraversal<'g, In, Value>;
+    pub fn out_v(self) -> BoundTraversal<'g, In, Value>;
+    pub fn in_v(self) -> BoundTraversal<'g, In, Value>;
+    pub fn both_v(self) -> BoundTraversal<'g, In, Value>;
+}
+```
+
+**`src/traversal/transform.rs`**
+```rust
+// Transform steps - map values to different types
 pub struct ValuesStep { keys: Vec<String> }
-pub struct ValueMapStep { keys: Option<Vec<String>> }
-pub struct ElementMapStep;
 pub struct IdStep;
 pub struct LabelStep;
-
-// Transform
-pub struct MapStep<F> { f: F }
-pub struct FlatMapStep<F> { f: F }
-pub struct ConstantStep<V> { value: V }
+pub struct MapStep<F> { f: F }       // F: Fn(&ExecutionContext, &Value) -> Value
+pub struct FlatMapStep<F> { f: F }   // F: Fn(&ExecutionContext, &Value) -> Vec<Value>
+pub struct ConstantStep { value: Value }
 pub struct PathStep;
-pub struct SelectStep { labels: Vec<String> }
+
+// Builder methods
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    pub fn values(self, key: &str) -> BoundTraversal<'g, In, Value>;
+    pub fn values_multi(self, keys: &[&str]) -> BoundTraversal<'g, In, Value>;
+    pub fn id(self) -> BoundTraversal<'g, In, Value>;
+    pub fn label(self) -> BoundTraversal<'g, In, Value>;
+    pub fn map<F>(self, f: F) -> BoundTraversal<'g, In, Value>;
+    pub fn flat_map<F>(self, f: F) -> BoundTraversal<'g, In, Value>;
+    pub fn constant(self, value: impl Into<Value>) -> BoundTraversal<'g, In, Value>;
+    pub fn path(self) -> BoundTraversal<'g, In, Value>;
+}
 ```
 
 **`src/traversal/terminal.rs`**
 ```rust
-impl<S, E, Steps> Traversal<S, E, Steps>
-where
-    Steps: Step<?, E>,
-{
-    pub fn to_list(self) -> Vec<E>;
-    pub fn to_set(self) -> HashSet<E> where E: Eq + Hash;
-    pub fn next(self) -> Option<E>;
-    pub fn one(self) -> Result<E, TraversalError>;
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    pub fn to_list(self) -> Vec<Value>;
+    pub fn to_set(self) -> HashSet<Value>;
+    pub fn next(self) -> Option<Value>;
+    pub fn one(self) -> Result<Value, TraversalError>;
     pub fn has_next(self) -> bool;
     pub fn iterate(self);
-    pub fn take(self, n: usize) -> Vec<E>;
-    pub fn iter(self) -> impl Iterator<Item = E>;
+    pub fn take(self, n: usize) -> Vec<Value>;
     pub fn count(self) -> u64;
+    pub fn sum(self) -> Value;
+    pub fn min(self) -> Option<Value>;
+    pub fn max(self) -> Option<Value>;
+    pub fn fold<B, F>(self, init: B, f: F) -> B;
+    pub fn iter(self) -> impl Iterator<Item = Value>;
+    pub fn traversers(self) -> impl Iterator<Item = Traverser>;
 }
 ```
 
+#### Anonymous Traversals (Phase 4 Preview)
+
+The architecture supports anonymous traversals seamlessly:
+
+```rust
+/// Anonymous traversal factory (Phase 4)
+pub mod __ {
+    pub fn out() -> Traversal<Value, Value>;
+    pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value>;
+    pub fn in_() -> Traversal<Value, Value>;
+    pub fn has_label(label: &str) -> Traversal<Value, Value>;
+    pub fn has_value(key: &str, value: impl Into<Value>) -> Traversal<Value, Value>;
+    pub fn values(key: &str) -> Traversal<Value, Value>;
+    pub fn identity() -> Traversal<Value, Value>;
+    pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value>;
+}
+
+// Usage with bound traversals
+g.v().has_label("person")
+    .append(__.out_labels(&["knows"]))
+    .to_list();
+```
+
 #### Exit Criteria
-- [ ] Basic traversals compile and execute: `g.v().has_label("person").out().to_list()`
+- [ ] All core types compile (`Traversal`, `Traverser`, `Path`, `ExecutionContext`)
+- [ ] `AnyStep` trait works with type erasure
+- [ ] `GraphTraversalSource` with `v()` and `e()` starting points
+- [ ] `BoundTraversal` wrapper correctly manages execution context
+- [ ] Navigation steps work: `out()`, `in_()`, `both()`, `out_e()`, `in_e()`, `out_v()`, `in_v()`
+- [ ] Filter steps work: `has_label()`, `has()`, `has_value()`, `filter()`, `dedup()`, `limit()`, `skip()`, `range()`
+- [ ] Transform steps work: `values()`, `id()`, `label()`, `map()`, `flat_map()`, `constant()`, `path()`
+- [ ] Terminal steps work: `to_list()`, `to_set()`, `next()`, `one()`, `has_next()`, `iterate()`, `count()`, `sum()`, `min()`, `max()`
+- [ ] Lazy evaluation verified (no work until terminal step)
 - [ ] Path tracking works correctly
-- [ ] Lazy evaluation verified (no work until terminal)
-- [ ] All filter steps work with predicates
-- [ ] Navigation steps handle label filtering
-- [ ] Integration tests for common query patterns
+- [ ] Label resolution works via ExecutionContext
+- [ ] Anonymous traversals can be appended to bound traversals
+- [ ] All unit and integration tests pass
+- [ ] Benchmarks run successfully
 
 ---
 
 ### Phase 4: Predicates & Anonymous Traversals
 **Duration: 2-3 weeks | Priority: High**
 
-Enables expressive filtering and composable traversal fragments.
+Enables expressive filtering and composable traversal fragments. Builds on Phase 3's unified `Traversal<In, Out>` type.
 
 #### Deliverables
 
 | File | Description |
 |------|-------------|
 | `src/traversal/predicate.rs` | Predicate system |
-| `src/traversal/anonymous.rs` | `__` factory module |
+| `src/traversal/anonymous.rs` | `__` factory module (extends Phase 3 preview) |
+| `src/traversal/branch.rs` | Branching steps: `where_`, `not`, `and_`, `or_` |
 
 #### Detailed Specifications
 
@@ -528,66 +625,99 @@ pub mod p {
 ```
 
 **`src/traversal/anonymous.rs`**
-```rust
-/// Factory for anonymous traversals
-pub struct __;
 
-impl __ {
-    // Identity
-    pub fn identity<E>() -> AnonymousTraversal<E, E>;
-    pub fn constant<E, V: Clone>(value: V) -> AnonymousTraversal<E, V>;
+The `__` module uses the same `Traversal<In, Out>` type as bound traversals:
+
+```rust
+/// Anonymous traversal factory
+/// 
+/// Creates Traversal<In, Out> instances without a graph binding.
+/// These receive ExecutionContext when spliced into parent traversals.
+pub mod __ {
+    use super::*;
+
+    // Navigation
+    pub fn out() -> Traversal<Value, Value>;
+    pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value>;
+    pub fn in_() -> Traversal<Value, Value>;
+    pub fn in_labels(labels: &[&str]) -> Traversal<Value, Value>;
+    pub fn both() -> Traversal<Value, Value>;
     
-    // Navigation (mirrors bound traversal API)
-    pub fn out() -> AnonymousTraversal<Vertex, Vertex>;
-    pub fn out_labels(labels: &[&str]) -> AnonymousTraversal<Vertex, Vertex>;
-    pub fn in_() -> AnonymousTraversal<Vertex, Vertex>;
-    pub fn in_labels(labels: &[&str]) -> AnonymousTraversal<Vertex, Vertex>;
-    pub fn both() -> AnonymousTraversal<Vertex, Vertex>;
-    pub fn both_labels(labels: &[&str]) -> AnonymousTraversal<Vertex, Vertex>;
-    
-    pub fn out_e() -> AnonymousTraversal<Vertex, Edge>;
-    pub fn in_e() -> AnonymousTraversal<Vertex, Edge>;
-    pub fn both_e() -> AnonymousTraversal<Vertex, Edge>;
-    
-    pub fn out_v() -> AnonymousTraversal<Edge, Vertex>;
-    pub fn in_v() -> AnonymousTraversal<Edge, Vertex>;
-    pub fn both_v() -> AnonymousTraversal<Edge, Vertex>;
+    pub fn out_e() -> Traversal<Value, Value>;
+    pub fn in_e() -> Traversal<Value, Value>;
+    pub fn out_v() -> Traversal<Value, Value>;
+    pub fn in_v() -> Traversal<Value, Value>;
     
     // Properties
-    pub fn values(key: &str) -> AnonymousTraversal<Element, Value>;
-    pub fn label() -> AnonymousTraversal<Element, String>;
-    pub fn id() -> AnonymousTraversal<Element, ElementId>;
+    pub fn values(key: &str) -> Traversal<Value, Value>;
+    pub fn label() -> Traversal<Value, Value>;
+    pub fn id() -> Traversal<Value, Value>;
     
     // Filtering
-    pub fn has(key: &str) -> AnonymousTraversal<Element, Element>;
-    pub fn has_value(key: &str, value: impl Into<Value>) -> AnonymousTraversal<Element, Element>;
-    pub fn has_label(label: &str) -> AnonymousTraversal<Element, Element>;
+    pub fn has(key: &str) -> Traversal<Value, Value>;
+    pub fn has_value(key: &str, value: impl Into<Value>) -> Traversal<Value, Value>;
+    pub fn has_label(label: &str) -> Traversal<Value, Value>;
     
-    // Reduce (for use in where_ checks)
-    pub fn count() -> AnonymousTraversal<Any, u64>;
-    
-    // Loop access
-    pub fn loops() -> AnonymousTraversal<Any, u32>;
+    // Utility
+    pub fn identity() -> Traversal<Value, Value>;
+    pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value>;
+    pub fn count() -> Traversal<Value, Value>;
+    pub fn loops() -> Traversal<Value, Value>;
 }
 
-/// Anonymous traversal that can be chained
-pub struct AnonymousTraversal<In, Out> {
-    steps: Vec<Box<dyn AnyStep>>,
-    _phantom: PhantomData<(In, Out)>,
-}
-
-impl<In, Out> AnonymousTraversal<In, Out> {
-    // All the same builder methods as Traversal
-    pub fn out(self) -> AnonymousTraversal<In, Vertex>;
-    pub fn has_value(self, key: &str, value: impl Into<Value>) -> Self;
-    // ... etc
+// Anonymous traversals chain like bound traversals
+impl<In, Out> Traversal<In, Out> {
+    pub fn out(self) -> Traversal<In, Value>;
+    pub fn has_label(self, label: &str) -> Traversal<In, Out>;
+    pub fn has_value(self, key: &str, value: impl Into<Value>) -> Traversal<In, Out>;
+    // ... all the same builder methods
 }
 ```
+
+**`src/traversal/branch.rs`** (Filtering with Anonymous Traversals)
+```rust
+/// Filter steps that use anonymous traversals
+pub struct WhereStep { sub: Traversal<Value, Value> }
+pub struct NotStep { sub: Traversal<Value, Value> }
+pub struct AndStep { subs: Vec<Traversal<Value, Value>> }
+pub struct OrStep { subs: Vec<Traversal<Value, Value>> }
+pub struct HasWhereStep { key: String, predicate: Box<dyn Predicate> }
+
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Filter by sub-traversal producing results
+    pub fn where_(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Out>;
+    
+    /// Filter by sub-traversal NOT producing results  
+    pub fn not(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Out>;
+    
+    /// All sub-traversals must produce results
+    pub fn and_(self, subs: Vec<Traversal<Value, Value>>) -> BoundTraversal<'g, In, Out>;
+    
+    /// At least one sub-traversal must produce results
+    pub fn or_(self, subs: Vec<Traversal<Value, Value>>) -> BoundTraversal<'g, In, Out>;
+    
+    /// Filter by property with predicate
+    pub fn has_where<P: Predicate>(self, key: &str, predicate: P) -> BoundTraversal<'g, In, Out>;
+}
+```
+
+#### Key Design Note
+
+Anonymous traversals use the **same `Traversal<In, Out>` type** as bound traversals:
+
+| Aspect | Bound Traversal | Anonymous Traversal |
+|--------|-----------------|---------------------|
+| Type | `BoundTraversal<'g, In, Out>` | `Traversal<In, Out>` |
+| Has source? | Yes (via wrapper) | No |
+| Graph access | Via `BoundTraversal` wrapper | Via `ExecutionContext` at splice |
+| `In` type | `()` (starts from nothing) | Input element type |
 
 #### Exit Criteria
 - [ ] All predicates work with `has_where()`
 - [ ] Anonymous traversals compile: `__.out().has_value("name", "Bob")`
 - [ ] `where_()` accepts anonymous traversals
+- [ ] `not()`, `and_()`, `or_()` work correctly
+- [ ] Anonymous traversals chain: `__.out().has_label("person").values("name")`
 - [ ] Logical predicate composition works
 - [ ] Regex predicate compiles patterns correctly
 
@@ -1033,22 +1163,35 @@ pub use prelude::*;
 
 ### 1. Type System Strategy
 
-**Decision: Hybrid approach (Option C)**
+**Decision: Type-erased steps with type-safe API**
 
-- Monomorphize hot paths (navigation steps, filters)
-- Use `Box<dyn Step>` for complex branches (`union`, `repeat`)
-- Balance binary size vs performance
+- Steps are stored as `Box<dyn AnyStep>` for flexibility
+- `Traversal<In, Out>` provides compile-time type safety at API boundaries
+- Unified type for both bound and anonymous traversals
 
 ```rust
-// Hot path: fully monomorphized
-pub struct OutStep { ... }
-impl<In> Step<Traverser<Vertex>, Traverser<Vertex>> for OutStep { ... }
+// Type-erased step trait
+pub trait AnyStep: Send + Sync {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a>;
+    
+    fn clone_box(&self) -> Box<dyn AnyStep>;
+}
 
-// Complex branch: boxed for flexibility
-pub struct UnionStep {
-    branches: Vec<Box<dyn AnyStep>>,
+// Type-safe traversal wrapper
+pub struct Traversal<In, Out> {
+    steps: Vec<Box<dyn AnyStep>>,  // Type-erased internally
+    _phantom: PhantomData<fn(In) -> Out>,  // Type-safe externally
 }
 ```
+
+**Trade-offs:**
+- Pros: Unified traversal type, simpler API, easy cloning for branching
+- Cons: Virtual dispatch overhead (typically negligible vs I/O)
+- Hot paths can be re-implemented with monomorphization later if needed
 
 ### 2. Storage Trait Design
 

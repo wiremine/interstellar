@@ -4,19 +4,22 @@
 
 Anonymous traversals are a fundamental concept in graph traversal systems, enabling composable, reusable traversal fragments that can be embedded within parent traversals. Unlike bound traversals that start from a concrete graph source (e.g., `g.v()` or `g.e()`), anonymous traversals are unbound templates that receive their input at execution time.
 
+**Key Architectural Point**: In the type-erased architecture, anonymous traversals use the **same `Traversal<In, Out>` type** as bound traversals. The difference is that anonymous traversals have no source—they're pure step pipelines that receive their `ExecutionContext` when spliced into a parent traversal.
+
 ### The `__` Convention
 
 By convention, anonymous traversals are created using the double underscore `__` factory module. This syntactic marker clearly distinguishes anonymous traversal fragments from their bound counterparts:
 
 ```rust
-// Bound traversal - starts from the graph
+// Bound traversal - starts from the graph, wrapped in BoundTraversal
 g.v().has_label("person").out_labels(&["knows"])
 
-// Anonymous traversal - receives input at execution time
+// Anonymous traversal - same Traversal type, but no source
+// Returns Traversal<Value, Value>
 __.out_labels(&["knows"]).has_value("name", "Alice")
 ```
 
-The `__` module provides the same rich API as bound traversals, but the resulting traversal object is detached from any specific graph instance until it's composed into a parent traversal.
+The `__` module provides the same rich API as bound traversals, but returns `Traversal<Value, Value>` (or other type combinations) instead of `BoundTraversal`. The resulting traversal object is detached from any specific graph instance until it's composed into a parent traversal.
 
 ### Purpose and Benefits
 
@@ -148,113 +151,176 @@ For steps like `union()` or `coalesce()`, the anonymous traversal template may b
 
 ## The `__` Factory Module
 
-The `__` module is the entry point for creating anonymous traversals. While the exact Rust implementation may vary, conceptually it provides static methods that return unbound `Traversal` instances.
+The `__` module is the entry point for creating anonymous traversals. It provides static methods that return `Traversal<Value, Value>` instances—the same type used internally by bound traversals, but without a source.
 
 ### Module Structure
 
 ```rust
-// Conceptual representation
-pub struct __ {}
+/// Anonymous traversal factory
+/// 
+/// Returns Traversal<Value, Value> for most methods.
+/// These traversals have no source and receive ExecutionContext
+/// when spliced into a parent traversal via append().
+pub mod __ {
+    use super::*;
 
-impl __ {
-    // Identity traversal - passes input through unchanged
-    pub fn identity<E>() -> Traversal<E, E> {
-        Traversal::new_anonymous(vec![Box::new(IdentityStep)])
+    /// Identity traversal - passes input through unchanged
+    pub fn identity() -> Traversal<Value, Value> {
+        Traversal::new().add_step(IdentityStep)
     }
     
-    // Constant emission - ignores input, emits constant value
-    pub fn constant<E, V>(value: V) -> Traversal<E, V> {
-        Traversal::new_anonymous(vec![Box::new(ConstantStep::new(value))])
+    /// Constant emission - ignores input, emits constant value
+    pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value> {
+        Traversal::new().add_step(ConstantStep::new(value))
     }
     
-    // Navigation steps
-    pub fn out<E>(labels: &[&str]) -> Traversal<Vertex, Vertex> {
-        Traversal::new_anonymous(vec![Box::new(OutStep::new(labels))])
+    /// Navigation steps - traverse graph structure
+    pub fn out() -> Traversal<Value, Value> {
+        Traversal::new().add_step(OutStep::new())
     }
     
-    pub fn in_<E>(labels: &[&str]) -> Traversal<Vertex, Vertex> {
-        Traversal::new_anonymous(vec![Box::new(InStep::new(labels))])
+    pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::new().add_step(OutStep::with_labels(labels))
     }
     
-    pub fn both<E>(labels: &[&str]) -> Traversal<Vertex, Vertex> {
-        Traversal::new_anonymous(vec![Box::new(BothStep::new(labels))])
+    pub fn in_() -> Traversal<Value, Value> {
+        Traversal::new().add_step(InStep::new())
     }
     
-    // Edge navigation
-    pub fn out_e<E>(labels: &[&str]) -> Traversal<Vertex, Edge> {
-        Traversal::new_anonymous(vec![Box::new(OutEStep::new(labels))])
+    pub fn in_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::new().add_step(InStep::with_labels(labels))
     }
     
-    pub fn in_e<E>(labels: &[&str]) -> Traversal<Vertex, Edge> {
-        Traversal::new_anonymous(vec![Box::new(InEStep::new(labels))])
+    pub fn both() -> Traversal<Value, Value> {
+        Traversal::new().add_step(BothStep::new())
     }
     
-    pub fn both_e<E>(labels: &[&str]) -> Traversal<Vertex, Edge> {
-        Traversal::new_anonymous(vec![Box::new(BothEStep::new(labels))])
+    pub fn both_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::new().add_step(BothStep::with_labels(labels))
     }
     
-    // Property access
-    pub fn values<E>(keys: &[&str]) -> Traversal<Element, Value> {
-        Traversal::new_anonymous(vec![Box::new(ValuesStep::new(keys))])
+    /// Edge navigation
+    pub fn out_e() -> Traversal<Value, Value> {
+        Traversal::new().add_step(OutEStep::new())
     }
     
-    pub fn label<E>() -> Traversal<Element, String> {
-        Traversal::new_anonymous(vec![Box::new(LabelStep)])
+    pub fn out_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::new().add_step(OutEStep::with_labels(labels))
     }
     
-    pub fn id<E>() -> Traversal<Element, ElementId> {
-        Traversal::new_anonymous(vec![Box::new(IdStep)])
+    pub fn in_e() -> Traversal<Value, Value> {
+        Traversal::new().add_step(InEStep::new())
     }
     
-    // Filtering
-    pub fn has<E>(key: &str, value: Value) -> Traversal<Element, Element> {
-        Traversal::new_anonymous(vec![Box::new(HasStep::new(key, value))])
+    pub fn in_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::new().add_step(InEStep::with_labels(labels))
     }
     
-    pub fn has_label<E>(labels: &[&str]) -> Traversal<Element, Element> {
-        Traversal::new_anonymous(vec![Box::new(HasLabelStep::new(labels))])
+    /// Property access
+    pub fn values(key: &str) -> Traversal<Value, Value> {
+        Traversal::new().add_step(ValuesStep::new(key))
+    }
+    
+    pub fn label() -> Traversal<Value, Value> {
+        Traversal::new().add_step(LabelStep)
+    }
+    
+    pub fn id() -> Traversal<Value, Value> {
+        Traversal::new().add_step(IdStep)
+    }
+    
+    /// Filtering
+    pub fn has(key: &str) -> Traversal<Value, Value> {
+        Traversal::new().add_step(HasStep::new(key))
+    }
+    
+    pub fn has_value(key: &str, value: impl Into<Value>) -> Traversal<Value, Value> {
+        Traversal::new().add_step(HasValueStep::new(key, value))
+    }
+    
+    pub fn has_label(label: &str) -> Traversal<Value, Value> {
+        Traversal::new().add_step(HasLabelStep::single(label))
+    }
+    
+    pub fn has_label_any(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::new().add_step(HasLabelStep::new(labels))
+    }
+    
+    pub fn has_id(id: impl Into<Value>) -> Traversal<Value, Value> {
+        // HasIdStep filters by vertex/edge ID
+        Traversal::new().add_step(HasIdStep::from_value(id.into()))
+    }
+    
+    /// Control flow
+    pub fn dedup() -> Traversal<Value, Value> {
+        Traversal::new().add_step(DedupStep)
+    }
+    
+    pub fn limit(n: usize) -> Traversal<Value, Value> {
+        Traversal::new().add_step(LimitStep::new(n))
     }
 }
 ```
 
 ### Chainable API
 
-Once an anonymous traversal is created with a starting method, all subsequent steps can be chained exactly like bound traversals:
+Once an anonymous traversal is created with a starting method, all subsequent steps can be chained exactly like bound traversals. The `Traversal<In, Out>` type provides the same fluent methods:
 
 ```rust
 // Start anonymous, chain multiple steps
-let complex_anon = __.out_labels(&["knows"])
+// Each step returns a new Traversal with potentially different Out type
+let complex_anon: Traversal<Value, Value> = __.out_labels(&["knows"])
     .has_value("age", 30)
     .out_labels(&["works_at"])
     .has_label("company")
     .values("name");
 
-// Use within parent traversal
+// Use within parent traversal via append() or step methods
 g.v().has_label("person")
-    .where_(complex_anon)
+    .where_(complex_anon)  // where_ accepts Traversal<Value, Value>
 ```
 
-The type system ensures that steps are compatible with their input/output types. For example, `out()` requires a `Vertex` input and produces `Vertex` outputs, while `values()` can accept any `Element` and produces `Value` outputs.
+The type system ensures that steps are compatible. Since the type-erased architecture uses `Value` internally, most anonymous traversals are `Traversal<Value, Value>`.
 
-### Type Generics
+### Type Parameters
 
-Anonymous traversals are generic over their input and output types:
+Anonymous traversals use the same `Traversal<In, Out>` type as the internal representation:
 
 ```rust
-// Generic signature (simplified)
+/// Main traversal type - same for bound and anonymous
+/// 
+/// In = expected input type (phantom, for compile-time checking)
+/// Out = produced output type (phantom, for compile-time checking)
+/// 
+/// Internally, all values flow as `Value` through `Box<dyn AnyStep>`
 pub struct Traversal<In, Out> {
-    steps: Vec<Box<dyn Step<?, ?>>>,
-    phantom: PhantomData<(In, Out)>,
+    steps: Vec<Box<dyn AnyStep>>,
+    source: Option<TraversalSource>,  // None for anonymous
+    _phantom: PhantomData<fn(In) -> Out>,
 }
 ```
 
-The `In` type parameter represents what the traversal expects to receive, and `Out` represents what it produces. This enables compile-time verification when embedding anonymous traversals into parent steps:
+Most anonymous traversals are `Traversal<Value, Value>` because:
+- They accept any `Value` as input (vertex, edge, property, etc.)
+- They produce `Value` as output
+- The phantom types provide API safety without runtime overhead
+
+The key methods for composition:
 
 ```rust
-// Type-safe composition
-fn where_<In, Out>(self, sub: Traversal<In, Out>) -> Traversal<In, In> {
-    // sub must accept In (same as parent's current element type)
-    // where_ always returns the same type it receives
+impl<In, Out> Traversal<In, Out> {
+    /// Add a step, returning traversal with new output type
+    pub fn add_step<NewOut>(self, step: impl AnyStep + 'static) -> Traversal<In, NewOut>;
+    
+    /// Append another traversal's steps (for splicing)
+    /// Out of self must match In of other
+    pub fn append<Mid>(self, other: Traversal<Out, Mid>) -> Traversal<In, Mid>;
 }
 ```
 
@@ -712,98 +778,135 @@ g.v().has_label("person")
 
 ## Implementation Architecture
 
-### Anonymous Traversal Type Structure
+### Unified Traversal Type
 
-At the core, an anonymous traversal is a sequence of step instances without a bound graph:
+In the type-erased architecture, both bound and anonymous traversals use the **same `Traversal<In, Out>` type**. The key difference is the presence of a source:
 
 ```rust
-// Simplified conceptual representation
+/// Main traversal type - unified for bound and anonymous
 pub struct Traversal<In, Out> {
-    graph: Option<Arc<Graph>>,           // None for anonymous
-    steps: Vec<Box<dyn Step<?, ?>>>,     // Step pipeline
-    phantom: PhantomData<(In, Out)>,     // Type markers
+    /// Type-erased steps
+    steps: Vec<Box<dyn AnyStep>>,
+    /// Source (Some for bound, None for anonymous)
+    source: Option<TraversalSource>,
+    /// Phantom types for API safety
+    _phantom: PhantomData<fn(In) -> Out>,
 }
 
+/// Bound traversals are wrapped with graph context
+pub struct BoundTraversal<'g, In, Out> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    traversal: Traversal<In, Out>,  // Contains the steps
+}
+```
+
+| Aspect | Bound Traversal | Anonymous Traversal |
+|--------|-----------------|---------------------|
+| Type | `BoundTraversal<'g, In, Out>` | `Traversal<In, Out>` |
+| Created via | `g.v()`, `g.e()` | `__.out()`, `__.has_label()` |
+| Has source? | Yes (via wrapper) | No (`source: None`) |
+| Graph access | Via `BoundTraversal` wrapper | Via `ExecutionContext` at splice |
+| `In` type | `()` (starts from nothing) | `Value` (input element type) |
+| Execution | Direct (has context) | Must be spliced into parent |
+
+### Binding Mechanism: The `append()` Method
+
+When an anonymous traversal is used within a parent step, its steps are merged via `append()`:
+
+```rust
 impl<In, Out> Traversal<In, Out> {
-    pub fn new_anonymous(steps: Vec<Box<dyn Step<?, ?>>>) -> Self {
-        Self {
-            graph: None,
-            steps,
-            phantom: PhantomData,
+    /// Append another traversal's steps
+    /// 
+    /// This is how anonymous traversals are "spliced" into parents.
+    /// The anonymous traversal's steps are added to self's pipeline.
+    pub fn append<Mid>(mut self, other: Traversal<Out, Mid>) -> Traversal<In, Mid> {
+        self.steps.extend(other.steps);
+        Traversal {
+            steps: self.steps,
+            source: self.source,  // Preserve parent's source
+            _phantom: PhantomData,
         }
     }
-    
-    pub fn new_bound(graph: Arc<Graph>, steps: Vec<Box<dyn Step<?, ?>>>) -> Self {
-        Self {
-            graph: Some(graph),
-            steps,
-            phantom: PhantomData,
+}
+
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Append anonymous traversal to bound traversal
+    pub fn append<Mid>(self, anon: Traversal<Out, Mid>) -> BoundTraversal<'g, In, Mid> {
+        BoundTraversal {
+            snapshot: self.snapshot,
+            interner: self.interner,
+            traversal: self.traversal.append(anon),
         }
     }
 }
 ```
 
-The `graph` field distinguishes bound from anonymous traversals:
-- `Some(graph)` → Bound traversal with a data source
-- `None` → Anonymous traversal template
-
-### Binding Mechanism
-
-When an anonymous traversal is embedded in a parent step, it receives its input dynamically:
+**Execution Flow:**
 
 ```
-Parent Step Execution:
+Parent Step Execution (e.g., where_):
 
 ┌───────────────────────────────────┐
-│ WhereStep {                       │
-│   sub_traversal: AnonymousTraversal │
-│ }                                 │
+│ BoundTraversal contains:          │
+│   snapshot: &GraphSnapshot        │
+│   interner: &StringInterner       │
+│   traversal: Traversal<In, Out>   │
+│     └── steps: [HasLabelStep, ... │
+│         ... + anonymous steps]    │
 └───────────────────────────────────┘
                 ↓
-        next() called
+        Terminal step called (to_list, next, etc.)
                 ↓
 ┌───────────────────────────────────┐
-│ 1. Pull traverser from upstream   │
-│    input_traverser = parent.next()│
-└───────────────────────────────────┘
-                ↓
-┌───────────────────────────────────┐
-│ 2. Create execution context       │
+│ 1. Create ExecutionContext        │
 │    ctx = ExecutionContext {       │
-│      input: input_traverser,      │
-│      graph: parent.graph(),       │
-│      path: input_traverser.path,  │
-│      sack: input_traverser.sack   │
+│      snapshot: self.snapshot,     │
+│      interner: self.interner,     │
+│      side_effects: SideEffects    │
 │    }                              │
 └───────────────────────────────────┘
                 ↓
 ┌───────────────────────────────────┐
-│ 3. Bind anonymous traversal       │
-│    bound = sub_traversal.bind(ctx)│
-└───────────────────────────────────┘
-                ↓
-┌───────────────────────────────────┐
-│ 4. Execute bound traversal        │
-│    results = bound.collect()      │
-└───────────────────────────────────┘
-                ↓
-┌───────────────────────────────────┐
-│ 5. Make filtering decision        │
-│    if !results.is_empty() {       │
-│      emit input_traverser         │
+│ 2. Start with source traversers   │
+│    if let Some(src) = source {    │
+│      StartStep::apply(ctx, src)   │
 │    }                              │
+└───────────────────────────────────┘
+                ↓
+┌───────────────────────────────────┐
+│ 3. Apply each step in sequence    │
+│    for step in steps {            │
+│      current = step.apply(ctx,    │
+│                          current) │
+│    }                              │
+│    // Anonymous steps receive     │
+│    // same ctx as parent steps!   │
+└───────────────────────────────────┘
+                ↓
+┌───────────────────────────────────┐
+│ 4. Collect results                │
+│    current.collect() or iterate   │
 └───────────────────────────────────┘
 ```
 
-**Key Points:**
-- The anonymous traversal receives a clone of the input traverser
-- The graph reference is inherited from the parent traversal
-- Path, sack, and other context are preserved
-- Each execution creates a fresh iterator pipeline
+**Key Insight:** Anonymous traversal steps receive the **same `ExecutionContext`** as parent steps. This is the magic that makes them work—graph access is provided at execution time, not construction time.
 
 ### Integration with Traverser State
 
-Anonymous traversals must preserve and extend traverser state correctly:
+Anonymous traversals must preserve and extend traverser state correctly. The `Traverser` type carries metadata alongside the `Value`:
+
+```rust
+/// Non-generic Traverser - uses Value internally
+#[derive(Clone)]
+pub struct Traverser {
+    pub value: Value,           // Current element (vertex, edge, property, etc.)
+    pub path: Path,             // History of traversed elements
+    pub loops: u32,             // Loop counter for repeat()
+    pub sack: Option<Box<dyn CloneSack>>,  // Mutable side-effect carrier
+    pub bulk: u64,              // Bulk count optimization
+}
+```
 
 **Path Tracking:**
 When steps inside an anonymous traversal use `.as_("label")`, those labels extend the path:
@@ -811,98 +914,143 @@ When steps inside an anonymous traversal use `.as_("label")`, those labels exten
 ```rust
 g.v().as_("person")
     .where_(
-        __.out("knows")
-          .as_("friend")
+        __.out_labels(&["knows"])
+          .as_("friend")  // Label added inside anonymous traversal
           .has_value("age", 30)
     )
-    .select(&["person", "friend"])
+    .select(&["person", "friend"])  // Both labels accessible!
 ```
 
-Even though `"friend"` is labeled inside an anonymous traversal, it's accessible in the parent's `.select()` because paths are preserved across the boundary.
+Even though `"friend"` is labeled inside an anonymous traversal, it's accessible in the parent's `.select()` because paths are preserved. The `Traverser.path` is cloned when entering the anonymous traversal and modifications persist.
 
-**Path Preservation Logic:**
+**Path Preservation via `split()`:**
 ```rust
-// Conceptual
-struct Traverser {
-    element: Element,
-    path: Path,           // History of traversed elements
-    sack: Option<Value>,  // Mutable side-effect carrier
-    loops: usize,         // Loop counter for repeat()
-}
-
-// When binding anonymous traversal
-fn bind_anonymous(sub: &Traversal, input: Traverser) -> BoundTraversal {
-    let bound = sub.clone();
-    bound.graph = input.graph;
-    bound.initial_traverser = input.clone();  // Preserve path, sack, loops
-    bound
+impl Traverser {
+    /// Split traverser for branching - preserves path and metadata
+    pub fn split(&self, new_value: impl Into<Value>) -> Traverser {
+        Traverser {
+            value: new_value.into(),
+            path: self.path.clone(),    // Path preserved!
+            loops: self.loops,          // Loop count preserved
+            sack: self.sack.clone(),    // Sack preserved
+            bulk: self.bulk,
+        }
+    }
 }
 ```
 
 **Sack Handling:**
-Sacks (mutable values carried with traversers) are preserved:
+Sacks (mutable values carried with traversers) are preserved across anonymous traversal boundaries:
 
 ```rust
 g.v().has_label("person")
-    .sack_init(|| 0)
+    .sack_init(|| Value::Int(0))
     .repeat(
-        __.out("knows")
-          .sack_add_by(__.values("age"))
+        __.out_labels(&["knows"])
+          .sack_add_by(__.values("age"))  // Nested anonymous in sack_add_by
     )
     .times(2)
-    .sack()
+    .sack()  // Returns accumulated value
 ```
 
-Each iteration of the anonymous traversal modifies the same sack value.
-
 **Loop Counter Access:**
-Inside `repeat()`, the loop counter is accessible to nested anonymous traversals:
+Inside `repeat()`, the loop counter is accessible via the traverser's `loops` field:
 
 ```rust
 g.v().repeat(
     __.out()
-      .where_(__.loops().is(P::gt(2)))  // Access loop count
+      .filter(|ctx, v| {
+          // Access loop count from traverser (via closure capture)
+          // Note: actual API may differ
+      })
 )
 ```
 
 ### Step Cloning for Multi-Branch
 
-Steps like `union()` and `coalesce()` need to execute the same anonymous traversal multiple times. This requires cloning:
+Steps like `union()` and `coalesce()` need to execute the same anonymous traversal multiple times. The `AnyStep` trait requires `clone_box()` to enable this:
 
 ```rust
-pub trait Step: Clone {
-    fn next(&mut self) -> Option<Traverser>;
+/// Type-erased step trait - all steps implement this
+pub trait AnyStep: Send + Sync {
+    /// Apply step to input, producing output
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a>;
+
+    /// Clone into boxed trait object - enables traversal cloning
+    fn clone_box(&self) -> Box<dyn AnyStep>;
+    
+    /// Step name for debugging
+    fn name(&self) -> &'static str;
 }
 
-// Union step implementation (simplified)
-struct UnionStep {
-    branches: Vec<Traversal>,  // Cloned for each input traverser
-}
-
-impl Step for UnionStep {
-    fn next(&mut self) -> Option<Traverser> {
-        // For each input traverser:
-        //   1. Clone all branch traversals
-        //   2. Bind each to the input
-        //   3. Interleave results
+// Traversal cloning uses clone_box()
+impl<In, Out> Clone for Traversal<In, Out> {
+    fn clone(&self) -> Self {
+        Self {
+            steps: self.steps.iter().map(|s| s.clone_box()).collect(),
+            source: self.source.clone(),
+            _phantom: PhantomData,
+        }
     }
 }
 ```
 
-**ReplayableIter Pattern:**
-
-To avoid materialization, branches can use the `ReplayableIter` pattern from algorithms.md:
+**Union Step Implementation (simplified):**
 
 ```rust
-// Instead of collecting all results
-let results: Vec<_> = sub_trav.collect();
+#[derive(Clone)]
+pub struct UnionStep {
+    branches: Vec<Traversal<Value, Value>>,
+}
 
-// Use ReplayableIter to preserve laziness
-let mut iter1 = sub_trav.iter();
-let mut iter2 = sub_trav.iter();  // Independent iterator over same data
+impl AnyStep for UnionStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let branches = self.branches.clone();
+        
+        Box::new(input.flat_map(move |t| {
+            // For each input traverser, execute all branches
+            branches.iter().flat_map(|branch| {
+                // Clone branch for this traverser
+                let branch_steps = branch.clone();
+                // Execute branch with traverser as input
+                execute_steps(ctx, branch_steps, std::iter::once(t.clone()))
+            }).collect::<Vec<_>>().into_iter()
+        }))
+    }
+    
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(self.clone())
+    }
+    
+    fn name(&self) -> &'static str {
+        "union"
+    }
+}
 ```
 
-This pattern is crucial for memory efficiency when branches might produce large result sets.
+**Memory Efficiency:**
+
+The lazy iterator model means branches only execute as results are pulled:
+
+```rust
+// Only branch1 executes until its results are consumed
+// Then branch2 executes, etc.
+g.v().union(vec![
+    __.out_labels(&["a"]),  // Branch 1
+    __.out_labels(&["b"]),  // Branch 2
+    __.out_labels(&["c"]),  // Branch 3
+])
+.limit(10)  // May not need to execute all branches!
+.to_list();
+```
 
 ---
 
@@ -1077,117 +1225,136 @@ g.v().as_("person")
 
 ### Basic Filtering
 
-**Find people who know someone named "Bob":**
 ```rust
-g.v().has_label("person")
-    .where_(__.out("knows").has_value("name", "Bob"))
+// Find people who know someone named "Bob"
+// where_() accepts Traversal<Value, Value>
+let results: Vec<Value> = g.v()
+    .has_label("person")
+    .where_(__.out_labels(&["knows"]).has_value("name", "Bob"))
     .values("name")
-```
+    .to_list();
 
-**Find people who don't work anywhere:**
-```rust
-g.v().has_label("person")
-    .not(__.out("works_at"))
+// Find people who don't work anywhere
+// not() inverts the traversal existence check
+let unemployed: Vec<Value> = g.v()
+    .has_label("person")
+    .not(__.out_labels(&["works_at"]))
     .values("name")
-```
+    .to_list();
 
-**Find people who know Bob AND work at Acme:**
-```rust
-g.v().has_label("person")
+// Find people who know Bob AND work at Acme
+// and_() requires all sub-traversals to produce results
+let results: Vec<Value> = g.v()
+    .has_label("person")
     .and_(vec![
-        __.out("knows").has_value("name", "Bob"),
-        __.out("works_at").has_value("name", "Acme")
+        __.out_labels(&["knows"]).has_value("name", "Bob"),
+        __.out_labels(&["works_at"]).has_value("name", "Acme")
     ])
+    .to_list();
 ```
 
 ### Conditional Logic
 
-**Different traversal based on vertex type:**
 ```rust
-g.v().choose(
-    __.has_label("person"),
-    __.out("knows"),        // if person, get friends
-    __.out("contains")      // otherwise, get children
-)
-```
+// Different traversal based on vertex type
+// choose() accepts three Traversal<Value, Value> arguments
+let results: Vec<Value> = g.v()
+    .choose(
+        __.has_label("person"),    // condition
+        __.out_labels(&["knows"]), // if person, get friends
+        __.out_labels(&["contains"]) // otherwise, get children
+    )
+    .to_list();
 
-**Preference-based selection:**
-```rust
-g.v().coalesce(vec![
-    __.values("nickname"),       // prefer nickname
-    __.values("first_name"),     // fall back to first name
-    __.constant("Anonymous")     // ultimate fallback
-])
+// Preference-based selection with fallbacks
+// coalesce() tries each branch in order, returns first with results
+let names: Vec<Value> = g.v()
+    .coalesce(vec![
+        __.values("nickname"),       // prefer nickname
+        __.values("first_name"),     // fall back to first name
+        __.constant("Anonymous")     // ultimate fallback (always succeeds)
+    ])
+    .to_list();
 ```
 
 ### Multi-Path Exploration
 
-**Get both friends and colleagues:**
 ```rust
-g.v().has_value("name", "Alice")
+// Get both friends and colleagues using union()
+// All branches execute, results are merged
+let connections: Vec<Value> = g.v()
+    .has_value("name", "Alice")
     .union(vec![
-        __.out("knows"),
-        __.out("works_with")
+        __.out_labels(&["knows"]),
+        __.out_labels(&["works_with"])
     ])
     .dedup()
     .values("name")
-```
+    .to_list();
 
-**Get multiple properties:**
-```rust
-g.v().has_label("person")
+// Get multiple properties via union()
+let properties: Vec<Value> = g.v()
+    .has_label("person")
     .union(vec![
         __.values("name"),
         __.values("email"),
-        __.out("works_at").values("name")
+        __.out_labels(&["works_at"]).values("name")  // Company name
     ])
+    .to_list();
 ```
 
 ### Fallback Patterns
 
-**Prefer nickname, fall back to name:**
 ```rust
-g.v().coalesce(vec![
-    __.values("nickname"),
-    __.values("name")
-])
-```
-
-**Try multiple edge types:**
-```rust
-g.v().has_value("name", "Alice")
+// Prefer nickname, fall back to name
+let display_names: Vec<Value> = g.v()
     .coalesce(vec![
-        __.out("prefers"),      // try preferred connection
-        __.out("knows"),        // fall back to knows
-        __.out("colleague")     // final fallback
+        __.values("nickname"),
+        __.values("name")
     ])
+    .to_list();
+
+// Try multiple edge types in priority order
+let preferred_connections: Vec<Value> = g.v()
+    .has_value("name", "Alice")
+    .coalesce(vec![
+        __.out_labels(&["prefers"]),   // try preferred connection
+        __.out_labels(&["knows"]),     // fall back to knows
+        __.out_labels(&["colleague"])  // final fallback
+    ])
+    .to_list();
 ```
 
 ### Recursive Graph Exploration
 
-**Find all reachable vertices within 5 hops:**
 ```rust
-g.v_by_ids([start_id])
-    .repeat(__.out())
-    .times(5)
-    .emit()
+// Find all reachable vertices within 5 hops
+// repeat() takes Traversal<Value, Value> for the iteration body
+let reachable: Vec<Value> = g.v_ids([start_id])
+    .repeat(__.out())     // Anonymous traversal as repeat body
+    .times(5)             // Maximum 5 iterations
+    .emit()               // Emit from each iteration
     .dedup()
-```
+    .to_list();
 
-**Traverse until finding a company:**
-```rust
-g.v().has_label("person")
+// Traverse until finding a company
+// until() takes Traversal<Value, Value> as termination condition
+let path_to_company: Option<Value> = g.v()
+    .has_label("person")
     .repeat(__.out())
-    .until(__.has_label("company"))
-```
+    .until(__.has_label("company"))  // Stop when condition matches
+    .limit(1)
+    .next();
 
-**Depth-limited exploration with filtering:**
-```rust
-g.v().has_value("name", "Alice")
-    .repeat(__.out("knows"))
+// Depth-limited exploration with conditional emission
+// emit_if() filters which iterations produce output
+let young_friends: Vec<Value> = g.v()
+    .has_value("name", "Alice")
+    .repeat(__.out_labels(&["knows"]))
     .times(3)
-    .emit_if(__.has_value("age", P::gt(25)))
+    .emit_if(__.has_where("age", p::gt(25)))  // Only emit if age > 25
     .values("name")
+    .to_list();
 ```
 
 ### Complex Real-World Examples
@@ -1411,84 +1578,145 @@ This prevents exponential explosion in high-degree graphs.
 
 ## Comparison with Bound Traversals
 
+### Type Relationship
+
+In the unified architecture, the relationship is:
+
+```rust
+// Anonymous traversal - pure step pipeline
+Traversal<In, Out> {
+    steps: Vec<Box<dyn AnyStep>>,
+    source: None,  // No source!
+}
+
+// Bound traversal - wraps Traversal with graph context
+BoundTraversal<'g, In, Out> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    traversal: Traversal<In, Out>,  // Steps live here
+}
+```
+
+Both share the same step types (`Box<dyn AnyStep>`), the same `Traverser` type, and execute via the same `ExecutionContext`. The only difference is where graph access comes from.
+
 ### When to Use Anonymous vs Bound Traversals
 
-**Use Anonymous Traversals When:**
+**Use Anonymous Traversals (`Traversal<Value, Value>`) When:**
 - Defining reusable filtering or transformation logic
 - Embedding traversal logic within parent steps (`where_`, `union`, `repeat`, etc.)
 - Building modular, composable query components
 - Testing traversal fragments in isolation
 
-**Use Bound Traversals When:**
-- Starting a query from a graph source
+**Use Bound Traversals (`BoundTraversal<'g, _, _>`) When:**
+- Starting a query from a graph source (`g.v()`, `g.e()`)
 - Performing standalone graph exploration
-- Directly iterating over results
+- Directly iterating over results (terminal steps)
 - No need for embedding in parent steps
 
-**Example:**
+**Example showing both:**
 
 ```rust
-// Bound traversal - standalone query
-let friends = g.v()
-    .has_value("name", "Alice")
-    .out("knows")
-    .collect();
+// Define reusable anonymous traversal
+fn knows_bob() -> Traversal<Value, Value> {
+    __.out_labels(&["knows"]).has_value("name", "Bob")
+}
 
-// Anonymous traversal - reusable filter
-let knows_bob = __.out("knows").has_value("name", "Bob");
+// Use in bound traversal
+let snap = graph.snapshot();
+let g = snap.traversal();  // GraphTraversalSource
 
-let people_who_know_bob = g.v()
+// Bound traversal with embedded anonymous
+let people_who_know_bob: Vec<Value> = g.v()  // BoundTraversal
     .has_label("person")
-    .where_(knows_bob.clone())  // Reuse
-    .collect();
+    .where_(knows_bob())  // Splice anonymous traversal
+    .to_list();           // Terminal step executes everything
 
-let companies_with_bob_employees = g.v()
+// Reuse same anonymous traversal in different context
+let companies_with_bob_employees: Vec<Value> = g.v()
     .has_label("company")
-    .where_(__.in_("works_at").where_(knows_bob))  // Reuse
-    .collect();
+    .where_(__.in_labels(&["works_at"]).where_(knows_bob()))
+    .to_list();
 ```
 
 ### Composability Benefits
 
-Anonymous traversals enable function-like composition:
+Anonymous traversals enable function-like composition. Since they're just `Traversal<Value, Value>`, they can be passed around, stored, and combined:
 
 ```rust
-// Define reusable fragments
-fn adult_filter() -> Traversal<Vertex, Vertex> {
-    __.has_value("age", P::gte(18))
+// Define reusable fragments as functions
+fn adult_filter() -> Traversal<Value, Value> {
+    __.has_where("age", p::gte(18))
 }
 
-fn employed_filter() -> Traversal<Vertex, Vertex> {
-    __.out("works_at").has_label("company")
+fn employed_filter() -> Traversal<Value, Value> {
+    __.out_labels(&["works_at"]).has_label("company")
 }
 
-// Compose
-g.v().has_label("person")
+fn has_email() -> Traversal<Value, Value> {
+    __.has("email")
+}
+
+// Compose via chaining (using append internally)
+let contactable_adults: Vec<Value> = g.v()
+    .has_label("person")
     .where_(adult_filter())
     .where_(employed_filter())
+    .where_(has_email())
+    .to_list();
+
+// Or combine with and_()
+let same_query: Vec<Value> = g.v()
+    .has_label("person")
+    .and_(vec![
+        adult_filter(),
+        employed_filter(),
+        has_email(),
+    ])
+    .to_list();
 ```
 
-This is more maintainable than copy-pasting traversal logic.
+This is more maintainable than copy-pasting traversal logic, and enables testing fragments in isolation.
 
 ### Testing Anonymous Traversals in Isolation
 
-Anonymous traversals can be tested independently by binding them to test data:
+Anonymous traversals can be tested by embedding them in a minimal bound traversal:
 
 ```rust
-#[test]
-fn test_adult_filter() {
-    let graph = create_test_graph();
-    let traversal = __.has_value("age", P::gte(18));
-    
-    let adults = graph.v()
-        .where_(traversal)
-        .collect();
-    
-    assert_eq!(adults.len(), 5);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn adult_filter() -> Traversal<Value, Value> {
+        __.has_where("age", p::gte(18))
+    }
+
+    #[test]
+    fn test_adult_filter() {
+        let graph = create_test_graph();  // Helper to create test data
+        let snap = graph.snapshot();
+        let g = snap.traversal();
+        
+        // Test the anonymous traversal via where_()
+        let adults: Vec<Value> = g.v()
+            .has_label("person")
+            .where_(adult_filter())
+            .to_list();
+        
+        assert_eq!(adults.len(), 5);
+        
+        // Verify all results are actually adults
+        for v in adults {
+            if let Value::Vertex(id) = v {
+                let vertex = snap.get_vertex(id).unwrap();
+                let age = vertex.property("age").unwrap();
+                assert!(matches!(age, Value::Int(n) if *n >= 18));
+            }
+        }
+    }
 }
 ```
 
-This promotes modular, testable query logic.
+This promotes modular, testable query logic. Each anonymous traversal can be unit tested independently.
 
 ---
 
@@ -1526,11 +1754,22 @@ This promotes modular, testable query logic.
 
 ## Conclusion
 
-Anonymous traversals are a powerful abstraction for building modular, composable graph queries. By decoupling traversal logic from graph sources, they enable:
+Anonymous traversals are a powerful abstraction for building modular, composable graph queries. In the type-erased architecture, they use the **same `Traversal<In, Out>` type** as bound traversals—the only difference is the absence of a source.
+
+**Key architectural points:**
+
+1. **Unified type**: `Traversal<In, Out>` works for both bound and anonymous traversals
+2. **ExecutionContext at runtime**: Anonymous traversals receive graph access when spliced, not at construction
+3. **Steps are type-erased**: `Vec<Box<dyn AnyStep>>` enables storing heterogeneous steps
+4. **Clone-friendly**: `clone_box()` on `AnyStep` enables cloning for branching operations
+5. **Same execution model**: All steps receive `ExecutionContext` uniformly
+
+**Benefits:**
 
 - **Reusability**: Define once, use in multiple contexts
 - **Composability**: Combine simple fragments into complex queries
 - **Testability**: Isolate and test traversal logic independently
 - **Optimization**: Enable query planners to reason about and optimize nested traversals
+- **Simplicity**: One traversal type to understand, not separate bound/anonymous types
 
 When used effectively with steps like `where_()`, `union()`, `repeat()`, and `coalesce()`, anonymous traversals unlock expressive and efficient graph exploration patterns. Understanding their execution semantics—lazy evaluation, per-traverser isolation, and path preservation—is key to writing performant graph queries.

@@ -182,11 +182,14 @@ rustgremlin/
 │   │   ├── arena.rs        # Property/string allocation (future)
 │   │   └── wal.rs          # Write-ahead logging (future)
 │   ├── traversal/
-│   │   ├── mod.rs          # Traversal types (basic)
-│   │   ├── source.rs       # V(), E() starting steps (future)
-│   │   ├── filter.rs       # has(), hasLabel(), where() (future)
-│   │   ├── map.rs          # out(), in(), both(), values() (future)
-│   │   ├── branch.rs       # union(), coalesce(), choose() (future)
+│   │   ├── mod.rs          # Core types: Traversal, Traverser, Path
+│   │   ├── context.rs      # ExecutionContext, SideEffects
+│   │   ├── step.rs         # AnyStep trait, helper macros
+│   │   ├── source.rs       # GraphTraversalSource, BoundTraversal, StartStep
+│   │   ├── filter.rs       # has(), hasLabel(), dedup(), limit() (future)
+│   │   ├── navigation.rs   # out(), in(), both(), outE(), inE() (future)
+│   │   ├── transform.rs    # values(), id(), label(), map() (future)
+│   │   ├── branch.rs       # union(), coalesce(), choose(), where_() (future)
 │   │   ├── reduce.rs       # count(), sum(), fold() (future)
 │   │   ├── sideeffect.rs   # store(), aggregate() (future)
 │   │   └── terminal.rs     # toList(), next(), iterate() (future)
@@ -205,31 +208,66 @@ rustgremlin/
 
 ### 2.1 Core Traversal Types
 
+The traversal engine uses **type-erased steps** (`Box<dyn AnyStep>`) internally while maintaining **compile-time type safety** at API boundaries through `Traversal<In, Out>`.
+
 ```rust
-/// The main traversal builder - zero-cost abstractions via monomorphization
-pub struct Traversal<S, E, T> {
-    source: S,
-    _phantom: PhantomData<(E, T)>,
+/// Main traversal type - type-erased internally, type-safe externally
+/// Same type for both bound and anonymous traversals
+pub struct Traversal<In, Out> {
+    steps: Vec<Box<dyn AnyStep>>,
+    source: Option<TraversalSource>,
+    _phantom: PhantomData<fn(In) -> Out>,
 }
 
-/// Represents a position in the traversal with path history
+/// Traverser carries a Value through the pipeline with metadata
+/// Uses Value internally (not generic E) to enable type erasure
 #[derive(Clone)]
-pub struct Traverser<E> {
-    pub element: E,
+pub struct Traverser {
+    pub value: Value,
     pub path: Path,
     pub loops: u32,
-    pub sack: Option<Box<dyn Any + Send>>,
+    pub sack: Option<Box<dyn CloneSack>>,
     pub bulk: u64,
 }
 
-/// Traversal source - entry point for all traversals
-pub struct GraphTraversalSource<'s> {
-    snapshot: &'s GraphSnapshot<'s>,
+/// Execution context passed to steps at runtime
+/// Key to supporting anonymous traversals - graph access provided at execution time
+pub struct ExecutionContext<'g> {
+    pub snapshot: &'g GraphSnapshot<'g>,
+    pub interner: &'g StringInterner,
+    pub side_effects: SideEffects,
 }
 
-impl<'s> GraphTraversalSource<'s> {
+/// Traversal source - entry point for bound traversals
+pub struct GraphTraversalSource<'g> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+}
+
+/// Wrapper for traversals bound to a graph
+pub struct BoundTraversal<'g, In, Out> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    traversal: Traversal<In, Out>,
+}
+
+impl<'g> GraphTraversalSource<'g> {
     // Created from GraphSnapshot via snapshot.traversal()
 }
+```
+
+### Key Design: Bound vs Anonymous Traversals
+
+Both use the **same `Traversal<In, Out>` type**. The difference:
+
+| Aspect | Bound Traversal | Anonymous Traversal |
+|--------|-----------------|---------------------|
+| Type | `BoundTraversal<'g, In, Out>` | `Traversal<In, Out>` |
+| Creation | `g.v()` | `__.out()` |
+| Has source? | Yes (via wrapper) | No |
+| Graph access | Via `BoundTraversal` wrapper | Via `ExecutionContext` at splice |
+| `In` type | `()` (starts from nothing) | Input element type |
+| Execution | Direct (has context) | Must be spliced into parent |
 ```
 
 ### 2.2 Source Steps
@@ -237,29 +275,33 @@ impl<'s> GraphTraversalSource<'s> {
 ```rust
 impl<'g> GraphTraversalSource<'g> {
     /// Start traversal from all vertices
-    pub fn v(self) -> Traversal<Self, Vertex, impl Traverser<Vertex>>;
+    pub fn v(&self) -> BoundTraversal<'g, (), Value>;
     
     /// Start from specific vertex IDs
-    pub fn v_by_ids(self, ids: impl IntoIterator<Item = VertexId>) 
-        -> Traversal<Self, Vertex, impl Traverser<Vertex>>;
+    pub fn v_ids<I>(&self, ids: I) -> BoundTraversal<'g, (), Value>
+    where
+        I: IntoIterator<Item = VertexId>;
     
     /// Start traversal from all edges  
-    pub fn e(self) -> Traversal<Self, Edge, impl Traverser<Edge>>;
+    pub fn e(&self) -> BoundTraversal<'g, (), Value>;
     
     /// Start from specific edge IDs
-    pub fn e_by_ids(self, ids: impl IntoIterator<Item = EdgeId>)
-        -> Traversal<Self, Edge, impl Traverser<Edge>>;
+    pub fn e_ids<I>(&self, ids: I) -> BoundTraversal<'g, (), Value>
+    where
+        I: IntoIterator<Item = EdgeId>;
     
     /// Inject arbitrary values into traversal
-    pub fn inject<T>(self, values: impl IntoIterator<Item = T>)
-        -> Traversal<Self, T, impl Traverser<T>>;
+    pub fn inject<T, I>(&self, values: I) -> BoundTraversal<'g, (), Value>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Value>;
 }
 ```
 
 ### 2.3 Filter Steps
 
 ```rust
-impl<S, E, T: Traverser<E>> Traversal<S, E, T> {
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// Filter by label
     pub fn has_label(self, label: &str) -> Self;
     pub fn has_label_any(self, labels: &[&str]) -> Self;
@@ -279,22 +321,19 @@ impl<S, E, T: Traverser<E>> Traversal<S, E, T> {
     /// Generic filter with closure
     pub fn filter<F>(self, predicate: F) -> Self
     where
-        F: Fn(&E) -> bool;
+        F: Fn(&ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static;
     
     /// Deduplicate traversers
     pub fn dedup(self) -> Self;
-    pub fn dedup_by<F, K: Eq + Hash>(self, key_fn: F) -> Self
-    where
-        F: Fn(&E) -> K;
     
     /// Limit results
     pub fn limit(self, n: usize) -> Self;
     pub fn skip(self, n: usize) -> Self;
     pub fn range(self, start: usize, end: usize) -> Self;
     
-    /// Filter by traversal existence
-    pub fn where_<S2, E2, T2>(self, sub: Traversal<S2, E2, T2>) -> Self;
-    pub fn not<S2, E2, T2>(self, sub: Traversal<S2, E2, T2>) -> Self;
+    /// Filter by traversal existence (Phase 4)
+    pub fn where_(self, sub: Traversal<Value, Value>) -> Self;
+    pub fn not(self, sub: Traversal<Value, Value>) -> Self;
     
     /// Coin flip filter (random sampling)
     pub fn coin(self, probability: f64) -> Self;
@@ -335,284 +374,306 @@ pub mod p {
 ### 2.5 Map Steps (Navigation)
 
 ```rust
-impl<S, T: Traverser<Vertex>> Traversal<S, Vertex, T> {
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// Traverse to outgoing adjacent vertices
-    pub fn out(self) -> Self;
-    pub fn out_labels(self, labels: &[&str]) -> Self;
+    pub fn out(self) -> BoundTraversal<'g, In, Value>;
+    pub fn out_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Traverse to incoming adjacent vertices
-    pub fn in_(self) -> Self;  // trailing underscore: `in` is a keyword
-    pub fn in_labels(self, labels: &[&str]) -> Self;
+    pub fn in_(self) -> BoundTraversal<'g, In, Value>;
+    pub fn in_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Traverse both directions
-    pub fn both(self) -> Self;
-    pub fn both_labels(self, labels: &[&str]) -> Self;
+    pub fn both(self) -> BoundTraversal<'g, In, Value>;
+    pub fn both_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Traverse to outgoing edges
-    pub fn out_e(self) -> Traversal<S, Edge, impl Traverser<Edge>>;
-    pub fn out_e_labels(self, labels: &[&str]) -> Traversal<S, Edge, impl Traverser<Edge>>;
+    pub fn out_e(self) -> BoundTraversal<'g, In, Value>;
+    pub fn out_e_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Traverse to incoming edges
-    pub fn in_e(self) -> Traversal<S, Edge, impl Traverser<Edge>>;
-    pub fn in_e_labels(self, labels: &[&str]) -> Traversal<S, Edge, impl Traverser<Edge>>;
+    pub fn in_e(self) -> BoundTraversal<'g, In, Value>;
+    pub fn in_e_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Traverse to all incident edges
-    pub fn both_e(self) -> Traversal<S, Edge, impl Traverser<Edge>>;
-    pub fn both_e_labels(self, labels: &[&str]) -> Traversal<S, Edge, impl Traverser<Edge>>;
-}
-
-impl<S, T: Traverser<Edge>> Traversal<S, Edge, T> {
+    pub fn both_e(self) -> BoundTraversal<'g, In, Value>;
+    pub fn both_e_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
+    
     /// Get source vertex of edge
-    pub fn out_v(self) -> Traversal<S, Vertex, impl Traverser<Vertex>>;
+    pub fn out_v(self) -> BoundTraversal<'g, In, Value>;
     
     /// Get target vertex of edge
-    pub fn in_v(self) -> Traversal<S, Vertex, impl Traverser<Vertex>>;
+    pub fn in_v(self) -> BoundTraversal<'g, In, Value>;
     
     /// Get both vertices of edge
-    pub fn both_v(self) -> Traversal<S, Vertex, impl Traverser<Vertex>>;
+    pub fn both_v(self) -> BoundTraversal<'g, In, Value>;
     
     /// Get the other vertex (requires path context)
-    pub fn other_v(self) -> Traversal<S, Vertex, impl Traverser<Vertex>>;
+    pub fn other_v(self) -> BoundTraversal<'g, In, Value>;
 }
 ```
 
 ### 2.6 Map Steps (Transform)
 
 ```rust
-impl<S, E: Element, T: Traverser<E>> Traversal<S, E, T> {
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// Extract property value
-    pub fn values(self, key: &str) -> Traversal<S, Value, impl Traverser<Value>>;
-    pub fn values_multi(self, keys: &[&str]) -> Traversal<S, Value, impl Traverser<Value>>;
+    pub fn values(self, key: &str) -> BoundTraversal<'g, In, Value>;
+    pub fn values_multi(self, keys: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Extract property as key-value
-    pub fn properties(self, key: &str) -> Traversal<S, Property, impl Traverser<Property>>;
+    pub fn properties(self, key: &str) -> BoundTraversal<'g, In, Value>;
     
     /// Extract all properties as map
-    pub fn value_map(self) -> Traversal<S, HashMap<String, Value>, impl Traverser<HashMap<String, Value>>>;
-    pub fn value_map_keys(self, keys: &[&str]) -> Traversal<S, HashMap<String, Value>, impl Traverser<HashMap<String, Value>>>;
+    pub fn value_map(self) -> BoundTraversal<'g, In, Value>;
+    pub fn value_map_keys(self, keys: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Extract element map (id, label, properties)
-    pub fn element_map(self) -> Traversal<S, HashMap<String, Value>, impl Traverser<HashMap<String, Value>>>;
+    pub fn element_map(self) -> BoundTraversal<'g, In, Value>;
     
     /// Get element ID
-    pub fn id(self) -> Traversal<S, ElementId, impl Traverser<ElementId>>;
+    pub fn id(self) -> BoundTraversal<'g, In, Value>;
     
     /// Get element label
-    pub fn label(self) -> Traversal<S, String, impl Traverser<String>>;
+    pub fn label(self) -> BoundTraversal<'g, In, Value>;
     
     /// Apply transformation function
-    pub fn map<F, R>(self, f: F) -> Traversal<S, R, impl Traverser<R>>
+    pub fn map<F>(self, f: F) -> BoundTraversal<'g, In, Value>
     where
-        F: Fn(&E) -> R;
+        F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static;
     
     /// Flatmap transformation
-    pub fn flat_map<F, I, R>(self, f: F) -> Traversal<S, R, impl Traverser<R>>
+    pub fn flat_map<F>(self, f: F) -> BoundTraversal<'g, In, Value>
     where
-        F: Fn(&E) -> I,
-        I: IntoIterator<Item = R>;
+        F: Fn(&ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static;
     
     /// Unfold collections
-    pub fn unfold(self) -> Traversal<S, E::Item, impl Traverser<E::Item>>
-    where
-        E: IntoIterator;
+    pub fn unfold(self) -> BoundTraversal<'g, In, Value>;
     
     /// Get traversal path
-    pub fn path(self) -> Traversal<S, Path, impl Traverser<Path>>;
+    pub fn path(self) -> BoundTraversal<'g, In, Value>;
     
     /// Select labeled steps from path
-    pub fn select(self, labels: &[&str]) -> Traversal<S, HashMap<String, Value>, impl Traverser<HashMap<String, Value>>>;
+    pub fn select(self, labels: &[&str]) -> BoundTraversal<'g, In, Value>;
     
     /// Constant value
-    pub fn constant<V: Clone>(self, value: V) -> Traversal<S, V, impl Traverser<V>>;
+    pub fn constant(self, value: impl Into<Value>) -> BoundTraversal<'g, In, Value>;
     
     /// Math operations
-    pub fn math(self, expression: &str) -> Traversal<S, f64, impl Traverser<f64>>;
+    pub fn math(self, expression: &str) -> BoundTraversal<'g, In, Value>;
 }
 ```
 
 ### 2.7 Branch Steps
 
 ```rust
-impl<S, E, T: Traverser<E>> Traversal<S, E, T> {
-    /// Union of multiple traversals
-    pub fn union<S2, T2>(self, traversals: Vec<Traversal<S2, E, T2>>) 
-        -> Self;
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Union of multiple traversals - merge results from all branches
+    /// Anonymous traversals receive ExecutionContext at execution time
+    pub fn union(self, traversals: Vec<Traversal<Value, Value>>) -> BoundTraversal<'g, In, Value>;
     
-    /// First successful traversal
-    pub fn coalesce<S2, T2>(self, traversals: Vec<Traversal<S2, E, T2>>)
-        -> Self;
+    /// First successful traversal - short-circuits on first branch with results
+    pub fn coalesce(self, traversals: Vec<Traversal<Value, Value>>) -> BoundTraversal<'g, In, Value>;
     
-    /// Conditional branching
-    pub fn choose<C, S2, S3, T2, T3>(
+    /// Conditional branching based on traversal existence
+    /// condition: anonymous traversal to test (any results = true)
+    /// if_true/if_false: branches to execute based on condition
+    pub fn choose(
         self,
-        condition: C,
-        if_true: Traversal<S2, E, T2>,
-        if_false: Traversal<S3, E, T3>,
-    ) -> Self
-    where
-        C: Fn(&E) -> bool;
+        condition: Traversal<Value, Value>,
+        if_true: Traversal<Value, Value>,
+        if_false: Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value>;
     
     /// Pattern matching with options
-    pub fn branch<K, S2, T2>(
+    /// selector: function to extract branch key from current value
+    /// options: map of keys to anonymous traversals
+    pub fn branch<K>(
         self,
-        selector: impl Fn(&E) -> K,
-        options: HashMap<K, Traversal<S2, E, T2>>,
-    ) -> Self
+        selector: impl Fn(&ExecutionContext, &Value) -> K + Clone + Send + Sync + 'static,
+        options: HashMap<K, Traversal<Value, Value>>,
+    ) -> BoundTraversal<'g, In, Value>
     where
-        K: Eq + Hash;
+        K: Eq + Hash + Clone + Send + Sync + 'static;
     
-    /// Optional traversal (returns original if empty)
-    pub fn optional<S2, T2>(self, sub: Traversal<S2, E, T2>) -> Self;
+    /// Optional traversal - returns original value if sub produces no results
+    pub fn optional(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value>;
     
-    /// Repeat traversal
-    pub fn repeat<S2, T2>(self, sub: Traversal<S2, E, T2>) -> RepeatTraversal<S, E, T>;
+    /// Repeat traversal - iterative graph exploration
+    /// sub: anonymous traversal to repeat (same Traversal type as bound)
+    pub fn repeat(self, sub: Traversal<Value, Value>) -> RepeatTraversal<'g, In>;
     
-    /// Local scope (isolated traversal)
-    pub fn local<S2, E2, T2>(self, sub: Traversal<S2, E2, T2>) 
-        -> Traversal<S, E2, impl Traverser<E2>>;
+    /// Local scope - isolated execution of sub-traversal
+    /// Aggregations in sub operate per-traverser, not globally
+    pub fn local(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value>;
+    
+    /// Filter by traversal existence (Phase 4)
+    pub fn where_(self, sub: Traversal<Value, Value>) -> Self;
+    
+    /// Filter by traversal non-existence
+    pub fn not(self, sub: Traversal<Value, Value>) -> Self;
 }
 
 /// Builder for repeat() configuration
-pub struct RepeatTraversal<S, E, T> { /* ... */ }
+pub struct RepeatTraversal<'g, In> {
+    bound: BoundTraversal<'g, In, Value>,
+    sub: Traversal<Value, Value>,
+    // Configuration fields...
+}
 
-impl<S, E, T: Traverser<E>> RepeatTraversal<S, E, T> {
+impl<'g, In> RepeatTraversal<'g, In> {
     /// Maximum iterations
-    pub fn times(self, n: usize) -> Traversal<S, E, T>;
+    pub fn times(self, n: usize) -> BoundTraversal<'g, In, Value>;
     
-    /// Emit during traversal
+    /// Emit traversers from each iteration
     pub fn emit(self) -> Self;
-    pub fn emit_if<F>(self, predicate: F) -> Self
-    where
-        F: Fn(&E) -> bool;
     
-    /// Stop condition
-    pub fn until<F>(self, predicate: F) -> Traversal<S, E, T>
-    where
-        F: Fn(&E) -> bool;
+    /// Emit traversers matching condition
+    pub fn emit_if(self, predicate: Traversal<Value, Value>) -> Self;
     
-    /// Loop detection
-    pub fn until_cycle(self) -> Traversal<S, E, T>;
+    /// Stop when condition is satisfied
+    pub fn until(self, condition: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value>;
+    
+    /// Stop on cycle detection (vertex already in path)
+    pub fn until_cycle(self) -> BoundTraversal<'g, In, Value>;
 }
 ```
 
 ### 2.8 Reduce Steps
 
+Reduce steps aggregate traversers into a single result. In the type-erased architecture, 
+these return `Value` variants (e.g., `Value::Int`, `Value::Float`, `Value::List`).
+
 ```rust
-impl<S, E, T: Traverser<E>> Traversal<S, E, T> {
-    /// Count elements
-    pub fn count(self) -> Traversal<S, u64, impl Traverser<u64>>;
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Count elements - returns traversal producing Value::Int
+    pub fn count_step(self) -> BoundTraversal<'g, In, Value>;
     
-    /// Sum numeric values
-    pub fn sum(self) -> Traversal<S, f64, impl Traverser<f64>>
-    where
-        E: Into<f64>;
+    /// Sum numeric values - returns Value::Float
+    pub fn sum_step(self) -> BoundTraversal<'g, In, Value>;
     
-    /// Min/Max
-    pub fn min(self) -> Traversal<S, E, impl Traverser<E>>
-    where
-        E: Ord;
-    pub fn max(self) -> Traversal<S, E, impl Traverser<E>>
-    where
-        E: Ord;
+    /// Min value - returns Value matching input type
+    pub fn min_step(self) -> BoundTraversal<'g, In, Value>;
     
-    /// Mean average
-    pub fn mean(self) -> Traversal<S, f64, impl Traverser<f64>>
-    where
-        E: Into<f64>;
+    /// Max value - returns Value matching input type  
+    pub fn max_step(self) -> BoundTraversal<'g, In, Value>;
     
-    /// Group by key
-    pub fn group<F, K>(self, key_fn: F) 
-        -> Traversal<S, HashMap<K, Vec<E>>, impl Traverser<HashMap<K, Vec<E>>>>
+    /// Mean average - returns Value::Float
+    pub fn mean_step(self) -> BoundTraversal<'g, In, Value>;
+    
+    /// Group by key function
+    /// Returns Value::Map with keys from key_fn and Value::List values
+    pub fn group<F>(self, key_fn: F) -> BoundTraversal<'g, In, Value>
     where
-        F: Fn(&E) -> K,
-        K: Eq + Hash;
+        F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static;
     
     /// Group and count
-    pub fn group_count<F, K>(self, key_fn: F)
-        -> Traversal<S, HashMap<K, u64>, impl Traverser<HashMap<K, u64>>>
+    /// Returns Value::Map with keys and Value::Int counts
+    pub fn group_count<F>(self, key_fn: F) -> BoundTraversal<'g, In, Value>
     where
-        F: Fn(&E) -> K,
-        K: Eq + Hash;
+        F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static;
     
-    /// Fold into single value
-    pub fn fold<A, F>(self, init: A, f: F) -> Traversal<S, A, impl Traverser<A>>
+    /// Fold into single value with accumulator
+    pub fn fold_step<F>(self, init: Value, f: F) -> BoundTraversal<'g, In, Value>
     where
-        F: Fn(A, E) -> A;
+        F: Fn(&ExecutionContext, Value, Value) -> Value + Clone + Send + Sync + 'static;
     
-    /// Collect to list
-    pub fn to_list_step(self) -> Traversal<S, Vec<E>, impl Traverser<Vec<E>>>;
+    /// Collect to list (as traversal step, not terminal)
+    pub fn to_list_step(self) -> BoundTraversal<'g, In, Value>;
     
-    /// Collect to set
-    pub fn to_set_step(self) -> Traversal<S, HashSet<E>, impl Traverser<HashSet<E>>>
-    where
-        E: Eq + Hash;
+    /// Collect to set (as traversal step, not terminal)
+    pub fn to_set_step(self) -> BoundTraversal<'g, In, Value>;
 }
 ```
 
 ### 2.9 Side Effect Steps
 
+Side effect steps perform actions without changing the traverser stream.
+They use `SideEffects` in the `ExecutionContext` for storage.
+
 ```rust
-impl<S, E, T: Traverser<E>> Traversal<S, E, T> {
-    /// Store current element in side-effect
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Store current element in named side-effect collection
     pub fn store(self, key: &str) -> Self;
     
-    /// Aggregate all elements into collection
+    /// Aggregate all elements into named collection (eager)
     pub fn aggregate(self, key: &str) -> Self;
     
-    /// Execute side-effect
+    /// Execute side-effect function on each traverser
     pub fn side_effect<F>(self, f: F) -> Self
     where
-        F: Fn(&E);
+        F: Fn(&ExecutionContext, &Value) + Clone + Send + Sync + 'static;
     
-    /// Label current step for path tracking
+    /// Label current step for path tracking and select()
     pub fn as_(self, label: &str) -> Self;
     
-    /// Add property to element
+    /// Add property to current element (requires mutable context)
     pub fn property(self, key: &str, value: impl Into<Value>) -> Self;
     
     /// Add multiple properties
     pub fn properties_add(self, props: HashMap<String, Value>) -> Self;
     
-    /// Drop (delete) element
-    pub fn drop(self) -> Traversal<S, (), impl Traverser<()>>;
+    /// Drop (delete) current element - returns empty traversal
+    pub fn drop(self) -> BoundTraversal<'g, In, Value>;
 }
 ```
 
 ### 2.10 Terminal Steps
 
+Terminal steps consume the traversal, create the `ExecutionContext`, and return results.
+These are only available on `BoundTraversal` (not anonymous `Traversal`).
+
 ```rust
-impl<S, E, T: Traverser<E>> Traversal<S, E, T> {
-    /// Execute and collect all results
-    pub fn to_list(self) -> Vec<E>;
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Execute and collect all results to Vec<Value>
+    pub fn to_list(self) -> Vec<Value>;
     
-    /// Execute and collect to set
-    pub fn to_set(self) -> HashSet<E>
-    where
-        E: Eq + Hash;
+    /// Execute and collect to HashSet<Value> (deduplicates)
+    pub fn to_set(self) -> HashSet<Value>;
     
     /// Get next result
-    pub fn next(self) -> Option<E>;
+    pub fn next(self) -> Option<Value>;
     
     /// Get exactly one result (error if 0 or 2+)
-    pub fn one(self) -> Result<E, TraversalError>;
+    pub fn one(self) -> Result<Value, TraversalError>;
     
     /// Check if any results exist
     pub fn has_next(self) -> bool;
     
-    /// Execute for side effects only
+    /// Execute for side effects only (discards results)
     pub fn iterate(self);
     
     /// Get first n results
-    pub fn take(self, n: usize) -> Vec<E>;
+    pub fn take(self, n: usize) -> Vec<Value>;
     
-    /// Explain query plan
+    /// Count all results
+    pub fn count(self) -> u64;
+    
+    /// Sum numeric values
+    pub fn sum(self) -> Value;
+    
+    /// Get min value
+    pub fn min(self) -> Option<Value>;
+    
+    /// Get max value
+    pub fn max(self) -> Option<Value>;
+    
+    /// Fold/reduce with accumulator
+    pub fn fold<B, F>(self, init: B, f: F) -> B
+    where
+        F: FnMut(B, Value) -> B;
+    
+    /// Explain query plan (for debugging)
     pub fn explain(self) -> QueryPlan;
     
-    /// Profile execution
+    /// Profile execution (for performance analysis)
     pub fn profile(self) -> ProfileResult;
     
-    /// Get results as iterator
-    pub fn iter(self) -> impl Iterator<Item = E>;
+    /// Get results as lazy iterator
+    pub fn iter(self) -> impl Iterator<Item = Value> + 'g;
+    
+    /// Get traversers with full metadata (path, bulk, etc.)
+    pub fn traversers(self) -> impl Iterator<Item = Traverser> + 'g;
 }
 ```
 
@@ -665,32 +726,42 @@ fn main() -> Result<(), Box<dyn Error>> {
     let graph = Graph::in_memory();
     
     // Get traversal source via snapshot
+    // GraphSnapshot provides consistent reads
     let snap = graph.snapshot();
-    let g = snap.traversal();
+    let g = snap.traversal();  // Returns GraphTraversalSource<'_>
     
-    // Find all people
-    let people: Vec<Vertex> = g.v()
+    // Find all people - returns Vec<Value> where Value::Vertex(id)
+    let people: Vec<Value> = g.v()
         .has_label("person")
         .to_list();
     
     // Find person by name and get their friends' names
     let snap = graph.snapshot();
     let g = snap.traversal();
-    let friend_names: Vec<String> = g.v()
+    let friend_names: Vec<Value> = g.v()
         .has_label("person")
         .has_value("name", "Alice")
         .out_labels(&["knows"])
-        .values("name")
-        .map(|v| v.as_string().unwrap().clone())
+        .values("name")  // Extracts "name" property as Value::String
         .to_list();
     
+    // Extract strings from Value::String variants
+    let names: Vec<String> = friend_names
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    
     // Complex query: People who know someone over 30
+    // Uses anonymous traversal (__) with where_()
     let snap = graph.snapshot();
     let g = snap.traversal();
-    let results = g.v()
+    let results: Vec<Value> = g.v()
         .has_label("person")
         .where_(__.out_labels(&["knows"]).has_where("age", p::gt(30)))
-        .value_map()
+        .value_map()  // Returns Value::Map with all properties
         .to_list();
     
     Ok(())
@@ -701,13 +772,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 ```rust
 fn populate_graph(graph: &Graph) -> Result<(), StorageError> {
-    let mut g = graph.mutate();
+    let mut g = graph.mutate();  // Returns GraphMut<'_>
     
     // Add vertices
     let alice = g.add_v("person")
         .property("name", "Alice")
         .property("age", 30)
-        .build();
+        .build();  // Returns VertexId
     
     let bob = g.add_v("person")
         .property("name", "Bob")
@@ -719,7 +790,7 @@ fn populate_graph(graph: &Graph) -> Result<(), StorageError> {
         .from(alice)
         .to(bob)
         .property("since", 2020)
-        .build();
+        .build();  // Returns EdgeId
     
     g.commit()
 }
@@ -729,18 +800,20 @@ fn populate_graph(graph: &Graph) -> Result<(), StorageError> {
 
 ```rust
 // Find all vertices within 3 hops
-let nearby = g.v_by_ids([start_id])
-    .repeat(__.out())
+// Uses anonymous traversal __.out() which is Traversal<Value, Value>
+let nearby: Vec<Value> = g.v_ids([start_id])
+    .repeat(__.out())  // Anonymous traversal for iteration
     .times(3)
-    .emit()
+    .emit()            // Emit from each iteration
     .dedup()
     .to_list();
 
 // Find path to target (BFS)
-let path = g.v_by_ids([start_id])
-    .repeat(__.out().simple_path())
-    .until(__.has_id(target_id))
-    .path()
+// until() takes anonymous traversal as condition
+let path: Option<Value> = g.v_ids([start_id])
+    .repeat(__.out().simple_path())  // Chained anonymous traversal
+    .until(__.has_id(target_id))     // Condition: stop when target found
+    .path()                          // Returns Value::List of path elements
     .limit(1)
     .next();
 ```
@@ -749,21 +822,83 @@ let path = g.v_by_ids([start_id])
 
 ```rust
 // Count vertices by label
-let counts: HashMap<String, u64> = g.v()
-    .group_count(|v| v.label().to_string())
+// group_count returns Value::Map with Value::String keys and Value::Int counts
+let counts: Value = g.v()
+    .group_count(|ctx, v| {
+        // Extract label as Value::String for grouping key
+        match v {
+            Value::Vertex(id) => {
+                ctx.snapshot.get_vertex(*id)
+                    .and_then(|v| ctx.get_label(v.label_id()))
+                    .map(|l| Value::String(l.to_string()))
+                    .unwrap_or(Value::Null)
+            }
+            _ => Value::Null,
+        }
+    })
     .next()
     .unwrap();
 
-// Average age by department
-let avg_ages = g.v()
+// Average age by department using group + local aggregation
+// Results are Value::Map with department names as keys
+let grouped: Vec<Value> = g.v()
     .has_label("employee")
-    .group(|v| v.property("department").unwrap())
-    .map(|(dept, employees)| {
-        let avg = employees.iter()
-            .filter_map(|e| e.property("age").and_then(|v| v.as_i64()))
-            .sum::<i64>() as f64 / employees.len() as f64;
-        (dept, avg)
+    .group(|ctx, v| {
+        // Extract department property for grouping
+        match v {
+            Value::Vertex(id) => {
+                ctx.snapshot.get_vertex(*id)
+                    .and_then(|v| v.property("department").cloned())
+                    .unwrap_or(Value::Null)
+            }
+            _ => Value::Null,
+        }
     })
+    .to_list();
+
+// Using anonymous traversals for aggregation keys (cleaner)
+let counts: Value = g.v()
+    .has_label("person")
+    .group_count(|_, v| v.clone())  // Group by vertex itself
+    .next()
+    .unwrap();
+```
+
+### Anonymous Traversal Composition
+
+```rust
+// Define reusable traversal fragments
+fn friends_of_friends() -> Traversal<Value, Value> {
+    __.out_labels(&["knows"])
+      .out_labels(&["knows"])
+      .dedup()
+}
+
+fn works_at_same_company() -> Traversal<Value, Value> {
+    __.out_labels(&["works_at"])
+      .in_labels(&["works_at"])
+      .dedup()
+}
+
+// Compose in queries
+let snap = graph.snapshot();
+let g = snap.traversal();
+
+// Find people connected through multiple paths
+let connected: Vec<Value> = g.v()
+    .has_value("name", "Alice")
+    .union(vec![
+        friends_of_friends(),
+        works_at_same_company(),
+    ])
+    .dedup()
+    .to_list();
+
+// Use with where_ for filtering
+let people_who_know_bob: Vec<Value> = g.v()
+    .has_label("person")
+    .where_(__.out_labels(&["knows"]).has_value("name", "Bob"))
+    .values("name")
     .to_list();
 ```
 
