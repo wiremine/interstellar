@@ -236,6 +236,52 @@ impl Value {
             }
         }
     }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn as_list(&self) -> Option<&Vec<Value>> {
+        match self {
+            Value::List(items) => Some(items),
+            _ => None,
+        }
+    }
+
+    pub fn as_map(&self) -> Option<&HashMap<String, Value>> {
+        match self {
+            Value::Map(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, Value::Null)
+    }
 }
 
 #[cfg(test)]
@@ -317,6 +363,87 @@ mod tests {
         let list_small = Value::List(vec![Value::Int(1)]).to_comparable();
         let list_large = Value::List(vec![Value::Int(1), Value::Int(2)]).to_comparable();
         assert!(list_small < list_large);
+    }
+
+    #[test]
+    fn as_bool_extracts_boolean_values() {
+        assert_eq!(Value::Bool(true).as_bool(), Some(true));
+        assert_eq!(Value::Bool(false).as_bool(), Some(false));
+        assert_eq!(Value::Int(1).as_bool(), None);
+        assert_eq!(Value::Null.as_bool(), None);
+    }
+
+    #[test]
+    fn as_i64_extracts_integer_values() {
+        assert_eq!(Value::Int(42).as_i64(), Some(42));
+        assert_eq!(Value::Int(-7).as_i64(), Some(-7));
+        assert_eq!(Value::Bool(true).as_i64(), None);
+        assert_eq!(Value::Float(42.0).as_i64(), None);
+    }
+
+    #[test]
+    fn as_f64_extracts_float_values() {
+        assert_eq!(Value::Float(3.14).as_f64(), Some(3.14));
+        assert_eq!(Value::Float(-2.5).as_f64(), Some(-2.5));
+        assert_eq!(Value::Int(42).as_f64(), None);
+        assert_eq!(Value::Null.as_f64(), None);
+    }
+
+    #[test]
+    fn as_str_extracts_string_values() {
+        let s = Value::String("hello".to_string());
+        assert_eq!(s.as_str(), Some("hello"));
+        assert_eq!(Value::Int(42).as_str(), None);
+        assert_eq!(Value::Null.as_str(), None);
+    }
+
+    #[test]
+    fn as_list_extracts_list_values() {
+        let list = Value::List(vec![Value::Int(1), Value::Bool(true)]);
+        let extracted = list.as_list();
+        assert!(extracted.is_some());
+        assert_eq!(extracted.unwrap().len(), 2);
+        assert_eq!(extracted.unwrap()[0], Value::Int(1));
+
+        assert_eq!(Value::Null.as_list(), None);
+        assert_eq!(Value::Int(42).as_list(), None);
+    }
+
+    #[test]
+    fn as_map_extracts_map_values() {
+        let mut map = HashMap::new();
+        map.insert("key".to_string(), Value::Int(42));
+        let value = Value::Map(map.clone());
+
+        let extracted = value.as_map();
+        assert!(extracted.is_some());
+        assert_eq!(extracted.unwrap().get("key"), Some(&Value::Int(42)));
+
+        assert_eq!(Value::Null.as_map(), None);
+        assert_eq!(Value::String("test".to_string()).as_map(), None);
+    }
+
+    #[test]
+    fn is_null_detects_null_values() {
+        assert!(Value::Null.is_null());
+        assert!(!Value::Bool(false).is_null());
+        assert!(!Value::Int(0).is_null());
+        assert!(!Value::String("".to_string()).is_null());
+    }
+
+    #[test]
+    fn accessor_methods_work_with_conversions() {
+        let v: Value = 42i32.into();
+        assert_eq!(v.as_i64(), Some(42));
+
+        let s: Value = "test".into();
+        assert_eq!(s.as_str(), Some("test"));
+
+        let b: Value = true.into();
+        assert_eq!(b.as_bool(), Some(true));
+
+        let f: Value = 3.14f64.into();
+        assert_eq!(f.as_f64(), Some(3.14));
     }
 
     fn arb_value() -> impl Strategy<Value = Value> {
