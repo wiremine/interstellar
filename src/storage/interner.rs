@@ -32,6 +32,28 @@ impl StringInterner {
     pub fn resolve(&self, id: u32) -> Option<&str> {
         self.reverse.get(&id).map(|s| s.as_str())
     }
+
+    /// Look up a string's ID without interning (read-only)
+    /// Returns None if the string has not been interned
+    pub fn lookup(&self, value: &str) -> Option<u32> {
+        self.forward.get(value).copied()
+    }
+
+    /// Number of interned strings
+    pub fn len(&self) -> usize {
+        self.forward.len()
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        self.forward.is_empty()
+    }
+}
+
+impl Default for StringInterner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -49,5 +71,28 @@ mod tests {
         assert_ne!(first, third);
         assert_eq!(interner.resolve(first), Some("person"));
         assert_eq!(interner.resolve(third), Some("knows"));
+    }
+
+    #[test]
+    fn lookup_without_interning() {
+        let mut interner = StringInterner::new();
+        interner.intern("exists");
+
+        assert_eq!(interner.lookup("exists"), Some(0));
+        assert_eq!(interner.lookup("missing"), None);
+    }
+
+    #[test]
+    fn len_and_is_empty() {
+        let mut interner = StringInterner::new();
+        assert!(interner.is_empty());
+        assert_eq!(interner.len(), 0);
+
+        interner.intern("one");
+        interner.intern("two");
+        interner.intern("one"); // duplicate
+
+        assert!(!interner.is_empty());
+        assert_eq!(interner.len(), 2);
     }
 }

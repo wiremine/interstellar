@@ -230,11 +230,11 @@ pub trait GraphStorage: Send + Sync {
 ```
 
 #### Exit Criteria
-- [ ] All types compile with proper derives
-- [ ] Value serialization round-trips correctly
-- [ ] StringInterner handles interning and resolution
-- [ ] GraphStorage trait is finalized
-- [ ] Unit tests for Value conversions
+- [x] All types compile with proper derives
+- [x] Value serialization round-trips correctly
+- [x] StringInterner handles interning and resolution
+- [x] GraphStorage trait is finalized
+- [x] Unit tests for Value conversions
 
 ---
 

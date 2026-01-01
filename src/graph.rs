@@ -1,7 +1,7 @@
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
 
-use crate::storage::GraphStorage;
+use crate::storage::{GraphStorage, InMemoryGraph};
 
 pub struct Graph {
     pub(crate) storage: Arc<dyn GraphStorage>,
@@ -44,5 +44,15 @@ impl Graph {
             graph: self,
             _guard: self.lock.write(),
         }
+    }
+
+    /// Create a new in-memory graph (no persistence)
+    pub fn in_memory() -> Self {
+        Self::new(Arc::new(InMemoryGraph::new()))
+    }
+
+    /// Get the underlying storage (for advanced use cases)
+    pub fn storage(&self) -> &Arc<dyn GraphStorage> {
+        &self.storage
     }
 }

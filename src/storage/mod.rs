@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
+pub mod inmemory;
 pub mod interner;
+
+pub use inmemory::InMemoryGraph;
 
 use crate::value::{EdgeId, Value, VertexId};
 
