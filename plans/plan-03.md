@@ -427,9 +427,9 @@ pub struct SideEffects {
 4. Add `has_value()` method to BoundTraversal and Traversal
 
 **Acceptance Criteria**:
-- [ ] `has("age")` filters to elements with "age" property
-- [ ] `has_value("name", "Alice")` matches exact value
-- [ ] Works for both vertices and edges
+- [x] `has("age")` filters to elements with "age" property
+- [x] `has_value("name", "Alice")` matches exact value
+- [x] Works for both vertices and edges
 
 ---
 
@@ -443,9 +443,9 @@ pub struct SideEffects {
 3. Add `filter()` method to BoundTraversal and Traversal
 
 **Acceptance Criteria**:
-- [ ] Custom predicates work: `filter(|ctx, v| ...)`
-- [ ] Closure can access ExecutionContext
-- [ ] FilterStep is Clone (closure must be Clone)
+- [x] Custom predicates work: `filter(|ctx, v| ...)`
+- [x] Closure can access ExecutionContext
+- [x] FilterStep is Clone (closure must be Clone)
 
 ---
 

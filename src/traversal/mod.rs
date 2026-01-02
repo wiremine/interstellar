@@ -23,7 +23,7 @@ pub mod source;
 pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
-pub use filter::HasLabelStep;
+pub use filter::{FilterStep, HasLabelStep, HasStep, HasValueStep};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
 
@@ -783,6 +783,62 @@ impl<In> Traversal<In, Value> {
         S: Into<String>,
     {
         self.add_step(filter::HasLabelStep::any(labels))
+    }
+
+    /// Filter elements by property existence (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges that have the specified property.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to vertices with "age" property
+    /// let anon = Traversal::<Value, Value>::new().has("age");
+    /// let with_age = g.v().append(anon).to_list();
+    /// ```
+    pub fn has(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(filter::HasStep::new(key))
+    }
+
+    /// Filter elements by property value equality (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges where the specified property equals the given value.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to vertices where name == "Alice"
+    /// let anon = Traversal::<Value, Value>::new().has_value("name", "Alice");
+    /// let alice = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_value(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> Traversal<In, Value> {
+        self.add_step(filter::HasValueStep::new(key, value))
+    }
+
+    /// Filter elements using a custom predicate (for anonymous traversals).
+    ///
+    /// The predicate receives the execution context and the value, returning
+    /// `true` to keep the traverser or `false` to filter it out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to positive integers
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 0));
+    /// let positives = g.inject([1i64, -2i64, 3i64]).append(anon).to_list();
+    /// ```
+    pub fn filter<F>(self, predicate: F) -> Traversal<In, Value>
+    where
+        F: Fn(&context::ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
+    {
+        self.add_step(filter::FilterStep::new(predicate))
     }
 }
 

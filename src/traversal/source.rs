@@ -336,6 +336,66 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::filter::HasLabelStep;
         self.add_step(HasLabelStep::any(labels))
     }
+
+    /// Filter elements by property existence.
+    ///
+    /// Keeps only vertices/edges that have the specified property.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all vertices that have an "age" property
+    /// let with_age = g.v().has("age").to_list();
+    /// ```
+    pub fn has(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasStep;
+        self.add_step(HasStep::new(key))
+    }
+
+    /// Filter elements by property value equality.
+    ///
+    /// Keeps only vertices/edges where the specified property equals the given value.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all vertices where name == "Alice"
+    /// let alice = g.v().has_value("name", "Alice").to_list();
+    ///
+    /// // Get all vertices where age == 30
+    /// let age_30 = g.v().has_value("age", 30i64).to_list();
+    /// ```
+    pub fn has_value(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasValueStep;
+        self.add_step(HasValueStep::new(key, value))
+    }
+
+    /// Filter elements using a custom predicate.
+    ///
+    /// The predicate receives the execution context and the value, returning
+    /// `true` to keep the traverser or `false` to filter it out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to only positive integers
+    /// let positives = g.inject([1i64, -2i64, 3i64])
+    ///     .filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 0))
+    ///     .to_list();
+    /// ```
+    pub fn filter<F>(self, predicate: F) -> BoundTraversal<'g, In, Value>
+    where
+        F: Fn(&crate::traversal::ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
+    {
+        use crate::traversal::filter::FilterStep;
+        self.add_step(FilterStep::new(predicate))
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
