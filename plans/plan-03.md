@@ -698,8 +698,8 @@ pub struct SideEffects {
 3. Ensure clean public API
 
 **Acceptance Criteria**:
-- [ ] `use rustgremlin::prelude::*` imports traversal types
-- [ ] Public API is clean and documented
+- [x] `use rustgremlin::prelude::*` imports traversal types
+- [x] Public API is clean and documented
 
 ---
 
@@ -788,9 +788,9 @@ From spec section "Exit Criteria":
 - [x] `filter()`, `dedup()`, `limit()`, `skip()`, `range()` work
 
 ### Transform Steps
-- [ ] `values()`, `id()`, `label()` work
-- [ ] `map()`, `flat_map()`, `constant()` work
-- [ ] `path()` works
+- [x] `values()`, `id()`, `label()` work
+- [x] `map()`, `flat_map()`, `constant()` work
+- [x] `path()` works
 
 ### Terminal Steps
 - [x] `to_list()`, `to_set()`, `next()`, `one()` work
