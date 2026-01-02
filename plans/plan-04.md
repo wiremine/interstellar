@@ -206,11 +206,11 @@ impl<P1: Predicate + Clone + 'static, P2: Predicate + Clone + 'static> Predicate
 ```
 
 **Acceptance Criteria**:
-- [ ] `p::and(p::gte(18), p::lt(65)).test(&Value::Int(30))` returns true
-- [ ] `p::or(p::eq("a"), p::eq("b")).test(&Value::String("a".into()))` returns true
-- [ ] `p::not(p::eq(42)).test(&Value::Int(41))` returns true
-- [ ] Composed predicates are clonable
-- [ ] Unit tests pass
+- [x] `p::and(p::gte(18), p::lt(65)).test(&Value::Int(30))` returns true
+- [x] `p::or(p::eq("a"), p::eq("b")).test(&Value::String("a".into()))` returns true
+- [x] `p::not(p::eq(42)).test(&Value::Int(41))` returns true
+- [x] Composed predicates are clonable
+- [x] Unit tests pass
 
 ---
 

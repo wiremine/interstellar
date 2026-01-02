@@ -963,8 +963,202 @@ pub mod p {
         regex::Regex::new(pattern).ok().map(Regex)
     }
 
-    // Predicates will be added in subsequent phases:
-    // - Phase 1.7: and, or, not
+    // -------------------------------------------------------------------------
+    // Logical Composition Predicates (Phase 1.7)
+    // -------------------------------------------------------------------------
+
+    /// Logical AND predicate.
+    ///
+    /// Tests if the value satisfies BOTH inner predicates.
+    /// Short-circuits: if the first predicate returns false, the second is not evaluated.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Match ages between 18 and 65
+    /// let pred = p::and(p::gte(18), p::lt(65));
+    /// assert!(pred.test(&Value::Int(30)));  // 30 >= 18 && 30 < 65
+    /// assert!(!pred.test(&Value::Int(10))); // 10 >= 18 is false
+    /// assert!(!pred.test(&Value::Int(70))); // 70 < 65 is false
+    /// ```
+    #[derive(Clone)]
+    pub struct And<P1, P2>(P1, P2);
+
+    impl<P1, P2> Predicate for And<P1, P2>
+    where
+        P1: Predicate + Clone + 'static,
+        P2: Predicate + Clone + 'static,
+    {
+        fn test(&self, value: &Value) -> bool {
+            self.0.test(value) && self.1.test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a logical AND predicate.
+    ///
+    /// Returns a predicate that tests if the value satisfies BOTH predicates.
+    ///
+    /// # Arguments
+    ///
+    /// * `p1` - The first predicate
+    /// * `p2` - The second predicate
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for working-age adults
+    /// g.v().has_label("person")
+    ///     .has_where("age", p::and(p::gte(18), p::lt(65)))
+    ///     .to_list();
+    ///
+    /// // Combine string predicates
+    /// g.v().has_where("email", p::and(
+    ///     p::containing("@"),
+    ///     p::ending_with(".com")
+    /// )).to_list();
+    /// ```
+    pub fn and<P1, P2>(p1: P1, p2: P2) -> And<P1, P2>
+    where
+        P1: Predicate + Clone + 'static,
+        P2: Predicate + Clone + 'static,
+    {
+        And(p1, p2)
+    }
+
+    /// Logical OR predicate.
+    ///
+    /// Tests if the value satisfies EITHER inner predicate.
+    /// Short-circuits: if the first predicate returns true, the second is not evaluated.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Match either "active" or "pending" status
+    /// let pred = p::or(p::eq("active"), p::eq("pending"));
+    /// assert!(pred.test(&Value::String("active".to_string())));
+    /// assert!(pred.test(&Value::String("pending".to_string())));
+    /// assert!(!pred.test(&Value::String("inactive".to_string())));
+    /// ```
+    #[derive(Clone)]
+    pub struct Or<P1, P2>(P1, P2);
+
+    impl<P1, P2> Predicate for Or<P1, P2>
+    where
+        P1: Predicate + Clone + 'static,
+        P2: Predicate + Clone + 'static,
+    {
+        fn test(&self, value: &Value) -> bool {
+            self.0.test(value) || self.1.test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a logical OR predicate.
+    ///
+    /// Returns a predicate that tests if the value satisfies EITHER predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `p1` - The first predicate
+    /// * `p2` - The second predicate
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for specific statuses
+    /// g.v().has_label("task")
+    ///     .has_where("status", p::or(p::eq("open"), p::eq("in_progress")))
+    ///     .to_list();
+    ///
+    /// // Names starting with A or B
+    /// g.v().has_where("name", p::or(
+    ///     p::starting_with("A"),
+    ///     p::starting_with("B")
+    /// )).to_list();
+    /// ```
+    pub fn or<P1, P2>(p1: P1, p2: P2) -> Or<P1, P2>
+    where
+        P1: Predicate + Clone + 'static,
+        P2: Predicate + Clone + 'static,
+    {
+        Or(p1, p2)
+    }
+
+    /// Logical NOT predicate.
+    ///
+    /// Tests if the value does NOT satisfy the inner predicate.
+    /// Returns the boolean negation of the inner predicate's result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Match any value that is NOT 42
+    /// let pred = p::not(p::eq(42));
+    /// assert!(!pred.test(&Value::Int(42)));
+    /// assert!(pred.test(&Value::Int(41)));
+    /// assert!(pred.test(&Value::Int(43)));
+    /// ```
+    #[derive(Clone)]
+    pub struct Not<P>(P);
+
+    impl<P> Predicate for Not<P>
+    where
+        P: Predicate + Clone + 'static,
+    {
+        fn test(&self, value: &Value) -> bool {
+            !self.0.test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a logical NOT predicate.
+    ///
+    /// Returns a predicate that tests if the value does NOT satisfy the inner predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `p` - The predicate to negate
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for non-admin users
+    /// g.v().has_label("user")
+    ///     .has_where("role", p::not(p::eq("admin")))
+    ///     .to_list();
+    ///
+    /// // Values outside a range
+    /// g.v().has_where("score", p::not(p::between(0, 100)))
+    ///     .to_list();
+    /// ```
+    pub fn not<P>(p: P) -> Not<P>
+    where
+        P: Predicate + Clone + 'static,
+    {
+        Not(p)
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -2782,6 +2976,423 @@ mod tests {
             assert!(pred.test(&Value::String("word".to_string())));
             assert!(!pred.test(&Value::String("wording".to_string())));
             assert!(!pred.test(&Value::String("sword".to_string())));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1.7: Logical Composition Predicates Tests
+    // -------------------------------------------------------------------------
+
+    mod logical_predicates {
+        use super::*;
+
+        // -------------------------------------------------------------------
+        // and() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn and_both_true() {
+            let pred = p::and(p::gte(18), p::lt(65));
+            assert!(pred.test(&Value::Int(30)));
+            assert!(pred.test(&Value::Int(18)));
+            assert!(pred.test(&Value::Int(64)));
+        }
+
+        #[test]
+        fn and_first_false() {
+            let pred = p::and(p::gte(18), p::lt(65));
+            assert!(!pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(17)));
+            assert!(!pred.test(&Value::Int(0)));
+        }
+
+        #[test]
+        fn and_second_false() {
+            let pred = p::and(p::gte(18), p::lt(65));
+            assert!(!pred.test(&Value::Int(65)));
+            assert!(!pred.test(&Value::Int(70)));
+            assert!(!pred.test(&Value::Int(100)));
+        }
+
+        #[test]
+        fn and_both_false() {
+            // Create a predicate that will be false for both conditions at boundary
+            let pred = p::and(p::gt(100), p::lt(50));
+            assert!(!pred.test(&Value::Int(75)));
+            assert!(!pred.test(&Value::Int(30)));
+            assert!(!pred.test(&Value::Int(150)));
+        }
+
+        #[test]
+        fn and_with_string_predicates() {
+            let pred = p::and(p::containing("@"), p::ending_with(".com"));
+            assert!(pred.test(&Value::String("user@example.com".to_string())));
+            assert!(!pred.test(&Value::String("user@example.org".to_string())));
+            assert!(!pred.test(&Value::String("no-at.com".to_string())));
+        }
+
+        #[test]
+        fn and_with_eq_predicates() {
+            // This creates a predicate that can only match one specific value
+            let pred = p::and(p::gte(42), p::lte(42));
+            assert!(pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Int(41)));
+            assert!(!pred.test(&Value::Int(43)));
+        }
+
+        #[test]
+        fn and_with_mixed_types() {
+            // Test that incompatible types return false
+            let pred = p::and(p::gte(0), p::lt(100));
+            assert!(!pred.test(&Value::String("50".to_string())));
+            assert!(!pred.test(&Value::Bool(true)));
+        }
+
+        #[test]
+        fn and_is_clonable() {
+            let pred = p::and(p::gte(18), p::lt(65));
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(30)));
+            assert!(!cloned.test(&Value::Int(10)));
+        }
+
+        #[test]
+        fn and_is_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::And<p::Gte, p::Lt>>();
+        }
+
+        #[test]
+        fn and_nested() {
+            // (age >= 18 AND age < 65) AND status == "active"
+            let age_range = p::and(p::gte(18), p::lt(65));
+            // Note: We can't easily combine predicates of different types in nested and
+            // But we can verify the age_range predicate works
+            assert!(age_range.test(&Value::Int(30)));
+            assert!(!age_range.test(&Value::Int(10)));
+        }
+
+        #[test]
+        fn and_with_floats() {
+            let pred = p::and(p::gte(0.0f64), p::lt(1.0f64));
+            assert!(pred.test(&Value::Float(0.0)));
+            assert!(pred.test(&Value::Float(0.5)));
+            assert!(pred.test(&Value::Float(0.999)));
+            assert!(!pred.test(&Value::Float(1.0)));
+            assert!(!pred.test(&Value::Float(-0.1)));
+        }
+
+        // -------------------------------------------------------------------
+        // or() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn or_first_true() {
+            let pred = p::or(p::eq("active"), p::eq("pending"));
+            assert!(pred.test(&Value::String("active".to_string())));
+        }
+
+        #[test]
+        fn or_second_true() {
+            let pred = p::or(p::eq("active"), p::eq("pending"));
+            assert!(pred.test(&Value::String("pending".to_string())));
+        }
+
+        #[test]
+        fn or_both_false() {
+            let pred = p::or(p::eq("active"), p::eq("pending"));
+            assert!(!pred.test(&Value::String("inactive".to_string())));
+            assert!(!pred.test(&Value::String("deleted".to_string())));
+        }
+
+        #[test]
+        fn or_both_true() {
+            // When testing with a value that matches both
+            let pred = p::or(p::gte(0), p::lte(100));
+            assert!(pred.test(&Value::Int(50))); // Matches both
+        }
+
+        #[test]
+        fn or_with_string_predicates() {
+            let pred = p::or(p::starting_with("A"), p::starting_with("B"));
+            assert!(pred.test(&Value::String("Alice".to_string())));
+            assert!(pred.test(&Value::String("Bob".to_string())));
+            assert!(!pred.test(&Value::String("Carol".to_string())));
+        }
+
+        #[test]
+        fn or_with_numeric_ranges() {
+            // Outside of [10, 20] - either less than 10 OR greater than 20
+            let pred = p::or(p::lt(10), p::gt(20));
+            assert!(pred.test(&Value::Int(5)));
+            assert!(pred.test(&Value::Int(25)));
+            assert!(!pred.test(&Value::Int(15)));
+            assert!(!pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(20)));
+        }
+
+        #[test]
+        fn or_with_mixed_predicate_types() {
+            // Match integers 42 OR strings containing "foo"
+            // Note: Since predicates return false for wrong types, this works
+            let pred = p::or(p::eq(42), p::containing("foo"));
+            assert!(pred.test(&Value::Int(42)));
+            assert!(pred.test(&Value::String("foobar".to_string())));
+            assert!(!pred.test(&Value::Int(43)));
+            assert!(!pred.test(&Value::String("bar".to_string())));
+        }
+
+        #[test]
+        fn or_is_clonable() {
+            let pred = p::or(p::eq("a"), p::eq("b"));
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("a".to_string())));
+            assert!(cloned.test(&Value::String("b".to_string())));
+            assert!(!cloned.test(&Value::String("c".to_string())));
+        }
+
+        #[test]
+        fn or_is_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::Or<p::Eq, p::Eq>>();
+        }
+
+        #[test]
+        fn or_with_floats() {
+            let pred = p::or(p::lt(0.0f64), p::gt(1.0f64));
+            assert!(pred.test(&Value::Float(-0.5)));
+            assert!(pred.test(&Value::Float(1.5)));
+            assert!(!pred.test(&Value::Float(0.5)));
+        }
+
+        // -------------------------------------------------------------------
+        // not() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn not_negates_true() {
+            let pred = p::not(p::eq(42));
+            assert!(!pred.test(&Value::Int(42)));
+        }
+
+        #[test]
+        fn not_negates_false() {
+            let pred = p::not(p::eq(42));
+            assert!(pred.test(&Value::Int(41)));
+            assert!(pred.test(&Value::Int(43)));
+            assert!(pred.test(&Value::Int(0)));
+        }
+
+        #[test]
+        fn not_with_string_predicate() {
+            let pred = p::not(p::containing("spam"));
+            assert!(pred.test(&Value::String("hello world".to_string())));
+            assert!(!pred.test(&Value::String("this is spam".to_string())));
+        }
+
+        #[test]
+        fn not_with_range_predicate() {
+            // Not between 10 and 20
+            let pred = p::not(p::between(10, 20));
+            assert!(pred.test(&Value::Int(5)));
+            assert!(pred.test(&Value::Int(20)));
+            assert!(pred.test(&Value::Int(25)));
+            assert!(!pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(15)));
+        }
+
+        #[test]
+        fn not_with_within_predicate() {
+            let pred = p::not(p::within([1, 2, 3]));
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(4)));
+            assert!(!pred.test(&Value::Int(1)));
+            assert!(!pred.test(&Value::Int(2)));
+            assert!(!pred.test(&Value::Int(3)));
+        }
+
+        #[test]
+        fn not_double_negation() {
+            // not(not(eq(42))) should be equivalent to eq(42)
+            let pred = p::not(p::not(p::eq(42)));
+            assert!(pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Int(41)));
+        }
+
+        #[test]
+        fn not_is_clonable() {
+            let pred = p::not(p::eq(42));
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(41)));
+            assert!(!cloned.test(&Value::Int(42)));
+        }
+
+        #[test]
+        fn not_is_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::Not<p::Eq>>();
+        }
+
+        #[test]
+        fn not_with_different_value_types() {
+            let pred = p::not(p::gt(50));
+            assert!(pred.test(&Value::Int(50)));
+            assert!(pred.test(&Value::Int(30)));
+            assert!(!pred.test(&Value::Int(51)));
+            // Non-numeric returns false from gt(), so not() returns true
+            assert!(pred.test(&Value::String("60".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // Complex compositions
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn complex_and_or_composition() {
+            // (age >= 18 AND age < 25) OR age >= 65
+            // Matches: young adults (18-24) OR seniors (65+)
+            let young_adult = p::and(p::gte(18), p::lt(25));
+            let senior = p::gte(65);
+            let pred = p::or(young_adult, senior);
+
+            // Young adults
+            assert!(pred.test(&Value::Int(18)));
+            assert!(pred.test(&Value::Int(20)));
+            assert!(pred.test(&Value::Int(24)));
+
+            // Seniors
+            assert!(pred.test(&Value::Int(65)));
+            assert!(pred.test(&Value::Int(80)));
+
+            // Neither (middle-aged)
+            assert!(!pred.test(&Value::Int(17)));
+            assert!(!pred.test(&Value::Int(25)));
+            assert!(!pred.test(&Value::Int(40)));
+            assert!(!pred.test(&Value::Int(64)));
+        }
+
+        #[test]
+        fn complex_not_and_composition() {
+            // NOT (age >= 18 AND age < 65) - people NOT in working age
+            let working_age = p::and(p::gte(18), p::lt(65));
+            let pred = p::not(working_age);
+
+            // Minors
+            assert!(pred.test(&Value::Int(10)));
+            assert!(pred.test(&Value::Int(17)));
+
+            // Seniors
+            assert!(pred.test(&Value::Int(65)));
+            assert!(pred.test(&Value::Int(80)));
+
+            // Working age - should NOT match
+            assert!(!pred.test(&Value::Int(18)));
+            assert!(!pred.test(&Value::Int(30)));
+            assert!(!pred.test(&Value::Int(64)));
+        }
+
+        #[test]
+        fn complex_not_or_composition() {
+            // NOT (status == "deleted" OR status == "archived")
+            // Matches: anything except deleted or archived
+            let excluded = p::or(p::eq("deleted"), p::eq("archived"));
+            let pred = p::not(excluded);
+
+            assert!(pred.test(&Value::String("active".to_string())));
+            assert!(pred.test(&Value::String("pending".to_string())));
+            assert!(!pred.test(&Value::String("deleted".to_string())));
+            assert!(!pred.test(&Value::String("archived".to_string())));
+        }
+
+        #[test]
+        fn deeply_nested_composition() {
+            // ((a AND b) OR (c AND d)) - complex business rule
+            let ab = p::and(p::gte(0), p::lt(10));
+            let cd = p::and(p::gte(20), p::lt(30));
+            let pred = p::or(ab, cd);
+
+            // In [0, 10)
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(5)));
+            assert!(!pred.test(&Value::Int(10)));
+
+            // In [20, 30)
+            assert!(pred.test(&Value::Int(20)));
+            assert!(pred.test(&Value::Int(25)));
+            assert!(!pred.test(&Value::Int(30)));
+
+            // Neither
+            assert!(!pred.test(&Value::Int(15)));
+            assert!(!pred.test(&Value::Int(-5)));
+            assert!(!pred.test(&Value::Int(35)));
+        }
+
+        #[test]
+        fn logical_predicates_implement_predicate_trait() {
+            // Verify all can be used as Box<dyn Predicate>
+            let predicates: Vec<Box<dyn Predicate>> = vec![
+                Box::new(p::and(p::gte(0), p::lt(100))),
+                Box::new(p::or(p::eq("a"), p::eq("b"))),
+                Box::new(p::not(p::eq(42))),
+            ];
+
+            assert_eq!(predicates.len(), 3);
+            for pred in &predicates {
+                let _ = pred.test(&Value::Int(50));
+            }
+        }
+
+        #[test]
+        fn logical_predicates_short_circuit_and() {
+            // AND should short-circuit on first false
+            // We can't easily test short-circuiting directly, but we can verify behavior
+            let pred = p::and(p::lt(0), p::gt(100)); // Impossible condition
+            assert!(!pred.test(&Value::Int(50)));
+        }
+
+        #[test]
+        fn logical_predicates_short_circuit_or() {
+            // OR should short-circuit on first true
+            let pred = p::or(p::gt(0), p::lt(0)); // First succeeds for positive
+            assert!(pred.test(&Value::Int(50)));
+        }
+
+        #[test]
+        fn de_morgans_law_and_to_or() {
+            // NOT (A AND B) == (NOT A) OR (NOT B)
+            let a = p::gte(10);
+            let b = p::lt(20);
+
+            // NOT (A AND B)
+            let not_and = p::not(p::and(a.clone(), b.clone()));
+
+            // Testing with values
+            // Value 5: A=false, B=true -> NOT(false AND true) = NOT(false) = true
+            assert!(not_and.test(&Value::Int(5)));
+            // Value 25: A=true, B=false -> NOT(true AND false) = NOT(false) = true
+            assert!(not_and.test(&Value::Int(25)));
+            // Value 15: A=true, B=true -> NOT(true AND true) = NOT(true) = false
+            assert!(!not_and.test(&Value::Int(15)));
+        }
+
+        #[test]
+        fn de_morgans_law_or_to_and() {
+            // NOT (A OR B) == (NOT A) AND (NOT B)
+            let a = p::eq(1);
+            let b = p::eq(2);
+
+            // NOT (A OR B)
+            let not_or = p::not(p::or(a.clone(), b.clone()));
+
+            // Value 1: A=true, B=false -> NOT(true OR false) = NOT(true) = false
+            assert!(!not_or.test(&Value::Int(1)));
+            // Value 2: A=false, B=true -> NOT(false OR true) = NOT(true) = false
+            assert!(!not_or.test(&Value::Int(2)));
+            // Value 3: A=false, B=false -> NOT(false OR false) = NOT(false) = true
+            assert!(not_or.test(&Value::Int(3)));
         }
     }
 }
