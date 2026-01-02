@@ -794,6 +794,44 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::ValuesStep;
         self.add_step(ValuesStep::from_keys(keys))
     }
+
+    /// Extract the ID from vertices/edges.
+    ///
+    /// For each input element, extracts its ID as a `Value::Int`.
+    /// Non-element values are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get IDs of all person vertices
+    /// let ids = g.v().has_label("person").id().to_list();
+    ///
+    /// // Get IDs of all edges
+    /// let edge_ids = g.e().id().to_list();
+    /// ```
+    pub fn id(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::IdStep;
+        self.add_step(IdStep::new())
+    }
+
+    /// Extract the label from vertices/edges.
+    ///
+    /// For each input element, extracts its label as a `Value::String`.
+    /// Non-element values are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get labels of all vertices
+    /// let labels = g.v().label().to_list();
+    ///
+    /// // Get unique labels
+    /// let unique_labels = g.v().label().dedup().to_list();
+    /// ```
+    pub fn label(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::LabelStep;
+        self.add_step(LabelStep::new())
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {

@@ -34,7 +34,7 @@ pub use navigation::{
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
-pub use transform::ValuesStep;
+pub use transform::{IdStep, LabelStep, ValuesStep};
 
 // Re-export macros
 pub use crate::{impl_filter_step, impl_flatmap_step};
@@ -1179,6 +1179,36 @@ impl<In> Traversal<In, Value> {
         S: Into<String>,
     {
         self.add_step(transform::ValuesStep::from_keys(keys))
+    }
+
+    /// Extract the ID from vertices/edges (for anonymous traversals).
+    ///
+    /// For each input element, extracts its ID as a `Value::Int`.
+    /// Non-element values are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().id();
+    /// let ids = g.v().has_label("person").append(anon).to_list();
+    /// ```
+    pub fn id(self) -> Traversal<In, Value> {
+        self.add_step(transform::IdStep::new())
+    }
+
+    /// Extract the label from vertices/edges (for anonymous traversals).
+    ///
+    /// For each input element, extracts its label as a `Value::String`.
+    /// Non-element values are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().label();
+    /// let labels = g.v().append(anon).to_list();
+    /// ```
+    pub fn label(self) -> Traversal<In, Value> {
+        self.add_step(transform::LabelStep::new())
     }
 }
 
