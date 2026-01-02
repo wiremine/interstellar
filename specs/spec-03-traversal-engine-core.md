@@ -155,6 +155,217 @@ Both use the **same `Traversal<In, Out>` type**. The difference:
 
 ---
 
+## Prerequisites: Value Type Changes (`src/value.rs`)
+
+Before implementing the traversal engine, the `Value` enum must be extended to support graph elements and hashing for deduplication.
+
+### Extended Value Enum
+
+```rust
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
+
+/// Extended Value enum with Vertex and Edge variants for traversal
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    String(String),
+    List(Vec<Value>),
+    Map(HashMap<String, Value>),
+    /// A vertex reference (for traversal)
+    Vertex(VertexId),
+    /// An edge reference (for traversal)
+    Edge(EdgeId),
+}
+```
+
+### Hash Implementation for Value
+
+The `Value` type must implement `Hash` to support `DedupStep`. Since `f64` doesn't implement `Hash`, we use bit-level comparison (consistent with `OrderedFloat`):
+
+```rust
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash the discriminant first
+        std::mem::discriminant(self).hash(state);
+        
+        match self {
+            Value::Null => {}
+            Value::Bool(b) => b.hash(state),
+            Value::Int(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::String(s) => s.hash(state),
+            Value::List(items) => items.hash(state),
+            Value::Map(map) => {
+                // Hash map entries in sorted order for consistency
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(k, _)| *k);
+                for (k, v) in entries {
+                    k.hash(state);
+                    v.hash(state);
+                }
+            }
+            Value::Vertex(id) => id.hash(state),
+            Value::Edge(id) => id.hash(state),
+        }
+    }
+}
+
+impl Eq for Value {}
+```
+
+### Hash Implementation for OrderedFloat
+
+The existing `OrderedFloat` type also needs `Hash` for completeness:
+
+```rust
+impl Hash for OrderedFloat {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+```
+
+### Additional From Implementations
+
+```rust
+impl From<VertexId> for Value {
+    fn from(id: VertexId) -> Self {
+        Value::Vertex(id)
+    }
+}
+
+impl From<EdgeId> for Value {
+    fn from(id: EdgeId) -> Self {
+        Value::Edge(id)
+    }
+}
+```
+
+### Serialization Updates
+
+The serialization format must be extended for the new variants:
+
+```rust
+impl Value {
+    pub fn serialize(&self, buf: &mut Vec<u8>) {
+        match self {
+            // ... existing cases 0x00-0x07 ...
+            Value::Vertex(id) => {
+                buf.push(0x08);
+                buf.extend_from_slice(&id.0.to_le_bytes());
+            }
+            Value::Edge(id) => {
+                buf.push(0x09);
+                buf.extend_from_slice(&id.0.to_le_bytes());
+            }
+        }
+    }
+
+    pub fn deserialize(buf: &[u8], pos: &mut usize) -> Option<Value> {
+        let tag = *buf.get(*pos)?;
+        *pos += 1;
+
+        match tag {
+            // ... existing cases 0x00-0x07 ...
+            0x08 => {
+                let id = u64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                *pos += 8;
+                Some(Value::Vertex(VertexId(id)))
+            }
+            0x09 => {
+                let id = u64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                *pos += 8;
+                Some(Value::Edge(EdgeId(id)))
+            }
+            _ => None,
+        }
+    }
+}
+```
+
+### ComparableValue Updates
+
+```rust
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ComparableValue {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Float(OrderedFloat),
+    String(String),
+    List(Vec<ComparableValue>),
+    Map(BTreeMap<String, ComparableValue>),
+    Vertex(VertexId),
+    Edge(EdgeId),
+}
+
+impl Value {
+    pub fn to_comparable(&self) -> ComparableValue {
+        match self {
+            // ... existing cases ...
+            Value::Vertex(id) => ComparableValue::Vertex(*id),
+            Value::Edge(id) => ComparableValue::Edge(*id),
+        }
+    }
+}
+```
+
+### Value Accessor Methods
+
+```rust
+impl Value {
+    /// Get the value as a vertex ID (if it is one)
+    pub fn as_vertex_id(&self) -> Option<VertexId> {
+        match self {
+            Value::Vertex(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Get the value as an edge ID (if it is one)
+    pub fn as_edge_id(&self) -> Option<EdgeId> {
+        match self {
+            Value::Edge(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Check if value is a vertex
+    pub fn is_vertex(&self) -> bool {
+        matches!(self, Value::Vertex(_))
+    }
+
+    /// Check if value is an edge
+    pub fn is_edge(&self) -> bool {
+        matches!(self, Value::Edge(_))
+    }
+}
+```
+
+---
+
+## Prerequisites: Error Types (`src/error.rs`)
+
+The existing `TraversalError` enum (already defined) provides the error types needed for traversal operations:
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum TraversalError {
+    #[error("expected exactly one result, found {0}")]
+    NotOne(usize),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+}
+```
+
+This is used by terminal steps like `.one()` that require exactly one result.
+
+---
+
 ## Deliverables
 
 ### 3.1 ExecutionContext (`src/traversal/context.rs`)
@@ -215,37 +426,74 @@ impl<'g> ExecutionContext<'g> {
 /// Storage for traversal side effects
 /// 
 /// Used by steps like store(), aggregate(), sack(), etc.
+/// 
+/// # Thread Safety
+/// Uses interior mutability via `RwLock` to allow mutation through
+/// shared references (since `ExecutionContext` is passed as `&'a`).
+/// This enables side-effect steps to accumulate data during traversal.
 #[derive(Default)]
 pub struct SideEffects {
     /// Named collections of values
-    collections: HashMap<String, Vec<Value>>,
+    collections: RwLock<HashMap<String, Vec<Value>>>,
     /// Arbitrary side effect data
-    data: HashMap<String, Box<dyn Any + Send + Sync>>,
+    data: RwLock<HashMap<String, Box<dyn Any + Send + Sync>>>,
 }
 
 impl SideEffects {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            collections: RwLock::new(HashMap::new()),
+            data: RwLock::new(HashMap::new()),
+        }
     }
 
     /// Store a value in a named collection
-    pub fn store(&mut self, key: &str, value: Value) {
-        self.collections.entry(key.to_string()).or_default().push(value);
+    pub fn store(&self, key: &str, value: Value) {
+        self.collections
+            .write()
+            .entry(key.to_string())
+            .or_default()
+            .push(value);
     }
 
-    /// Get values from a named collection
-    pub fn get(&self, key: &str) -> Option<&Vec<Value>> {
-        self.collections.get(key)
+    /// Get values from a named collection (returns a clone)
+    pub fn get(&self, key: &str) -> Option<Vec<Value>> {
+        self.collections.read().get(key).cloned()
+    }
+
+    /// Get values from a named collection by reference (for iteration)
+    /// 
+    /// # Note
+    /// Returns a guard that holds the read lock. Use sparingly.
+    pub fn get_ref(&self, key: &str) -> Option<impl std::ops::Deref<Target = Vec<Value>> + '_> {
+        let guard = self.collections.read();
+        if guard.contains_key(key) {
+            Some(parking_lot::RwLockReadGuard::map(guard, |m| {
+                m.get(key).unwrap()
+            }))
+        } else {
+            None
+        }
     }
 
     /// Store arbitrary data
-    pub fn set_data<T: Any + Send + Sync>(&mut self, key: &str, value: T) {
-        self.data.insert(key.to_string(), Box::new(value));
+    pub fn set_data<T: Any + Send + Sync>(&self, key: &str, value: T) {
+        self.data.write().insert(key.to_string(), Box::new(value));
     }
 
-    /// Get arbitrary data
-    pub fn get_data<T: Any>(&self, key: &str) -> Option<&T> {
-        self.data.get(key).and_then(|v| v.downcast_ref())
+    /// Get arbitrary data (clones if T: Clone)
+    pub fn get_data<T: Any + Clone>(&self, key: &str) -> Option<T> {
+        self.data
+            .read()
+            .get(key)
+            .and_then(|v| v.downcast_ref::<T>())
+            .cloned()
+    }
+
+    /// Clear all side effects
+    pub fn clear(&self) {
+        self.collections.write().clear();
+        self.data.write().clear();
     }
 }
 ```
@@ -1452,31 +1700,11 @@ impl OutStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
+}
 
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, traverser: Traverser) -> impl Iterator<Item = Traverser> + 'a {
-        let vertex_id = match traverser.as_vertex_id() {
-            Some(id) => id,
-            None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
-        };
-
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-        };
-
-        let edges = ctx.snapshot.out_edges(vertex_id);
-        let traverser = traverser.clone();
-        
-        Box::new(edges.filter_map(move |edge| {
-            // Filter by label if specified
-            if !label_ids.is_empty() && !label_ids.contains(&edge.label_id()) {
-                return None;
-            }
-            // Get target vertex
-            let dst_id = edge.dst();
-            Some(traverser.split(Value::Vertex(dst_id)))
-        }))
+impl Default for OutStep {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1486,8 +1714,30 @@ impl AnyStep for OutStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        let labels = self.labels.clone();
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids: Vec<u32> = if labels.is_empty() {
+                Vec::new()
+            } else {
+                ctx.resolve_labels(&labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+            };
+
+            let edges = ctx.snapshot.out_edges(vertex_id);
+            Box::new(edges.filter_map(move |edge| {
+                // Filter by label if specified
+                if !label_ids.is_empty() && !label_ids.contains(&edge.label_id()) {
+                    return None;
+                }
+                // Get target vertex
+                let dst_id = edge.dst();
+                Some(t.split(Value::Vertex(dst_id)))
+            })) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -1513,29 +1763,11 @@ impl InStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
+}
 
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, traverser: Traverser) -> impl Iterator<Item = Traverser> + 'a {
-        let vertex_id = match traverser.as_vertex_id() {
-            Some(id) => id,
-            None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
-        };
-
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-        };
-
-        let edges = ctx.snapshot.in_edges(vertex_id);
-        let traverser = traverser.clone();
-        
-        Box::new(edges.filter_map(move |edge| {
-            if !label_ids.is_empty() && !label_ids.contains(&edge.label_id()) {
-                return None;
-            }
-            let src_id = edge.src();
-            Some(traverser.split(Value::Vertex(src_id)))
-        }))
+impl Default for InStep {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1545,8 +1777,28 @@ impl AnyStep for InStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        let labels = self.labels.clone();
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids: Vec<u32> = if labels.is_empty() {
+                Vec::new()
+            } else {
+                ctx.resolve_labels(&labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+            };
+
+            let edges = ctx.snapshot.in_edges(vertex_id);
+            Box::new(edges.filter_map(move |edge| {
+                if !label_ids.is_empty() && !label_ids.contains(&edge.label_id()) {
+                    return None;
+                }
+                let src_id = edge.src();
+                Some(t.split(Value::Vertex(src_id)))
+            })) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -1574,20 +1826,52 @@ impl BothStep {
     }
 }
 
+impl Default for BothStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnyStep for BothStep {
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        // Combine out and in steps
-        let out_step = OutStep::with_labels(self.labels.clone());
-        let in_step = InStep::with_labels(self.labels.clone());
-        
+        let labels = self.labels.clone();
         Box::new(input.flat_map(move |t| {
-            let out_iter = out_step.expand(ctx, t.clone());
-            let in_iter = in_step.expand(ctx, t);
-            out_iter.chain(in_iter)
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids: Vec<u32> = if labels.is_empty() {
+                Vec::new()
+            } else {
+                ctx.resolve_labels(&labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+            };
+
+            // Get outgoing neighbors
+            let out_edges = ctx.snapshot.out_edges(vertex_id);
+            let t_clone = t.clone();
+            let label_ids_clone = label_ids.clone();
+            let out_iter = out_edges.filter_map(move |edge| {
+                if !label_ids_clone.is_empty() && !label_ids_clone.contains(&edge.label_id()) {
+                    return None;
+                }
+                Some(t_clone.split(Value::Vertex(edge.dst())))
+            });
+
+            // Get incoming neighbors
+            let in_edges = ctx.snapshot.in_edges(vertex_id);
+            let in_iter = in_edges.filter_map(move |edge| {
+                if !label_ids.is_empty() && !label_ids.contains(&edge.label_id()) {
+                    return None;
+                }
+                Some(t.split(Value::Vertex(edge.src())))
+            });
+
+            Box::new(out_iter.chain(in_iter)) as Box<dyn Iterator<Item = Traverser>>
         }))
     }
 
@@ -1613,6 +1897,12 @@ impl OutEStep {
 
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
+    }
+}
+
+impl Default for OutEStep {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1670,6 +1960,12 @@ impl InEStep {
     }
 }
 
+impl Default for InEStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnyStep for InEStep {
     fn apply<'a>(
         &'a self,
@@ -1724,18 +2020,20 @@ impl BothEStep {
     }
 }
 
+impl Default for BothEStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnyStep for BothEStep {
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        // Combine outE and inE steps
-        let out_e_step = OutEStep::with_labels(self.labels.clone());
-        let in_e_step = InEStep::with_labels(self.labels.clone());
-        
+        let labels = self.labels.clone();
         Box::new(input.flat_map(move |t| {
-            let labels = self.labels.clone();
             let vertex_id = match t.as_vertex_id() {
                 Some(id) => id,
                 None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
@@ -3053,6 +3351,9 @@ criterion_main!(benches);
 
 ## Exit Criteria
 
+- [ ] `Value` enum extended with `Vertex(VertexId)` and `Edge(EdgeId)` variants
+- [ ] `Value` implements `Hash` and `Eq` (for `DedupStep`)
+- [ ] `OrderedFloat` implements `Hash`
 - [ ] All core types compile (`Traversal`, `Traverser`, `Path`, `ExecutionContext`)
 - [ ] `AnyStep` trait works with type erasure
 - [ ] `GraphTraversalSource` with `v()` and `e()` starting points
@@ -3073,8 +3374,11 @@ criterion_main!(benches);
 
 ## Implementation Order
 
-1. **Week 1**: Core types and infrastructure
-   - `ExecutionContext`, `SideEffects`
+1. **Week 1**: Prerequisites and core types
+   - Extend `Value` enum with `Vertex`, `Edge` variants
+   - Implement `Hash` for `Value` and `OrderedFloat`
+   - Add serialization for new `Value` variants
+   - `ExecutionContext`, `SideEffects` (with `RwLock`)
    - `Traverser` (non-generic, uses Value)
    - `Path`, `PathElement`, `PathValue`
    - `AnyStep` trait with `clone_box()`
@@ -3163,9 +3467,44 @@ Traversers flow: Box<dyn Iterator<Item = Traverser>>
 ### Thread Safety
 
 - `AnyStep: Send + Sync` enables future parallel execution
-- `ExecutionContext` holds shared references (read-only)
-- `SideEffects` may need interior mutability for Phase 4 (store/aggregate)
+- `ExecutionContext` holds shared references (read-only graph access)
+- `SideEffects` uses `RwLock` for interior mutability, enabling mutation through `&self`
 - `GraphSnapshot` provides consistent reads
+
+### Value Hashing and Equality
+
+The `Value` enum implements `Hash` and `Eq` to support `DedupStep` and `HashSet` operations:
+
+- **Floats**: Hashed via `f64::to_bits()` for bit-level equality (consistent with `OrderedFloat`)
+- **Maps**: Hash entries in sorted key order for consistency (since `HashMap` iteration order is non-deterministic)
+- **NaN handling**: Two `NaN` values with the same bit pattern are considered equal
+
+This approach ensures:
+1. `Hash` and `Eq` are consistent: `a == b` implies `hash(a) == hash(b)`
+2. Deduplication works correctly for all value types
+3. Float comparison uses IEEE 754 total ordering (via bit representation)
+
+**Note**: This differs from standard float equality where `NaN != NaN`. In traversal contexts, treating identical bit patterns as equal is more useful for deduplication.
+
+### Eager vs Lazy Execution
+
+The current `TraversalExecutor` collects results eagerly to avoid complex self-referential lifetime issues:
+
+```rust
+let results: Vec<Traverser> = current.collect();
+```
+
+**Trade-offs:**
+- **Pro**: Simple lifetime management, no need for `ouroboros` or similar
+- **Con**: Memory usage scales with result set size
+- **Con**: No short-circuit optimization for `.next()` or `.limit(1)`
+
+**Future optimization**: For truly lazy evaluation, consider:
+1. Using `ouroboros` crate for self-referential structs
+2. Arena allocation for steps and context
+3. Streaming execution with chunked processing
+
+For most use cases, eager collection is acceptable. The `.limit()` step still provides early termination during step processing.
 
 ### Phase 4 Compatibility
 
