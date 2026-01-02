@@ -34,7 +34,7 @@ pub use navigation::{
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
-pub use transform::{IdStep, LabelStep, ValuesStep};
+pub use transform::{FlatMapStep, IdStep, LabelStep, MapStep, ValuesStep};
 
 // Re-export macros
 pub use crate::{impl_filter_step, impl_flatmap_step};
@@ -1209,6 +1209,60 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn label(self) -> Traversal<In, Value> {
         self.add_step(transform::LabelStep::new())
+    }
+
+    /// Transform each value using a closure (for anonymous traversals).
+    ///
+    /// The closure receives the execution context and the current value,
+    /// returning a new value. This is a 1:1 mapping.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that doubles integer values
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .map(|_ctx, v| {
+    ///         if let Value::Int(n) = v {
+    ///             Value::Int(n * 2)
+    ///         } else {
+    ///             v.clone()
+    ///         }
+    ///     });
+    /// let doubled = g.inject([1i64, 2i64]).append(anon).to_list();
+    /// ```
+    pub fn map<F>(self, f: F) -> Traversal<In, Value>
+    where
+        F: Fn(&context::ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static,
+    {
+        self.add_step(transform::MapStep::new(f))
+    }
+
+    /// Transform each value to multiple values using a closure (for anonymous traversals).
+    ///
+    /// The closure receives the execution context and the current value,
+    /// returning a `Vec<Value>`. This is a 1:N mapping - each input can
+    /// produce zero or more outputs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that generates ranges
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .flat_map(|_ctx, v| {
+    ///         if let Value::Int(n) = v {
+    ///             (0..*n).map(|i| Value::Int(i)).collect()
+    ///         } else {
+    ///             vec![]
+    ///         }
+    ///     });
+    /// let expanded = g.inject([3i64]).append(anon).to_list();
+    /// // Results: [0, 1, 2]
+    /// ```
+    pub fn flat_map<F>(self, f: F) -> Traversal<In, Value>
+    where
+        F: Fn(&context::ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static,
+    {
+        self.add_step(transform::FlatMapStep::new(f))
     }
 }
 

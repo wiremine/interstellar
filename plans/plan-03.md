@@ -616,10 +616,10 @@ pub struct SideEffects {
 3. Add `id()` and `label()` methods
 
 **Acceptance Criteria**:
-- [ ] `id()` returns `Value::Int` with element ID
-- [ ] `label()` returns `Value::String` with label name
-- [ ] Both work for vertices and edges
-- [ ] Non-element values pass through or filter
+- [x] `id()` returns `Value::Int` with element ID
+- [x] `label()` returns `Value::String` with label name
+- [x] Both work for vertices and edges
+- [x] Non-element values pass through or filter
 
 ---
 
@@ -633,9 +633,9 @@ pub struct SideEffects {
 3. Add `map()` and `flat_map()` methods
 
 **Acceptance Criteria**:
-- [ ] `map(|ctx, v| ...)` transforms each value
-- [ ] `flat_map(|ctx, v| vec![...])` expands to multiple values
-- [ ] Closures can access ExecutionContext
+- [x] `map(|ctx, v| ...)` transforms each value
+- [x] `flat_map(|ctx, v| vec![...])` expands to multiple values
+- [x] Closures can access ExecutionContext
 
 ---
 

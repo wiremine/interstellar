@@ -832,6 +832,67 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::LabelStep;
         self.add_step(LabelStep::new())
     }
+
+    /// Transform each value using a closure.
+    ///
+    /// The closure receives the execution context and the current value,
+    /// returning a new value. This is a 1:1 mapping.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Double all integer values
+    /// let doubled = g.inject([1i64, 2i64, 3i64])
+    ///     .map(|_ctx, v| {
+    ///         if let Value::Int(n) = v {
+    ///             Value::Int(n * 2)
+    ///         } else {
+    ///             v.clone()
+    ///         }
+    ///     })
+    ///     .to_list();
+    /// // Results: [2, 4, 6]
+    /// ```
+    pub fn map<F>(self, f: F) -> BoundTraversal<'g, In, Value>
+    where
+        F: Fn(&crate::traversal::ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static,
+    {
+        use crate::traversal::transform::MapStep;
+        self.add_step(MapStep::new(f))
+    }
+
+    /// Transform each value to multiple values using a closure.
+    ///
+    /// The closure receives the execution context and the current value,
+    /// returning a `Vec<Value>`. This is a 1:N mapping - each input can
+    /// produce zero or more outputs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Generate a range of values from each integer
+    /// let expanded = g.inject([3i64, 5i64])
+    ///     .flat_map(|_ctx, v| {
+    ///         if let Value::Int(n) = v {
+    ///             (0..*n).map(|i| Value::Int(i)).collect()
+    ///         } else {
+    ///             vec![]
+    ///         }
+    ///     })
+    ///     .to_list();
+    /// // Results: [0, 1, 2, 0, 1, 2, 3, 4]
+    /// ```
+    pub fn flat_map<F>(self, f: F) -> BoundTraversal<'g, In, Value>
+    where
+        F: Fn(&crate::traversal::ExecutionContext, &Value) -> Vec<Value>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+    {
+        use crate::traversal::transform::FlatMapStep;
+        self.add_step(FlatMapStep::new(f))
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
