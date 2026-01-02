@@ -20,6 +20,7 @@ use crate::value::{EdgeId, Value, VertexId};
 pub mod context;
 pub mod filter;
 pub mod navigation;
+pub mod predicate;
 pub mod source;
 pub mod step;
 pub mod transform;
@@ -1428,8 +1429,9 @@ impl<In> Traversal<In, Value> {
     }
 }
 
-/// Predicate module - stub for Phase 4.
-pub mod p {}
+// Re-export Predicate trait and p module
+pub use predicate::p;
+pub use predicate::Predicate;
 
 /// Anonymous traversal factory module.
 ///
