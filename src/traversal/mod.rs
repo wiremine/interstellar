@@ -18,10 +18,12 @@ use smallvec::SmallVec;
 use crate::value::{EdgeId, Value, VertexId};
 
 pub mod context;
+pub mod filter;
 pub mod source;
 pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
+pub use filter::HasLabelStep;
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
 
@@ -739,6 +741,48 @@ impl<In, Out> Traversal<In, Out> {
     /// Get step names for debugging/profiling.
     pub fn step_names(&self) -> Vec<&'static str> {
         self.steps.iter().map(|s| s.name()).collect()
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Traversal Step Methods for Anonymous Traversals
+// -----------------------------------------------------------------------------
+
+impl<In> Traversal<In, Value> {
+    /// Filter elements by label (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges whose label matches the given label.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to person vertices
+    /// let anon = __::has_label("person");
+    /// let people = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_label(self, label: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(filter::HasLabelStep::single(label))
+    }
+
+    /// Filter elements by any of the given labels (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges whose label matches any of the given labels.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to person or company vertices
+    /// let anon = __::has_label_any(&["person", "company"]);
+    /// let entities = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_label_any<I, S>(self, labels: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(filter::HasLabelStep::any(labels))
     }
 }
 

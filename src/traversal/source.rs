@@ -296,6 +296,48 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Traversal Step Methods on BoundTraversal
+// -----------------------------------------------------------------------------
+
+impl<'g, In> BoundTraversal<'g, In, Value> {
+    /// Filter elements by label.
+    ///
+    /// Keeps only vertices/edges whose label matches the given label.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all person vertices
+    /// let people = g.v().has_label("person").to_list();
+    /// ```
+    pub fn has_label(self, label: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasLabelStep;
+        self.add_step(HasLabelStep::single(label))
+    }
+
+    /// Filter elements by any of the given labels.
+    ///
+    /// Keeps only vertices/edges whose label matches any of the given labels.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all person or company vertices
+    /// let entities = g.v().has_label_any(&["person", "company"]).to_list();
+    /// ```
+    pub fn has_label_any<I, S>(self, labels: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::filter::HasLabelStep;
+        self.add_step(HasLabelStep::any(labels))
+    }
+}
+
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
     fn clone(&self) -> Self {
         Self {
@@ -1186,6 +1228,125 @@ mod tests {
             let (lower, upper) = executor.size_hint();
             assert_eq!(lower, 4);
             assert_eq!(upper, Some(4));
+        }
+    }
+
+    mod has_label_step_integration_tests {
+        use super::*;
+
+        #[test]
+        fn has_label_filters_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let people = g.v().has_label("person").to_list();
+
+            // Should return 3 person vertices (Alice, Bob, Charlie)
+            assert_eq!(people.len(), 3);
+            for v in &people {
+                assert!(v.is_vertex());
+            }
+        }
+
+        #[test]
+        fn has_label_filters_to_software() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let software = g.v().has_label("software").to_list();
+
+            // Should return 1 software vertex (Graph DB)
+            assert_eq!(software.len(), 1);
+        }
+
+        #[test]
+        fn has_label_returns_empty_for_nonexistent_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let unknown = g.v().has_label("unknown").to_list();
+            assert!(unknown.is_empty());
+        }
+
+        #[test]
+        fn has_label_filters_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let knows_edges = g.e().has_label("knows").to_list();
+
+            // Should return 3 "knows" edges
+            assert_eq!(knows_edges.len(), 3);
+            for e in &knows_edges {
+                assert!(e.is_edge());
+            }
+        }
+
+        #[test]
+        fn has_label_any_filters_multiple_labels() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let entities = g.v().has_label_any(["person", "software"]).to_list();
+
+            // Should return 3 persons + 1 software = 4 vertices
+            assert_eq!(entities.len(), 4);
+        }
+
+        #[test]
+        fn has_label_any_works_with_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let edges = g.e().has_label_any(["knows", "uses"]).to_list();
+
+            // Should return 3 "knows" + 2 "uses" = 5 edges
+            assert_eq!(edges.len(), 5);
+        }
+
+        #[test]
+        fn has_label_can_be_chained() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // This shouldn't match anything since an element can't have two labels
+            // (this tests that chaining works, even if the result is empty)
+            let result = g.v().has_label("person").has_label("software").to_list();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn has_label_count_works() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            let count = g.v().has_label("person").count();
+            assert_eq!(count, 3);
+        }
+
+        #[test]
+        fn has_label_with_specific_vertex_ids() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Vertex IDs 0 and 1 are "person", vertex ID 2 is "software"
+            let result = g
+                .v_ids([VertexId(0), VertexId(2)])
+                .has_label("person")
+                .to_list();
+
+            // Only vertex 0 should match
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].as_vertex_id(), Some(VertexId(0)));
         }
     }
 }

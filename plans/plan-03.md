@@ -409,10 +409,10 @@ pub struct SideEffects {
 6. Add `has_label_any()` for multiple labels
 
 **Acceptance Criteria**:
-- [ ] `has_label("person")` filters to person vertices
-- [ ] `has_label_any(&["person", "company"])` matches either
-- [ ] Works with both vertices and edges
-- [ ] Returns empty for non-vertex/edge values
+- [x] `has_label("person")` filters to person vertices
+- [x] `has_label_any(&["person", "company"])` matches either
+- [x] Works with both vertices and edges
+- [x] Returns empty for non-vertex/edge values
 
 ---
 
