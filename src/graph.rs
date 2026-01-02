@@ -17,7 +17,7 @@ pub struct GraphSnapshot<'g> {
 
 impl<'g> GraphSnapshot<'g> {
     pub fn traversal(&self) -> crate::traversal::GraphTraversalSource<'_> {
-        crate::traversal::GraphTraversalSource { snapshot: self }
+        crate::traversal::GraphTraversalSource::new(self, self.interner())
     }
 
     /// Get the underlying storage.

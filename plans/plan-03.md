@@ -280,10 +280,10 @@ pub struct SideEffects {
 6. Implement `inject()` for arbitrary values
 
 **Acceptance Criteria**:
-- [ ] `g.v()` creates traversal from all vertices
-- [ ] `g.v_ids([id1, id2])` creates traversal from specific vertices
-- [ ] `g.e()` creates traversal from all edges
-- [ ] `g.inject([1, 2, 3])` injects values
+- [x] `g.v()` creates traversal from all vertices
+- [x] `g.v_ids([id1, id2])` creates traversal from specific vertices
+- [x] `g.e()` creates traversal from all edges
+- [x] `g.inject([1, 2, 3])` injects values
 
 ---
 
@@ -299,10 +299,10 @@ pub struct SideEffects {
 5. Implement `interner()` accessor
 
 **Acceptance Criteria**:
-- [ ] `BoundTraversal` holds snapshot, interner, and inner Traversal
-- [ ] `add_step()` returns new `BoundTraversal` with updated type
-- [ ] `append()` merges anonymous traversal steps
-- [ ] Clone works for `BoundTraversal`
+- [x] `BoundTraversal` holds snapshot, interner, and inner Traversal
+- [x] `add_step()` returns new `BoundTraversal` with updated type
+- [x] `append()` merges anonymous traversal steps
+- [x] Clone works for `BoundTraversal`
 
 ---
 
@@ -317,9 +317,9 @@ pub struct SideEffects {
 4. Implement `BoundTraversal::execute()` returning `TraversalExecutor`
 
 **Acceptance Criteria**:
-- [ ] `TraversalExecutor` collects results from step pipeline
-- [ ] Iterator implementation returns traversers
-- [ ] Execution works end-to-end (source -> steps -> results)
+- [x] `TraversalExecutor` collects results from step pipeline
+- [x] Iterator implementation returns traversers
+- [x] Execution works end-to-end (source -> steps -> results)
 
 ---
 
@@ -333,8 +333,8 @@ pub struct SideEffects {
 3. Update imports in graph module
 
 **Acceptance Criteria**:
-- [ ] `snapshot.traversal()` returns `GraphTraversalSource`
-- [ ] Basic traversal `g.v().count()` works end-to-end
+- [x] `snapshot.traversal()` returns `GraphTraversalSource`
+- [x] Basic traversal `g.v().count()` works end-to-end
 
 ---
 
@@ -351,10 +351,10 @@ pub struct SideEffects {
 6. Implement `iterate()` for side-effect-only execution
 
 **Acceptance Criteria**:
-- [ ] `to_list()` collects all values
-- [ ] `to_set()` deduplicates values
-- [ ] `next()` returns first value or None
-- [ ] `iterate()` consumes traversal without collecting
+- [x] `to_list()` collects all values
+- [x] `to_set()` deduplicates values
+- [x] `next()` returns first value or None
+- [x] `iterate()` consumes traversal without collecting
 
 ---
 
@@ -369,10 +369,10 @@ pub struct SideEffects {
 4. Implement `fold()`
 
 **Acceptance Criteria**:
-- [ ] `count()` returns correct count
-- [ ] `one()` errors on 0 or 2+ results
-- [ ] `take(n)` returns first n values
-- [ ] `fold()` works with custom accumulator
+- [x] `count()` returns correct count
+- [x] `one()` errors on 0 or 2+ results
+- [x] `take(n)` returns first n values
+- [x] `fold()` works with custom accumulator
 
 ---
 
@@ -388,9 +388,9 @@ pub struct SideEffects {
 5. Implement `traversers()` returning iterator with metadata
 
 **Acceptance Criteria**:
-- [ ] `sum()` adds numeric values
-- [ ] `min()`/`max()` find extremes
-- [ ] `iter()` allows custom iteration
+- [x] `sum()` adds numeric values
+- [x] `min()`/`max()` find extremes
+- [x] `iter()` allows custom iteration
 
 ---
 
@@ -768,15 +768,15 @@ pub struct SideEffects {
 From spec section "Exit Criteria":
 
 ### Value Type Changes
-- [ ] `Value` enum extended with `Vertex(VertexId)` and `Edge(EdgeId)` variants
-- [ ] `Value` implements `Hash` and `Eq` (for `DedupStep`)
-- [ ] `OrderedFloat` implements `Hash`
+- [x] `Value` enum extended with `Vertex(VertexId)` and `Edge(EdgeId)` variants
+- [x] `Value` implements `Hash` and `Eq` (for `DedupStep`)
+- [x] `OrderedFloat` implements `Hash`
 
 ### Core Types
-- [ ] All core types compile (`Traversal`, `Traverser`, `Path`, `ExecutionContext`)
-- [ ] `AnyStep` trait works with type erasure
-- [ ] `GraphTraversalSource` with `v()` and `e()` starting points
-- [ ] `BoundTraversal` wrapper correctly manages execution context
+- [x] All core types compile (`Traversal`, `Traverser`, `Path`, `ExecutionContext`)
+- [x] `AnyStep` trait works with type erasure
+- [x] `GraphTraversalSource` with `v()` and `e()` starting points
+- [x] `BoundTraversal` wrapper correctly manages execution context
 
 ### Navigation Steps
 - [ ] `out()`, `in_()`, `both()` work
@@ -793,9 +793,9 @@ From spec section "Exit Criteria":
 - [ ] `path()` works
 
 ### Terminal Steps
-- [ ] `to_list()`, `to_set()`, `next()`, `one()` work
-- [ ] `has_next()`, `iterate()`, `count()` work
-- [ ] `sum()`, `min()`, `max()` work
+- [x] `to_list()`, `to_set()`, `next()`, `one()` work
+- [x] `has_next()`, `iterate()`, `count()` work
+- [x] `sum()`, `min()`, `max()` work
 
 ### Behavior
 - [ ] Lazy evaluation verified (no work until terminal step)
@@ -804,7 +804,7 @@ From spec section "Exit Criteria":
 - [ ] Anonymous traversals can be appended to bound traversals
 
 ### Testing
-- [ ] All unit tests pass
+- [x] All unit tests pass
 - [ ] All integration tests pass with 10K vertex, 100K edge graph
 - [ ] Benchmarks run successfully
 

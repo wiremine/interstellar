@@ -15,14 +15,14 @@ use std::marker::PhantomData;
 
 use smallvec::SmallVec;
 
-use crate::graph::GraphSnapshot;
-use crate::storage::GraphStorage;
 use crate::value::{EdgeId, Value, VertexId};
 
 pub mod context;
+pub mod source;
 pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
+pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
 
 // Re-export macros
@@ -742,34 +742,6 @@ impl<In, Out> Traversal<In, Out> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// GraphTraversalSource - stub to be replaced in Phase 2.1
-// -----------------------------------------------------------------------------
-
-/// Graph traversal source - stub to be replaced in Phase 2.1.
-///
-/// Entry point for all bound traversals. Created from a `GraphSnapshot`
-/// via `snapshot.traversal()`.
-#[allow(dead_code)]
-pub struct GraphTraversalSource<'s> {
-    pub(crate) snapshot: &'s GraphSnapshot<'s>,
-}
-
-#[allow(dead_code)]
-impl<'s> GraphTraversalSource<'s> {
-    fn storage(&self) -> &dyn GraphStorage {
-        self.snapshot.graph.storage.as_ref()
-    }
-
-    pub fn v(self) -> Traversal<(), Value> {
-        Traversal::with_source(TraversalSource::AllVertices)
-    }
-
-    pub fn e(self) -> Traversal<(), Value> {
-        Traversal::with_source(TraversalSource::AllEdges)
-    }
-}
-
 /// Predicate module - stub for Phase 4.
 pub mod p {}
 
@@ -1485,32 +1457,24 @@ mod tests {
         fn v_creates_all_vertices_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource {
-                snapshot: &snapshot,
-            };
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
 
-            let traversal = g.v();
-            assert!(traversal.has_source());
-            assert!(matches!(
-                traversal.source(),
-                Some(TraversalSource::AllVertices)
-            ));
+            // Test that v() works by calling a terminal step
+            let count = g.v().count();
+            // Empty graph should have 0 vertices
+            assert_eq!(count, 0);
         }
 
         #[test]
         fn e_creates_all_edges_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource {
-                snapshot: &snapshot,
-            };
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
 
-            let traversal = g.e();
-            assert!(traversal.has_source());
-            assert!(matches!(
-                traversal.source(),
-                Some(TraversalSource::AllEdges)
-            ));
+            // Test that e() works by calling a terminal step
+            let count = g.e().count();
+            // Empty graph should have 0 edges
+            assert_eq!(count, 0);
         }
     }
 }
