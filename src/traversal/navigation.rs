@@ -86,6 +86,8 @@ impl OutStep {
             resolved
         };
 
+        let track_paths = ctx.is_tracking_paths();
+
         ctx.snapshot()
             .storage()
             .out_edges(vertex_id)
@@ -98,7 +100,11 @@ impl OutStep {
                     }
                 }
                 // Get target vertex
-                Some(t.split(Value::Vertex(edge.dst)))
+                let mut new_t = t.split(Value::Vertex(edge.dst));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
             })
             .collect()
     }
@@ -188,6 +194,8 @@ impl InStep {
             resolved
         };
 
+        let track_paths = ctx.is_tracking_paths();
+
         ctx.snapshot()
             .storage()
             .in_edges(vertex_id)
@@ -200,7 +208,11 @@ impl InStep {
                     }
                 }
                 // Get source vertex
-                Some(t.split(Value::Vertex(edge.src)))
+                let mut new_t = t.split(Value::Vertex(edge.src));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
             })
             .collect()
     }
@@ -292,6 +304,7 @@ impl BothStep {
 
         let storage = ctx.snapshot().storage();
         let interner = ctx.interner();
+        let track_paths = ctx.is_tracking_paths();
 
         // Get outgoing neighbors
         let out_iter = storage.out_edges(vertex_id).filter_map(|edge| {
@@ -301,7 +314,11 @@ impl BothStep {
                     return None;
                 }
             }
-            Some(t.split(Value::Vertex(edge.dst)))
+            let mut new_t = t.split(Value::Vertex(edge.dst));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
         });
 
         // Get incoming neighbors
@@ -312,7 +329,11 @@ impl BothStep {
                     return None;
                 }
             }
-            Some(t.split(Value::Vertex(edge.src)))
+            let mut new_t = t.split(Value::Vertex(edge.src));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
         });
 
         out_iter.chain(in_iter).collect()
@@ -399,6 +420,8 @@ impl OutEStep {
             resolved
         };
 
+        let track_paths = ctx.is_tracking_paths();
+
         ctx.snapshot()
             .storage()
             .out_edges(vertex_id)
@@ -409,7 +432,11 @@ impl OutEStep {
                         return None;
                     }
                 }
-                Some(t.split(Value::Edge(edge.id)))
+                let mut new_t = t.split(Value::Edge(edge.id));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
             })
             .collect()
     }
@@ -495,6 +522,8 @@ impl InEStep {
             resolved
         };
 
+        let track_paths = ctx.is_tracking_paths();
+
         ctx.snapshot()
             .storage()
             .in_edges(vertex_id)
@@ -505,7 +534,11 @@ impl InEStep {
                         return None;
                     }
                 }
-                Some(t.split(Value::Edge(edge.id)))
+                let mut new_t = t.split(Value::Edge(edge.id));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
             })
             .collect()
     }
@@ -593,6 +626,7 @@ impl BothEStep {
 
         let storage = ctx.snapshot().storage();
         let interner = ctx.interner();
+        let track_paths = ctx.is_tracking_paths();
 
         // Get outgoing edges
         let out_iter = storage.out_edges(vertex_id).filter_map(|edge| {
@@ -602,7 +636,11 @@ impl BothEStep {
                     return None;
                 }
             }
-            Some(t.split(Value::Edge(edge.id)))
+            let mut new_t = t.split(Value::Edge(edge.id));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
         });
 
         // Get incoming edges
@@ -613,7 +651,11 @@ impl BothEStep {
                     return None;
                 }
             }
-            Some(t.split(Value::Edge(edge.id)))
+            let mut new_t = t.split(Value::Edge(edge.id));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
         });
 
         out_iter.chain(in_iter).collect()
@@ -690,7 +732,11 @@ impl AnyStep for OutVStep {
         Box::new(input.filter_map(move |t| {
             let edge_id = t.as_edge_id()?;
             let edge = ctx.snapshot().storage().get_edge(edge_id)?;
-            Some(t.split(Value::Vertex(edge.src)))
+            let mut new_t = t.split(Value::Vertex(edge.src));
+            if ctx.is_tracking_paths() {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
         }))
     }
 
@@ -748,7 +794,11 @@ impl AnyStep for InVStep {
         Box::new(input.filter_map(move |t| {
             let edge_id = t.as_edge_id()?;
             let edge = ctx.snapshot().storage().get_edge(edge_id)?;
-            Some(t.split(Value::Vertex(edge.dst)))
+            let mut new_t = t.split(Value::Vertex(edge.dst));
+            if ctx.is_tracking_paths() {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
         }))
     }
 
@@ -811,8 +861,13 @@ impl AnyStep for BothVStep {
 
             match ctx.snapshot().storage().get_edge(edge_id) {
                 Some(edge) => {
-                    let src = t.split(Value::Vertex(edge.src));
-                    let dst = t.split(Value::Vertex(edge.dst));
+                    let track_paths = ctx.is_tracking_paths();
+                    let mut src = t.split(Value::Vertex(edge.src));
+                    let mut dst = t.split(Value::Vertex(edge.dst));
+                    if track_paths {
+                        src.extend_path_unlabeled();
+                        dst.extend_path_unlabeled();
+                    }
                     vec![src, dst]
                 }
                 None => Vec::new(),

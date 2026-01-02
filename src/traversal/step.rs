@@ -305,49 +305,65 @@ impl AnyStep for StartStep {
         ctx: &'a ExecutionContext<'a>,
         _input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let track_paths = ctx.is_tracking_paths();
+
         match &self.source {
             TraversalSource::AllVertices => {
                 // Iterate all vertices and create traversers
-                Box::new(
-                    ctx.snapshot()
-                        .storage()
-                        .all_vertices()
-                        .map(|v| Traverser::from_vertex(v.id)),
-                )
+                Box::new(ctx.snapshot().storage().all_vertices().map(move |v| {
+                    let mut t = Traverser::from_vertex(v.id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
             }
             TraversalSource::Vertices(ids) => {
                 // Iterate specific vertices, filtering out non-existent ones
                 let ids = ids.clone();
                 Box::new(ids.into_iter().filter_map(move |id| {
-                    ctx.snapshot()
-                        .storage()
-                        .get_vertex(id)
-                        .map(|_| Traverser::from_vertex(id))
+                    ctx.snapshot().storage().get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
                 }))
             }
             TraversalSource::AllEdges => {
                 // Iterate all edges and create traversers
-                Box::new(
-                    ctx.snapshot()
-                        .storage()
-                        .all_edges()
-                        .map(|e| Traverser::from_edge(e.id)),
-                )
+                Box::new(ctx.snapshot().storage().all_edges().map(move |e| {
+                    let mut t = Traverser::from_edge(e.id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
             }
             TraversalSource::Edges(ids) => {
                 // Iterate specific edges, filtering out non-existent ones
                 let ids = ids.clone();
                 Box::new(ids.into_iter().filter_map(move |id| {
-                    ctx.snapshot()
-                        .storage()
-                        .get_edge(id)
-                        .map(|_| Traverser::from_edge(id))
+                    ctx.snapshot().storage().get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
                 }))
             }
             TraversalSource::Inject(values) => {
                 // Create traversers from arbitrary values
                 let values = values.clone();
-                Box::new(values.into_iter().map(Traverser::new))
+                Box::new(values.into_iter().map(move |v| {
+                    let mut t = Traverser::new(v);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
             }
         }
     }

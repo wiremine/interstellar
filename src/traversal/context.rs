@@ -32,6 +32,8 @@ pub struct ExecutionContext<'g> {
     interner: &'g StringInterner,
     /// Side effects storage (for store(), aggregate(), etc.)
     pub side_effects: SideEffects,
+    /// Whether to automatically track paths for navigation steps
+    pub track_paths: bool,
 }
 
 impl<'g> ExecutionContext<'g> {
@@ -46,7 +48,35 @@ impl<'g> ExecutionContext<'g> {
             snapshot,
             interner,
             side_effects: SideEffects::new(),
+            track_paths: false,
         }
+    }
+
+    /// Create a new execution context with path tracking enabled.
+    ///
+    /// When path tracking is enabled, navigation steps automatically
+    /// record elements to the traverser's path.
+    ///
+    /// # Arguments
+    ///
+    /// * `snapshot` - Graph snapshot for consistent reads
+    /// * `interner` - String interner for label resolution
+    pub fn with_path_tracking(
+        snapshot: &'g GraphSnapshot<'g>,
+        interner: &'g StringInterner,
+    ) -> Self {
+        Self {
+            snapshot,
+            interner,
+            side_effects: SideEffects::new(),
+            track_paths: true,
+        }
+    }
+
+    /// Check if path tracking is enabled.
+    #[inline]
+    pub fn is_tracking_paths(&self) -> bool {
+        self.track_paths
     }
 
     /// Get the graph snapshot.

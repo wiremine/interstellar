@@ -198,6 +198,8 @@ pub struct BoundTraversal<'g, In, Out> {
     snapshot: &'g GraphSnapshot<'g>,
     interner: &'g StringInterner,
     traversal: Traversal<In, Out>,
+    /// Whether to automatically track paths for navigation steps
+    track_paths: bool,
 }
 
 impl<'g, In, Out> BoundTraversal<'g, In, Out> {
@@ -211,7 +213,35 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             snapshot,
             interner,
             traversal,
+            track_paths: false,
         }
+    }
+
+    /// Enable automatic path tracking for this traversal.
+    ///
+    /// When path tracking is enabled, navigation steps automatically
+    /// record visited elements to each traverser's path. This is required
+    /// for the `path()` step to return meaningful results.
+    ///
+    /// Note: `as_()` labeled positions are always recorded regardless of
+    /// whether `with_path()` is called.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get full traversal paths
+    /// let paths = g.v().with_path().out().out().path().to_list();
+    /// // Each result is Value::List([start_vertex, middle_vertex, end_vertex])
+    /// ```
+    pub fn with_path(mut self) -> Self {
+        self.track_paths = true;
+        self
+    }
+
+    /// Check if path tracking is enabled.
+    #[inline]
+    pub fn is_tracking_paths(&self) -> bool {
+        self.track_paths
     }
 
     /// Add a step to the traversal.
@@ -228,6 +258,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             snapshot: self.snapshot,
             interner: self.interner,
             traversal: self.traversal.add_step(step),
+            track_paths: self.track_paths,
         }
     }
 
@@ -247,6 +278,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             snapshot: self.snapshot,
             interner: self.interner,
             traversal: self.traversal.append(anon),
+            track_paths: self.track_paths,
         }
     }
 
@@ -269,7 +301,12 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// }
     /// ```
     pub fn execute(self) -> TraversalExecutor<'g> {
-        TraversalExecutor::new(self.snapshot, self.interner, self.traversal)
+        TraversalExecutor::new(
+            self.snapshot,
+            self.interner,
+            self.traversal,
+            self.track_paths,
+        )
     }
 
     /// Get the underlying snapshot.
@@ -941,6 +978,71 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::PathStep;
         self.add_step(PathStep::new())
     }
+
+    /// Label the current position in the traversal path.
+    ///
+    /// Records the current traverser's value in the path with the specified label.
+    /// This enables later retrieval via `select()` or `select_one()`.
+    ///
+    /// Unlike automatic path tracking, `as_()` labels are always recorded
+    /// regardless of whether `with_path()` was called.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Label positions for later selection
+    /// let results = g.v().as_("start").out().as_("end")
+    ///     .select(&["start", "end"]).to_list();
+    ///
+    /// // Single label selection
+    /// let starts = g.v().as_("x").out().select_one("x").to_list();
+    /// ```
+    pub fn as_(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::AsStep;
+        self.add_step(AsStep::new(label))
+    }
+
+    /// Select multiple labeled values from the path.
+    ///
+    /// Retrieves values that were labeled with `as_()` and returns them as a Map.
+    /// Traversers without any of the requested labels are filtered out.
+    ///
+    /// # Arguments
+    ///
+    /// * `labels` - The labels to select from the path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Returns Map { "a" -> vertex1, "b" -> vertex2 }
+    /// let results = g.v().as_("a").out().as_("b")
+    ///     .select(&["a", "b"]).to_list();
+    /// ```
+    pub fn select(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::SelectStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(SelectStep::new(labels))
+    }
+
+    /// Select a single labeled value from the path.
+    ///
+    /// Retrieves the value that was labeled with `as_()` and returns it directly
+    /// (not wrapped in a Map). Traversers without the requested label are filtered out.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The label to select from the path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Returns the vertex directly (not a Map)
+    /// let starts = g.v().as_("x").out().select_one("x").to_list();
+    /// ```
+    pub fn select_one(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::SelectStep;
+        self.add_step(SelectStep::single(label))
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
@@ -949,6 +1051,7 @@ impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
             snapshot: self.snapshot,
             interner: self.interner,
             traversal: self.traversal.clone(),
+            track_paths: self.track_paths,
         }
     }
 }
@@ -958,6 +1061,7 @@ impl<'g, In, Out> std::fmt::Debug for BoundTraversal<'g, In, Out> {
         f.debug_struct("BoundTraversal")
             .field("step_count", &self.traversal.step_count())
             .field("step_names", &self.traversal.step_names())
+            .field("track_paths", &self.track_paths)
             .finish()
     }
 }
@@ -998,8 +1102,13 @@ impl<'g> TraversalExecutor<'g> {
         snapshot: &'g GraphSnapshot<'g>,
         interner: &'g StringInterner,
         traversal: Traversal<In, Out>,
+        track_paths: bool,
     ) -> Self {
-        let ctx = ExecutionContext::new(snapshot, interner);
+        let ctx = if track_paths {
+            ExecutionContext::with_path_tracking(snapshot, interner)
+        } else {
+            ExecutionContext::new(snapshot, interner)
+        };
         let (source, steps) = traversal.into_steps();
 
         // Start with source traversers - collect immediately to avoid lifetime issues
@@ -1952,6 +2061,219 @@ mod tests {
             // Only vertex 0 should match
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].as_vertex_id(), Some(VertexId(0)));
+        }
+    }
+
+    mod path_tracking_tests {
+        use super::*;
+
+        #[test]
+        fn with_path_enables_path_tracking() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // With path tracking enabled, paths should be recorded
+            let traversers = g.v_ids([VertexId(0)]).with_path().out().traversers();
+            for t in traversers {
+                // Each traverser should have a path with 2 elements (start + out)
+                assert_eq!(t.path.len(), 2);
+            }
+        }
+
+        #[test]
+        fn path_not_tracked_by_default() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Without with_path(), paths should be empty
+            let traversers = g.v_ids([VertexId(0)]).out().traversers();
+            for t in traversers {
+                assert!(t.path.is_empty());
+            }
+        }
+
+        #[test]
+        fn path_step_returns_path_list() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Test path() step returns Value::List of path elements
+            let paths = g.v_ids([VertexId(0)]).with_path().out().path().to_list();
+
+            // Alice has 2 outgoing edges (knows->Bob, uses->GraphDB)
+            assert_eq!(paths.len(), 2);
+
+            // Each path should be a list
+            for path in &paths {
+                assert!(matches!(path, Value::List(_)));
+                if let Value::List(elements) = path {
+                    // 2 elements: starting vertex + destination vertex
+                    assert_eq!(elements.len(), 2);
+                }
+            }
+        }
+
+        #[test]
+        fn path_tracks_multi_hop_traversal() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Alice -> Bob -> Charlie or GraphDB (2 hops)
+            let traversers = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_labels(&["knows"])
+                .out()
+                .traversers();
+
+            for t in traversers {
+                // 3 elements: Alice -> Bob -> destination
+                assert_eq!(t.path.len(), 3);
+            }
+        }
+
+        #[test]
+        fn as_step_labels_current_position() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Label Alice as "a"
+            let traversers = g
+                .v_ids([VertexId(0)])
+                .as_("a")
+                .out_labels(&["knows"])
+                .traversers();
+
+            for t in traversers {
+                // Label should be stored even without path tracking
+                assert!(t.path.has_label("a"));
+            }
+        }
+
+        #[test]
+        fn select_single_label_returns_value() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Label Alice as "a", then traverse to Bob, then select "a"
+            let results = g
+                .v_ids([VertexId(0)])
+                .as_("a")
+                .out_labels(&["knows"])
+                .select_one("a")
+                .to_list();
+
+            // Should return Alice's vertex
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(0)));
+        }
+
+        #[test]
+        fn select_multiple_labels_returns_map() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Label starting vertex as "a", destination as "b"
+            let results = g
+                .v_ids([VertexId(0)])
+                .as_("a")
+                .out_labels(&["knows"])
+                .as_("b")
+                .select(&["a", "b"])
+                .to_list();
+
+            assert_eq!(results.len(), 1);
+
+            // Result should be a map
+            match &results[0] {
+                Value::Map(map) => {
+                    assert!(map.contains_key("a"));
+                    assert!(map.contains_key("b"));
+                    assert_eq!(map.get("a"), Some(&Value::Vertex(VertexId(0))));
+                    assert_eq!(map.get("b"), Some(&Value::Vertex(VertexId(1))));
+                }
+                _ => panic!("Expected Value::Map"),
+            }
+        }
+
+        #[test]
+        fn select_missing_label_filters_out() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Select a label that was never set
+            let results = g
+                .v_ids([VertexId(0)])
+                .out()
+                .select_one("nonexistent")
+                .to_list();
+
+            // Should be empty since no traverser has the label
+            assert!(results.is_empty());
+        }
+
+        #[test]
+        fn as_step_works_without_path_tracking() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // as_() should work even without with_path() - it stores labels
+            let results = g
+                .v_ids([VertexId(0)])
+                .as_("start")
+                .out()
+                .select_one("start")
+                .to_list();
+
+            // Should still be able to select the labeled value
+            assert_eq!(results.len(), 2); // Alice has 2 outgoing edges
+            for result in &results {
+                assert_eq!(result, &Value::Vertex(VertexId(0)));
+            }
+        }
+
+        #[test]
+        fn path_with_edge_steps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Traverse through edges with path tracking
+            let traversers = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_e()
+                .in_v()
+                .traversers();
+
+            for t in traversers {
+                // 3 elements: vertex -> edge -> vertex
+                assert_eq!(t.path.len(), 3);
+            }
+        }
+
+        #[test]
+        fn with_path_is_opt_in() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Verify BoundTraversal starts with path tracking disabled
+            let traversal = g.v();
+            assert!(!traversal.is_tracking_paths());
+
+            // After with_path(), it should be enabled
+            let traversal = g.v().with_path();
+            assert!(traversal.is_tracking_paths());
         }
     }
 }

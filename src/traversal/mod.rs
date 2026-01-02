@@ -34,7 +34,9 @@ pub use navigation::{
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
-pub use transform::{ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, ValuesStep};
+pub use transform::{
+    AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, SelectStep, ValuesStep,
+};
 
 // Re-export macros
 pub use crate::{impl_filter_step, impl_flatmap_step};
@@ -1301,6 +1303,71 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn path(self) -> Traversal<In, Value> {
         self.add_step(transform::PathStep::new())
+    }
+
+    /// Label the current position in the traversal path (for anonymous traversals).
+    ///
+    /// Records the current traverser's value in the path with the specified label.
+    /// This enables later retrieval via `select()` or `select_one()`.
+    ///
+    /// Unlike automatic path tracking, `as_()` labels are always recorded
+    /// regardless of whether `with_path()` was called.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal with labeled positions
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .as_("start").out().as_("end").select(&["start", "end"]);
+    /// let results = g.v().append(anon).to_list();
+    /// ```
+    pub fn as_(self, label: &str) -> Traversal<In, Value> {
+        self.add_step(transform::AsStep::new(label))
+    }
+
+    /// Select multiple labeled values from the path (for anonymous traversals).
+    ///
+    /// Retrieves values that were labeled with `as_()` and returns them as a Map.
+    /// Traversers without any of the requested labels are filtered out.
+    ///
+    /// # Arguments
+    ///
+    /// * `labels` - The labels to select from the path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that selects labeled values
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .as_("a").out().as_("b").select(&["a", "b"]);
+    /// let results = g.v().append(anon).to_list();
+    /// // Returns Map { "a" -> vertex1, "b" -> vertex2 }
+    /// ```
+    pub fn select(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(transform::SelectStep::new(labels))
+    }
+
+    /// Select a single labeled value from the path (for anonymous traversals).
+    ///
+    /// Retrieves the value that was labeled with `as_()` and returns it directly
+    /// (not wrapped in a Map). Traversers without the requested label are filtered out.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The label to select from the path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that selects a single labeled value
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .as_("x").out().select_one("x");
+    /// let results = g.v().append(anon).to_list();
+    /// // Returns the labeled vertex directly (not a Map)
+    /// ```
+    pub fn select_one(self, label: &str) -> Traversal<In, Value> {
+        self.add_step(transform::SelectStep::single(label))
     }
 }
 

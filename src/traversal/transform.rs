@@ -625,6 +625,221 @@ impl crate::traversal::step::AnyStep for PathStep {
 }
 
 // -----------------------------------------------------------------------------
+// AsStep - label current position in path
+// -----------------------------------------------------------------------------
+
+/// Step that labels the current position in the traversal path.
+///
+/// The `as_()` step records the current traverser's value in the path
+/// with the specified label. This enables later retrieval via `select()`.
+///
+/// Unlike automatic path tracking, `as_()` labels are always recorded
+/// regardless of whether `with_path()` was called.
+///
+/// # Behavior
+///
+/// - Passes traversers through unchanged (identity behavior)
+/// - Adds the current value to the path with the specified label
+/// - Multiple `as_()` calls with the same label create multiple entries
+///
+/// # Example
+///
+/// ```ignore
+/// // Label positions for later selection
+/// g.v().as_("start").out().as_("end").select(&["start", "end"])
+///
+/// // Multiple labels at same position
+/// g.v().as_("a").as_("b").select(&["a", "b"])  // Both return same vertex
+/// ```
+#[derive(Clone, Debug)]
+pub struct AsStep {
+    /// The label to assign to this path position.
+    label: String,
+}
+
+impl AsStep {
+    /// Create a new AsStep with the given label.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The label to assign to this path position
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = AsStep::new("start");
+    /// ```
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+        }
+    }
+
+    /// Get the label for this step.
+    #[inline]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+impl crate::traversal::step::AnyStep for AsStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let label = self.label.clone();
+        Box::new(input.map(move |mut t| {
+            // Always add to path with label (regardless of track_paths setting)
+            t.extend_path_labeled(&label);
+            t
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "as"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// SelectStep - retrieve labeled values from path
+// -----------------------------------------------------------------------------
+
+/// Step that retrieves labeled values from the traversal path.
+///
+/// The `select()` step looks up values in the path by their labels
+/// (assigned via `as_()` steps) and returns them.
+///
+/// # Behavior
+///
+/// - **Single label**: Returns the value directly
+/// - **Multiple labels**: Returns a `Value::Map` with label keys
+/// - **Missing labels**: Traversers with no matching labels are filtered out
+/// - **Multiple values per label**: Returns the *last* value for each label
+///
+/// # Example
+///
+/// ```ignore
+/// // Single label - returns value directly
+/// g.v().as_("x").out().select_one("x")  // Returns vertices
+///
+/// // Multiple labels - returns Map
+/// g.v().as_("a").out().as_("b").select(&["a", "b"])
+/// // Returns Map { "a" -> vertex1, "b" -> vertex2 }
+///
+/// // Missing label - filtered out
+/// g.v().as_("x").select_one("y")  // Returns nothing (no "y" label)
+/// ```
+#[derive(Clone, Debug)]
+pub struct SelectStep {
+    /// Labels to select from the path.
+    labels: Vec<String>,
+}
+
+impl SelectStep {
+    /// Create a SelectStep for multiple labels.
+    ///
+    /// Returns a `Value::Map` with the labeled values.
+    ///
+    /// # Arguments
+    ///
+    /// * `labels` - The labels to select from the path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = SelectStep::new(["start", "end"]);
+    /// ```
+    pub fn new(labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            labels: labels.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Create a SelectStep for a single label.
+    ///
+    /// Returns the value directly (not wrapped in a Map).
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The label to select from the path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = SelectStep::single("start");
+    /// ```
+    pub fn single(label: impl Into<String>) -> Self {
+        Self {
+            labels: vec![label.into()],
+        }
+    }
+
+    /// Get the labels for this step.
+    #[inline]
+    pub fn labels(&self) -> &[String] {
+        &self.labels
+    }
+
+    /// Check if this is a single-label select.
+    #[inline]
+    pub fn is_single(&self) -> bool {
+        self.labels.len() == 1
+    }
+}
+
+impl crate::traversal::step::AnyStep for SelectStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let labels = self.labels.clone();
+        let is_single = self.labels.len() == 1;
+
+        Box::new(input.filter_map(move |t| {
+            if is_single {
+                // Single label: return value directly
+                let label = &labels[0];
+                let value = t
+                    .path
+                    .get(label)
+                    .and_then(|values| values.last().cloned())
+                    .map(|pv| pv.to_value());
+                value.map(|v| t.with_value(v))
+            } else {
+                // Multiple labels: return Map
+                let mut map = std::collections::HashMap::new();
+                for label in &labels {
+                    if let Some(values) = t.path.get(label) {
+                        if let Some(last) = values.last() {
+                            map.insert(label.clone(), last.to_value());
+                        }
+                    }
+                }
+                if map.is_empty() {
+                    None // No labels found, filter out traverser
+                } else {
+                    Some(t.with_value(Value::Map(map)))
+                }
+            }
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "select"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -2858,7 +3073,7 @@ mod tests {
             t2.path.push_unlabeled(PathValue::Vertex(VertexId(0)));
             t2.path.push_unlabeled(PathValue::Vertex(VertexId(1)));
 
-            let mut t3 = Traverser::from_vertex(VertexId(2));
+            let t3 = Traverser::from_vertex(VertexId(2));
             // t3 has an empty path
 
             let input = vec![t1, t2, t3];
