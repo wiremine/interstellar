@@ -187,10 +187,10 @@ pub struct SideEffects {
 5. Add accessor methods `as_vertex_id()`, `as_edge_id()`
 
 **Acceptance Criteria**:
-- [ ] `Traverser::new(Value::Int(1))` creates traverser
-- [ ] `Traverser::from_vertex(VertexId(1))` works
-- [ ] `split()` preserves path and metadata
-- [ ] Clone works correctly
+- [x] `Traverser::new(Value::Int(1))` creates traverser
+- [x] `Traverser::from_vertex(VertexId(1))` works
+- [x] `split()` preserves path and metadata
+- [x] Clone works correctly
 
 ---
 
