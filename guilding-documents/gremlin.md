@@ -4,6 +4,75 @@
 
 ---
 
+## Implementation Status
+
+This section clarifies what is currently implemented versus what is planned for future phases.
+
+### Phase 1 - Native Rust Fluent API (IMPLEMENTED)
+
+The core traversal engine with a type-safe Rust API is fully implemented in `src/traversal/`:
+
+**Source Steps** (`source.rs`):
+- `g.v()` / `g.v_ids()` - Start from vertices
+- `g.e()` / `g.e_ids()` - Start from edges
+- `g.inject()` - Inject arbitrary values
+
+**Filter Steps** (`filter.rs`):
+- `has_label()`, `has_label_any()` - Filter by label
+- `has()` - Filter by property existence
+- `has_value()` - Filter by property value equality
+- `has_id()`, `has_ids()` - Filter by ID
+- `filter()` - Custom predicate filter
+- `dedup()` - Deduplicate values
+- `limit()`, `skip()`, `range()` - Pagination
+
+**Navigation Steps** (`navigation.rs`):
+- `out()`, `in_()`, `both()` - Vertex to vertex traversal
+- `out_e()`, `in_e()`, `both_e()` - Vertex to edge traversal
+- `out_v()`, `in_v()`, `both_v()` - Edge to vertex traversal
+- Label-filtered variants: `out_labels()`, `in_labels()`, `both_labels()`, etc.
+
+**Transform Steps** (`transform.rs`):
+- `values()`, `values_multi()` - Extract properties
+- `id()`, `label()` - Extract element metadata
+- `map()`, `flat_map()` - Custom transformations
+- `constant()` - Replace with constant value
+- `path()` - Get traversal path
+- `as_()`, `select()`, `select_one()` - Path labeling and selection
+
+**Terminal Steps** (`source.rs`):
+- `to_list()`, `to_set()`, `next()`, `has_next()`, `one()`
+- `count()`, `sum()`, `min()`, `max()`, `fold()`
+- `iterate()`, `take()`, `iter()`, `traversers()`
+
+**Anonymous Traversal Factory** (`mod.rs` - `__` module):
+- All above steps available as `__::out()`, `__::has_label()`, etc.
+
+### Phase 2 - Gremlin Interface Layer (PLANNED - NOT YET IMPLEMENTED)
+
+The following features described in this document are **planned but not yet implemented**:
+
+- **Bytecode format** (`Bytecode`, `Instruction`, `Argument` structs)
+- **GraphBinary serialization** (wire protocol)
+- **Text parser** (PEG grammar for Gremlin-Groovy syntax)
+- **Bytecode interpreter** (step compilers)
+- **WebSocket server** (Gremlin Server protocol)
+- **Predicate system** (`P.eq()`, `P.gt()`, `P.within()`, etc.)
+
+### API Differences from Standard Gremlin
+
+The Rust API differs from standard Gremlin in several ways:
+
+| Gremlin | RustGremlin | Reason |
+|---------|-------------|--------|
+| `in()` | `in_()` | `in` is a Rust keyword |
+| `as()` | `as_()` | `as` is a Rust keyword |
+| `has(key, value)` | `has_value(key, value)` | Distinguishes from `has(key)` for property existence |
+| Lambda expressions | Closures via `filter()`, `map()` | Rust closures instead of Groovy lambdas |
+| `where()` | `where_()` | `where` is a Rust keyword (not yet implemented) |
+
+---
+
 ## 1. Overview
 
 ### 1.1 Purpose
@@ -70,86 +139,94 @@ This enables interoperability with existing Gremlin clients (Python, JavaScript,
 
 ### 2.1 Step Coverage Matrix
 
-| Step Category | Step | Supported | Internal Mapping | Notes |
-|--------------|------|-----------|------------------|-------|
-| **Source** | `V()` | ✅ | `v()` | All vertices or by ID |
-| | `E()` | ✅ | `e()` | All edges or by ID |
-| | `addV()` | ✅ | `add_v()` | Requires mutation context |
-| | `addE()` | ✅ | `add_e()` | Requires mutation context |
+Legend:
+- ✅ **IMPLEMENTED** - Available in Phase 1 native Rust API
+- 🔜 **PLANNED** - Will be supported when Gremlin interface is implemented
+- ❌ **UNSUPPORTED** - Not planned for support
+
+| Step Category | Step | Status | Internal Mapping | Notes |
+|--------------|------|--------|------------------|-------|
+| **Source** | `V()` | ✅ | `v()`, `v_ids()` | All vertices or by ID |
+| | `E()` | ✅ | `e()`, `e_ids()` | All edges or by ID |
+| | `addV()` | 🔜 | `add_v()` | Requires mutation context |
+| | `addE()` | 🔜 | `add_e()` | Requires mutation context |
 | | `inject()` | ✅ | `inject()` | |
-| **Filter** | `has()` | ✅ | `has()`, `has_value()`, `has_where()` | Multiple overloads |
-| | `hasLabel()` | ✅ | `has_label()` | |
-| | `hasId()` | ✅ | `has_id()` | |
-| | `hasNot()` | ✅ | `has().not()` | |
-| | `filter()` | ✅ | `filter()` | Lambda or traversal |
-| | `where()` | ✅ | `where_()` | |
-| | `not()` | ✅ | `not()` | |
-| | `and()` | ✅ | `and_()` | |
-| | `or()` | ✅ | `or_()` | |
-| | `is()` | ✅ | `filter()` with predicate | |
+| **Filter** | `has()` | ✅ | `has()` | Property existence check |
+| | `has(k,v)` | ✅ | `has_value()` | Property value equality |
+| | `hasLabel()` | ✅ | `has_label()`, `has_label_any()` | |
+| | `hasId()` | ✅ | `has_id()`, `has_ids()` | |
+| | `hasNot()` | 🔜 | `has().not()` | |
+| | `filter()` | ✅ | `filter()` | Closure-based |
+| | `where()` | 🔜 | `where_()` | |
+| | `not()` | 🔜 | `not()` | |
+| | `and()` | 🔜 | `and_()` | |
+| | `or()` | 🔜 | `or_()` | |
+| | `is()` | 🔜 | `filter()` with predicate | |
 | | `dedup()` | ✅ | `dedup()` | |
 | | `limit()` | ✅ | `limit()` | |
 | | `skip()` | ✅ | `skip()` | |
 | | `range()` | ✅ | `range()` | |
-| | `coin()` | ✅ | `coin()` | |
-| | `sample()` | ✅ | `sample()` | |
-| | `simplePath()` | ✅ | `simple_path()` | |
-| | `cyclicPath()` | ✅ | `cyclic_path()` | |
+| | `coin()` | 🔜 | `coin()` | |
+| | `sample()` | 🔜 | `sample()` | |
+| | `simplePath()` | 🔜 | `simple_path()` | |
+| | `cyclicPath()` | 🔜 | `cyclic_path()` | |
 | **Map** | `out()` | ✅ | `out()`, `out_labels()` | |
 | | `in()` | ✅ | `in_()`, `in_labels()` | |
 | | `both()` | ✅ | `both()`, `both_labels()` | |
-| | `outE()` | ✅ | `out_e()` | |
-| | `inE()` | ✅ | `in_e()` | |
-| | `bothE()` | ✅ | `both_e()` | |
+| | `outE()` | ✅ | `out_e()`, `out_e_labels()` | |
+| | `inE()` | ✅ | `in_e()`, `in_e_labels()` | |
+| | `bothE()` | ✅ | `both_e()`, `both_e_labels()` | |
 | | `outV()` | ✅ | `out_v()` | |
 | | `inV()` | ✅ | `in_v()` | |
 | | `bothV()` | ✅ | `both_v()` | |
-| | `otherV()` | ✅ | `other_v()` | |
-| | `values()` | ✅ | `values()` | |
-| | `properties()` | ✅ | `properties()` | |
-| | `valueMap()` | ✅ | `value_map()` | |
-| | `elementMap()` | ✅ | `element_map()` | |
+| | `otherV()` | 🔜 | `other_v()` | |
+| | `values()` | ✅ | `values()`, `values_multi()` | |
+| | `properties()` | 🔜 | `properties()` | |
+| | `valueMap()` | 🔜 | `value_map()` | |
+| | `elementMap()` | 🔜 | `element_map()` | |
 | | `id()` | ✅ | `id()` | |
 | | `label()` | ✅ | `label()` | |
-| | `map()` | ✅ | `map()` | Traversal-based |
-| | `flatMap()` | ✅ | `flat_map()` | |
-| | `unfold()` | ✅ | `unfold()` | |
-| | `fold()` | ✅ | `fold()` | |
+| | `map()` | ✅ | `map()` | Closure-based |
+| | `flatMap()` | ✅ | `flat_map()` | Closure-based |
+| | `unfold()` | 🔜 | `unfold()` | |
+| | `fold()` | ✅ | `fold()` | Terminal step |
 | | `path()` | ✅ | `path()` | |
-| | `select()` | ✅ | `select()` | |
-| | `project()` | ✅ | Custom projection | |
+| | `select()` | ✅ | `select()`, `select_one()` | |
+| | `project()` | 🔜 | Custom projection | |
 | | `constant()` | ✅ | `constant()` | |
-| | `math()` | ✅ | `math()` | |
-| | `order()` | ✅ | `order()` | |
-| | `count()` | ✅ | `count()` | |
-| | `sum()` | ✅ | `sum()` | |
-| | `mean()` | ✅ | `mean()` | |
-| | `min()` | ✅ | `min()` | |
-| | `max()` | ✅ | `max()` | |
-| | `group()` | ✅ | `group()` | |
-| | `groupCount()` | ✅ | `group_count()` | |
-| **Branch** | `union()` | ✅ | `union()` | |
-| | `coalesce()` | ✅ | `coalesce()` | |
-| | `choose()` | ✅ | `choose()` | |
-| | `optional()` | ✅ | `optional()` | |
-| | `repeat()` | ✅ | `repeat()` | |
-| | `times()` | ✅ | `.times()` | |
-| | `until()` | ✅ | `.until()` | |
-| | `emit()` | ✅ | `.emit()` | |
-| | `local()` | ✅ | `local()` | |
+| | `math()` | 🔜 | `math()` | |
+| | `order()` | 🔜 | `order()` | |
+| | `count()` | ✅ | `count()` | Terminal step |
+| | `sum()` | ✅ | `sum()` | Terminal step |
+| | `mean()` | 🔜 | `mean()` | |
+| | `min()` | ✅ | `min()` | Terminal step |
+| | `max()` | ✅ | `max()` | Terminal step |
+| | `group()` | 🔜 | `group()` | |
+| | `groupCount()` | 🔜 | `group_count()` | |
+| **Branch** | `union()` | 🔜 | `union()` | |
+| | `coalesce()` | 🔜 | `coalesce()` | |
+| | `choose()` | 🔜 | `choose()` | |
+| | `optional()` | 🔜 | `optional()` | |
+| | `repeat()` | 🔜 | `repeat()` | |
+| | `times()` | 🔜 | `.times()` | |
+| | `until()` | 🔜 | `.until()` | |
+| | `emit()` | 🔜 | `.emit()` | |
+| | `local()` | 🔜 | `local()` | |
 | **Side Effect** | `as()` | ✅ | `as_()` | |
-| | `store()` | ✅ | `store()` | |
-| | `aggregate()` | ✅ | `aggregate()` | |
-| | `sideEffect()` | ✅ | `side_effect()` | |
-| | `property()` | ✅ | `property()` | Mutation |
-| | `drop()` | ✅ | `drop()` | Mutation |
+| | `store()` | 🔜 | `store()` | |
+| | `aggregate()` | 🔜 | `aggregate()` | |
+| | `sideEffect()` | 🔜 | `side_effect()` | |
+| | `property()` | 🔜 | `property()` | Mutation |
+| | `drop()` | 🔜 | `drop()` | Mutation |
 | **Terminal** | `toList()` | ✅ | `to_list()` | |
 | | `toSet()` | ✅ | `to_set()` | |
 | | `next()` | ✅ | `next()` | |
 | | `hasNext()` | ✅ | `has_next()` | |
 | | `iterate()` | ✅ | `iterate()` | |
-| | `explain()` | ✅ | `explain()` | |
-| | `profile()` | ✅ | `profile()` | |
+| | `explain()` | 🔜 | `explain()` | |
+| | `profile()` | 🔜 | `profile()` | |
+
+**Summary**: ~30 steps implemented in Phase 1, ~40 steps planned for Phase 2.
 
 ### 2.2 Unsupported Steps
 
@@ -170,30 +247,55 @@ This enables interoperability with existing Gremlin clients (Python, JavaScript,
 
 ### 2.3 Predicate Support
 
-| Predicate | Supported | Example |
-|-----------|-----------|---------|
-| `eq(value)` | ✅ | `has('age', eq(30))` |
-| `neq(value)` | ✅ | `has('status', neq('inactive'))` |
-| `lt(value)` | ✅ | `has('age', lt(30))` |
-| `lte(value)` | ✅ | `has('age', lte(30))` |
-| `gt(value)` | ✅ | `has('age', gt(30))` |
-| `gte(value)` | ✅ | `has('age', gte(30))` |
-| `between(start, end)` | ✅ | `has('age', between(20, 40))` |
-| `inside(start, end)` | ✅ | `has('age', inside(20, 40))` |
-| `outside(start, end)` | ✅ | `has('age', outside(20, 40))` |
-| `within(values...)` | ✅ | `has('status', within('active', 'pending'))` |
-| `without(values...)` | ✅ | `has('status', without('deleted'))` |
-| `containing(str)` | ✅ | `has('name', containing('bob'))` |
-| `startingWith(str)` | ✅ | `has('name', startingWith('A'))` |
-| `endingWith(str)` | ✅ | `has('name', endingWith('son'))` |
-| `regex(pattern)` | ✅ | `has('email', regex('.*@acme.com'))` |
-| `P.and(p1, p2)` | ✅ | `has('age', and(gt(20), lt(40)))` |
-| `P.or(p1, p2)` | ✅ | `has('status', or(eq('a'), eq('b')))` |
-| `P.not(p)` | ✅ | `has('age', not(eq(0)))` |
+> **STATUS: PLANNED - NOT YET IMPLEMENTED**
+> 
+> The predicate system (`P.eq()`, `P.gt()`, etc.) is planned for Phase 2.
+> Currently, the `p` module in `src/traversal/mod.rs` is a stub (`pub mod p {}`).
+> Use `filter()` with closures for custom filtering in the meantime.
+
+| Predicate | Status | Example |
+|-----------|--------|---------|
+| `eq(value)` | 🔜 | `has('age', eq(30))` |
+| `neq(value)` | 🔜 | `has('status', neq('inactive'))` |
+| `lt(value)` | 🔜 | `has('age', lt(30))` |
+| `lte(value)` | 🔜 | `has('age', lte(30))` |
+| `gt(value)` | 🔜 | `has('age', gt(30))` |
+| `gte(value)` | 🔜 | `has('age', gte(30))` |
+| `between(start, end)` | 🔜 | `has('age', between(20, 40))` |
+| `inside(start, end)` | 🔜 | `has('age', inside(20, 40))` |
+| `outside(start, end)` | 🔜 | `has('age', outside(20, 40))` |
+| `within(values...)` | 🔜 | `has('status', within('active', 'pending'))` |
+| `without(values...)` | 🔜 | `has('status', without('deleted'))` |
+| `containing(str)` | 🔜 | `has('name', containing('bob'))` |
+| `startingWith(str)` | 🔜 | `has('name', startingWith('A'))` |
+| `endingWith(str)` | 🔜 | `has('name', endingWith('son'))` |
+| `regex(pattern)` | 🔜 | `has('email', regex('.*@acme.com'))` |
+| `P.and(p1, p2)` | 🔜 | `has('age', and(gt(20), lt(40)))` |
+| `P.or(p1, p2)` | 🔜 | `has('status', or(eq('a'), eq('b')))` |
+| `P.not(p)` | 🔜 | `has('age', not(eq(0)))` |
+
+**Workaround**: Use `filter()` with closures for complex predicates:
+
+```rust
+// Instead of: g.v().has("age", P.gt(30))
+// Use:
+g.v().filter(|ctx, v| {
+    if let Some(age) = ctx.get_property(v, "age") {
+        matches!(age, Value::Int(n) if *n > 30)
+    } else {
+        false
+    }
+})
+```
 
 ---
 
 ## 3. Bytecode Format
+
+> **STATUS: PLANNED - NOT YET IMPLEMENTED**
+> 
+> The following bytecode format design is planned for Phase 2. The code examples
+> below are reference designs and have not been implemented in the codebase.
 
 ### 3.1 Bytecode Structure
 
@@ -550,6 +652,11 @@ pub enum DecodeError {
 ---
 
 ## 4. Text Parser
+
+> **STATUS: PLANNED - NOT YET IMPLEMENTED**
+> 
+> The text parser is planned for Phase 2. The grammar and parser implementation
+> below are reference designs and have not been implemented in the codebase.
 
 ### 4.1 Grammar Definition
 
@@ -1162,6 +1269,11 @@ let results = interpreter.execute(bytecode)?;
 ---
 
 ## 5. Bytecode Interpreter
+
+> **STATUS: PLANNED - NOT YET IMPLEMENTED**
+> 
+> The bytecode interpreter is planned for Phase 2. The architecture and code
+> below are reference designs and have not been implemented in the codebase.
 
 The bytecode interpreter converts Gremlin bytecode into RustGremlin's internal traversal representation and executes it.
 
@@ -1929,6 +2041,11 @@ pub enum ExecutionError {
 ---
 
 ## 6. Server Protocol (Optional)
+
+> **STATUS: PLANNED - NOT YET IMPLEMENTED**
+> 
+> The Gremlin Server protocol is an optional Phase 2+ feature. The architecture
+> and code below are reference designs and have not been implemented.
 
 ### 6.1 WebSocket Server Overview
 
