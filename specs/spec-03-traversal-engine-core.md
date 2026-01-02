@@ -40,6 +40,62 @@ The architecture uses **type-erased steps** (`Box<dyn AnyStep>`) internally whil
 3. **Unified Value type**: Internally, traversers carry `Value` enum; type parameters are "phantoms" for API safety
 4. **Clone-friendly steps**: Steps must be cloneable for branching operations (union, coalesce, etc.)
 
+### Method Sharing: BoundTraversal vs Traversal
+
+Both `BoundTraversal<'g, In, Out>` (bound to a graph) and `Traversal<In, Out>` (anonymous) need the same fluent API methods (`.out()`, `.has_label()`, etc.). The implementation strategy is:
+
+1. **Core step logic**: Lives in step structs (`OutStep`, `HasLabelStep`, etc.)
+2. **Traversal<In, Out>**: Has chainable methods that call `self.add_step()`
+3. **BoundTraversal<'g, In, Out>**: Has chainable methods that delegate to inner `Traversal`
+
+```rust
+// On Traversal (anonymous)
+impl<In, Out> Traversal<In, Out> {
+    pub fn out(self) -> Traversal<In, Value> {
+        self.add_step(OutStep::new())
+    }
+}
+
+// On BoundTraversal (bound)
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    pub fn out(self) -> BoundTraversal<'g, In, Value> {
+        self.add_step(OutStep::new())  // add_step wraps the result
+    }
+}
+```
+
+#### Recommended Implementation Strategy
+
+The **recommended approach** for the initial implementation is **explicit duplication**:
+
+1. Write methods on `Traversal<In, Out>` first (for anonymous traversals)
+2. Write corresponding methods on `BoundTraversal<'g, In, Out>` that call `self.add_step()`
+
+**Why explicit duplication over macros:**
+- Clearer for IDE navigation and documentation
+- Easier to debug and maintain
+- Type signatures are explicit and discoverable
+- Small number of methods (~30-40) makes duplication manageable
+
+**Macro approach (optional future optimization):**
+
+If duplication becomes unwieldy, extract common methods via macro:
+
+```rust
+// Example macro approach (optional optimization)
+macro_rules! impl_traversal_methods {
+    ($($method:ident($($arg:ident: $ty:ty),*) -> $step:expr;)*) => {
+        $(
+            pub fn $method(self, $($arg: $ty),*) -> Self::Output {
+                self.add_step($step)
+            }
+        )*
+    };
+}
+```
+
+**Important**: Both `Traversal` and `BoundTraversal` MUST implement identical method sets to ensure anonymous traversals (Phase 4) can use the same fluent API as bound traversals.
+
 ### Module Structure
 
 ```
@@ -66,11 +122,15 @@ GraphTraversalSource<'g>                    Anonymous Factory
      │                                            │
      │ .v() / .e()                          __::out() / __::has_label()
      ▼                                            ▼
-Traversal<(), Vertex>                      Traversal<Vertex, Vertex>
+BoundTraversal<'g, (), Value>              Traversal<Value, Value>
      │                                            │
-     │ .has_label() / .out() / etc.              │ (same Traversal type!)
+     │ .has_label() / .out() / etc.              │ (same step types!)
      ▼                                            │
-Traversal<(), Value>  ◄───────────────────────────┘
+BoundTraversal<'g, (), Value>                     │
+     │                                            │
+     │ .append(anon) ◄────────────────────────────┘
+     ▼
+BoundTraversal<'g, (), Value>
      │
      │ .to_list() / .next() (creates ExecutionContext)
      ▼
@@ -104,6 +164,7 @@ The `ExecutionContext` provides graph access at execution time, decoupling trave
 ```rust
 use crate::graph::GraphSnapshot;
 use crate::storage::interner::StringInterner;
+use crate::value::Value;
 use std::collections::HashMap;
 use std::any::Any;
 use std::sync::Arc;
@@ -210,7 +271,7 @@ pub struct Traverser {
     /// Path history
     pub path: Path,
     /// Loop counter for repeat()
-    pub loops: u32,
+    pub loops: usize,
     /// Optional sack value (for future use)
     pub sack: Option<Box<dyn CloneSack>>,
     /// Bulk count (optimization for identical traversers)
@@ -495,6 +556,11 @@ impl<In, Out> Traversal<In, Out> {
     pub(crate) fn into_steps(self) -> (Option<TraversalSource>, Vec<Box<dyn AnyStep>>) {
         (self.source, self.steps)
     }
+
+    /// Get the number of steps in this traversal (for testing/debugging)
+    pub fn step_count(&self) -> usize {
+        self.steps.len()
+    }
 }
 
 impl<In, Out> Default for Traversal<In, Out> {
@@ -502,7 +568,6 @@ impl<In, Out> Default for Traversal<In, Out> {
         Self::new()
     }
 }
-```
 ```
 
 ### 3.3 AnyStep Trait (`src/traversal/step.rs`)
@@ -681,7 +746,6 @@ impl AnyStep for StartStep {
     }
 }
 ```
-```
 
 ### 3.4 GraphTraversalSource (`src/traversal/source.rs`)
 
@@ -811,12 +875,53 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     }
 
     /// Execute the traversal and return an iterator
-    pub fn execute(self) -> impl Iterator<Item = Traverser> + 'g {
-        let ctx = self.create_context();
-        let (source, steps) = self.traversal.into_steps();
+    /// 
+    /// # Implementation Note
+    /// The execution uses `TraversalExecutor` to properly manage lifetimes.
+    /// The executor owns the context and steps, ensuring the iterator
+    /// remains valid for the `'g` lifetime.
+    pub fn execute(self) -> TraversalExecutor<'g> {
+        TraversalExecutor::new(
+            self.snapshot,
+            self.interner,
+            self.traversal,
+        )
+    }
+
+    /// Get reference to interner for label resolution
+    pub(crate) fn interner(&self) -> &StringInterner {
+        self.interner
+    }
+}
+
+/// Executor that owns the traversal state and produces results
+/// 
+/// This struct solves the lifetime issue where `ExecutionContext` needs
+/// to outlive the iterator it produces. By owning the context and
+/// collecting results eagerly in chunks, we avoid complex self-referential
+/// lifetime issues.
+/// 
+/// # Design Note
+/// For lazy evaluation, a more complex design using `ouroboros` or similar
+/// crate could be used. The current design collects results eagerly which
+/// is simpler and sufficient for most use cases. Future optimization can
+/// introduce streaming execution if needed.
+pub struct TraversalExecutor<'g> {
+    results: std::vec::IntoIter<Traverser>,
+    _phantom: std::marker::PhantomData<&'g ()>,
+}
+
+impl<'g> TraversalExecutor<'g> {
+    fn new<In, Out>(
+        snapshot: &'g GraphSnapshot<'g>,
+        interner: &'g StringInterner,
+        traversal: Traversal<In, Out>,
+    ) -> Self {
+        let ctx = ExecutionContext::new(snapshot, interner);
+        let (source, steps) = traversal.into_steps();
         
         // Start with source traversers
-        let mut current: Box<dyn Iterator<Item = Traverser> + 'g> = match source {
+        let mut current: Box<dyn Iterator<Item = Traverser> + '_> = match source {
             Some(src) => {
                 let start_step = StartStep { source: src };
                 start_step.apply(&ctx, Box::new(std::iter::empty()))
@@ -829,12 +934,26 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             current = step.apply(&ctx, current);
         }
 
-        current
+        // Collect results (eager evaluation)
+        // This ensures results are computed while ctx is still valid
+        let results: Vec<Traverser> = current.collect();
+        
+        Self {
+            results: results.into_iter(),
+            _phantom: std::marker::PhantomData,
+        }
     }
+}
 
-    /// Get reference to interner for label resolution
-    pub(crate) fn interner(&self) -> &StringInterner {
-        self.interner
+impl<'g> Iterator for TraversalExecutor<'g> {
+    type Item = Traverser;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        self.results.next()
+    }
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.results.size_hint()
     }
 }
 
@@ -1182,6 +1301,22 @@ impl HasIdStep {
         Self { ids: ids.into_iter().map(Value::Vertex).collect() }
     }
 
+    pub fn edges(ids: Vec<EdgeId>) -> Self {
+        Self { ids: ids.into_iter().map(Value::Edge).collect() }
+    }
+
+    /// Create from a Value (for dynamic/generic usage)
+    /// 
+    /// Used by anonymous traversal factory `__::has_id()`
+    pub fn from_value(value: Value) -> Self {
+        Self { ids: vec![value] }
+    }
+
+    /// Create from multiple Values
+    pub fn from_values(values: Vec<Value>) -> Self {
+        Self { ids: values }
+    }
+
     fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
         self.ids.contains(&traverser.value)
     }
@@ -1240,6 +1375,58 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
     /// Get results in range [start, end)
     pub fn range(self, start: usize, end: usize) -> BoundTraversal<'g, In, Out> {
+        self.add_step(RangeStep::new(start, end))
+    }
+}
+
+// Also implement on Traversal for anonymous traversal chaining
+impl<In, Out> Traversal<In, Out> {
+    /// Filter vertices/edges by label
+    pub fn has_label(self, label: &str) -> Traversal<In, Out> {
+        self.add_step(HasLabelStep::single(label))
+    }
+
+    /// Filter vertices/edges by any of the given labels
+    pub fn has_label_any(self, labels: &[&str]) -> Traversal<In, Out> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(HasLabelStep::new(labels))
+    }
+
+    /// Filter by property existence
+    pub fn has(self, key: &str) -> Traversal<In, Out> {
+        self.add_step(HasStep::new(key))
+    }
+
+    /// Filter by property value
+    pub fn has_value(self, key: &str, value: impl Into<Value>) -> Traversal<In, Out> {
+        self.add_step(HasValueStep::new(key, value))
+    }
+
+    /// Filter by arbitrary predicate
+    pub fn filter<F>(self, predicate: F) -> Traversal<In, Out>
+    where
+        F: Fn(&ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
+    {
+        self.add_step(FilterStep::new(predicate))
+    }
+
+    /// Deduplicate by value
+    pub fn dedup(self) -> Traversal<In, Out> {
+        self.add_step(DedupStep)
+    }
+
+    /// Limit number of results
+    pub fn limit(self, n: usize) -> Traversal<In, Out> {
+        self.add_step(LimitStep::new(n))
+    }
+
+    /// Skip first n results
+    pub fn skip(self, n: usize) -> Traversal<In, Out> {
+        self.add_step(SkipStep::new(n))
+    }
+
+    /// Get results in range [start, end)
+    pub fn range(self, start: usize, end: usize) -> Traversal<In, Out> {
         self.add_step(RangeStep::new(start, end))
     }
 }
@@ -1537,6 +1724,62 @@ impl BothEStep {
     }
 }
 
+impl AnyStep for BothEStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        // Combine outE and inE steps
+        let out_e_step = OutEStep::with_labels(self.labels.clone());
+        let in_e_step = InEStep::with_labels(self.labels.clone());
+        
+        Box::new(input.flat_map(move |t| {
+            let labels = self.labels.clone();
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids: Vec<u32> = if labels.is_empty() {
+                Vec::new()
+            } else {
+                ctx.resolve_labels(&labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+            };
+
+            // Get outgoing edges
+            let out_edges = ctx.snapshot.out_edges(vertex_id);
+            let t_clone = t.clone();
+            let label_ids_clone = label_ids.clone();
+            let out_iter = out_edges.filter_map(move |edge| {
+                if !label_ids_clone.is_empty() && !label_ids_clone.contains(&edge.label_id()) {
+                    return None;
+                }
+                Some(t_clone.split(Value::Edge(edge.id())))
+            });
+
+            // Get incoming edges
+            let in_edges = ctx.snapshot.in_edges(vertex_id);
+            let in_iter = in_edges.filter_map(move |edge| {
+                if !label_ids.is_empty() && !label_ids.contains(&edge.label_id()) {
+                    return None;
+                }
+                Some(t.split(Value::Edge(edge.id())))
+            });
+
+            Box::new(out_iter.chain(in_iter)) as Box<dyn Iterator<Item = Traverser>>
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "bothE"
+    }
+}
+
 /// Get source vertex of edge
 #[derive(Clone, Copy)]
 pub struct OutVStep;
@@ -1708,6 +1951,90 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
     /// Get both vertices of edge
     pub fn both_v(self) -> BoundTraversal<'g, In, Value> {
+        self.add_step(BothVStep)
+    }
+}
+
+// Also implement on Traversal for anonymous traversal chaining
+impl<In, Out> Traversal<In, Out> {
+    /// Traverse to outgoing adjacent vertices
+    pub fn out(self) -> Traversal<In, Value> {
+        self.add_step(OutStep::new())
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with given labels
+    pub fn out_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(OutStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming adjacent vertices
+    pub fn in_(self) -> Traversal<In, Value> {
+        self.add_step(InStep::new())
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with given labels
+    pub fn in_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(InStep::with_labels(labels))
+    }
+
+    /// Traverse both directions
+    pub fn both(self) -> Traversal<In, Value> {
+        self.add_step(BothStep::new())
+    }
+
+    /// Traverse both directions via edges with given labels
+    pub fn both_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(BothStep::with_labels(labels))
+    }
+
+    /// Traverse to outgoing edges
+    pub fn out_e(self) -> Traversal<In, Value> {
+        self.add_step(OutEStep::new())
+    }
+
+    /// Traverse to outgoing edges with given labels
+    pub fn out_e_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(OutEStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming edges
+    pub fn in_e(self) -> Traversal<In, Value> {
+        self.add_step(InEStep::new())
+    }
+
+    /// Traverse to incoming edges with given labels
+    pub fn in_e_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(InEStep::with_labels(labels))
+    }
+
+    /// Traverse to all incident edges
+    pub fn both_e(self) -> Traversal<In, Value> {
+        self.add_step(BothEStep::new())
+    }
+
+    /// Traverse to all incident edges with given labels
+    pub fn both_e_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(BothEStep::with_labels(labels))
+    }
+
+    /// Get source vertex of edge
+    pub fn out_v(self) -> Traversal<In, Value> {
+        self.add_step(OutVStep)
+    }
+
+    /// Get target vertex of edge
+    pub fn in_v(self) -> Traversal<In, Value> {
+        self.add_step(InVStep)
+    }
+
+    /// Get both vertices of edge
+    pub fn both_v(self) -> Traversal<In, Value> {
         self.add_step(BothVStep)
     }
 }
@@ -2044,6 +2371,56 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
         self.add_step(PathStep)
     }
 }
+
+// Also implement on Traversal for anonymous traversal chaining
+impl<In, Out> Traversal<In, Out> {
+    /// Extract property value
+    pub fn values(self, key: &str) -> Traversal<In, Value> {
+        self.add_step(ValuesStep::new(key))
+    }
+
+    /// Extract multiple property values
+    pub fn values_multi(self, keys: &[&str]) -> Traversal<In, Value> {
+        let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+        self.add_step(ValuesStep::multi(keys))
+    }
+
+    /// Get element ID
+    pub fn id(self) -> Traversal<In, Value> {
+        self.add_step(IdStep)
+    }
+
+    /// Get element label
+    pub fn label(self) -> Traversal<In, Value> {
+        self.add_step(LabelStep)
+    }
+
+    /// Emit constant value
+    pub fn constant(self, value: impl Into<Value>) -> Traversal<In, Value> {
+        self.add_step(ConstantStep::new(value))
+    }
+
+    /// Map with closure
+    pub fn map<F>(self, f: F) -> Traversal<In, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static,
+    {
+        self.add_step(MapStep::new(f))
+    }
+
+    /// FlatMap with closure
+    pub fn flat_map<F>(self, f: F) -> Traversal<In, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static,
+    {
+        self.add_step(FlatMapStep::new(f))
+    }
+
+    /// Get traversal path
+    pub fn path(self) -> Traversal<In, Value> {
+        self.add_step(PathStep)
+    }
+}
 ```
 
 ### 3.8 Terminal Steps (`src/traversal/terminal.rs`)
@@ -2155,7 +2532,60 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
 ---
 
-## 3.9 Anonymous Traversals (Phase 4 Preview)
+### 3.9 Traversal Execution Helper
+
+The `execute_traversal` function is the core mechanism for executing traversal steps. It's used by `BoundTraversal::execute()` and will be used extensively by Phase 4 branch/filter steps.
+
+```rust
+/// Execute a traversal's steps with the given context and input
+/// 
+/// This is the core execution function that pipes traversers through
+/// a step pipeline. Used by:
+/// - `BoundTraversal::execute()` for bound traversal execution
+/// - Phase 4 branch steps (`where_`, `union`, `coalesce`, etc.) for sub-traversal evaluation
+/// 
+/// # Arguments
+/// * `ctx` - The execution context (provides graph access)
+/// * `traversal` - The traversal whose steps will be executed
+/// * `input` - Input traversers to feed into the traversal
+/// 
+/// # Returns
+/// A boxed iterator over the output traversers
+/// 
+/// # Note
+/// The traversal's source (if any) is ignored - only steps are executed.
+/// For bound traversals, the source is handled separately by StartStep.
+pub fn execute_traversal<'a, I>(
+    ctx: &'a ExecutionContext<'a>,
+    traversal: Traversal<Value, Value>,
+    input: I,
+) -> Box<dyn Iterator<Item = Traverser> + 'a>
+where
+    I: Iterator<Item = Traverser> + 'a,
+{
+    let (_, steps) = traversal.into_steps();
+    
+    // Start with the provided input
+    let mut current: Box<dyn Iterator<Item = Traverser> + 'a> = Box::new(input);
+    
+    // Apply each step in sequence
+    for step in steps {
+        current = step.apply(ctx, current);
+    }
+    
+    current
+}
+```
+
+This function is distinct from `BoundTraversal::execute()`:
+- `BoundTraversal::execute()`: Creates `TraversalExecutor`, handles source, collects results eagerly
+- `execute_traversal()`: Executes steps only, takes context and input as parameters, returns lazy iterator
+
+**Note**: `execute_traversal()` is used by Phase 4 branch steps where the context is already available from the parent traversal, avoiding the lifetime issues that `BoundTraversal::execute()` solves via eager collection.
+
+---
+
+## 3.10 Anonymous Traversals (Phase 4 Preview)
 
 The new architecture fully supports anonymous traversals which will be implemented in Phase 4. Here's how they work:
 
@@ -2750,3 +3180,37 @@ This architecture directly supports Phase 4 features:
 | `repeat()` | Loop with cloned steps |
 | `local()` | Scoped step execution |
 | `store()`/`aggregate()` | Via `SideEffects` in context |
+
+#### RepeatTraversal Builder Pattern (Phase 4)
+
+Phase 4 introduces `RepeatTraversal<'g, In>` as a special builder type for configuring repeat step behavior. This pattern temporarily "escapes" the normal `BoundTraversal` type to allow chained configuration:
+
+```rust
+// The repeat() method returns RepeatTraversal, not BoundTraversal
+g.v().has_value("name", "Alice")
+    .repeat(__.out_labels(&["knows"]))  // Returns RepeatTraversal
+    .times(2)                           // Still RepeatTraversal
+    .emit()                             // Still RepeatTraversal
+    .dedup()                            // Finalizes to BoundTraversal
+    .to_list();                         // Terminal step
+```
+
+**Key Points:**
+- `RepeatTraversal` holds the same `snapshot` and `interner` references as `BoundTraversal`
+- Configuration methods (`.times()`, `.until()`, `.emit()`) return `Self`
+- Any subsequent traversal method (`.dedup()`, `.has_label()`, etc.) calls `.finalize()` internally
+- Terminal methods (`.to_list()`, `.count()`) also trigger finalization
+- This pattern enables fluent configuration without complex generic bounds
+
+**Implementation Note:** This builder pattern is fully defined in Spec 04 (Section 4.4). Phase 3 does not need to implement it, but the architecture supports it through the `Traversal` and `AnyStep` abstractions.
+
+### Dependencies
+
+Phase 3 uses the core dependencies defined in Phase 1/2, plus:
+
+```toml
+[dependencies]
+regex = "1.10"  # For p::regex() predicate matching (used by Phase 4)
+```
+
+This dependency is added in Phase 3 to ensure compatibility with Phase 4's predicate system.
