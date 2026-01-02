@@ -57,9 +57,9 @@ impl Clone for Box<dyn Predicate> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `Predicate` trait compiles with correct signatures
-- [ ] `Box<dyn Predicate>` is clonable
-- [ ] Module exports are correct
+- [x] `Predicate` trait compiles with correct signatures
+- [x] `Box<dyn Predicate>` is clonable
+- [x] Module exports are correct
 
 ---
 
@@ -99,11 +99,11 @@ pub mod p {
 ```
 
 **Acceptance Criteria**:
-- [ ] `p::eq(42).test(&Value::Int(42))` returns true
-- [ ] `p::lt(50).test(&Value::Int(30))` returns true
-- [ ] `p::gt(50).test(&Value::Float(60.0))` returns true (cross-type)
-- [ ] All comparison predicates implement `Clone`
-- [ ] Unit tests pass
+- [x] `p::eq(42).test(&Value::Int(42))` returns true
+- [x] `p::lt(50).test(&Value::Int(30))` returns true
+- [x] `p::gt(50).test(&Value::Float(60.0))` returns true (cross-type)
+- [x] All comparison predicates implement `Clone`
+- [x] Unit tests pass
 
 ---
 
