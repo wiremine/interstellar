@@ -4,6 +4,7 @@ pub mod inmemory;
 pub mod interner;
 
 pub use inmemory::InMemoryGraph;
+pub use interner::StringInterner;
 
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -38,4 +39,10 @@ pub trait GraphStorage: Send + Sync {
 
     fn all_vertices(&self) -> Box<dyn Iterator<Item = Vertex> + '_>;
     fn all_edges(&self) -> Box<dyn Iterator<Item = Edge> + '_>;
+
+    /// Get the string interner for label resolution.
+    ///
+    /// This is used by the traversal engine to resolve label strings
+    /// to their interned IDs for efficient filtering.
+    fn interner(&self) -> &StringInterner;
 }

@@ -8,6 +8,10 @@ use crate::graph::GraphSnapshot;
 use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::value::Value;
 
+pub mod context;
+
+pub use context::{ExecutionContext, SideEffects};
+
 pub struct Traversal<S, E, T> {
     pub source: S,
     pub _phantom: PhantomData<(E, T)>,
@@ -45,10 +49,14 @@ pub struct PathElement {
     pub labels: SmallVec<[String; 2]>,
 }
 
+// Note: GraphTraversalSource is a stub that will be replaced in Phase 2.1
+// The dead_code warnings are expected until then
+#[allow(dead_code)]
 pub struct GraphTraversalSource<'s> {
     pub(crate) snapshot: &'s GraphSnapshot<'s>,
 }
 
+#[allow(dead_code)]
 impl<'s> GraphTraversalSource<'s> {
     fn storage(&self) -> &dyn GraphStorage {
         self.snapshot.graph.storage.as_ref()

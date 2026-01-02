@@ -338,6 +338,11 @@ impl GraphStorage for InMemoryGraph {
 
         Box::new(iter)
     }
+
+    /// Get the string interner for label resolution
+    fn interner(&self) -> &StringInterner {
+        &self.string_table
+    }
 }
 
 // SAFETY: InMemoryGraph is Send + Sync because:

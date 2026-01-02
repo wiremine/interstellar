@@ -1,6 +1,7 @@
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
 
+use crate::storage::interner::StringInterner;
 use crate::storage::{GraphStorage, InMemoryGraph};
 
 pub struct Graph {
@@ -17,6 +18,21 @@ pub struct GraphSnapshot<'g> {
 impl<'g> GraphSnapshot<'g> {
     pub fn traversal(&self) -> crate::traversal::GraphTraversalSource<'_> {
         crate::traversal::GraphTraversalSource { snapshot: self }
+    }
+
+    /// Get the underlying storage.
+    #[inline]
+    pub fn storage(&self) -> &dyn GraphStorage {
+        self.graph.storage.as_ref()
+    }
+
+    /// Get the string interner for label resolution.
+    ///
+    /// This is used by the traversal engine to efficiently resolve
+    /// label strings to interned IDs.
+    #[inline]
+    pub fn interner(&self) -> &StringInterner {
+        self.graph.storage.interner()
     }
 }
 

@@ -168,10 +168,10 @@ pub struct SideEffects {
 ```
 
 **Acceptance Criteria**:
-- [ ] `ExecutionContext::new()` compiles
-- [ ] `resolve_label()` returns Option<u32>
-- [ ] `SideEffects::store()` and `get()` work correctly
-- [ ] Unit tests pass
+- [x] `ExecutionContext::new()` compiles
+- [x] `resolve_label()` returns Option<u32>
+- [x] `SideEffects::store()` and `get()` work correctly
+- [x] Unit tests pass
 
 ---
 
