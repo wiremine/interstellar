@@ -205,10 +205,10 @@ pub struct SideEffects {
 4. Implement `From<&Value>` for `PathValue`
 
 **Acceptance Criteria**:
-- [ ] `Path::push()` adds elements with labels
-- [ ] `Path::get("label")` returns elements by label
-- [ ] `Path::contains_vertex()` detects vertices in path
-- [ ] Unit tests pass
+- [x] `Path::push()` adds elements with labels
+- [x] `Path::get("label")` returns elements by label
+- [x] `Path::contains_vertex()` detects vertices in path
+- [x] Unit tests pass
 
 ---
 
@@ -224,9 +224,9 @@ pub struct SideEffects {
 5. Create `impl_flatmap_step!` macro
 
 **Acceptance Criteria**:
-- [ ] `AnyStep` trait compiles with correct signatures
-- [ ] `Box<dyn AnyStep>` is clonable
-- [ ] Macros expand correctly (test with dummy step)
+- [x] `AnyStep` trait compiles with correct signatures
+- [x] `Box<dyn AnyStep>` is clonable
+- [x] Macros expand correctly (test with dummy step)
 
 ---
 

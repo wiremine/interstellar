@@ -20,8 +20,13 @@ use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::value::{EdgeId, Value, VertexId};
 
 pub mod context;
+pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
+pub use step::{AnyStep, IdentityStep};
+
+// Re-export macros
+pub use crate::{impl_filter_step, impl_flatmap_step};
 
 // -----------------------------------------------------------------------------
 // CloneSack trait - enables cloning of boxed sack values
