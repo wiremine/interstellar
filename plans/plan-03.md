@@ -649,9 +649,9 @@ pub struct SideEffects {
 3. Add `constant()` and `path()` methods
 
 **Acceptance Criteria**:
-- [ ] `constant("x")` replaces all values with "x"
-- [ ] `path()` returns list of path elements
-- [ ] Path labels are preserved
+- [x] `constant("x")` replaces all values with "x"
+- [x] `path()` returns list of path elements
+- [x] Path labels are preserved
 
 ---
 
