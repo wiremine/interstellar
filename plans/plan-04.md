@@ -118,11 +118,11 @@ pub mod p {
 4. Add factory functions `p::between()`, `p::inside()`, `p::outside()`
 
 **Acceptance Criteria**:
-- [ ] `p::between(10, 20).test(&Value::Int(10))` returns true (inclusive start)
-- [ ] `p::between(10, 20).test(&Value::Int(20))` returns false (exclusive end)
-- [ ] `p::inside(10, 20).test(&Value::Int(10))` returns false (exclusive)
-- [ ] `p::outside(10, 20).test(&Value::Int(5))` returns true
-- [ ] Unit tests pass
+- [x] `p::between(10, 20).test(&Value::Int(10))` returns true (inclusive start)
+- [x] `p::between(10, 20).test(&Value::Int(20))` returns false (exclusive end)
+- [x] `p::inside(10, 20).test(&Value::Int(10))` returns false (exclusive)
+- [x] `p::outside(10, 20).test(&Value::Int(5))` returns true
+- [x] Unit tests pass
 
 ---
 
