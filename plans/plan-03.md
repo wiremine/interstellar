@@ -492,9 +492,9 @@ pub struct SideEffects {
 3. Add static constructors for vertex/edge variants
 
 **Acceptance Criteria**:
-- [ ] `HasIdStep::vertex(VertexId(1))` matches specific vertex
-- [ ] `HasIdStep::vertices(vec![id1, id2])` matches multiple
-- [ ] Works for edges too
+- [x] `HasIdStep::vertex(VertexId(1))` matches specific vertex
+- [x] `HasIdStep::vertices(vec![id1, id2])` matches multiple
+- [x] Works for edges too
 
 ---
 
@@ -511,10 +511,10 @@ pub struct SideEffects {
 4. Add `out()` and `out_labels()` to BoundTraversal and Traversal
 
 **Acceptance Criteria**:
-- [ ] `out()` traverses all outgoing edges to target vertices
-- [ ] `out_labels(&["knows"])` filters by edge label
-- [ ] Non-vertex values produce no results
-- [ ] Preserves traverser metadata (split)
+- [x] `out()` traverses all outgoing edges to target vertices
+- [x] `out_labels(&["knows"])` filters by edge label
+- [x] Non-vertex values produce no results
+- [x] Preserves traverser metadata (split)
 
 ---
 
@@ -528,9 +528,9 @@ pub struct SideEffects {
 3. Add `in_()` and `in_labels()` methods
 
 **Acceptance Criteria**:
-- [ ] `in_()` traverses incoming edges to source vertices
-- [ ] `in_labels(&["knows"])` filters by edge label
-- [ ] Correctly navigates reverse direction
+- [x] `in_()` traverses incoming edges to source vertices
+- [x] `in_labels(&["knows"])` filters by edge label
+- [x] Correctly navigates reverse direction
 
 ---
 
@@ -544,9 +544,9 @@ pub struct SideEffects {
 3. Add `both()` and `both_labels()` methods
 
 **Acceptance Criteria**:
-- [ ] `both()` includes neighbors from both directions
-- [ ] Results from out and in are chained
-- [ ] Edge label filtering works
+- [x] `both()` includes neighbors from both directions
+- [x] Results from out and in are chained
+- [x] Edge label filtering works
 
 ---
 
@@ -561,10 +561,10 @@ pub struct SideEffects {
 4. Add corresponding methods to BoundTraversal and Traversal
 
 **Acceptance Criteria**:
-- [ ] `out_e()` returns edges, not vertices
-- [ ] `in_e()` returns incoming edges
-- [ ] `both_e()` returns all incident edges
-- [ ] Edge label filtering works
+- [x] `out_e()` returns edges, not vertices
+- [x] `in_e()` returns incoming edges
+- [x] `both_e()` returns all incident edges
+- [x] Edge label filtering works
 
 ---
 
@@ -579,10 +579,10 @@ pub struct SideEffects {
 4. Add corresponding methods
 
 **Acceptance Criteria**:
-- [ ] `out_v()` returns source vertex from edge
-- [ ] `in_v()` returns target vertex from edge
-- [ ] `both_v()` returns both vertices (2 per edge)
-- [ ] Non-edge values produce no results
+- [x] `out_v()` returns source vertex from edge
+- [x] `in_v()` returns target vertex from edge
+- [x] `both_v()` returns both vertices (2 per edge)
+- [x] Non-edge values produce no results
 
 ---
 
@@ -779,13 +779,13 @@ From spec section "Exit Criteria":
 - [x] `BoundTraversal` wrapper correctly manages execution context
 
 ### Navigation Steps
-- [ ] `out()`, `in_()`, `both()` work
-- [ ] `out_e()`, `in_e()`, `both_e()` work
-- [ ] `out_v()`, `in_v()`, `both_v()` work
+- [x] `out()`, `in_()`, `both()` work
+- [x] `out_e()`, `in_e()`, `both_e()` work
+- [x] `out_v()`, `in_v()`, `both_v()` work
 
 ### Filter Steps
-- [ ] `has_label()`, `has()`, `has_value()` work
-- [ ] `filter()`, `dedup()`, `limit()`, `skip()`, `range()` work
+- [x] `has_label()`, `has()`, `has_value()` work
+- [x] `filter()`, `dedup()`, `limit()`, `skip()`, `range()` work
 
 ### Transform Steps
 - [ ] `values()`, `id()`, `label()` work

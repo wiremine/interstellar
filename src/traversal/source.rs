@@ -473,6 +473,289 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::filter::RangeStep;
         self.add_step(RangeStep::new(start, end))
     }
+
+    /// Filter elements by a single ID.
+    ///
+    /// Keeps only vertices/edges whose ID matches the given ID.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get a specific vertex by ID
+    /// let vertex = g.v().has_id(VertexId(1)).to_list();
+    ///
+    /// // Get a specific edge by ID
+    /// let edge = g.e().has_id(EdgeId(0)).to_list();
+    /// ```
+    pub fn has_id(self, id: impl Into<Value>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasIdStep;
+        self.add_step(HasIdStep::from_value(id))
+    }
+
+    /// Filter elements by multiple IDs.
+    ///
+    /// Keeps only vertices/edges whose ID matches any of the given IDs.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get multiple vertices by ID
+    /// let vertices = g.v().has_ids([VertexId(1), VertexId(2), VertexId(3)]).to_list();
+    ///
+    /// // Get multiple edges by ID
+    /// let edges = g.e().has_ids([EdgeId(0), EdgeId(1)]).to_list();
+    /// ```
+    pub fn has_ids<I, T>(self, ids: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Value>,
+    {
+        use crate::traversal::filter::HasIdStep;
+        self.add_step(HasIdStep::from_values(
+            ids.into_iter().map(Into::into).collect(),
+        ))
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation steps
+    // -------------------------------------------------------------------------
+
+    /// Traverse to outgoing adjacent vertices.
+    ///
+    /// From each vertex traverser, follows all outgoing edges and returns
+    /// the target vertices. Non-vertex traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all outgoing neighbors
+    /// let neighbors = g.v_ids([VertexId(1)]).out().to_list();
+    /// ```
+    pub fn out(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::OutStep;
+        self.add_step(OutStep::new())
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with given labels.
+    ///
+    /// Only edges with one of the specified labels are traversed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get neighbors via "knows" edges
+    /// let friends = g.v().out_labels(&["knows"]).to_list();
+    /// ```
+    pub fn out_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::OutStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(OutStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming adjacent vertices.
+    ///
+    /// From each vertex traverser, follows all incoming edges and returns
+    /// the source vertices. Non-vertex traversers produce no output.
+    ///
+    /// Note: Named `in_` to avoid conflict with Rust's `in` keyword.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all incoming neighbors
+    /// let known_by = g.v_ids([VertexId(1)]).in_().to_list();
+    /// ```
+    pub fn in_(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::InStep;
+        self.add_step(InStep::new())
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with given labels.
+    ///
+    /// Only edges with one of the specified labels are traversed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get people who know this person
+    /// let known_by = g.v().in_labels(&["knows"]).to_list();
+    /// ```
+    pub fn in_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::InStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(InStep::with_labels(labels))
+    }
+
+    /// Traverse to adjacent vertices in both directions.
+    ///
+    /// From each vertex traverser, follows all edges (both outgoing and
+    /// incoming) and returns the adjacent vertices.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all neighbors regardless of direction
+    /// let neighbors = g.v().both().to_list();
+    /// ```
+    pub fn both(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::BothStep;
+        self.add_step(BothStep::new())
+    }
+
+    /// Traverse to adjacent vertices in both directions via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all "knows" neighbors regardless of direction
+    /// let connected = g.v().both_labels(&["knows"]).to_list();
+    /// ```
+    pub fn both_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::BothStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(BothStep::with_labels(labels))
+    }
+
+    /// Traverse to outgoing edges.
+    ///
+    /// From each vertex traverser, returns all outgoing edges (as edge elements).
+    /// Non-vertex traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all outgoing edges
+    /// let edges = g.v().out_e().to_list();
+    /// ```
+    pub fn out_e(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::OutEStep;
+        self.add_step(OutEStep::new())
+    }
+
+    /// Traverse to outgoing edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all "knows" edges going out
+    /// let knows_edges = g.v().out_e_labels(&["knows"]).to_list();
+    /// ```
+    pub fn out_e_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::OutEStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(OutEStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming edges.
+    ///
+    /// From each vertex traverser, returns all incoming edges (as edge elements).
+    /// Non-vertex traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all incoming edges
+    /// let edges = g.v().in_e().to_list();
+    /// ```
+    pub fn in_e(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::InEStep;
+        self.add_step(InEStep::new())
+    }
+
+    /// Traverse to incoming edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all "knows" edges coming in
+    /// let known_by_edges = g.v().in_e_labels(&["knows"]).to_list();
+    /// ```
+    pub fn in_e_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::InEStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(InEStep::with_labels(labels))
+    }
+
+    /// Traverse to all incident edges (both directions).
+    ///
+    /// From each vertex traverser, returns all incident edges (as edge elements).
+    /// Non-vertex traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all incident edges
+    /// let edges = g.v().both_e().to_list();
+    /// ```
+    pub fn both_e(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::BothEStep;
+        self.add_step(BothEStep::new())
+    }
+
+    /// Traverse to all incident edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all "knows" edges in either direction
+    /// let knows_edges = g.v().both_e_labels(&["knows"]).to_list();
+    /// ```
+    pub fn both_e_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::BothEStep;
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(BothEStep::with_labels(labels))
+    }
+
+    /// Get the source (outgoing) vertex of an edge.
+    ///
+    /// From each edge traverser, returns the source vertex.
+    /// Non-edge traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get source vertices of all edges
+    /// let sources = g.e().out_v().to_list();
+    /// ```
+    pub fn out_v(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::OutVStep;
+        self.add_step(OutVStep::new())
+    }
+
+    /// Get the target (incoming) vertex of an edge.
+    ///
+    /// From each edge traverser, returns the target vertex.
+    /// Non-edge traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get target vertices of all edges
+    /// let targets = g.e().in_v().to_list();
+    /// ```
+    pub fn in_v(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::InVStep;
+        self.add_step(InVStep::new())
+    }
+
+    /// Get both vertices of an edge.
+    ///
+    /// From each edge traverser, returns both the source and target vertices
+    /// (2 traversers per edge). Source is returned first, then target.
+    /// Non-edge traversers produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get both vertices of all edges (2 results per edge)
+    /// let vertices = g.e().both_v().to_list();
+    /// ```
+    pub fn both_v(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::BothVStep;
+        self.add_step(BothVStep::new())
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {

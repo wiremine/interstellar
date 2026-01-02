@@ -9,12 +9,13 @@
 //! - `HasLabelStep`: Filters elements by label
 //! - `HasStep`: Filters elements by property existence
 //! - `HasValueStep`: Filters elements by property value equality
+//! - `HasIdStep`: Filters elements by ID
 //! - `FilterStep`: Generic filter with custom predicate
 
 use crate::impl_filter_step;
 use crate::traversal::step::AnyStep;
 use crate::traversal::{ExecutionContext, Traverser};
-use crate::value::Value;
+use crate::value::{EdgeId, Value, VertexId};
 
 // -----------------------------------------------------------------------------
 // HasLabelStep - filter by element label
@@ -574,6 +575,132 @@ impl AnyStep for RangeStep {
         "range"
     }
 }
+
+// -----------------------------------------------------------------------------
+// HasIdStep - filter by element ID
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only elements with matching IDs.
+///
+/// Works with both vertices and edges. Non-element values (integers, strings, etc.)
+/// are filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// // Filter to a specific vertex by ID
+/// let vertex = g.v().has_id(VertexId(1)).to_list();
+///
+/// // Filter to multiple vertex IDs
+/// let vertices = g.v().has_ids([VertexId(1), VertexId(2), VertexId(3)]).to_list();
+///
+/// // Filter edges by ID
+/// let edge = g.e().has_id(EdgeId(0)).to_list();
+/// ```
+#[derive(Clone, Debug)]
+pub struct HasIdStep {
+    /// IDs to match against (stored as Values for flexibility)
+    ids: Vec<Value>,
+}
+
+impl HasIdStep {
+    /// Create a HasIdStep for a single vertex ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The vertex ID to match
+    pub fn vertex(id: VertexId) -> Self {
+        Self {
+            ids: vec![Value::Vertex(id)],
+        }
+    }
+
+    /// Create a HasIdStep for multiple vertex IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `ids` - The vertex IDs to match (element must match any one)
+    pub fn vertices(ids: Vec<VertexId>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Value::Vertex).collect(),
+        }
+    }
+
+    /// Create a HasIdStep for a single edge ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The edge ID to match
+    pub fn edge(id: EdgeId) -> Self {
+        Self {
+            ids: vec![Value::Edge(id)],
+        }
+    }
+
+    /// Create a HasIdStep for multiple edge IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `ids` - The edge IDs to match (element must match any one)
+    pub fn edges(ids: Vec<EdgeId>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Value::Edge).collect(),
+        }
+    }
+
+    /// Create a HasIdStep from a single Value.
+    ///
+    /// This is useful for dynamic ID filtering where the ID type
+    /// may not be known at compile time.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A Value that should be a Vertex or Edge ID
+    pub fn from_value(value: impl Into<Value>) -> Self {
+        Self {
+            ids: vec![value.into()],
+        }
+    }
+
+    /// Create a HasIdStep from multiple Values.
+    ///
+    /// This is useful for dynamic ID filtering where the ID types
+    /// may not be known at compile time.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - Values that should be Vertex or Edge IDs
+    pub fn from_values(values: Vec<Value>) -> Self {
+        Self { ids: values }
+    }
+
+    /// Check if a traverser's element ID matches any of the target IDs.
+    ///
+    /// Returns `false` for non-element values (integers, strings, etc.).
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        match &traverser.value {
+            Value::Vertex(id) => {
+                // Check if this vertex ID is in our target list
+                self.ids.iter().any(|target| match target {
+                    Value::Vertex(target_id) => target_id == id,
+                    _ => false,
+                })
+            }
+            Value::Edge(id) => {
+                // Check if this edge ID is in our target list
+                self.ids.iter().any(|target| match target {
+                    Value::Edge(target_id) => target_id == id,
+                    _ => false,
+                })
+            }
+            // Non-element values don't have IDs
+            _ => false,
+        }
+    }
+}
+
+// Use the macro to implement AnyStep for HasIdStep
+impl_filter_step!(HasIdStep, "hasId");
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -2733,6 +2860,335 @@ mod tests {
                 input.into_iter().skip(2).take(3).map(|t| t.value).collect();
 
             assert_eq!(range_output, skip_limit_output);
+        }
+    }
+
+    mod has_id_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn vertex_creates_single_vertex_id_step() {
+            let step = HasIdStep::vertex(VertexId(42));
+            assert_eq!(step.ids.len(), 1);
+            assert_eq!(step.ids[0], Value::Vertex(VertexId(42)));
+        }
+
+        #[test]
+        fn vertices_creates_multi_vertex_id_step() {
+            let step = HasIdStep::vertices(vec![VertexId(1), VertexId(2), VertexId(3)]);
+            assert_eq!(step.ids.len(), 3);
+            assert_eq!(step.ids[0], Value::Vertex(VertexId(1)));
+            assert_eq!(step.ids[1], Value::Vertex(VertexId(2)));
+            assert_eq!(step.ids[2], Value::Vertex(VertexId(3)));
+        }
+
+        #[test]
+        fn edge_creates_single_edge_id_step() {
+            let step = HasIdStep::edge(EdgeId(99));
+            assert_eq!(step.ids.len(), 1);
+            assert_eq!(step.ids[0], Value::Edge(EdgeId(99)));
+        }
+
+        #[test]
+        fn edges_creates_multi_edge_id_step() {
+            let step = HasIdStep::edges(vec![EdgeId(10), EdgeId(20)]);
+            assert_eq!(step.ids.len(), 2);
+            assert_eq!(step.ids[0], Value::Edge(EdgeId(10)));
+            assert_eq!(step.ids[1], Value::Edge(EdgeId(20)));
+        }
+
+        #[test]
+        fn from_value_creates_single_id_step() {
+            let step = HasIdStep::from_value(Value::Vertex(VertexId(5)));
+            assert_eq!(step.ids.len(), 1);
+            assert_eq!(step.ids[0], Value::Vertex(VertexId(5)));
+        }
+
+        #[test]
+        fn from_values_creates_multi_id_step() {
+            let step = HasIdStep::from_values(vec![
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+            ]);
+            assert_eq!(step.ids.len(), 2);
+        }
+
+        #[test]
+        fn name_returns_has_id() {
+            let step = HasIdStep::vertex(VertexId(1));
+            assert_eq!(step.name(), "hasId");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = HasIdStep::vertex(VertexId(1));
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "hasId");
+        }
+
+        #[test]
+        fn filters_vertices_by_single_id() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::vertex(VertexId(1));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)), // Should match
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1)));
+        }
+
+        #[test]
+        fn filters_vertices_by_multiple_ids() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::vertices(vec![VertexId(0), VertexId(2)]);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Should match
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)), // Should match
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2)));
+        }
+
+        #[test]
+        fn filters_edges_by_single_id() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::edge(EdgeId(1));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)),
+                Traverser::from_edge(EdgeId(1)), // Should match
+                Traverser::from_edge(EdgeId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(1)));
+        }
+
+        #[test]
+        fn filters_edges_by_multiple_ids() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::edges(vec![EdgeId(0), EdgeId(2)]);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)), // Should match
+                Traverser::from_edge(EdgeId(1)),
+                Traverser::from_edge(EdgeId(2)), // Should match
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(0)));
+            assert_eq!(output[1].as_edge_id(), Some(EdgeId(2)));
+        }
+
+        #[test]
+        fn filters_out_non_element_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::vertex(VertexId(0));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),            // Should match
+                Traverser::new(Value::Int(0)),                  // Not a vertex, should be filtered
+                Traverser::new(Value::String("0".to_string())), // Not a vertex
+                Traverser::new(Value::Bool(false)),             // Not a vertex
+                Traverser::new(Value::Null),                    // Not a vertex
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+        }
+
+        #[test]
+        fn vertex_id_step_does_not_match_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Looking for vertex ID 0, but passing edges
+            let step = HasIdStep::vertex(VertexId(0));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)), // Same numeric value, but an edge
+                Traverser::from_edge(EdgeId(1)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // None should match because they're edges, not vertices
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn edge_id_step_does_not_match_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Looking for edge ID 0, but passing vertices
+            let step = HasIdStep::edge(EdgeId(0));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Same numeric value, but a vertex
+                Traverser::from_vertex(VertexId(1)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // None should match because they're vertices, not edges
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::vertex(VertexId(1));
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn returns_empty_for_nonexistent_id() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::vertex(VertexId(999));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasIdStep::vertex(VertexId(1));
+
+            let mut traverser = Traverser::from_vertex(VertexId(1));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn mixed_vertex_and_edge_input() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Looking for vertex ID 1
+            let step = HasIdStep::vertex(VertexId(1));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_edge(EdgeId(1)), // Same numeric value but edge
+                Traverser::from_vertex(VertexId(1)), // Should match
+                Traverser::from_edge(EdgeId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only vertex ID 1 should match
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1)));
+        }
+
+        #[test]
+        fn from_values_with_mixed_types() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Looking for either vertex 0 or edge 1
+            let step =
+                HasIdStep::from_values(vec![Value::Vertex(VertexId(0)), Value::Edge(EdgeId(1))]);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Should match
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_edge(EdgeId(0)),
+                Traverser::from_edge(EdgeId(1)), // Should match
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+            assert_eq!(output[1].as_edge_id(), Some(EdgeId(1)));
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = HasIdStep::vertices(vec![VertexId(1), VertexId(2)]);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("HasIdStep"));
+            assert!(debug_str.contains("ids"));
+        }
+
+        #[test]
+        fn clone_works() {
+            let step = HasIdStep::vertex(VertexId(42));
+            let cloned = step.clone();
+            assert_eq!(cloned.ids.len(), 1);
+            assert_eq!(cloned.ids[0], Value::Vertex(VertexId(42)));
         }
     }
 }

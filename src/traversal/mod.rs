@@ -19,12 +19,17 @@ use crate::value::{EdgeId, Value, VertexId};
 
 pub mod context;
 pub mod filter;
+pub mod navigation;
 pub mod source;
 pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
-    DedupStep, FilterStep, HasLabelStep, HasStep, HasValueStep, LimitStep, RangeStep, SkipStep,
+    DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, LimitStep, RangeStep,
+    SkipStep,
+};
+pub use navigation::{
+    BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
@@ -904,6 +909,236 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn range(self, start: usize, end: usize) -> Traversal<In, Value> {
         self.add_step(filter::RangeStep::new(start, end))
+    }
+
+    /// Filter elements by a single ID (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges whose ID matches the given ID.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to a specific vertex
+    /// let anon = Traversal::<Value, Value>::new().has_id(VertexId(1));
+    /// let vertex = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_id(self, id: impl Into<Value>) -> Traversal<In, Value> {
+        self.add_step(filter::HasIdStep::from_value(id))
+    }
+
+    /// Filter elements by multiple IDs (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges whose ID matches any of the given IDs.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to multiple vertices
+    /// let anon = Traversal::<Value, Value>::new().has_ids([VertexId(1), VertexId(2)]);
+    /// let vertices = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_ids<I, T>(self, ids: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Value>,
+    {
+        self.add_step(filter::HasIdStep::from_values(
+            ids.into_iter().map(Into::into).collect(),
+        ))
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation steps (for anonymous traversals)
+    // -------------------------------------------------------------------------
+
+    /// Traverse to outgoing adjacent vertices (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().out();
+    /// let neighbors = g.v().append(anon).to_list();
+    /// ```
+    pub fn out(self) -> Traversal<In, Value> {
+        self.add_step(navigation::OutStep::new())
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().out_labels(&["knows"]);
+    /// let friends = g.v().append(anon).to_list();
+    /// ```
+    pub fn out_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(navigation::OutStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming adjacent vertices (for anonymous traversals).
+    ///
+    /// Note: Named `in_` to avoid conflict with Rust's `in` keyword.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().in_();
+    /// let known_by = g.v().append(anon).to_list();
+    /// ```
+    pub fn in_(self) -> Traversal<In, Value> {
+        self.add_step(navigation::InStep::new())
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().in_labels(&["knows"]);
+    /// let known_by = g.v().append(anon).to_list();
+    /// ```
+    pub fn in_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(navigation::InStep::with_labels(labels))
+    }
+
+    /// Traverse to adjacent vertices in both directions (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().both();
+    /// let neighbors = g.v().append(anon).to_list();
+    /// ```
+    pub fn both(self) -> Traversal<In, Value> {
+        self.add_step(navigation::BothStep::new())
+    }
+
+    /// Traverse to adjacent vertices in both directions via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().both_labels(&["knows"]);
+    /// let connected = g.v().append(anon).to_list();
+    /// ```
+    pub fn both_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(navigation::BothStep::with_labels(labels))
+    }
+
+    /// Traverse to outgoing edges (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().out_e();
+    /// let edges = g.v().append(anon).to_list();
+    /// ```
+    pub fn out_e(self) -> Traversal<In, Value> {
+        self.add_step(navigation::OutEStep::new())
+    }
+
+    /// Traverse to outgoing edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().out_e_labels(&["knows"]);
+    /// let edges = g.v().append(anon).to_list();
+    /// ```
+    pub fn out_e_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(navigation::OutEStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming edges (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().in_e();
+    /// let edges = g.v().append(anon).to_list();
+    /// ```
+    pub fn in_e(self) -> Traversal<In, Value> {
+        self.add_step(navigation::InEStep::new())
+    }
+
+    /// Traverse to incoming edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().in_e_labels(&["knows"]);
+    /// let edges = g.v().append(anon).to_list();
+    /// ```
+    pub fn in_e_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(navigation::InEStep::with_labels(labels))
+    }
+
+    /// Traverse to all incident edges (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().both_e();
+    /// let edges = g.v().append(anon).to_list();
+    /// ```
+    pub fn both_e(self) -> Traversal<In, Value> {
+        self.add_step(navigation::BothEStep::new())
+    }
+
+    /// Traverse to all incident edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().both_e_labels(&["knows"]);
+    /// let edges = g.v().append(anon).to_list();
+    /// ```
+    pub fn both_e_labels(self, labels: &[&str]) -> Traversal<In, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        self.add_step(navigation::BothEStep::with_labels(labels))
+    }
+
+    /// Get the source vertex of an edge (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().out_v();
+    /// let sources = g.e().append(anon).to_list();
+    /// ```
+    pub fn out_v(self) -> Traversal<In, Value> {
+        self.add_step(navigation::OutVStep::new())
+    }
+
+    /// Get the target vertex of an edge (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().in_v();
+    /// let targets = g.e().append(anon).to_list();
+    /// ```
+    pub fn in_v(self) -> Traversal<In, Value> {
+        self.add_step(navigation::InVStep::new())
+    }
+
+    /// Get both vertices of an edge (for anonymous traversals).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().both_v();
+    /// let vertices = g.e().append(anon).to_list();
+    /// ```
+    pub fn both_v(self) -> Traversal<In, Value> {
+        self.add_step(navigation::BothVStep::new())
     }
 }
 
