@@ -690,8 +690,8 @@ impl crate::traversal::step::AnyStep for AsStep {
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         let label = self.label.clone();
         Box::new(input.map(move |mut t| {
-            // Always add to path with label (regardless of track_paths setting)
-            t.extend_path_labeled(&label);
+            // Label the current path position (don't add duplicate entry)
+            t.label_path_position(&label);
             t
         }))
     }
@@ -813,19 +813,20 @@ impl crate::traversal::step::AnyStep for SelectStep {
                 value.map(|v| t.with_value(v))
             } else {
                 // Multiple labels: return Map
+                // ALL labels must be present, otherwise filter out
                 let mut map = std::collections::HashMap::new();
                 for label in &labels {
                     if let Some(values) = t.path.get(label) {
                         if let Some(last) = values.last() {
                             map.insert(label.clone(), last.to_value());
+                        } else {
+                            return None; // Label exists but no values
                         }
+                    } else {
+                        return None; // Label doesn't exist
                     }
                 }
-                if map.is_empty() {
-                    None // No labels found, filter out traverser
-                } else {
-                    Some(t.with_value(Value::Map(map)))
-                }
+                Some(t.with_value(Value::Map(map)))
             }
         }))
     }

@@ -339,6 +339,33 @@ impl Path {
         self.objects.last().map(|e| &e.value)
     }
 
+    /// Add a label to the last path element if it matches the given value,
+    /// or push a new element with the label if not.
+    ///
+    /// This is used by `as_()` to label the current position without
+    /// adding a duplicate entry when path tracking has already added it.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The label to assign
+    /// * `current_value` - The current traverser value to check against/add
+    pub fn label_or_push(&mut self, label: &str, current_value: PathValue) {
+        // Check if the last element matches the current value
+        if let Some(last_idx) = self.objects.len().checked_sub(1) {
+            if self.objects[last_idx].value == current_value {
+                // Last element matches, just add the label
+                self.objects[last_idx].labels.push(label.to_string());
+                self.labels
+                    .entry(label.to_string())
+                    .or_default()
+                    .push(last_idx);
+                return;
+            }
+        }
+        // Either path is empty or last element doesn't match - push new
+        self.push_labeled(current_value, label);
+    }
+
     /// Get the first element in the path.
     pub fn first(&self) -> Option<&PathValue> {
         self.objects.first().map(|e| &e.value)
@@ -489,6 +516,16 @@ impl Traverser {
     /// Extend path with current value without labels.
     pub fn extend_path_unlabeled(&mut self) {
         self.extend_path(&[]);
+    }
+
+    /// Label the current path position or add a new labeled entry.
+    ///
+    /// Used by `as_()` step. If the last path element matches the current
+    /// value (e.g., when path tracking already added it), adds the label
+    /// to that element. Otherwise, pushes a new entry with the label.
+    pub fn label_path_position(&mut self, label: &str) {
+        let current = PathValue::from(&self.value);
+        self.path.label_or_push(label, current);
     }
 
     /// Get the value as a vertex ID (if it is one).

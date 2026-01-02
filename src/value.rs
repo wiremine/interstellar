@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
-pub struct VertexId(pub(crate) u64);
+pub struct VertexId(pub u64);
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
-pub struct EdgeId(pub(crate) u64);
+pub struct EdgeId(pub u64);
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum ElementId {
