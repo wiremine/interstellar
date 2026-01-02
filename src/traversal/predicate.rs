@@ -692,9 +692,278 @@ pub mod p {
         Without(values.into_iter().map(Into::into).collect())
     }
 
+    // -------------------------------------------------------------------------
+    // String Predicates (Phase 1.5)
+    // -------------------------------------------------------------------------
+
+    /// String contains substring predicate.
+    ///
+    /// Tests if the value is a string that contains the given substring.
+    /// Returns false for non-string values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::containing("foo");
+    /// assert!(pred.test(&Value::String("foobar".to_string())));
+    /// assert!(pred.test(&Value::String("barfoo".to_string())));
+    /// assert!(!pred.test(&Value::String("bar".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct Containing(String);
+
+    impl Predicate for Containing {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => s.contains(&self.0),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a string contains predicate.
+    ///
+    /// Tests if the value is a string containing the given substring.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `substring` - The substring to search for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for names containing "son"
+    /// g.v().has_label("person")
+    ///     .has_where("name", p::containing("son"))
+    ///     .to_list();
+    /// ```
+    pub fn containing(substring: impl Into<String>) -> Containing {
+        Containing(substring.into())
+    }
+
+    /// String starts with prefix predicate.
+    ///
+    /// Tests if the value is a string that starts with the given prefix.
+    /// Returns false for non-string values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::starting_with("foo");
+    /// assert!(pred.test(&Value::String("foobar".to_string())));
+    /// assert!(!pred.test(&Value::String("barfoo".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct StartingWith(String);
+
+    impl Predicate for StartingWith {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => s.starts_with(&self.0),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a string starts-with predicate.
+    ///
+    /// Tests if the value is a string starting with the given prefix.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - The prefix to check for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for names starting with "A"
+    /// g.v().has_label("person")
+    ///     .has_where("name", p::starting_with("A"))
+    ///     .to_list();
+    /// ```
+    pub fn starting_with(prefix: impl Into<String>) -> StartingWith {
+        StartingWith(prefix.into())
+    }
+
+    /// String ends with suffix predicate.
+    ///
+    /// Tests if the value is a string that ends with the given suffix.
+    /// Returns false for non-string values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::ending_with("bar");
+    /// assert!(pred.test(&Value::String("foobar".to_string())));
+    /// assert!(!pred.test(&Value::String("barfoo".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct EndingWith(String);
+
+    impl Predicate for EndingWith {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => s.ends_with(&self.0),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a string ends-with predicate.
+    ///
+    /// Tests if the value is a string ending with the given suffix.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `suffix` - The suffix to check for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for email addresses ending with "@company.com"
+    /// g.v().has_label("person")
+    ///     .has_where("email", p::ending_with("@company.com"))
+    ///     .to_list();
+    /// ```
+    pub fn ending_with(suffix: impl Into<String>) -> EndingWith {
+        EndingWith(suffix.into())
+    }
+
+    // -------------------------------------------------------------------------
+    // Regex Predicate (Phase 1.6)
+    // -------------------------------------------------------------------------
+
+    /// Regex pattern matching predicate.
+    ///
+    /// Tests if the value is a string that matches the given regular expression.
+    /// Returns false for non-string values.
+    ///
+    /// The regex is compiled once at construction time and reused for all tests.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::regex(r"^\d{3}-\d{4}$");
+    /// assert!(pred.test(&Value::String("123-4567".to_string())));
+    /// assert!(!pred.test(&Value::String("12-3456".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct Regex(regex::Regex);
+
+    impl Predicate for Regex {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => self.0.is_match(s),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a regex pattern matching predicate.
+    ///
+    /// Tests if the value is a string that matches the given regular expression.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - A regular expression pattern string
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pattern is not a valid regular expression. Use `try_regex()`
+    /// if you need to handle invalid patterns gracefully.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Match phone numbers
+    /// g.v().has_label("person")
+    ///     .has_where("phone", p::regex(r"^\d{3}-\d{3}-\d{4}$"))
+    ///     .to_list();
+    ///
+    /// // Match email addresses (simplified)
+    /// g.v().has_label("person")
+    ///     .has_where("email", p::regex(r"^[\w.]+@[\w.]+\.\w+$"))
+    ///     .to_list();
+    /// ```
+    pub fn regex(pattern: &str) -> Regex {
+        Regex(regex::Regex::new(pattern).expect("invalid regex pattern"))
+    }
+
+    /// Try to create a regex pattern matching predicate.
+    ///
+    /// Tests if the value is a string that matches the given regular expression.
+    /// Non-string values always return false.
+    ///
+    /// Unlike `regex()`, this function returns `None` instead of panicking
+    /// if the pattern is invalid.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - A regular expression pattern string
+    ///
+    /// # Returns
+    ///
+    /// * `Some(Regex)` if the pattern is valid
+    /// * `None` if the pattern is invalid
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Valid pattern
+    /// let pred = p::try_regex(r"^\d+$");
+    /// assert!(pred.is_some());
+    ///
+    /// // Invalid pattern (unmatched bracket)
+    /// let pred = p::try_regex(r"[invalid");
+    /// assert!(pred.is_none());
+    /// ```
+    pub fn try_regex(pattern: &str) -> Option<Regex> {
+        regex::Regex::new(pattern).ok().map(Regex)
+    }
+
     // Predicates will be added in subsequent phases:
-    // - Phase 1.5: containing, starting_with, ending_with
-    // - Phase 1.6: regex
     // - Phase 1.7: and, or, not
 }
 
@@ -1881,6 +2150,638 @@ mod tests {
             assert!(pred.test(&Value::Int(999)));
             assert!(!pred.test(&Value::Int(1000)));
             assert!(!pred.test(&Value::Int(-1)));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1.5: String Predicates Tests
+    // -------------------------------------------------------------------------
+
+    mod string_predicates {
+        use super::*;
+
+        // -------------------------------------------------------------------
+        // containing() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn containing_matches_substring() {
+            let pred = p::containing("foo");
+            assert!(pred.test(&Value::String("foobar".to_string())));
+            assert!(pred.test(&Value::String("barfoo".to_string())));
+            assert!(pred.test(&Value::String("barfoobar".to_string())));
+            assert!(pred.test(&Value::String("foo".to_string())));
+        }
+
+        #[test]
+        fn containing_does_not_match_missing_substring() {
+            let pred = p::containing("foo");
+            assert!(!pred.test(&Value::String("bar".to_string())));
+            assert!(!pred.test(&Value::String("baz".to_string())));
+            assert!(!pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn containing_is_case_sensitive() {
+            let pred = p::containing("foo");
+            assert!(!pred.test(&Value::String("FOO".to_string())));
+            assert!(!pred.test(&Value::String("Foo".to_string())));
+            assert!(!pred.test(&Value::String("FOOBAR".to_string())));
+        }
+
+        #[test]
+        fn containing_empty_substring_matches_all_strings() {
+            let pred = p::containing("");
+            assert!(pred.test(&Value::String("anything".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+            assert!(pred.test(&Value::String("x".to_string())));
+        }
+
+        #[test]
+        fn containing_returns_false_for_non_string() {
+            let pred = p::containing("foo");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn containing_with_special_characters() {
+            let pred = p::containing("@");
+            assert!(pred.test(&Value::String("user@example.com".to_string())));
+            assert!(!pred.test(&Value::String("user.example.com".to_string())));
+
+            let pred = p::containing(".");
+            assert!(pred.test(&Value::String("file.txt".to_string())));
+            assert!(!pred.test(&Value::String("file_txt".to_string())));
+        }
+
+        #[test]
+        fn containing_is_clonable() {
+            let pred = p::containing("foo");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("foobar".to_string())));
+            assert!(!cloned.test(&Value::String("bar".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // starting_with() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn starting_with_matches_prefix() {
+            let pred = p::starting_with("foo");
+            assert!(pred.test(&Value::String("foobar".to_string())));
+            assert!(pred.test(&Value::String("foo".to_string())));
+            assert!(pred.test(&Value::String("foo123".to_string())));
+        }
+
+        #[test]
+        fn starting_with_does_not_match_non_prefix() {
+            let pred = p::starting_with("foo");
+            assert!(!pred.test(&Value::String("barfoo".to_string())));
+            assert!(!pred.test(&Value::String("bar".to_string())));
+            assert!(!pred.test(&Value::String("afoo".to_string())));
+        }
+
+        #[test]
+        fn starting_with_is_case_sensitive() {
+            let pred = p::starting_with("foo");
+            assert!(!pred.test(&Value::String("FOObar".to_string())));
+            assert!(!pred.test(&Value::String("Foobar".to_string())));
+        }
+
+        #[test]
+        fn starting_with_empty_prefix_matches_all_strings() {
+            let pred = p::starting_with("");
+            assert!(pred.test(&Value::String("anything".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+            assert!(pred.test(&Value::String("x".to_string())));
+        }
+
+        #[test]
+        fn starting_with_returns_false_for_non_string() {
+            let pred = p::starting_with("foo");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn starting_with_exact_match() {
+            let pred = p::starting_with("exact");
+            assert!(pred.test(&Value::String("exact".to_string())));
+        }
+
+        #[test]
+        fn starting_with_longer_prefix_than_string() {
+            let pred = p::starting_with("foobar");
+            assert!(!pred.test(&Value::String("foo".to_string())));
+        }
+
+        #[test]
+        fn starting_with_is_clonable() {
+            let pred = p::starting_with("foo");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("foobar".to_string())));
+            assert!(!cloned.test(&Value::String("barfoo".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // ending_with() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn ending_with_matches_suffix() {
+            let pred = p::ending_with("bar");
+            assert!(pred.test(&Value::String("foobar".to_string())));
+            assert!(pred.test(&Value::String("bar".to_string())));
+            assert!(pred.test(&Value::String("123bar".to_string())));
+        }
+
+        #[test]
+        fn ending_with_does_not_match_non_suffix() {
+            let pred = p::ending_with("bar");
+            assert!(!pred.test(&Value::String("barfoo".to_string())));
+            assert!(!pred.test(&Value::String("foo".to_string())));
+            assert!(!pred.test(&Value::String("bara".to_string())));
+        }
+
+        #[test]
+        fn ending_with_is_case_sensitive() {
+            let pred = p::ending_with("bar");
+            assert!(!pred.test(&Value::String("fooBAR".to_string())));
+            assert!(!pred.test(&Value::String("fooBar".to_string())));
+        }
+
+        #[test]
+        fn ending_with_empty_suffix_matches_all_strings() {
+            let pred = p::ending_with("");
+            assert!(pred.test(&Value::String("anything".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+            assert!(pred.test(&Value::String("x".to_string())));
+        }
+
+        #[test]
+        fn ending_with_returns_false_for_non_string() {
+            let pred = p::ending_with("bar");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn ending_with_exact_match() {
+            let pred = p::ending_with("exact");
+            assert!(pred.test(&Value::String("exact".to_string())));
+        }
+
+        #[test]
+        fn ending_with_longer_suffix_than_string() {
+            let pred = p::ending_with("foobar");
+            assert!(!pred.test(&Value::String("bar".to_string())));
+        }
+
+        #[test]
+        fn ending_with_is_clonable() {
+            let pred = p::ending_with("bar");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("foobar".to_string())));
+            assert!(!cloned.test(&Value::String("barfoo".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // Combined/edge case tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn string_predicates_implement_predicate_trait() {
+            // Verify all can be used as Box<dyn Predicate>
+            let predicates: Vec<Box<dyn Predicate>> = vec![
+                Box::new(p::containing("foo")),
+                Box::new(p::starting_with("foo")),
+                Box::new(p::ending_with("foo")),
+            ];
+
+            assert_eq!(predicates.len(), 3);
+            for pred in &predicates {
+                let _ = pred.test(&Value::String("foo".to_string()));
+            }
+        }
+
+        #[test]
+        fn string_predicates_are_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::Containing>();
+            assert_send_sync::<p::StartingWith>();
+            assert_send_sync::<p::EndingWith>();
+        }
+
+        #[test]
+        fn string_predicates_with_whitespace() {
+            let pred = p::containing(" ");
+            assert!(pred.test(&Value::String("hello world".to_string())));
+            assert!(!pred.test(&Value::String("helloworld".to_string())));
+
+            let pred = p::starting_with("  ");
+            assert!(pred.test(&Value::String("  indented".to_string())));
+            assert!(!pred.test(&Value::String(" single".to_string())));
+
+            let pred = p::ending_with("\n");
+            assert!(pred.test(&Value::String("line\n".to_string())));
+            assert!(!pred.test(&Value::String("line".to_string())));
+        }
+
+        #[test]
+        fn string_predicates_with_unicode() {
+            let pred = p::containing("日本");
+            assert!(pred.test(&Value::String("日本語".to_string())));
+            assert!(!pred.test(&Value::String("中文".to_string())));
+
+            let pred = p::starting_with("🚀");
+            assert!(pred.test(&Value::String("🚀 launch".to_string())));
+            assert!(!pred.test(&Value::String("launch 🚀".to_string())));
+
+            let pred = p::ending_with("😊");
+            assert!(pred.test(&Value::String("hello 😊".to_string())));
+            assert!(!pred.test(&Value::String("😊 hello".to_string())));
+        }
+
+        #[test]
+        fn string_predicates_relationships() {
+            // If a string starts with "foo", it contains "foo"
+            let s = Value::String("foobar".to_string());
+            assert!(p::starting_with("foo").test(&s));
+            assert!(p::containing("foo").test(&s));
+
+            // If a string ends with "bar", it contains "bar"
+            assert!(p::ending_with("bar").test(&s));
+            assert!(p::containing("bar").test(&s));
+
+            // But not vice versa
+            let s = Value::String("xfoox".to_string());
+            assert!(p::containing("foo").test(&s));
+            assert!(!p::starting_with("foo").test(&s));
+            assert!(!p::ending_with("foo").test(&s));
+        }
+
+        #[test]
+        fn string_predicates_with_empty_string_value() {
+            let empty = Value::String("".to_string());
+
+            // Empty string contains empty string
+            assert!(p::containing("").test(&empty));
+            assert!(p::starting_with("").test(&empty));
+            assert!(p::ending_with("").test(&empty));
+
+            // But doesn't contain non-empty strings
+            assert!(!p::containing("x").test(&empty));
+            assert!(!p::starting_with("x").test(&empty));
+            assert!(!p::ending_with("x").test(&empty));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1.6: Regex Predicates Tests
+    // -------------------------------------------------------------------------
+
+    mod regex_predicates {
+        use super::*;
+
+        // -------------------------------------------------------------------
+        // regex() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn regex_matches_pattern() {
+            let pred = p::regex(r"^\d{3}-\d{4}$");
+            assert!(pred.test(&Value::String("123-4567".to_string())));
+            assert!(pred.test(&Value::String("000-0000".to_string())));
+            assert!(pred.test(&Value::String("999-9999".to_string())));
+        }
+
+        #[test]
+        fn regex_does_not_match_non_matching_pattern() {
+            let pred = p::regex(r"^\d{3}-\d{4}$");
+            assert!(!pred.test(&Value::String("12-3456".to_string())));
+            assert!(!pred.test(&Value::String("1234-567".to_string())));
+            assert!(!pred.test(&Value::String("abc-defg".to_string())));
+            assert!(!pred.test(&Value::String("123-45678".to_string())));
+            assert!(!pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn regex_returns_false_for_non_string() {
+            let pred = p::regex(r"\d+");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn regex_simple_patterns() {
+            // Match any digits
+            let pred = p::regex(r"\d+");
+            assert!(pred.test(&Value::String("123".to_string())));
+            assert!(pred.test(&Value::String("abc123xyz".to_string())));
+            assert!(!pred.test(&Value::String("abc".to_string())));
+
+            // Match word characters
+            let pred = p::regex(r"^\w+$");
+            assert!(pred.test(&Value::String("hello".to_string())));
+            assert!(pred.test(&Value::String("hello123".to_string())));
+            assert!(!pred.test(&Value::String("hello world".to_string())));
+        }
+
+        #[test]
+        fn regex_anchored_patterns() {
+            // Start anchor
+            let pred = p::regex(r"^foo");
+            assert!(pred.test(&Value::String("foobar".to_string())));
+            assert!(!pred.test(&Value::String("barfoo".to_string())));
+
+            // End anchor
+            let pred = p::regex(r"bar$");
+            assert!(pred.test(&Value::String("foobar".to_string())));
+            assert!(!pred.test(&Value::String("barfoo".to_string())));
+
+            // Both anchors
+            let pred = p::regex(r"^exact$");
+            assert!(pred.test(&Value::String("exact".to_string())));
+            assert!(!pred.test(&Value::String("exactly".to_string())));
+            assert!(!pred.test(&Value::String("not exact".to_string())));
+        }
+
+        #[test]
+        fn regex_character_classes() {
+            // Digit class
+            let pred = p::regex(r"[0-9]+");
+            assert!(pred.test(&Value::String("42".to_string())));
+            assert!(!pred.test(&Value::String("abc".to_string())));
+
+            // Letter class
+            let pred = p::regex(r"[a-zA-Z]+");
+            assert!(pred.test(&Value::String("Hello".to_string())));
+            assert!(!pred.test(&Value::String("123".to_string())));
+
+            // Custom class
+            let pred = p::regex(r"[aeiou]");
+            assert!(pred.test(&Value::String("hello".to_string())));
+            assert!(!pred.test(&Value::String("rhythm".to_string())));
+        }
+
+        #[test]
+        fn regex_quantifiers() {
+            // Zero or more
+            let pred = p::regex(r"^a*$");
+            assert!(pred.test(&Value::String("".to_string())));
+            assert!(pred.test(&Value::String("a".to_string())));
+            assert!(pred.test(&Value::String("aaa".to_string())));
+            assert!(!pred.test(&Value::String("ab".to_string())));
+
+            // One or more
+            let pred = p::regex(r"^a+$");
+            assert!(!pred.test(&Value::String("".to_string())));
+            assert!(pred.test(&Value::String("a".to_string())));
+            assert!(pred.test(&Value::String("aaa".to_string())));
+
+            // Optional
+            let pred = p::regex(r"^colou?r$");
+            assert!(pred.test(&Value::String("color".to_string())));
+            assert!(pred.test(&Value::String("colour".to_string())));
+            assert!(!pred.test(&Value::String("colouur".to_string())));
+
+            // Exact count
+            let pred = p::regex(r"^a{3}$");
+            assert!(pred.test(&Value::String("aaa".to_string())));
+            assert!(!pred.test(&Value::String("aa".to_string())));
+            assert!(!pred.test(&Value::String("aaaa".to_string())));
+
+            // Range count
+            let pred = p::regex(r"^a{2,4}$");
+            assert!(!pred.test(&Value::String("a".to_string())));
+            assert!(pred.test(&Value::String("aa".to_string())));
+            assert!(pred.test(&Value::String("aaa".to_string())));
+            assert!(pred.test(&Value::String("aaaa".to_string())));
+            assert!(!pred.test(&Value::String("aaaaa".to_string())));
+        }
+
+        #[test]
+        fn regex_alternation() {
+            let pred = p::regex(r"^(cat|dog|bird)$");
+            assert!(pred.test(&Value::String("cat".to_string())));
+            assert!(pred.test(&Value::String("dog".to_string())));
+            assert!(pred.test(&Value::String("bird".to_string())));
+            assert!(!pred.test(&Value::String("fish".to_string())));
+            assert!(!pred.test(&Value::String("cats".to_string())));
+        }
+
+        #[test]
+        fn regex_groups() {
+            // Capturing group
+            let pred = p::regex(r"^(\d{3})-(\d{4})$");
+            assert!(pred.test(&Value::String("123-4567".to_string())));
+
+            // Non-capturing group
+            let pred = p::regex(r"^(?:Mr|Ms|Mrs)\. \w+$");
+            assert!(pred.test(&Value::String("Mr. Smith".to_string())));
+            assert!(pred.test(&Value::String("Ms. Jones".to_string())));
+            assert!(pred.test(&Value::String("Mrs. Brown".to_string())));
+            assert!(!pred.test(&Value::String("Dr. Who".to_string())));
+        }
+
+        #[test]
+        fn regex_special_characters() {
+            // Escaped special characters
+            let pred = p::regex(r"\.\*\+\?");
+            assert!(pred.test(&Value::String(".*+?".to_string())));
+            assert!(!pred.test(&Value::String("abcd".to_string())));
+
+            // Dot matches any
+            let pred = p::regex(r"^a.c$");
+            assert!(pred.test(&Value::String("abc".to_string())));
+            assert!(pred.test(&Value::String("a c".to_string())));
+            assert!(pred.test(&Value::String("a1c".to_string())));
+            assert!(!pred.test(&Value::String("ac".to_string())));
+        }
+
+        #[test]
+        fn regex_case_sensitive_by_default() {
+            let pred = p::regex(r"^hello$");
+            assert!(pred.test(&Value::String("hello".to_string())));
+            assert!(!pred.test(&Value::String("Hello".to_string())));
+            assert!(!pred.test(&Value::String("HELLO".to_string())));
+        }
+
+        #[test]
+        fn regex_case_insensitive_flag() {
+            let pred = p::regex(r"(?i)^hello$");
+            assert!(pred.test(&Value::String("hello".to_string())));
+            assert!(pred.test(&Value::String("Hello".to_string())));
+            assert!(pred.test(&Value::String("HELLO".to_string())));
+            assert!(pred.test(&Value::String("hElLo".to_string())));
+        }
+
+        #[test]
+        fn regex_email_pattern() {
+            // Simplified email pattern
+            let pred = p::regex(r"^[\w.+-]+@[\w.-]+\.\w{2,}$");
+            assert!(pred.test(&Value::String("user@example.com".to_string())));
+            assert!(pred.test(&Value::String("user.name@example.co.uk".to_string())));
+            assert!(pred.test(&Value::String("user+tag@example.org".to_string())));
+            assert!(!pred.test(&Value::String("invalid".to_string())));
+            assert!(!pred.test(&Value::String("@example.com".to_string())));
+            assert!(!pred.test(&Value::String("user@".to_string())));
+        }
+
+        #[test]
+        fn regex_is_clonable() {
+            let pred = p::regex(r"^\d+$");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("123".to_string())));
+            assert!(!cloned.test(&Value::String("abc".to_string())));
+        }
+
+        #[test]
+        fn regex_is_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::Regex>();
+        }
+
+        // -------------------------------------------------------------------
+        // try_regex() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn try_regex_valid_pattern_returns_some() {
+            let result = p::try_regex(r"^\d+$");
+            assert!(result.is_some());
+
+            let pred = result.unwrap();
+            assert!(pred.test(&Value::String("123".to_string())));
+        }
+
+        #[test]
+        fn try_regex_invalid_pattern_returns_none() {
+            // Unmatched bracket
+            assert!(p::try_regex(r"[invalid").is_none());
+
+            // Unmatched parenthesis
+            assert!(p::try_regex(r"(unclosed").is_none());
+
+            // Invalid escape sequence
+            assert!(p::try_regex(r"\").is_none());
+
+            // Invalid repetition
+            assert!(p::try_regex(r"a{2,1}").is_none());
+        }
+
+        #[test]
+        fn try_regex_empty_pattern_is_valid() {
+            let result = p::try_regex(r"");
+            assert!(result.is_some());
+
+            let pred = result.unwrap();
+            // Empty pattern matches any string
+            assert!(pred.test(&Value::String("anything".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn try_regex_complex_valid_pattern() {
+            let result = p::try_regex(r"^(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$");
+            assert!(result.is_some());
+        }
+
+        // -------------------------------------------------------------------
+        // regex() panic test
+        // -------------------------------------------------------------------
+
+        #[test]
+        #[should_panic(expected = "invalid regex pattern")]
+        fn regex_panics_on_invalid_pattern() {
+            let _ = p::regex(r"[invalid");
+        }
+
+        // -------------------------------------------------------------------
+        // Edge cases and integration
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn regex_with_empty_string_value() {
+            let pred = p::regex(r"^$");
+            assert!(pred.test(&Value::String("".to_string())));
+            assert!(!pred.test(&Value::String("x".to_string())));
+
+            let pred = p::regex(r"^.*$");
+            assert!(pred.test(&Value::String("".to_string())));
+            assert!(pred.test(&Value::String("anything".to_string())));
+        }
+
+        #[test]
+        fn regex_with_unicode() {
+            let pred = p::regex(r"日本");
+            assert!(pred.test(&Value::String("日本語".to_string())));
+            assert!(!pred.test(&Value::String("中文".to_string())));
+
+            // Unicode property (if supported)
+            let pred = p::regex(r"\p{L}+");
+            assert!(pred.test(&Value::String("hello".to_string())));
+            assert!(pred.test(&Value::String("日本語".to_string())));
+        }
+
+        #[test]
+        fn regex_with_whitespace_patterns() {
+            let pred = p::regex(r"^\s+$");
+            assert!(pred.test(&Value::String("   ".to_string())));
+            assert!(pred.test(&Value::String("\t\n".to_string())));
+            assert!(!pred.test(&Value::String("abc".to_string())));
+
+            let pred = p::regex(r"\S+");
+            assert!(pred.test(&Value::String("abc".to_string())));
+            assert!(!pred.test(&Value::String("   ".to_string())));
+        }
+
+        #[test]
+        fn regex_predicate_implements_predicate_trait() {
+            let predicates: Vec<Box<dyn Predicate>> = vec![
+                Box::new(p::regex(r"^\d+$")),
+                Box::new(p::regex(r"^[a-z]+$")),
+            ];
+
+            assert_eq!(predicates.len(), 2);
+            for pred in &predicates {
+                let _ = pred.test(&Value::String("test".to_string()));
+            }
+        }
+
+        #[test]
+        fn regex_multiline_flag() {
+            // By default, ^ and $ match start/end of string
+            let pred = p::regex(r"^line$");
+            assert!(!pred.test(&Value::String("line\nline".to_string())));
+
+            // With multiline flag, ^ and $ match start/end of lines
+            let pred = p::regex(r"(?m)^line$");
+            assert!(pred.test(&Value::String("line\nline".to_string())));
+            assert!(pred.test(&Value::String("line".to_string())));
+        }
+
+        #[test]
+        fn regex_word_boundaries() {
+            let pred = p::regex(r"\bword\b");
+            assert!(pred.test(&Value::String("a word here".to_string())));
+            assert!(pred.test(&Value::String("word".to_string())));
+            assert!(!pred.test(&Value::String("wording".to_string())));
+            assert!(!pred.test(&Value::String("sword".to_string())));
         }
     }
 }

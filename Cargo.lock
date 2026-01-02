@@ -887,6 +887,7 @@ dependencies = [
  "memmap2 0.9.9",
  "parking_lot",
  "proptest",
+ "regex",
  "roaring",
  "serde",
  "smallvec",

@@ -154,11 +154,11 @@ pub mod p {
 4. Add factory functions
 
 **Acceptance Criteria**:
-- [ ] `p::containing("foo").test(&Value::String("foobar".into()))` returns true
-- [ ] `p::starting_with("foo").test(&Value::String("foobar".into()))` returns true
-- [ ] `p::ending_with("bar").test(&Value::String("foobar".into()))` returns true
-- [ ] Non-string values return false
-- [ ] Unit tests pass
+- [x] `p::containing("foo").test(&Value::String("foobar".into()))` returns true
+- [x] `p::starting_with("foo").test(&Value::String("foobar".into()))` returns true
+- [x] `p::ending_with("bar").test(&Value::String("foobar".into()))` returns true
+- [x] Non-string values return false
+- [x] Unit tests pass
 
 ---
 
@@ -173,10 +173,10 @@ pub mod p {
 4. Implement `p::try_regex()` factory (returns Option)
 
 **Acceptance Criteria**:
-- [ ] `p::regex(r"^\d{3}-\d{4}$").test(&Value::String("123-4567".into()))` returns true
-- [ ] `p::try_regex(r"[invalid")` returns `None`
-- [ ] Non-string values return false
-- [ ] Unit tests pass
+- [x] `p::regex(r"^\d{3}-\d{4}$").test(&Value::String("123-4567".into()))` returns true
+- [x] `p::try_regex(r"[invalid")` returns `None`
+- [x] Non-string values return false
+- [x] Unit tests pass
 
 ---
 
