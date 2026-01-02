@@ -578,8 +578,121 @@ pub mod p {
         Outside(start.into(), end.into())
     }
 
+    // -------------------------------------------------------------------------
+    // Collection Predicates (Phase 1.4)
+    // -------------------------------------------------------------------------
+
+    /// Within predicate (value is in set).
+    ///
+    /// Tests if the value is contained in the given set of values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::within([1, 2, 3]);
+    /// assert!(pred.test(&Value::Int(2)));
+    /// assert!(!pred.test(&Value::Int(4)));
+    /// ```
+    #[derive(Clone)]
+    pub struct Within(Vec<Value>);
+
+    impl Predicate for Within {
+        fn test(&self, value: &Value) -> bool {
+            self.0.contains(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a within predicate (value is in set).
+    ///
+    /// Tests if value is contained in the given collection of values.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - An iterable of values to check membership against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for specific names
+    /// let pred = p::within(["Alice", "Bob", "Carol"]);
+    ///
+    /// // Filter for specific numbers
+    /// let pred = p::within([1, 2, 3, 5, 8, 13]);
+    ///
+    /// // Using a vec
+    /// let names = vec!["Alice", "Bob"];
+    /// let pred = p::within(names);
+    /// ```
+    pub fn within<T, I>(values: I) -> Within
+    where
+        T: Into<Value>,
+        I: IntoIterator<Item = T>,
+    {
+        Within(values.into_iter().map(Into::into).collect())
+    }
+
+    /// Without predicate (value is NOT in set).
+    ///
+    /// Tests if the value is NOT contained in the given set of values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::without([1, 2, 3]);
+    /// assert!(pred.test(&Value::Int(4)));
+    /// assert!(!pred.test(&Value::Int(2)));
+    /// ```
+    #[derive(Clone)]
+    pub struct Without(Vec<Value>);
+
+    impl Predicate for Without {
+        fn test(&self, value: &Value) -> bool {
+            !self.0.contains(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a without predicate (value is NOT in set).
+    ///
+    /// Tests if value is NOT contained in the given collection of values.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - An iterable of values to check membership against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Exclude specific statuses
+    /// let pred = p::without(["deleted", "archived"]);
+    ///
+    /// // Exclude specific IDs
+    /// let pred = p::without([0, -1]);
+    /// ```
+    pub fn without<T, I>(values: I) -> Without
+    where
+        T: Into<Value>,
+        I: IntoIterator<Item = T>,
+    {
+        Without(values.into_iter().map(Into::into).collect())
+    }
+
     // Predicates will be added in subsequent phases:
-    // - Phase 1.4: within, without
     // - Phase 1.5: containing, starting_with, ending_with
     // - Phase 1.6: regex
     // - Phase 1.7: and, or, not
@@ -1483,6 +1596,291 @@ mod tests {
             assert!(!pred.test(&Value::Int(15)));
             assert!(!pred.test(&Value::Int(10)));
             assert!(!pred.test(&Value::Int(20)));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1.4: Collection Predicates Tests
+    // -------------------------------------------------------------------------
+
+    mod collection_predicates {
+        use super::*;
+
+        // -------------------------------------------------------------------
+        // within() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn within_matches_value_in_set() {
+            let pred = p::within([1, 2, 3]);
+            assert!(pred.test(&Value::Int(1)));
+            assert!(pred.test(&Value::Int(2)));
+            assert!(pred.test(&Value::Int(3)));
+        }
+
+        #[test]
+        fn within_does_not_match_value_not_in_set() {
+            let pred = p::within([1, 2, 3]);
+            assert!(!pred.test(&Value::Int(0)));
+            assert!(!pred.test(&Value::Int(4)));
+            assert!(!pred.test(&Value::Int(-1)));
+        }
+
+        #[test]
+        fn within_with_strings() {
+            let pred = p::within(["Alice", "Bob", "Carol"]);
+            assert!(pred.test(&Value::String("Alice".to_string())));
+            assert!(pred.test(&Value::String("Bob".to_string())));
+            assert!(pred.test(&Value::String("Carol".to_string())));
+            assert!(!pred.test(&Value::String("Dave".to_string())));
+            assert!(!pred.test(&Value::String("alice".to_string()))); // case sensitive
+        }
+
+        #[test]
+        fn within_with_floats() {
+            let pred = p::within([1.0f64, 2.5f64, 3.14f64]);
+            assert!(pred.test(&Value::Float(1.0)));
+            assert!(pred.test(&Value::Float(2.5)));
+            assert!(pred.test(&Value::Float(3.14)));
+            assert!(!pred.test(&Value::Float(1.1)));
+        }
+
+        #[test]
+        fn within_with_booleans() {
+            let pred = p::within([true]);
+            assert!(pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Bool(false)));
+        }
+
+        #[test]
+        fn within_empty_set() {
+            let pred = p::within::<i64, _>([]);
+            assert!(!pred.test(&Value::Int(1)));
+            assert!(!pred.test(&Value::String("any".to_string())));
+        }
+
+        #[test]
+        fn within_single_element() {
+            let pred = p::within([42]);
+            assert!(pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Int(41)));
+            assert!(!pred.test(&Value::Int(43)));
+        }
+
+        #[test]
+        fn within_does_not_match_different_types() {
+            let pred = p::within([1, 2, 3]);
+            // "1" is String, not Int
+            assert!(!pred.test(&Value::String("1".to_string())));
+            // 1.0 is Float, not Int
+            assert!(!pred.test(&Value::Float(1.0)));
+        }
+
+        #[test]
+        fn within_with_vec() {
+            let values = vec![10, 20, 30];
+            let pred = p::within(values);
+            assert!(pred.test(&Value::Int(10)));
+            assert!(pred.test(&Value::Int(20)));
+            assert!(pred.test(&Value::Int(30)));
+            assert!(!pred.test(&Value::Int(15)));
+        }
+
+        #[test]
+        fn within_is_clonable() {
+            let pred = p::within([1, 2, 3]);
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(2)));
+            assert!(!cloned.test(&Value::Int(4)));
+        }
+
+        #[test]
+        fn within_with_negative_numbers() {
+            let pred = p::within([-1, 0, 1]);
+            assert!(pred.test(&Value::Int(-1)));
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(1)));
+            assert!(!pred.test(&Value::Int(-2)));
+        }
+
+        // -------------------------------------------------------------------
+        // without() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn without_matches_value_not_in_set() {
+            let pred = p::without([1, 2, 3]);
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(4)));
+            assert!(pred.test(&Value::Int(-1)));
+        }
+
+        #[test]
+        fn without_does_not_match_value_in_set() {
+            let pred = p::without([1, 2, 3]);
+            assert!(!pred.test(&Value::Int(1)));
+            assert!(!pred.test(&Value::Int(2)));
+            assert!(!pred.test(&Value::Int(3)));
+        }
+
+        #[test]
+        fn without_with_strings() {
+            let pred = p::without(["deleted", "archived"]);
+            assert!(pred.test(&Value::String("active".to_string())));
+            assert!(pred.test(&Value::String("pending".to_string())));
+            assert!(!pred.test(&Value::String("deleted".to_string())));
+            assert!(!pred.test(&Value::String("archived".to_string())));
+        }
+
+        #[test]
+        fn without_with_floats() {
+            let pred = p::without([0.0f64, -0.0f64]);
+            assert!(pred.test(&Value::Float(1.0)));
+            assert!(pred.test(&Value::Float(-1.0)));
+            assert!(!pred.test(&Value::Float(0.0)));
+        }
+
+        #[test]
+        fn without_empty_set() {
+            let pred = p::without::<i64, _>([]);
+            // Everything should match when set is empty
+            assert!(pred.test(&Value::Int(1)));
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::String("anything".to_string())));
+        }
+
+        #[test]
+        fn without_single_element() {
+            let pred = p::without([42]);
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(pred.test(&Value::Int(41)));
+            assert!(pred.test(&Value::Int(43)));
+        }
+
+        #[test]
+        fn without_matches_different_types() {
+            let pred = p::without([1, 2, 3]);
+            // Different types are "not in" the int set
+            assert!(pred.test(&Value::String("1".to_string())));
+            assert!(pred.test(&Value::Float(1.0)));
+            assert!(pred.test(&Value::Bool(true)));
+        }
+
+        #[test]
+        fn without_with_vec() {
+            let blacklist = vec!["spam", "blocked"];
+            let pred = p::without(blacklist);
+            assert!(pred.test(&Value::String("hello".to_string())));
+            assert!(!pred.test(&Value::String("spam".to_string())));
+            assert!(!pred.test(&Value::String("blocked".to_string())));
+        }
+
+        #[test]
+        fn without_is_clonable() {
+            let pred = p::without([1, 2, 3]);
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(4)));
+            assert!(!cloned.test(&Value::Int(2)));
+        }
+
+        #[test]
+        fn without_with_negative_numbers() {
+            let pred = p::without([-1, 0, 1]);
+            assert!(!pred.test(&Value::Int(-1)));
+            assert!(!pred.test(&Value::Int(0)));
+            assert!(!pred.test(&Value::Int(1)));
+            assert!(pred.test(&Value::Int(-2)));
+            assert!(pred.test(&Value::Int(2)));
+        }
+
+        // -------------------------------------------------------------------
+        // Combined/edge case tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn collection_predicates_implement_predicate_trait() {
+            // Verify both can be used as Box<dyn Predicate>
+            let predicates: Vec<Box<dyn Predicate>> = vec![
+                Box::new(p::within([1, 2, 3])),
+                Box::new(p::without([1, 2, 3])),
+            ];
+
+            assert_eq!(predicates.len(), 2);
+            for pred in &predicates {
+                let _ = pred.test(&Value::Int(2));
+            }
+        }
+
+        #[test]
+        fn collection_predicates_are_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::Within>();
+            assert_send_sync::<p::Without>();
+        }
+
+        #[test]
+        fn within_and_without_are_complementary() {
+            // For the same set, within and without should be complementary
+            let set = [1, 2, 3];
+            let within_pred = p::within(set.clone());
+            let without_pred = p::without(set);
+
+            // For any value, exactly one should match
+            let test_values = [
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4),
+                Value::Int(0),
+            ];
+
+            for value in &test_values {
+                assert_ne!(
+                    within_pred.test(value),
+                    without_pred.test(value),
+                    "within and without should be complementary for {:?}",
+                    value
+                );
+            }
+        }
+
+        #[test]
+        fn within_with_duplicates() {
+            // Duplicates in the set should not affect behavior
+            let pred = p::within([1, 1, 2, 2, 3]);
+            assert!(pred.test(&Value::Int(1)));
+            assert!(pred.test(&Value::Int(2)));
+            assert!(pred.test(&Value::Int(3)));
+            assert!(!pred.test(&Value::Int(4)));
+        }
+
+        #[test]
+        fn within_null_value() {
+            // Null should not match an int set
+            let pred = p::within([1, 2, 3]);
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn without_null_value() {
+            // Null should match "not in" an int set
+            let pred = p::without([1, 2, 3]);
+            assert!(pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn large_set_performance() {
+            // Test with a larger set to ensure no issues
+            let large_set: Vec<i64> = (0..1000).collect();
+            let pred = p::within(large_set);
+
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(500)));
+            assert!(pred.test(&Value::Int(999)));
+            assert!(!pred.test(&Value::Int(1000)));
+            assert!(!pred.test(&Value::Int(-1)));
         }
     }
 }

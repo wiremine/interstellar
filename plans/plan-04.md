@@ -136,10 +136,10 @@ pub mod p {
 3. Add factory functions `p::within()`, `p::without()`
 
 **Acceptance Criteria**:
-- [ ] `p::within([1, 2, 3]).test(&Value::Int(2))` returns true
-- [ ] `p::within([1, 2, 3]).test(&Value::Int(4))` returns false
-- [ ] `p::without([1, 2, 3]).test(&Value::Int(4))` returns true
-- [ ] Unit tests pass
+- [x] `p::within([1, 2, 3]).test(&Value::Int(2))` returns true
+- [x] `p::within([1, 2, 3]).test(&Value::Int(4))` returns false
+- [x] `p::without([1, 2, 3]).test(&Value::Int(4))` returns true
+- [x] Unit tests pass
 
 ---
 
