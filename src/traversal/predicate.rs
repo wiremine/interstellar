@@ -420,8 +420,165 @@ pub mod p {
         Gte(value.into())
     }
 
+    // -------------------------------------------------------------------------
+    // Range Predicates (Phase 1.3)
+    // -------------------------------------------------------------------------
+
+    /// Between predicate (inclusive start, exclusive end).
+    ///
+    /// Tests if the value is within the range [start, end).
+    /// Uses the existing Gte and Lt predicates for comparison.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::between(10, 20);
+    /// assert!(pred.test(&Value::Int(10)));  // inclusive start
+    /// assert!(pred.test(&Value::Int(15)));  // in range
+    /// assert!(!pred.test(&Value::Int(20))); // exclusive end
+    /// assert!(!pred.test(&Value::Int(5)));  // below range
+    /// ```
+    #[derive(Clone)]
+    pub struct Between(Value, Value);
+
+    impl Predicate for Between {
+        fn test(&self, value: &Value) -> bool {
+            // value >= start && value < end
+            Gte(self.0.clone()).test(value) && Lt(self.1.clone()).test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a between predicate (inclusive start, exclusive end).
+    ///
+    /// Tests if value is in the range [start, end).
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - The inclusive lower bound
+    /// * `end` - The exclusive upper bound
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for ages 18-65 (exclusive of 65)
+    /// let pred = p::between(18, 65);
+    /// ```
+    pub fn between<T: Into<Value>>(start: T, end: T) -> Between {
+        Between(start.into(), end.into())
+    }
+
+    /// Inside predicate (exclusive both ends).
+    ///
+    /// Tests if the value is strictly inside the range (start, end).
+    /// Both endpoints are excluded.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::inside(10, 20);
+    /// assert!(!pred.test(&Value::Int(10))); // exclusive start
+    /// assert!(pred.test(&Value::Int(15)));  // in range
+    /// assert!(!pred.test(&Value::Int(20))); // exclusive end
+    /// ```
+    #[derive(Clone)]
+    pub struct Inside(Value, Value);
+
+    impl Predicate for Inside {
+        fn test(&self, value: &Value) -> bool {
+            // value > start && value < end
+            Gt(self.0.clone()).test(value) && Lt(self.1.clone()).test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create an inside predicate (exclusive both ends).
+    ///
+    /// Tests if value is in the range (start, end), excluding both endpoints.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - The exclusive lower bound
+    /// * `end` - The exclusive upper bound
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for values strictly between 0 and 100
+    /// let pred = p::inside(0, 100);
+    /// ```
+    pub fn inside<T: Into<Value>>(start: T, end: T) -> Inside {
+        Inside(start.into(), end.into())
+    }
+
+    /// Outside predicate.
+    ///
+    /// Tests if the value is outside the range [start, end].
+    /// Returns true if value < start OR value > end.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::outside(10, 20);
+    /// assert!(pred.test(&Value::Int(5)));   // below range
+    /// assert!(!pred.test(&Value::Int(10))); // at start (inside)
+    /// assert!(!pred.test(&Value::Int(15))); // in range
+    /// assert!(!pred.test(&Value::Int(20))); // at end (inside)
+    /// assert!(pred.test(&Value::Int(25)));  // above range
+    /// ```
+    #[derive(Clone)]
+    pub struct Outside(Value, Value);
+
+    impl Predicate for Outside {
+        fn test(&self, value: &Value) -> bool {
+            // value < start || value > end
+            Lt(self.0.clone()).test(value) || Gt(self.1.clone()).test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create an outside predicate.
+    ///
+    /// Tests if value is outside the range [start, end].
+    /// Returns true if value < start OR value > end.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - Values less than this are outside
+    /// * `end` - Values greater than this are outside
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for values outside the normal range
+    /// let pred = p::outside(0, 100);
+    /// ```
+    pub fn outside<T: Into<Value>>(start: T, end: T) -> Outside {
+        Outside(start.into(), end.into())
+    }
+
     // Predicates will be added in subsequent phases:
-    // - Phase 1.3: between, inside, outside
     // - Phase 1.4: within, without
     // - Phase 1.5: containing, starting_with, ending_with
     // - Phase 1.6: regex
@@ -970,6 +1127,362 @@ mod tests {
             assert!(pred.test(&Value::Float(0.0)));
             assert!(pred.test(&Value::Float(0.1)));
             assert!(!pred.test(&Value::Float(-0.1)));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1.3: Range Predicates Tests
+    // -------------------------------------------------------------------------
+
+    mod range_predicates {
+        use super::*;
+
+        // -------------------------------------------------------------------
+        // between() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn between_inclusive_start() {
+            let pred = p::between(10, 20);
+            assert!(pred.test(&Value::Int(10))); // inclusive start
+        }
+
+        #[test]
+        fn between_exclusive_end() {
+            let pred = p::between(10, 20);
+            assert!(!pred.test(&Value::Int(20))); // exclusive end
+        }
+
+        #[test]
+        fn between_in_range() {
+            let pred = p::between(10, 20);
+            assert!(pred.test(&Value::Int(15)));
+            assert!(pred.test(&Value::Int(11)));
+            assert!(pred.test(&Value::Int(19)));
+        }
+
+        #[test]
+        fn between_below_range() {
+            let pred = p::between(10, 20);
+            assert!(!pred.test(&Value::Int(5)));
+            assert!(!pred.test(&Value::Int(9)));
+        }
+
+        #[test]
+        fn between_above_range() {
+            let pred = p::between(10, 20);
+            assert!(!pred.test(&Value::Int(21)));
+            assert!(!pred.test(&Value::Int(100)));
+        }
+
+        #[test]
+        fn between_with_floats() {
+            let pred = p::between(10.0f64, 20.0f64);
+            assert!(pred.test(&Value::Float(10.0))); // inclusive start
+            assert!(pred.test(&Value::Float(15.5)));
+            assert!(!pred.test(&Value::Float(20.0))); // exclusive end
+            assert!(!pred.test(&Value::Float(9.9)));
+            assert!(!pred.test(&Value::Float(20.1)));
+        }
+
+        #[test]
+        fn between_cross_type() {
+            // Int range, float value
+            let pred = p::between(10, 20);
+            assert!(pred.test(&Value::Float(10.0)));
+            assert!(pred.test(&Value::Float(15.5)));
+            assert!(!pred.test(&Value::Float(20.0)));
+            assert!(!pred.test(&Value::Float(9.9)));
+        }
+
+        #[test]
+        fn between_with_strings() {
+            let pred = p::between("b", "d");
+            assert!(pred.test(&Value::String("b".to_string()))); // inclusive start
+            assert!(pred.test(&Value::String("c".to_string())));
+            assert!(!pred.test(&Value::String("d".to_string()))); // exclusive end
+            assert!(!pred.test(&Value::String("a".to_string())));
+            assert!(!pred.test(&Value::String("e".to_string())));
+        }
+
+        #[test]
+        fn between_returns_false_for_incompatible_types() {
+            let pred = p::between(10, 20);
+            assert!(!pred.test(&Value::String("15".to_string())));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn between_is_clonable() {
+            let pred = p::between(10, 20);
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(15)));
+            assert!(!cloned.test(&Value::Int(5)));
+        }
+
+        #[test]
+        fn between_with_negative_range() {
+            let pred = p::between(-10, 10);
+            assert!(pred.test(&Value::Int(-10))); // inclusive start
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(9)));
+            assert!(!pred.test(&Value::Int(10))); // exclusive end
+            assert!(!pred.test(&Value::Int(-11)));
+        }
+
+        // -------------------------------------------------------------------
+        // inside() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn inside_exclusive_start() {
+            let pred = p::inside(10, 20);
+            assert!(!pred.test(&Value::Int(10))); // exclusive start
+        }
+
+        #[test]
+        fn inside_exclusive_end() {
+            let pred = p::inside(10, 20);
+            assert!(!pred.test(&Value::Int(20))); // exclusive end
+        }
+
+        #[test]
+        fn inside_in_range() {
+            let pred = p::inside(10, 20);
+            assert!(pred.test(&Value::Int(11)));
+            assert!(pred.test(&Value::Int(15)));
+            assert!(pred.test(&Value::Int(19)));
+        }
+
+        #[test]
+        fn inside_below_range() {
+            let pred = p::inside(10, 20);
+            assert!(!pred.test(&Value::Int(5)));
+            assert!(!pred.test(&Value::Int(9)));
+        }
+
+        #[test]
+        fn inside_above_range() {
+            let pred = p::inside(10, 20);
+            assert!(!pred.test(&Value::Int(21)));
+            assert!(!pred.test(&Value::Int(100)));
+        }
+
+        #[test]
+        fn inside_with_floats() {
+            let pred = p::inside(10.0f64, 20.0f64);
+            assert!(!pred.test(&Value::Float(10.0))); // exclusive start
+            assert!(pred.test(&Value::Float(10.1)));
+            assert!(pred.test(&Value::Float(15.5)));
+            assert!(pred.test(&Value::Float(19.9)));
+            assert!(!pred.test(&Value::Float(20.0))); // exclusive end
+        }
+
+        #[test]
+        fn inside_cross_type() {
+            // Int range, float value
+            let pred = p::inside(10, 20);
+            assert!(!pred.test(&Value::Float(10.0)));
+            assert!(pred.test(&Value::Float(10.5)));
+            assert!(pred.test(&Value::Float(15.0)));
+            assert!(pred.test(&Value::Float(19.5)));
+            assert!(!pred.test(&Value::Float(20.0)));
+        }
+
+        #[test]
+        fn inside_with_strings() {
+            let pred = p::inside("b", "d");
+            assert!(!pred.test(&Value::String("b".to_string()))); // exclusive start
+            assert!(pred.test(&Value::String("c".to_string())));
+            assert!(!pred.test(&Value::String("d".to_string()))); // exclusive end
+            assert!(!pred.test(&Value::String("a".to_string())));
+        }
+
+        #[test]
+        fn inside_returns_false_for_incompatible_types() {
+            let pred = p::inside(10, 20);
+            assert!(!pred.test(&Value::String("15".to_string())));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn inside_is_clonable() {
+            let pred = p::inside(10, 20);
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(15)));
+            assert!(!cloned.test(&Value::Int(10)));
+        }
+
+        #[test]
+        fn inside_with_negative_range() {
+            let pred = p::inside(-10, 10);
+            assert!(!pred.test(&Value::Int(-10))); // exclusive start
+            assert!(pred.test(&Value::Int(-9)));
+            assert!(pred.test(&Value::Int(0)));
+            assert!(pred.test(&Value::Int(9)));
+            assert!(!pred.test(&Value::Int(10))); // exclusive end
+        }
+
+        // -------------------------------------------------------------------
+        // outside() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn outside_below_range() {
+            let pred = p::outside(10, 20);
+            assert!(pred.test(&Value::Int(5)));
+            assert!(pred.test(&Value::Int(9)));
+        }
+
+        #[test]
+        fn outside_above_range() {
+            let pred = p::outside(10, 20);
+            assert!(pred.test(&Value::Int(21)));
+            assert!(pred.test(&Value::Int(100)));
+        }
+
+        #[test]
+        fn outside_at_start_boundary() {
+            let pred = p::outside(10, 20);
+            assert!(!pred.test(&Value::Int(10))); // at start (inside)
+        }
+
+        #[test]
+        fn outside_at_end_boundary() {
+            let pred = p::outside(10, 20);
+            assert!(!pred.test(&Value::Int(20))); // at end (inside)
+        }
+
+        #[test]
+        fn outside_in_range() {
+            let pred = p::outside(10, 20);
+            assert!(!pred.test(&Value::Int(15)));
+            assert!(!pred.test(&Value::Int(11)));
+            assert!(!pred.test(&Value::Int(19)));
+        }
+
+        #[test]
+        fn outside_with_floats() {
+            let pred = p::outside(10.0f64, 20.0f64);
+            assert!(pred.test(&Value::Float(9.9)));
+            assert!(pred.test(&Value::Float(20.1)));
+            assert!(!pred.test(&Value::Float(10.0)));
+            assert!(!pred.test(&Value::Float(15.0)));
+            assert!(!pred.test(&Value::Float(20.0)));
+        }
+
+        #[test]
+        fn outside_cross_type() {
+            // Int range, float value
+            let pred = p::outside(10, 20);
+            assert!(pred.test(&Value::Float(9.9)));
+            assert!(pred.test(&Value::Float(20.1)));
+            assert!(!pred.test(&Value::Float(10.0)));
+            assert!(!pred.test(&Value::Float(15.0)));
+        }
+
+        #[test]
+        fn outside_with_strings() {
+            let pred = p::outside("b", "d");
+            assert!(pred.test(&Value::String("a".to_string())));
+            assert!(pred.test(&Value::String("e".to_string())));
+            assert!(!pred.test(&Value::String("b".to_string())));
+            assert!(!pred.test(&Value::String("c".to_string())));
+            assert!(!pred.test(&Value::String("d".to_string())));
+        }
+
+        #[test]
+        fn outside_returns_false_for_incompatible_types() {
+            // Incompatible types return false for both Lt and Gt,
+            // so outside (Lt || Gt) returns false
+            let pred = p::outside(10, 20);
+            assert!(!pred.test(&Value::String("5".to_string())));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn outside_is_clonable() {
+            let pred = p::outside(10, 20);
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::Int(5)));
+            assert!(!cloned.test(&Value::Int(15)));
+        }
+
+        #[test]
+        fn outside_with_negative_range() {
+            let pred = p::outside(-10, 10);
+            assert!(pred.test(&Value::Int(-11)));
+            assert!(pred.test(&Value::Int(11)));
+            assert!(!pred.test(&Value::Int(-10)));
+            assert!(!pred.test(&Value::Int(0)));
+            assert!(!pred.test(&Value::Int(10)));
+        }
+
+        // -------------------------------------------------------------------
+        // Combined/edge case tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn range_predicates_implement_predicate_trait() {
+            // Verify all can be used as Box<dyn Predicate>
+            let predicates: Vec<Box<dyn Predicate>> = vec![
+                Box::new(p::between(10, 20)),
+                Box::new(p::inside(10, 20)),
+                Box::new(p::outside(10, 20)),
+            ];
+
+            assert_eq!(predicates.len(), 3);
+            for pred in &predicates {
+                let _ = pred.test(&Value::Int(15));
+            }
+        }
+
+        #[test]
+        fn range_predicates_are_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::Between>();
+            assert_send_sync::<p::Inside>();
+            assert_send_sync::<p::Outside>();
+        }
+
+        #[test]
+        fn single_value_range() {
+            // between(10, 11) should only match 10
+            let pred = p::between(10, 11);
+            assert!(pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(11)));
+            assert!(!pred.test(&Value::Int(9)));
+
+            // inside(10, 11) should match nothing (no integers strictly between 10 and 11)
+            let pred = p::inside(10, 11);
+            assert!(!pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(11)));
+            // But floats can be inside
+            assert!(pred.test(&Value::Float(10.5)));
+        }
+
+        #[test]
+        fn empty_range() {
+            // between(10, 10) should match nothing (start >= end)
+            let pred = p::between(10, 10);
+            assert!(!pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(9)));
+            assert!(!pred.test(&Value::Int(11)));
+        }
+
+        #[test]
+        fn inverted_range() {
+            // between(20, 10) should match nothing (start > end)
+            let pred = p::between(20, 10);
+            assert!(!pred.test(&Value::Int(15)));
+            assert!(!pred.test(&Value::Int(10)));
+            assert!(!pred.test(&Value::Int(20)));
         }
     }
 }
