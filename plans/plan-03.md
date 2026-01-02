@@ -41,10 +41,10 @@ Edge(EdgeId),
 ```
 
 **Acceptance Criteria**:
-- [ ] `Value::Vertex(VertexId(1))` compiles and pattern matches
-- [ ] `Value::Edge(EdgeId(1))` compiles and pattern matches
-- [ ] `to_comparable()` handles new variants
-- [ ] Existing tests pass
+- [x] `Value::Vertex(VertexId(1))` compiles and pattern matches
+- [x] `Value::Edge(EdgeId(1))` compiles and pattern matches
+- [x] `to_comparable()` handles new variants
+- [x] Existing tests pass
 
 ---
 
@@ -52,8 +52,10 @@ Edge(EdgeId),
 **File**: `src/value.rs`  
 **Duration**: 1-2 hours
 
+**Status**: `Hash` for `OrderedFloat` completed in Phase 1.1 (required for `ComparableValue` to derive `Hash`). `Hash` for `Value` still needed.
+
 **Tasks**:
-1. Implement `Hash` for `OrderedFloat` using `to_bits()`
+1. ~~Implement `Hash` for `OrderedFloat` using `to_bits()`~~ (done in 1.1)
 2. Implement `Hash` for `Value` (all variants including new ones)
 3. Implement `Eq` for `Value` (required for Hash)
 
@@ -93,6 +95,7 @@ impl Eq for Value {}
 ```
 
 **Acceptance Criteria**:
+- [x] `OrderedFloat` implements `Hash` (done in 1.1)
 - [ ] `Value` can be used as `HashMap` key
 - [ ] `Value` can be inserted into `HashSet`
 - [ ] Hash is consistent (same value = same hash)
@@ -104,17 +107,19 @@ impl Eq for Value {}
 **File**: `src/value.rs`  
 **Duration**: 1 hour
 
+**Status**: Completed in Phase 1.1
+
 **Tasks**:
-1. Add serialization for `Value::Vertex` (tag 0x08)
-2. Add serialization for `Value::Edge` (tag 0x09)
-3. Add deserialization for both variants
-4. Add roundtrip tests
+1. ~~Add serialization for `Value::Vertex` (tag 0x08)~~ (done in 1.1)
+2. ~~Add serialization for `Value::Edge` (tag 0x09)~~ (done in 1.1)
+3. ~~Add deserialization for both variants~~ (done in 1.1)
+4. ~~Add roundtrip tests~~ (done in 1.1)
 
 **Acceptance Criteria**:
-- [ ] `Value::Vertex` serializes to tag 0x08 + u64
-- [ ] `Value::Edge` serializes to tag 0x09 + u64
-- [ ] Roundtrip test passes for new variants
-- [ ] Existing serialization tests pass
+- [x] `Value::Vertex` serializes to tag 0x08 + u64
+- [x] `Value::Edge` serializes to tag 0x09 + u64
+- [x] Roundtrip test passes for new variants
+- [x] Existing serialization tests pass
 
 ---
 

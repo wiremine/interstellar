@@ -21,9 +21,13 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Map(HashMap<String, Value>),
+    /// A vertex reference (for traversal)
+    Vertex(VertexId),
+    /// An edge reference (for traversal)
+    Edge(EdgeId),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComparableValue {
     Null,
     Bool(bool),
@@ -32,6 +36,8 @@ pub enum ComparableValue {
     String(String),
     List(Vec<ComparableValue>),
     Map(BTreeMap<String, ComparableValue>),
+    Vertex(VertexId),
+    Edge(EdgeId),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -54,6 +60,12 @@ impl PartialOrd for OrderedFloat {
 impl Ord for OrderedFloat {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.total_cmp(&other.0)
+    }
+}
+
+impl std::hash::Hash for OrderedFloat {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
     }
 }
 
@@ -160,6 +172,14 @@ impl Value {
                     v.serialize(buf);
                 }
             }
+            Value::Vertex(id) => {
+                buf.push(0x08);
+                buf.extend_from_slice(&id.0.to_le_bytes());
+            }
+            Value::Edge(id) => {
+                buf.push(0x09);
+                buf.extend_from_slice(&id.0.to_le_bytes());
+            }
         }
     }
 
@@ -213,6 +233,16 @@ impl Value {
                 }
                 Some(Value::Map(map))
             }
+            0x08 => {
+                let id = u64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                *pos += 8;
+                Some(Value::Vertex(VertexId(id)))
+            }
+            0x09 => {
+                let id = u64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                *pos += 8;
+                Some(Value::Edge(EdgeId(id)))
+            }
             _ => None,
         }
     }
@@ -234,6 +264,8 @@ impl Value {
                 }
                 ComparableValue::Map(ordered)
             }
+            Value::Vertex(id) => ComparableValue::Vertex(*id),
+            Value::Edge(id) => ComparableValue::Edge(*id),
         }
     }
 
@@ -446,6 +478,62 @@ mod tests {
         assert_eq!(f.as_f64(), Some(3.14));
     }
 
+    #[test]
+    fn value_vertex_variant_compiles_and_pattern_matches() {
+        let v = Value::Vertex(VertexId(1));
+        assert!(matches!(v, Value::Vertex(VertexId(1))));
+
+        let v2 = Value::Vertex(VertexId(42));
+        match v2 {
+            Value::Vertex(id) => assert_eq!(id, VertexId(42)),
+            _ => panic!("Expected Vertex variant"),
+        }
+    }
+
+    #[test]
+    fn value_edge_variant_compiles_and_pattern_matches() {
+        let e = Value::Edge(EdgeId(1));
+        assert!(matches!(e, Value::Edge(EdgeId(1))));
+
+        let e2 = Value::Edge(EdgeId(99));
+        match e2 {
+            Value::Edge(id) => assert_eq!(id, EdgeId(99)),
+            _ => panic!("Expected Edge variant"),
+        }
+    }
+
+    #[test]
+    fn vertex_and_edge_to_comparable() {
+        let v = Value::Vertex(VertexId(123));
+        let cv = v.to_comparable();
+        assert_eq!(cv, ComparableValue::Vertex(VertexId(123)));
+
+        let e = Value::Edge(EdgeId(456));
+        let ce = e.to_comparable();
+        assert_eq!(ce, ComparableValue::Edge(EdgeId(456)));
+    }
+
+    #[test]
+    fn vertex_and_edge_serialize_roundtrip() {
+        let vertex = Value::Vertex(VertexId(12345));
+        let mut buf = Vec::new();
+        vertex.serialize(&mut buf);
+        assert_eq!(buf[0], 0x08); // Vertex tag
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize vertex");
+        assert_eq!(parsed, vertex);
+        assert_eq!(pos, buf.len());
+
+        let edge = Value::Edge(EdgeId(67890));
+        let mut buf = Vec::new();
+        edge.serialize(&mut buf);
+        assert_eq!(buf[0], 0x09); // Edge tag
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize edge");
+        assert_eq!(parsed, edge);
+        assert_eq!(pos, buf.len());
+    }
+
     fn arb_value() -> impl Strategy<Value = Value> {
         let leaf = prop_oneof![
             Just(Value::Null),
@@ -453,6 +541,8 @@ mod tests {
             any::<i64>().prop_map(Value::Int),
             any::<f64>().prop_map(Value::Float),
             "[a-zA-Z0-9]{0,8}".prop_map(|s| Value::String(s)),
+            any::<u64>().prop_map(|n| Value::Vertex(VertexId(n))),
+            any::<u64>().prop_map(|n| Value::Edge(EdgeId(n))),
         ];
 
         leaf.prop_recursive(4, 64, 8, |inner| {
