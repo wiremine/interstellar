@@ -23,7 +23,9 @@ pub mod source;
 pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
-pub use filter::{FilterStep, HasLabelStep, HasStep, HasValueStep};
+pub use filter::{
+    DedupStep, FilterStep, HasLabelStep, HasStep, HasValueStep, LimitStep, RangeStep, SkipStep,
+};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
 
@@ -839,6 +841,69 @@ impl<In> Traversal<In, Value> {
         F: Fn(&context::ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
     {
         self.add_step(filter::FilterStep::new(predicate))
+    }
+
+    /// Deduplicate traversers by value (for anonymous traversals).
+    ///
+    /// Removes duplicate values from the traversal, keeping only the first
+    /// occurrence of each value. Uses `Value`'s `Hash` implementation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that deduplicates values
+    /// let anon = Traversal::<Value, Value>::new().dedup();
+    /// let unique = g.v().out().append(anon).to_list();
+    /// ```
+    pub fn dedup(self) -> Traversal<In, Value> {
+        self.add_step(filter::DedupStep::new())
+    }
+
+    /// Limit the number of traversers passing through (for anonymous traversals).
+    ///
+    /// Returns at most the specified number of traversers, stopping iteration
+    /// after the limit is reached.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that limits to 5 elements
+    /// let anon = Traversal::<Value, Value>::new().limit(5);
+    /// let first_five = g.v().append(anon).to_list();
+    /// ```
+    pub fn limit(self, count: usize) -> Traversal<In, Value> {
+        self.add_step(filter::LimitStep::new(count))
+    }
+
+    /// Skip the first n traversers (for anonymous traversals).
+    ///
+    /// Discards the first n traversers and passes through all remaining ones.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that skips 10 elements
+    /// let anon = Traversal::<Value, Value>::new().skip(10);
+    /// let after_skip = g.v().append(anon).to_list();
+    /// ```
+    pub fn skip(self, count: usize) -> Traversal<In, Value> {
+        self.add_step(filter::SkipStep::new(count))
+    }
+
+    /// Select traversers within a given range (for anonymous traversals).
+    ///
+    /// Equivalent to `skip(start).limit(end - start)`. Returns traversers
+    /// from index `start` (inclusive) to index `end` (exclusive).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that selects elements 10-19
+    /// let anon = Traversal::<Value, Value>::new().range(10, 20);
+    /// let page = g.v().append(anon).to_list();
+    /// ```
+    pub fn range(self, start: usize, end: usize) -> Traversal<In, Value> {
+        self.add_step(filter::RangeStep::new(start, end))
     }
 }
 

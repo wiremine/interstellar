@@ -339,6 +339,243 @@ where
 }
 
 // -----------------------------------------------------------------------------
+// DedupStep - deduplicate traversers by value
+// -----------------------------------------------------------------------------
+
+/// Deduplication step that removes duplicate values.
+///
+/// Uses `Value`'s `Hash` and `Eq` implementations to track seen values.
+/// Only the first occurrence of each value passes through; subsequent
+/// duplicates are filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// // Remove duplicate vertices from a traversal
+/// let unique = g.v().out().dedup().to_list();
+///
+/// // Dedup injected values
+/// let unique = g.inject([1i64, 2i64, 1i64, 3i64, 2i64]).dedup().to_list();
+/// // Results: [1, 2, 3]
+/// ```
+///
+/// # Implementation Note
+///
+/// This step maintains internal state (a `HashSet` of seen values) which is
+/// created fresh each time the step is applied. This means cloning a traversal
+/// with a `DedupStep` will result in independent deduplication state.
+#[derive(Clone, Debug, Copy)]
+pub struct DedupStep;
+
+impl DedupStep {
+    /// Create a new DedupStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DedupStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AnyStep for DedupStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        // Use a stateful iterator with HashSet to track seen values
+        // The HashSet is created fresh for each apply() call
+        let mut seen = std::collections::HashSet::new();
+        Box::new(input.filter(move |t| {
+            // Insert returns true if the value was NOT already present
+            seen.insert(t.value.clone())
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "dedup"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// LimitStep - limit the number of traversers
+// -----------------------------------------------------------------------------
+
+/// Limit step that restricts the number of traversers passing through.
+///
+/// Returns at most the specified number of traversers, stopping iteration
+/// after the limit is reached.
+///
+/// # Example
+///
+/// ```ignore
+/// // Get only the first 5 vertices
+/// let first_five = g.v().limit(5).to_list();
+///
+/// // Limit injected values
+/// let limited = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).limit(3).to_list();
+/// // Results: [1, 2, 3]
+/// ```
+#[derive(Clone, Debug, Copy)]
+pub struct LimitStep {
+    /// Maximum number of traversers to pass through
+    limit: usize,
+}
+
+impl LimitStep {
+    /// Create a new LimitStep with the given limit.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Maximum number of traversers to pass through
+    pub fn new(limit: usize) -> Self {
+        Self { limit }
+    }
+}
+
+impl AnyStep for LimitStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.take(self.limit))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "limit"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// SkipStep - skip a number of traversers
+// -----------------------------------------------------------------------------
+
+/// Skip step that skips the first n traversers.
+///
+/// Discards the first n traversers and passes through all remaining ones.
+///
+/// # Example
+///
+/// ```ignore
+/// // Skip the first 3 vertices
+/// let after_skip = g.v().skip(3).to_list();
+///
+/// // Skip injected values
+/// let skipped = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).skip(2).to_list();
+/// // Results: [3, 4, 5]
+/// ```
+#[derive(Clone, Debug, Copy)]
+pub struct SkipStep {
+    /// Number of traversers to skip
+    count: usize,
+}
+
+impl SkipStep {
+    /// Create a new SkipStep that skips n traversers.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of traversers to skip
+    pub fn new(count: usize) -> Self {
+        Self { count }
+    }
+}
+
+impl AnyStep for SkipStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.skip(self.count))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "skip"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// RangeStep - select a range of traversers
+// -----------------------------------------------------------------------------
+
+/// Range step that selects traversers within a given range.
+///
+/// Equivalent to `skip(start).limit(end - start)`. Returns traversers
+/// from index `start` (inclusive) to index `end` (exclusive).
+///
+/// # Example
+///
+/// ```ignore
+/// // Get vertices 2, 3, 4 (indices 2-5)
+/// let range = g.v().range(2, 5).to_list();
+///
+/// // Range of injected values
+/// let ranged = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).range(1, 4).to_list();
+/// // Results: [2, 3, 4]
+/// ```
+///
+/// # Panics
+///
+/// Does not panic. If `end <= start`, returns an empty iterator.
+/// If `end` exceeds the number of traversers, returns all traversers from `start`.
+#[derive(Clone, Debug, Copy)]
+pub struct RangeStep {
+    /// Start index (inclusive)
+    start: usize,
+    /// End index (exclusive)
+    end: usize,
+}
+
+impl RangeStep {
+    /// Create a new RangeStep with the given range.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - Start index (inclusive)
+    /// * `end` - End index (exclusive)
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+impl AnyStep for RangeStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        // Calculate how many to take after skipping
+        let take_count = self.end.saturating_sub(self.start);
+        Box::new(input.skip(self.start).take(take_count))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "range"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -1400,6 +1637,1102 @@ mod tests {
 
             // Both should work identically
             assert_eq!(step1.name(), step2.name());
+        }
+    }
+
+    mod dedup_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_dedup_step() {
+            let step = DedupStep::new();
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn default_creates_dedup_step() {
+            let step = DedupStep::default();
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn name_returns_dedup() {
+            let step = DedupStep::new();
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = DedupStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "dedup");
+        }
+
+        #[test]
+        fn removes_duplicate_integers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(1)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn removes_duplicate_strings() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::String("alice".to_string())),
+                Traverser::new(Value::String("bob".to_string())),
+                Traverser::new(Value::String("alice".to_string())),
+                Traverser::new(Value::String("charlie".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::String("alice".to_string()));
+            assert_eq!(output[1].value, Value::String("bob".to_string()));
+            assert_eq!(output[2].value, Value::String("charlie".to_string()));
+        }
+
+        #[test]
+        fn removes_duplicate_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(1)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(1)));
+            assert_eq!(output[2].as_vertex_id(), Some(VertexId(2)));
+        }
+
+        #[test]
+        fn removes_duplicate_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)),
+                Traverser::from_edge(EdgeId(1)),
+                Traverser::from_edge(EdgeId(0)),
+                Traverser::from_edge(EdgeId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(0)));
+            assert_eq!(output[1].as_edge_id(), Some(EdgeId(1)));
+            assert_eq!(output[2].as_edge_id(), Some(EdgeId(2)));
+        }
+
+        #[test]
+        fn preserves_first_occurrence_order() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            // Values: 3, 1, 2, 1, 3, 2
+            // Expected output: 3, 1, 2 (first occurrences in order)
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(3));
+            assert_eq!(output[1].value, Value::Int(1));
+            assert_eq!(output[2].value, Value::Int(2));
+        }
+
+        #[test]
+        fn handles_mixed_types() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            // Different types are always unique
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::String("1".to_string())),
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Int(1)), // duplicate
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::String("1".to_string()));
+            assert_eq!(output[2].value, Value::Bool(true));
+        }
+
+        #[test]
+        fn handles_floats() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Float(1.0)),
+                Traverser::new(Value::Float(2.0)),
+                Traverser::new(Value::Float(1.0)),
+                Traverser::new(Value::Float(3.0)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn handles_null_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Null),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Null),
+                Traverser::new(Value::Int(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Null);
+            assert_eq!(output[1].value, Value::Int(1));
+            assert_eq!(output[2].value, Value::Int(2));
+        }
+
+        #[test]
+        fn handles_boolean_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Bool(false)),
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Bool(false)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Bool(true));
+            assert_eq!(output[1].value, Value::Bool(false));
+        }
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn single_element_passes_through() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(42));
+        }
+
+        #[test]
+        fn all_unique_values_pass_through() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 4);
+        }
+
+        #[test]
+        fn all_same_values_reduced_to_one() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::Int(42)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(42));
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn preserves_metadata_of_first_occurrence() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let mut t1 = Traverser::new(Value::Int(42));
+            t1.extend_path_labeled("first");
+            t1.loops = 1;
+
+            let mut t2 = Traverser::new(Value::Int(42));
+            t2.extend_path_labeled("second");
+            t2.loops = 2;
+
+            let input = vec![t1, t2];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only first traverser should pass through with its metadata
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("first"));
+            assert!(!output[0].path.has_label("second"));
+            assert_eq!(output[0].loops, 1);
+        }
+
+        #[test]
+        fn dedup_step_is_copy() {
+            let step1 = DedupStep::new();
+            let step2 = step1; // Copy, not move
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.name(), "dedup");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = DedupStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("DedupStep"));
+        }
+
+        #[test]
+        fn handles_list_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::List(vec![Value::Int(1), Value::Int(2)])),
+                Traverser::new(Value::List(vec![Value::Int(3)])),
+                Traverser::new(Value::List(vec![Value::Int(1), Value::Int(2)])), // duplicate
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn handles_map_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupStep::new();
+
+            let mut map1 = std::collections::HashMap::new();
+            map1.insert("a".to_string(), Value::Int(1));
+
+            let mut map2 = std::collections::HashMap::new();
+            map2.insert("b".to_string(), Value::Int(2));
+
+            let mut map3 = std::collections::HashMap::new();
+            map3.insert("a".to_string(), Value::Int(1)); // same as map1
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Map(map1)),
+                Traverser::new(Value::Map(map2)),
+                Traverser::new(Value::Map(map3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+    }
+
+    mod limit_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_limit_step() {
+            let step = LimitStep::new(5);
+            assert_eq!(step.limit, 5);
+        }
+
+        #[test]
+        fn name_returns_limit() {
+            let step = LimitStep::new(5);
+            assert_eq!(step.name(), "limit");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = LimitStep::new(5);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "limit");
+        }
+
+        #[test]
+        fn limits_traversers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn limit_zero_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(0);
+
+            let input: Vec<Traverser> =
+                vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn limit_greater_than_input_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(100);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn limit_one_returns_first() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(1);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(10));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(5);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(1);
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn limit_step_is_copy() {
+            let step1 = LimitStep::new(5);
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.limit, 5);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = LimitStep::new(5);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("LimitStep"));
+            assert!(debug_str.contains("5"));
+        }
+
+        #[test]
+        fn works_with_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LimitStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(1)));
+        }
+    }
+
+    mod skip_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_skip_step() {
+            let step = SkipStep::new(3);
+            assert_eq!(step.count, 3);
+        }
+
+        #[test]
+        fn name_returns_skip() {
+            let step = SkipStep::new(3);
+            assert_eq!(step.name(), "skip");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = SkipStep::new(3);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "skip");
+        }
+
+        #[test]
+        fn skips_traversers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(3));
+            assert_eq!(output[1].value, Value::Int(4));
+            assert_eq!(output[2].value, Value::Int(5));
+        }
+
+        #[test]
+        fn skip_zero_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+        }
+
+        #[test]
+        fn skip_greater_than_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(100);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn skip_equal_to_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn skip_one_less_than_input_returns_last() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(4);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(5));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(5);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(1);
+
+            let t1 = Traverser::new(Value::Int(1));
+            let mut t2 = Traverser::new(Value::Int(2));
+            t2.extend_path_labeled("kept");
+            t2.loops = 5;
+            t2.bulk = 10;
+
+            let input = vec![t1, t2];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("kept"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn skip_step_is_copy() {
+            let step1 = SkipStep::new(3);
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.count, 3);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = SkipStep::new(3);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("SkipStep"));
+            assert!(debug_str.contains("3"));
+        }
+
+        #[test]
+        fn works_with_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SkipStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(2)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(3)));
+        }
+    }
+
+    mod range_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_range_step() {
+            let step = RangeStep::new(2, 5);
+            assert_eq!(step.start, 2);
+            assert_eq!(step.end, 5);
+        }
+
+        #[test]
+        fn name_returns_range() {
+            let step = RangeStep::new(2, 5);
+            assert_eq!(step.name(), "range");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = RangeStep::new(2, 5);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "range");
+        }
+
+        #[test]
+        fn range_selects_middle_elements() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(2, 5);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(0)),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(6)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(2));
+            assert_eq!(output[1].value, Value::Int(3));
+            assert_eq!(output[2].value, Value::Int(4));
+        }
+
+        #[test]
+        fn range_from_start() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(0, 3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn range_to_end() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(3, 100);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(4));
+            assert_eq!(output[1].value, Value::Int(5));
+        }
+
+        #[test]
+        fn range_equal_start_end_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(3, 3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn range_end_less_than_start_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(5, 2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn range_start_beyond_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(10, 20);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn range_single_element() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(2, 3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(3));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(0, 5);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(1, 2);
+
+            let t1 = Traverser::new(Value::Int(1));
+            let mut t2 = Traverser::new(Value::Int(2));
+            t2.extend_path_labeled("kept");
+            t2.loops = 5;
+            t2.bulk = 10;
+            let t3 = Traverser::new(Value::Int(3));
+
+            let input = vec![t1, t2, t3];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("kept"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn range_step_is_copy() {
+            let step1 = RangeStep::new(2, 5);
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.start, 2);
+            assert_eq!(step2.end, 5);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = RangeStep::new(2, 5);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("RangeStep"));
+            assert!(debug_str.contains("2"));
+            assert!(debug_str.contains("5"));
+        }
+
+        #[test]
+        fn works_with_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = RangeStep::new(1, 3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2)));
+        }
+
+        #[test]
+        fn range_equivalent_to_skip_then_limit() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // range(2, 5) should be equivalent to skip(2).limit(3)
+            let range_step = RangeStep::new(2, 5);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(0)),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(6)),
+            ];
+
+            let range_output: Vec<Value> = range_step
+                .apply(&ctx, Box::new(input.clone().into_iter()))
+                .map(|t| t.value)
+                .collect();
+
+            // Manual skip + limit
+            let skip_limit_output: Vec<Value> =
+                input.into_iter().skip(2).take(3).map(|t| t.value).collect();
+
+            assert_eq!(range_output, skip_limit_output);
         }
     }
 }

@@ -459,9 +459,9 @@ pub struct SideEffects {
 3. Add `dedup()` method to BoundTraversal and Traversal
 
 **Acceptance Criteria**:
-- [ ] `dedup()` removes duplicate values
-- [ ] Uses Value's Hash implementation
-- [ ] Preserves first occurrence order
+- [x] `dedup()` removes duplicate values
+- [x] Uses Value's Hash implementation
+- [x] Preserves first occurrence order
 
 ---
 
@@ -476,9 +476,9 @@ pub struct SideEffects {
 4. Add methods to BoundTraversal and Traversal
 
 **Acceptance Criteria**:
-- [ ] `limit(5)` returns at most 5 results
-- [ ] `skip(3)` skips first 3 results
-- [ ] `range(2, 5)` returns elements 2, 3, 4
+- [x] `limit(5)` returns at most 5 results
+- [x] `skip(3)` skips first 3 results
+- [x] `range(2, 5)` returns elements 2, 3, 4
 
 ---
 

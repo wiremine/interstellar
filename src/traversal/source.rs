@@ -396,6 +396,83 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::filter::FilterStep;
         self.add_step(FilterStep::new(predicate))
     }
+
+    /// Deduplicate traversers by value.
+    ///
+    /// Removes duplicate values from the traversal, keeping only the first
+    /// occurrence of each value. Uses `Value`'s `Hash` implementation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Remove duplicate vertices when traversing neighbors
+    /// let unique_neighbors = g.v().out().dedup().to_list();
+    ///
+    /// // Dedup injected values
+    /// let unique = g.inject([1i64, 2i64, 1i64, 3i64]).dedup().to_list();
+    /// // Results: [1, 2, 3]
+    /// ```
+    pub fn dedup(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::DedupStep;
+        self.add_step(DedupStep::new())
+    }
+
+    /// Limit the number of traversers passing through.
+    ///
+    /// Returns at most the specified number of traversers, stopping iteration
+    /// after the limit is reached.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get only the first 5 vertices
+    /// let first_five = g.v().limit(5).to_list();
+    ///
+    /// // Limit results after filtering
+    /// let top_people = g.v().has_label("person").limit(10).to_list();
+    /// ```
+    pub fn limit(self, count: usize) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::LimitStep;
+        self.add_step(LimitStep::new(count))
+    }
+
+    /// Skip the first n traversers.
+    ///
+    /// Discards the first n traversers and passes through all remaining ones.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Skip the first 10 vertices
+    /// let after_skip = g.v().skip(10).to_list();
+    ///
+    /// // Pagination: skip first page
+    /// let page_2 = g.v().has_label("person").skip(20).limit(20).to_list();
+    /// ```
+    pub fn skip(self, count: usize) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::SkipStep;
+        self.add_step(SkipStep::new(count))
+    }
+
+    /// Select traversers within a given range.
+    ///
+    /// Equivalent to `skip(start).limit(end - start)`. Returns traversers
+    /// from index `start` (inclusive) to index `end` (exclusive).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get vertices 10-19 (for pagination)
+    /// let page = g.v().range(10, 20).to_list();
+    ///
+    /// // Get elements 2, 3, 4
+    /// let middle = g.inject([0i64, 1i64, 2i64, 3i64, 4i64, 5i64]).range(2, 5).to_list();
+    /// // Results: [2, 3, 4]
+    /// ```
+    pub fn range(self, start: usize, end: usize) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::RangeStep;
+        self.add_step(RangeStep::new(start, end))
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
