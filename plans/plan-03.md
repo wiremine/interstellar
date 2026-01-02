@@ -242,10 +242,10 @@ pub struct SideEffects {
 5. Implement `into_steps()` method
 
 **Acceptance Criteria**:
-- [ ] `Traversal::<Value, Value>::new()` creates empty traversal
-- [ ] `add_step()` changes output type parameter correctly
-- [ ] `append()` merges steps from another traversal
-- [ ] Clone works (steps are cloned via `clone_box`)
+- [x] `Traversal::<Value, Value>::new()` creates empty traversal
+- [x] `add_step()` changes output type parameter correctly
+- [x] `append()` merges steps from another traversal
+- [x] Clone works (steps are cloned via `clone_box`)
 
 ---
 
