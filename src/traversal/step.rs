@@ -377,6 +377,104 @@ impl AnyStep for StartStep {
     }
 }
 
+// -----------------------------------------------------------------------------
+// execute_traversal - Helper for sub-traversal execution
+// -----------------------------------------------------------------------------
+
+/// Execute an anonymous traversal's steps on provided input.
+///
+/// This function is the core helper for sub-traversal execution, used by
+/// branching steps like `union()`, `choose()`, and `coalesce()`. It applies
+/// a traversal's steps to an input iterator of traversers, ignoring any
+/// source the traversal might have.
+///
+/// # Key Features
+///
+/// - **Lazy evaluation**: Uses iterator chaining, no eager collection
+/// - **Source-independent**: Ignores the traversal's source, uses provided input
+/// - **Context sharing**: Uses the same execution context as the parent traversal
+///
+/// # Arguments
+///
+/// * `ctx` - The execution context providing graph access and side effects
+/// * `steps` - The steps to apply (extracted from a traversal)
+/// * `input` - Iterator of input traversers to process
+///
+/// # Returns
+///
+/// A boxed iterator over the output traversers.
+///
+/// # Example
+///
+/// ```ignore
+/// // Execute an anonymous traversal's steps
+/// let anon: Traversal<Value, Value> = Traversal::new()
+///     .has_label("person")
+///     .out();
+///
+/// let (_, steps) = anon.into_steps();
+/// let input = vec![Traverser::from_vertex(VertexId(1))];
+///
+/// let output = execute_traversal(&ctx, &steps, Box::new(input.into_iter()));
+/// for traverser in output {
+///     println!("{:?}", traverser.value);
+/// }
+/// ```
+///
+/// # Design Notes
+///
+/// This function uses a fold over the steps to build an iterator chain.
+/// Each step's `apply` method wraps the previous iterator, creating a
+/// lazy pipeline that only executes when the returned iterator is consumed.
+///
+/// The lifetime bound ensures the returned iterator can reference both
+/// the context and the steps for the duration of its use.
+pub fn execute_traversal<'a>(
+    ctx: &'a ExecutionContext<'a>,
+    steps: &'a [Box<dyn AnyStep>],
+    input: Box<dyn Iterator<Item = Traverser> + 'a>,
+) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    // Fold over steps, building an iterator chain
+    // Each step wraps the previous iterator, maintaining lazy evaluation
+    steps
+        .iter()
+        .fold(input, |current, step| step.apply(ctx, current))
+}
+
+/// Execute a traversal on provided input, extracting steps automatically.
+///
+/// This is a convenience wrapper that accesses a traversal's steps
+/// and calls `execute_traversal`. The traversal's source is ignored.
+///
+/// # Arguments
+///
+/// * `ctx` - The execution context
+/// * `traversal` - The traversal whose steps to execute
+/// * `input` - Iterator of input traversers
+///
+/// # Returns
+///
+/// A boxed iterator over output traversers.
+///
+/// # Example
+///
+/// ```ignore
+/// let anon = Traversal::<Value, Value>::new().out().has_label("person");
+/// let input = vec![Traverser::from_vertex(VertexId(1))];
+///
+/// let output = execute_traversal_from(&ctx, &anon, Box::new(input.into_iter()));
+/// for traverser in output {
+///     println!("{:?}", traverser.value);
+/// }
+/// ```
+pub fn execute_traversal_from<'a, In, Out>(
+    ctx: &'a ExecutionContext<'a>,
+    traversal: &'a crate::traversal::Traversal<In, Out>,
+    input: Box<dyn Iterator<Item = Traverser> + 'a>,
+) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    execute_traversal(ctx, traversal.steps(), input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1095,6 +1193,338 @@ mod tests {
             assert_eq!(steps.len(), 2);
             assert_eq!(steps[0].name(), "start");
             assert_eq!(steps[1].name(), "identity");
+        }
+    }
+
+    mod execute_traversal_tests {
+        use super::*;
+        use crate::traversal::Traversal;
+
+        fn create_populated_graph() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Add 3 vertices
+            let v1 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+            let v2 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props.insert("age".to_string(), Value::Int(25));
+                props
+            });
+            let v3 = storage.add_vertex("software", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Graph DB".to_string()));
+                props
+            });
+
+            // Add edges
+            storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
+            storage.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
+
+            Graph::new(Arc::new(storage))
+        }
+
+        #[test]
+        fn execute_traversal_with_empty_steps() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let steps: Vec<Box<dyn AnyStep>> = vec![];
+            let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
+
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            // With no steps, output should match input
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+        }
+
+        #[test]
+        fn execute_traversal_with_identity_step() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            // Identity should pass through all values
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn execute_traversal_with_multiple_identity_steps() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let steps: Vec<Box<dyn AnyStep>> = vec![
+                Box::new(IdentityStep::new()),
+                Box::new(IdentityStep::new()),
+                Box::new(IdentityStep::new()),
+            ];
+            let input = vec![Traverser::new(Value::String("test".to_string()))];
+
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            // Multiple identity steps should still pass through
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("test".to_string()));
+        }
+
+        #[test]
+        fn execute_traversal_with_empty_input() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            // Empty input should produce empty output
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn execute_traversal_preserves_metadata() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+
+            let mut traverser = Traverser::from_vertex(VertexId(1));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].path.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn execute_traversal_is_lazy() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            // Create the iterator but don't consume it fully
+            let mut iter = execute_traversal(&ctx, &steps, Box::new(input.into_iter()));
+
+            // Take only first element
+            let first = iter.next();
+            assert!(first.is_some());
+            assert_eq!(first.unwrap().value, Value::Int(1));
+
+            // Take second element
+            let second = iter.next();
+            assert!(second.is_some());
+            assert_eq!(second.unwrap().value, Value::Int(2));
+
+            // Third should still be available
+            let third = iter.next();
+            assert!(third.is_some());
+
+            // Now exhausted
+            assert!(iter.next().is_none());
+        }
+
+        #[test]
+        fn execute_traversal_from_with_anonymous_traversal() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Create an anonymous traversal with identity step
+            let anon: Traversal<Value, Value> =
+                Traversal::<Value, Value>::new().add_step(IdentityStep::new());
+
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+            ];
+
+            let output: Vec<Traverser> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(10));
+            assert_eq!(output[1].value, Value::Int(20));
+        }
+
+        #[test]
+        fn execute_traversal_from_ignores_source() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Create a traversal WITH a source (normally used for bound traversals)
+            let traversal: Traversal<(), Value> =
+                Traversal::<(), Value>::with_source(TraversalSource::AllVertices)
+                    .add_step(IdentityStep::new());
+
+            // execute_traversal_from should ignore the source and use our input
+            let input = vec![Traverser::new(Value::String("custom".to_string()))];
+
+            let output: Vec<Traverser> =
+                execute_traversal_from(&ctx, &traversal, Box::new(input.into_iter())).collect();
+
+            // Should get our custom input, not all vertices
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("custom".to_string()));
+        }
+
+        #[test]
+        fn execute_traversal_from_empty_traversal() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Empty traversal (no steps)
+            let anon: Traversal<Value, Value> = Traversal::new();
+
+            let input = vec![
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Bool(false)),
+            ];
+
+            let output: Vec<Traverser> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            // With no steps, output should match input
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Bool(true));
+            assert_eq!(output[1].value, Value::Bool(false));
+        }
+
+        #[test]
+        fn execute_traversal_with_filter_step() {
+            use crate::traversal::filter::HasLabelStep;
+
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Create steps that filter to "person" label
+            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(HasLabelStep::single("person"))];
+
+            // Input: vertex IDs 0, 1, 2 (person, person, software)
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+            ];
+
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            // Should only return person vertices (IDs 0 and 1)
+            assert_eq!(output.len(), 2);
+            assert!(output.iter().all(|t| t.is_vertex()));
+        }
+
+        #[test]
+        fn execute_traversal_chained_steps() {
+            use crate::traversal::filter::HasLabelStep;
+
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Chain: identity -> filter to person
+            let steps: Vec<Box<dyn AnyStep>> = vec![
+                Box::new(IdentityStep::new()),
+                Box::new(HasLabelStep::single("person")),
+                Box::new(IdentityStep::new()),
+            ];
+
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)), // person
+                Traverser::from_vertex(VertexId(1)), // person
+                Traverser::from_vertex(VertexId(2)), // software
+            ];
+
+            let output: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input.into_iter())).collect();
+
+            // Should only return person vertices
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn execute_traversal_steps_access() {
+            // Test that we can access steps from a traversal
+            let anon: Traversal<Value, Value> = {
+                let t = Traversal::<Value, Value>::new();
+                let t: Traversal<Value, Value> = t.add_step(IdentityStep::new());
+                let t: Traversal<Value, Value> = t.add_step(IdentityStep::new());
+                t
+            };
+
+            let steps = anon.steps();
+            assert_eq!(steps.len(), 2);
+            assert_eq!(steps[0].name(), "identity");
+            assert_eq!(steps[1].name(), "identity");
+        }
+
+        #[test]
+        fn execute_traversal_reusable() {
+            let graph = create_populated_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Same steps can be reused multiple times
+            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+
+            let input1 = vec![Traverser::new(Value::Int(1))];
+            let output1: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input1.into_iter())).collect();
+
+            let input2 = vec![Traverser::new(Value::Int(2))];
+            let output2: Vec<Traverser> =
+                execute_traversal(&ctx, &steps, Box::new(input2.into_iter())).collect();
+
+            // Both should work independently
+            assert_eq!(output1.len(), 1);
+            assert_eq!(output1[0].value, Value::Int(1));
+            assert_eq!(output2.len(), 1);
+            assert_eq!(output2[0].value, Value::Int(2));
         }
     }
 }

@@ -33,7 +33,7 @@ pub use navigation::{
     BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
-pub use step::{AnyStep, IdentityStep, StartStep};
+pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
     AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, SelectStep, ValuesStep,
 };
@@ -753,6 +753,26 @@ impl<In, Out> Traversal<In, Out> {
     pub fn step_names(&self) -> Vec<&'static str> {
         self.steps.iter().map(|s| s.name()).collect()
     }
+
+    /// Get a reference to the steps (for sub-traversal execution).
+    ///
+    /// This method provides read-only access to the traversal's steps,
+    /// enabling the `execute_traversal` helper to apply steps without
+    /// consuming the traversal.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().out().has_label("person");
+    /// let steps = anon.steps();
+    ///
+    /// // Use with execute_traversal
+    /// let output = execute_traversal(&ctx, steps, input);
+    /// ```
+    #[inline]
+    pub fn steps(&self) -> &[Box<dyn AnyStep>] {
+        &self.steps
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1374,8 +1394,568 @@ impl<In> Traversal<In, Value> {
 /// Predicate module - stub for Phase 4.
 pub mod p {}
 
-/// Anonymous traversal factory module - stub for Phase 4.
-pub mod __ {}
+/// Anonymous traversal factory module.
+///
+/// The `__` module provides factory functions for creating anonymous traversals.
+/// Anonymous traversals are unbound traversal fragments that receive their input
+/// at execution time when spliced into a parent traversal.
+///
+/// # Naming Convention
+///
+/// The double underscore `__` is a Gremlin convention that clearly distinguishes
+/// anonymous traversal fragments from bound traversals that start from `g.v()` or `g.e()`.
+///
+/// # Usage
+///
+/// Anonymous traversals are used with steps that accept sub-traversals:
+/// - `where_()` - Filter based on sub-traversal existence
+/// - `union()` - Execute multiple branches and merge results
+/// - `coalesce()` - Try branches until one succeeds
+/// - `choose()` - Conditional branching
+/// - `repeat()` - Iterative traversal
+///
+/// # Example
+///
+/// ```ignore
+/// use rustgremlin::traversal::__;
+///
+/// // Create an anonymous traversal
+/// let knows_bob = __::out_labels(&["knows"]).has_value("name", "Bob");
+///
+/// // Use in a parent traversal
+/// let people_who_know_bob = g.v()
+///     .has_label("person")
+///     .where_(knows_bob)
+///     .to_list();
+///
+/// // Factory functions can also be chained
+/// let complex = __::out()
+///     .has_label("person")
+///     .values("name");
+/// ```
+///
+/// # Return Type
+///
+/// All factory functions return `Traversal<Value, Value>`, making them
+/// composable with any parent traversal expecting `Value` input.
+pub mod __ {
+    use crate::traversal::context::ExecutionContext;
+    use crate::traversal::filter::{
+        DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, LimitStep,
+        RangeStep, SkipStep,
+    };
+    use crate::traversal::navigation::{
+        BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
+    };
+    use crate::traversal::step::IdentityStep;
+    use crate::traversal::transform::{
+        AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, SelectStep,
+        ValuesStep,
+    };
+    use crate::traversal::Traversal;
+    use crate::value::Value;
+
+    // -------------------------------------------------------------------------
+    // Identity
+    // -------------------------------------------------------------------------
+
+    /// Create an identity traversal that passes input through unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = __::identity();
+    /// // Equivalent to no-op, but useful as a placeholder or in union branches
+    /// ```
+    #[inline]
+    pub fn identity() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(IdentityStep::new())
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation - Vertex to Vertex
+    // -------------------------------------------------------------------------
+
+    /// Traverse to outgoing adjacent vertices.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let friends = __::out();
+    /// ```
+    #[inline]
+    pub fn out() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(OutStep::new())
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let friends = __::out_labels(&["knows", "likes"]);
+    /// ```
+    pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(OutStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming adjacent vertices.
+    ///
+    /// Note: Named `in_` to avoid conflict with Rust's `in` keyword.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let known_by = __::in_();
+    /// ```
+    #[inline]
+    pub fn in_() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(InStep::new())
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let known_by = __::in_labels(&["knows"]);
+    /// ```
+    pub fn in_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(InStep::with_labels(labels))
+    }
+
+    /// Traverse to adjacent vertices in both directions.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let neighbors = __::both();
+    /// ```
+    #[inline]
+    pub fn both() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(BothStep::new())
+    }
+
+    /// Traverse to adjacent vertices in both directions via edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let connected = __::both_labels(&["knows"]);
+    /// ```
+    pub fn both_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(BothStep::with_labels(labels))
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation - Vertex to Edge
+    // -------------------------------------------------------------------------
+
+    /// Traverse to outgoing edges.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let edges = __::out_e();
+    /// ```
+    #[inline]
+    pub fn out_e() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(OutEStep::new())
+    }
+
+    /// Traverse to outgoing edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let knows_edges = __::out_e_labels(&["knows"]);
+    /// ```
+    pub fn out_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(OutEStep::with_labels(labels))
+    }
+
+    /// Traverse to incoming edges.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let edges = __::in_e();
+    /// ```
+    #[inline]
+    pub fn in_e() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(InEStep::new())
+    }
+
+    /// Traverse to incoming edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let known_by_edges = __::in_e_labels(&["knows"]);
+    /// ```
+    pub fn in_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(InEStep::with_labels(labels))
+    }
+
+    /// Traverse to all incident edges (both directions).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let all_edges = __::both_e();
+    /// ```
+    #[inline]
+    pub fn both_e() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(BothEStep::new())
+    }
+
+    /// Traverse to all incident edges with given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let knows_edges = __::both_e_labels(&["knows"]);
+    /// ```
+    pub fn both_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(BothEStep::with_labels(labels))
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation - Edge to Vertex
+    // -------------------------------------------------------------------------
+
+    /// Get the source (outgoing) vertex of an edge.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sources = __::out_v();
+    /// ```
+    #[inline]
+    pub fn out_v() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(OutVStep::new())
+    }
+
+    /// Get the target (incoming) vertex of an edge.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let targets = __::in_v();
+    /// ```
+    #[inline]
+    pub fn in_v() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(InVStep::new())
+    }
+
+    /// Get both vertices of an edge.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let endpoints = __::both_v();
+    /// ```
+    #[inline]
+    pub fn both_v() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(BothVStep::new())
+    }
+
+    // -------------------------------------------------------------------------
+    // Filter Steps
+    // -------------------------------------------------------------------------
+
+    /// Filter elements by label.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let people = __::has_label("person");
+    /// ```
+    pub fn has_label(label: impl Into<String>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasLabelStep::single(label))
+    }
+
+    /// Filter elements by any of the given labels.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let entities = __::has_label_any(&["person", "company"]);
+    /// ```
+    pub fn has_label_any(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(HasLabelStep::new(labels))
+    }
+
+    /// Filter elements by property existence.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let with_age = __::has("age");
+    /// ```
+    pub fn has(key: impl Into<String>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasStep::new(key))
+    }
+
+    /// Filter elements by property value equality.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let alice = __::has_value("name", "Alice");
+    /// ```
+    pub fn has_value(key: impl Into<String>, value: impl Into<Value>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasValueStep::new(key, value))
+    }
+
+    /// Filter elements by ID.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let specific = __::has_id(VertexId(1));
+    /// ```
+    pub fn has_id(id: impl Into<Value>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasIdStep::from_value(id))
+    }
+
+    /// Filter elements by multiple IDs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let specific = __::has_ids([VertexId(1), VertexId(2)]);
+    /// ```
+    pub fn has_ids<I, T>(ids: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Value>,
+    {
+        Traversal::<Value, Value>::new().add_step(HasIdStep::from_values(
+            ids.into_iter().map(Into::into).collect(),
+        ))
+    }
+
+    /// Filter elements using a custom predicate.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let positive = __::filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 0));
+    /// ```
+    pub fn filter<F>(predicate: F) -> Traversal<Value, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
+    {
+        Traversal::<Value, Value>::new().add_step(FilterStep::new(predicate))
+    }
+
+    /// Deduplicate traversers by value.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let unique = __::dedup();
+    /// ```
+    #[inline]
+    pub fn dedup() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(DedupStep::new())
+    }
+
+    /// Limit the number of traversers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let first_ten = __::limit(10);
+    /// ```
+    #[inline]
+    pub fn limit(count: usize) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(LimitStep::new(count))
+    }
+
+    /// Skip the first n traversers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let after_ten = __::skip(10);
+    /// ```
+    #[inline]
+    pub fn skip(count: usize) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(SkipStep::new(count))
+    }
+
+    /// Select traversers within a range.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let page = __::range(10, 20);
+    /// ```
+    #[inline]
+    pub fn range(start: usize, end: usize) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(RangeStep::new(start, end))
+    }
+
+    // -------------------------------------------------------------------------
+    // Transform Steps
+    // -------------------------------------------------------------------------
+
+    /// Extract property values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let names = __::values("name");
+    /// ```
+    pub fn values(key: impl Into<String>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(ValuesStep::new(key))
+    }
+
+    /// Extract multiple property values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let data = __::values_multi(["name", "age"]);
+    /// ```
+    pub fn values_multi<I, S>(keys: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Traversal::<Value, Value>::new().add_step(ValuesStep::from_keys(keys))
+    }
+
+    /// Extract the element ID.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let ids = __::id();
+    /// ```
+    #[inline]
+    pub fn id() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(IdStep::new())
+    }
+
+    /// Extract the element label.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let labels = __::label();
+    /// ```
+    #[inline]
+    pub fn label() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(LabelStep::new())
+    }
+
+    /// Replace values with a constant.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let markers = __::constant("found");
+    /// ```
+    pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(ConstantStep::new(value))
+    }
+
+    /// Convert the path to a list.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let paths = __::path();
+    /// ```
+    #[inline]
+    pub fn path() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(PathStep::new())
+    }
+
+    /// Transform values using a closure.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let doubled = __::map(|_ctx, v| {
+    ///     if let Value::Int(n) = v {
+    ///         Value::Int(n * 2)
+    ///     } else {
+    ///         v.clone()
+    ///     }
+    /// });
+    /// ```
+    pub fn map<F>(f: F) -> Traversal<Value, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static,
+    {
+        Traversal::<Value, Value>::new().add_step(MapStep::new(f))
+    }
+
+    /// Transform values to multiple values using a closure.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let expanded = __::flat_map(|_ctx, v| {
+    ///     if let Value::Int(n) = v {
+    ///         (0..*n).map(Value::Int).collect()
+    ///     } else {
+    ///         vec![]
+    ///     }
+    /// });
+    /// ```
+    pub fn flat_map<F>(f: F) -> Traversal<Value, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static,
+    {
+        Traversal::<Value, Value>::new().add_step(FlatMapStep::new(f))
+    }
+
+    /// Label the current position in the path.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let labeled = __::as_("start");
+    /// ```
+    pub fn as_(label: &str) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(AsStep::new(label))
+    }
+
+    /// Select multiple labeled values from the path.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let selected = __::select(&["a", "b"]);
+    /// ```
+    pub fn select(labels: &[&str]) -> Traversal<Value, Value> {
+        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(SelectStep::new(labels))
+    }
+
+    /// Select a single labeled value from the path.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let selected = __::select_one("start");
+    /// ```
+    pub fn select_one(label: &str) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(SelectStep::single(label))
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -2104,6 +2684,621 @@ mod tests {
             let count = g.e().count();
             // Empty graph should have 0 edges
             assert_eq!(count, 0);
+        }
+    }
+
+    mod anonymous_traversal_factory_tests {
+        use super::*;
+        use crate::graph::Graph;
+        use crate::storage::InMemoryGraph;
+        use crate::traversal::step::execute_traversal_from;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        fn create_test_graph() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Add vertices
+            let alice_id = storage.add_vertex(
+                "person",
+                HashMap::from([
+                    ("name".to_string(), Value::String("Alice".to_string())),
+                    ("age".to_string(), Value::Int(30)),
+                ]),
+            );
+            let bob_id = storage.add_vertex(
+                "person",
+                HashMap::from([
+                    ("name".to_string(), Value::String("Bob".to_string())),
+                    ("age".to_string(), Value::Int(25)),
+                ]),
+            );
+            let company_id = storage.add_vertex(
+                "company",
+                HashMap::from([("name".to_string(), Value::String("Acme".to_string()))]),
+            );
+
+            // Add edges
+            let _ = storage.add_edge(alice_id, bob_id, "knows", HashMap::new());
+            let _ = storage.add_edge(alice_id, company_id, "works_at", HashMap::new());
+
+            Graph::new(Arc::new(storage))
+        }
+
+        // -------------------------------------------------------------------------
+        // Identity tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn identity_creates_traversal_with_identity_step() {
+            let t = __::identity();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["identity"]);
+            assert!(!t.has_source());
+        }
+
+        #[test]
+        fn identity_passes_through_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let anon = __::identity();
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 3);
+            assert_eq!(results[0].value, Value::Int(1));
+            assert_eq!(results[1].value, Value::Int(2));
+            assert_eq!(results[2].value, Value::Int(3));
+        }
+
+        // -------------------------------------------------------------------------
+        // Navigation tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn out_creates_traversal_with_out_step() {
+            let t = __::out();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["out"]);
+        }
+
+        #[test]
+        fn out_labels_creates_traversal_with_labels() {
+            let t = __::out_labels(&["knows", "likes"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["out"]);
+        }
+
+        #[test]
+        fn in_creates_traversal_with_in_step() {
+            let t = __::in_();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["in"]);
+        }
+
+        #[test]
+        fn in_labels_creates_traversal_with_labels() {
+            let t = __::in_labels(&["knows"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["in"]);
+        }
+
+        #[test]
+        fn both_creates_traversal_with_both_step() {
+            let t = __::both();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["both"]);
+        }
+
+        #[test]
+        fn both_labels_creates_traversal_with_labels() {
+            let t = __::both_labels(&["knows"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["both"]);
+        }
+
+        #[test]
+        fn out_e_creates_traversal_with_out_e_step() {
+            let t = __::out_e();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["outE"]);
+        }
+
+        #[test]
+        fn out_e_labels_creates_traversal_with_labels() {
+            let t = __::out_e_labels(&["knows"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["outE"]);
+        }
+
+        #[test]
+        fn in_e_creates_traversal_with_in_e_step() {
+            let t = __::in_e();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["inE"]);
+        }
+
+        #[test]
+        fn in_e_labels_creates_traversal_with_labels() {
+            let t = __::in_e_labels(&["knows"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["inE"]);
+        }
+
+        #[test]
+        fn both_e_creates_traversal_with_both_e_step() {
+            let t = __::both_e();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["bothE"]);
+        }
+
+        #[test]
+        fn both_e_labels_creates_traversal_with_labels() {
+            let t = __::both_e_labels(&["knows"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["bothE"]);
+        }
+
+        #[test]
+        fn out_v_creates_traversal_with_out_v_step() {
+            let t = __::out_v();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["outV"]);
+        }
+
+        #[test]
+        fn in_v_creates_traversal_with_in_v_step() {
+            let t = __::in_v();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["inV"]);
+        }
+
+        #[test]
+        fn both_v_creates_traversal_with_both_v_step() {
+            let t = __::both_v();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["bothV"]);
+        }
+
+        // -------------------------------------------------------------------------
+        // Filter tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn has_label_creates_traversal_with_has_label_step() {
+            let t = __::has_label("person");
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["hasLabel"]);
+        }
+
+        #[test]
+        fn has_label_any_creates_traversal_with_multiple_labels() {
+            let t = __::has_label_any(&["person", "company"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["hasLabel"]);
+        }
+
+        #[test]
+        fn has_creates_traversal_with_has_step() {
+            let t = __::has("name");
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["has"]);
+        }
+
+        #[test]
+        fn has_value_creates_traversal_with_has_value_step() {
+            let t = __::has_value("name", "Alice");
+            assert_eq!(t.step_count(), 1);
+            // HasValueStep reports as "has" since it's the has(key, value) variant
+            assert_eq!(t.step_names(), vec!["has"]);
+        }
+
+        #[test]
+        fn has_id_creates_traversal_with_has_id_step() {
+            let t = __::has_id(VertexId(1));
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["hasId"]);
+        }
+
+        #[test]
+        fn has_ids_creates_traversal_with_multiple_ids() {
+            let t = __::has_ids([VertexId(1), VertexId(2)]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["hasId"]);
+        }
+
+        #[test]
+        fn filter_creates_traversal_with_filter_step() {
+            let t = __::filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 0));
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["filter"]);
+        }
+
+        #[test]
+        fn dedup_creates_traversal_with_dedup_step() {
+            let t = __::dedup();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["dedup"]);
+        }
+
+        #[test]
+        fn limit_creates_traversal_with_limit_step() {
+            let t = __::limit(10);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["limit"]);
+        }
+
+        #[test]
+        fn skip_creates_traversal_with_skip_step() {
+            let t = __::skip(5);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["skip"]);
+        }
+
+        #[test]
+        fn range_creates_traversal_with_range_step() {
+            let t = __::range(10, 20);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["range"]);
+        }
+
+        // -------------------------------------------------------------------------
+        // Transform tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn values_creates_traversal_with_values_step() {
+            let t = __::values("name");
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["values"]);
+        }
+
+        #[test]
+        fn values_multi_creates_traversal_with_multiple_keys() {
+            let t = __::values_multi(["name", "age"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["values"]);
+        }
+
+        #[test]
+        fn id_creates_traversal_with_id_step() {
+            let t = __::id();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["id"]);
+        }
+
+        #[test]
+        fn label_creates_traversal_with_label_step() {
+            let t = __::label();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["label"]);
+        }
+
+        #[test]
+        fn constant_creates_traversal_with_constant_step() {
+            let t = __::constant("found");
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["constant"]);
+        }
+
+        #[test]
+        fn path_creates_traversal_with_path_step() {
+            let t = __::path();
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["path"]);
+        }
+
+        #[test]
+        fn map_creates_traversal_with_map_step() {
+            let t = __::map(|_ctx, v| v.clone());
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["map"]);
+        }
+
+        #[test]
+        fn flat_map_creates_traversal_with_flat_map_step() {
+            let t = __::flat_map(|_ctx, _v| vec![]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["flatMap"]);
+        }
+
+        #[test]
+        fn as_creates_traversal_with_as_step() {
+            let t = __::as_("start");
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["as"]);
+        }
+
+        #[test]
+        fn select_creates_traversal_with_select_step() {
+            let t = __::select(&["a", "b"]);
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["select"]);
+        }
+
+        #[test]
+        fn select_one_creates_traversal_with_select_step() {
+            let t = __::select_one("start");
+            assert_eq!(t.step_count(), 1);
+            assert_eq!(t.step_names(), vec!["select"]);
+        }
+
+        // -------------------------------------------------------------------------
+        // Chaining tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn anonymous_traversals_can_be_chained() {
+            // Start with a factory function and chain additional steps
+            let t = __::out().has_label("person").values("name");
+            assert_eq!(t.step_count(), 3);
+            assert_eq!(t.step_names(), vec!["out", "hasLabel", "values"]);
+        }
+
+        #[test]
+        fn chained_traversal_has_no_source() {
+            let t = __::out().has_label("person").limit(10);
+            assert!(!t.has_source());
+        }
+
+        #[test]
+        fn anonymous_traversal_can_be_appended_to_bound() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Create anonymous traversal
+            let anon = __::has_label("person").values("name");
+
+            // Append to bound traversal
+            let bound = g.v().append(anon);
+
+            // Execute
+            let results = bound.to_list();
+            assert_eq!(results.len(), 2); // Alice and Bob
+        }
+
+        // -------------------------------------------------------------------------
+        // Execution tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn anonymous_out_traverses_outgoing_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Get Alice's vertex ID
+            let alice_id = snapshot
+                .storage()
+                .all_vertices()
+                .find(|v| v.properties.get("name") == Some(&Value::String("Alice".to_string())))
+                .map(|v| v.id)
+                .unwrap();
+
+            let anon = __::out();
+            let input = vec![Traverser::from_vertex(alice_id)];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            // Alice has 2 outgoing edges (knows Bob, works_at Acme)
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn anonymous_has_label_filters_by_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Get all vertices as input
+            let input: Vec<_> = snapshot
+                .storage()
+                .all_vertices()
+                .map(|v| Traverser::from_vertex(v.id))
+                .collect();
+            assert_eq!(input.len(), 3); // Alice, Bob, Acme
+
+            let anon = __::has_label("person");
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            // Should only have Alice and Bob (persons)
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn anonymous_values_extracts_property() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Get Alice's vertex
+            let alice_id = snapshot
+                .storage()
+                .all_vertices()
+                .find(|v| v.properties.get("name") == Some(&Value::String("Alice".to_string())))
+                .map(|v| v.id)
+                .unwrap();
+
+            let anon = __::values("name");
+            let input = vec![Traverser::from_vertex(alice_id)];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].value, Value::String("Alice".to_string()));
+        }
+
+        #[test]
+        fn anonymous_constant_replaces_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let anon = __::constant("found");
+            let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 2);
+            assert_eq!(results[0].value, Value::String("found".to_string()));
+            assert_eq!(results[1].value, Value::String("found".to_string()));
+        }
+
+        #[test]
+        fn anonymous_limit_restricts_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let anon = __::limit(2);
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+            ];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 2);
+            assert_eq!(results[0].value, Value::Int(1));
+            assert_eq!(results[1].value, Value::Int(2));
+        }
+
+        #[test]
+        fn anonymous_dedup_removes_duplicates() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let anon = __::dedup();
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(2)),
+            ];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 3);
+            assert_eq!(results[0].value, Value::Int(1));
+            assert_eq!(results[1].value, Value::Int(2));
+            assert_eq!(results[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn anonymous_filter_applies_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let anon = __::filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 2));
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+            ];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 2);
+            assert_eq!(results[0].value, Value::Int(3));
+            assert_eq!(results[1].value, Value::Int(4));
+        }
+
+        #[test]
+        fn anonymous_map_transforms_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let anon = __::map(|_ctx, v| {
+                if let Value::Int(n) = v {
+                    Value::Int(n * 2)
+                } else {
+                    v.clone()
+                }
+            });
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+            let results: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input.into_iter())).collect();
+
+            assert_eq!(results.len(), 3);
+            assert_eq!(results[0].value, Value::Int(2));
+            assert_eq!(results[1].value, Value::Int(4));
+            assert_eq!(results[2].value, Value::Int(6));
+        }
+
+        #[test]
+        fn complex_anonymous_traversal_chains_correctly() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Complex chain: start from all vertices, filter to persons,
+            // traverse out, get names
+            let anon = __::has_label("person")
+                .out()
+                .has_label("person")
+                .values("name");
+
+            // Get Alice who knows Bob
+            let results = g.v().append(anon).to_list();
+
+            // Alice -> knows -> Bob, so we should get "Bob"
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::String("Bob".to_string()));
+        }
+
+        #[test]
+        fn anonymous_traversals_are_reusable() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Create anonymous traversal once
+            let anon = __::limit(1);
+
+            // Use it multiple times
+            let input1 = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
+            let results1: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input1.into_iter())).collect();
+            assert_eq!(results1.len(), 1);
+
+            let input2 = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+            ];
+            let results2: Vec<_> =
+                execute_traversal_from(&ctx, &anon, Box::new(input2.into_iter())).collect();
+            assert_eq!(results2.len(), 1);
+            assert_eq!(results2[0].value, Value::Int(10));
+        }
+
+        #[test]
+        fn anonymous_traversals_are_clonable() {
+            let anon = __::out().has_label("person").values("name");
+            let cloned = anon.clone();
+
+            assert_eq!(anon.step_count(), cloned.step_count());
+            assert_eq!(anon.step_names(), cloned.step_names());
         }
     }
 }

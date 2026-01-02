@@ -665,9 +665,9 @@ pub struct SideEffects {
 3. Returns boxed iterator over output traversers
 
 **Acceptance Criteria**:
-- [ ] Can execute anonymous traversal steps with provided context
-- [ ] Ignores traversal source, uses provided input
-- [ ] Works with lazy iteration (no eager collection)
+- [x] Can execute anonymous traversal steps with provided context
+- [x] Ignores traversal source, uses provided input
+- [x] Works with lazy iteration (no eager collection)
 
 ---
 
@@ -682,9 +682,9 @@ pub struct SideEffects {
 4. Ensure all return `Traversal<Value, Value>`
 
 **Acceptance Criteria**:
-- [ ] `__::out()` creates anonymous out traversal
-- [ ] `__::has_label("person")` creates anonymous filter
-- [ ] Anonymous traversals can be appended to bound traversals
+- [x] `__::out()` creates anonymous out traversal
+- [x] `__::has_label("person")` creates anonymous filter
+- [x] Anonymous traversals can be appended to bound traversals
 
 ---
 
