@@ -164,6 +164,18 @@ impl From<HashMap<String, Value>> for Value {
     }
 }
 
+impl From<VertexId> for Value {
+    fn from(id: VertexId) -> Self {
+        Value::Vertex(id)
+    }
+}
+
+impl From<EdgeId> for Value {
+    fn from(id: EdgeId) -> Self {
+        Value::Edge(id)
+    }
+}
+
 impl Value {
     pub fn serialize(&self, buf: &mut Vec<u8>) {
         match self {
@@ -342,6 +354,32 @@ impl Value {
 
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
+    }
+
+    /// Get the value as a vertex ID (if it is one)
+    pub fn as_vertex_id(&self) -> Option<VertexId> {
+        match self {
+            Value::Vertex(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Get the value as an edge ID (if it is one)
+    pub fn as_edge_id(&self) -> Option<EdgeId> {
+        match self {
+            Value::Edge(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Check if value is a vertex
+    pub fn is_vertex(&self) -> bool {
+        matches!(self, Value::Vertex(_))
+    }
+
+    /// Check if value is an edge
+    pub fn is_edge(&self) -> bool {
+        matches!(self, Value::Edge(_))
     }
 }
 
@@ -687,6 +725,80 @@ mod tests {
         // Maps with same content should have same hash
         assert_eq!(hash_value(&v1), hash_value(&v2));
         assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn from_vertex_id_for_value() {
+        let id = VertexId(42);
+        let v: Value = id.into();
+        assert_eq!(v, Value::Vertex(VertexId(42)));
+
+        // Also test Value::from directly
+        let v2 = Value::from(VertexId(123));
+        assert_eq!(v2, Value::Vertex(VertexId(123)));
+    }
+
+    #[test]
+    fn from_edge_id_for_value() {
+        let id = EdgeId(99);
+        let v: Value = id.into();
+        assert_eq!(v, Value::Edge(EdgeId(99)));
+
+        // Also test Value::from directly
+        let v2 = Value::from(EdgeId(456));
+        assert_eq!(v2, Value::Edge(EdgeId(456)));
+    }
+
+    #[test]
+    fn as_vertex_id_extracts_vertex_id() {
+        let v = Value::Vertex(VertexId(42));
+        assert_eq!(v.as_vertex_id(), Some(VertexId(42)));
+
+        // Non-vertex values should return None
+        assert_eq!(Value::Int(42).as_vertex_id(), None);
+        assert_eq!(Value::Edge(EdgeId(42)).as_vertex_id(), None);
+        assert_eq!(Value::Null.as_vertex_id(), None);
+        assert_eq!(Value::String("vertex".to_string()).as_vertex_id(), None);
+    }
+
+    #[test]
+    fn as_edge_id_extracts_edge_id() {
+        let e = Value::Edge(EdgeId(99));
+        assert_eq!(e.as_edge_id(), Some(EdgeId(99)));
+
+        // Non-edge values should return None
+        assert_eq!(Value::Int(99).as_edge_id(), None);
+        assert_eq!(Value::Vertex(VertexId(99)).as_edge_id(), None);
+        assert_eq!(Value::Null.as_edge_id(), None);
+        assert_eq!(Value::String("edge".to_string()).as_edge_id(), None);
+    }
+
+    #[test]
+    fn is_vertex_detects_vertex_values() {
+        assert!(Value::Vertex(VertexId(1)).is_vertex());
+        assert!(Value::Vertex(VertexId(0)).is_vertex());
+        assert!(Value::Vertex(VertexId(u64::MAX)).is_vertex());
+
+        // Non-vertex values
+        assert!(!Value::Edge(EdgeId(1)).is_vertex());
+        assert!(!Value::Int(1).is_vertex());
+        assert!(!Value::Null.is_vertex());
+        assert!(!Value::Bool(true).is_vertex());
+        assert!(!Value::String("vertex".to_string()).is_vertex());
+    }
+
+    #[test]
+    fn is_edge_detects_edge_values() {
+        assert!(Value::Edge(EdgeId(1)).is_edge());
+        assert!(Value::Edge(EdgeId(0)).is_edge());
+        assert!(Value::Edge(EdgeId(u64::MAX)).is_edge());
+
+        // Non-edge values
+        assert!(!Value::Vertex(VertexId(1)).is_edge());
+        assert!(!Value::Int(1).is_edge());
+        assert!(!Value::Null.is_edge());
+        assert!(!Value::Bool(true).is_edge());
+        assert!(!Value::String("edge".to_string()).is_edge());
     }
 
     fn arb_value() -> impl Strategy<Value = Value> {

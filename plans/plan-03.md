@@ -135,10 +135,10 @@ impl Eq for Value {}
 5. Add `is_vertex()` and `is_edge()` methods
 
 **Acceptance Criteria**:
-- [ ] `Value::from(VertexId(1))` returns `Value::Vertex(VertexId(1))`
-- [ ] `Value::Vertex(id).as_vertex_id()` returns `Some(id)`
-- [ ] `Value::Int(1).as_vertex_id()` returns `None`
-- [ ] Unit tests for all accessors pass
+- [x] `Value::from(VertexId(1))` returns `Value::Vertex(VertexId(1))`
+- [x] `Value::Vertex(id).as_vertex_id()` returns `Some(id)`
+- [x] `Value::Int(1).as_vertex_id()` returns `None`
+- [x] Unit tests for all accessors pass
 
 ---
 
