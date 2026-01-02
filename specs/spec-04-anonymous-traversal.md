@@ -31,255 +31,36 @@ This specification details the implementation of anonymous traversals (`__` fact
 
 | File | Description |
 |------|-------------|
-| `src/traversal/anonymous.rs` | `__` factory module for anonymous traversals |
-| `src/traversal/predicate.rs` | `Predicate` trait and `p::` module |
+| `src/traversal/predicate.rs` | `Predicate` trait, `p::` module, and `HasWhereStep` |
 | `src/traversal/branch.rs` | Filter and branch steps: `where_`, `not`, `union`, etc. |
 | `src/traversal/repeat.rs` | `RepeatStep`, `RepeatConfig`, `RepeatTraversal` builder |
 
+**Note**: The `__` factory module already exists in `src/traversal/mod.rs` from Phase 3.
+
 ---
 
-### 4.1 Anonymous Traversal Factory (`src/traversal/anonymous.rs`)
+## Module Structure
 
-The `__` module is the entry point for creating anonymous traversals. It provides static methods that return `Traversal<Value, Value>` instances—the same type used internally by bound traversals, but without a source.
+This phase adds the following new files:
 
-```rust
-use crate::traversal::{Traversal, Value};
-use crate::traversal::filter::{HasLabelStep, HasStep, HasValueStep, HasIdStep, DedupStep, LimitStep};
-use crate::traversal::navigation::{OutStep, InStep, BothStep, OutEStep, InEStep, BothEStep, OutVStep, InVStep, BothVStep};
-use crate::traversal::transform::{ValuesStep, IdStep, LabelStep, ConstantStep};
+| File | Description |
+|------|-------------|
+| `src/traversal/predicate.rs` | `Predicate` trait, `p::` module, `HasWhereStep` |
+| `src/traversal/branch.rs` | Filter steps (`WhereStep`, `NotStep`, `AndStep`, `OrStep`) and branch steps (`UnionStep`, `CoalesceStep`, `ChooseStep`, `OptionalStep`, `LocalStep`) |
+| `src/traversal/repeat.rs` | `RepeatStep`, `RepeatConfig`, `RepeatTraversal` builder |
 
-/// Anonymous traversal factory
-/// 
-/// Creates `Traversal<Value, Value>` instances without a graph binding.
-/// These receive `ExecutionContext` when spliced into parent traversals.
-/// 
-/// # Example
-/// ```rust
-/// use rustgremlin::prelude::*;
-/// 
-/// // Create anonymous traversal
-/// let anon = __.out_labels(&["knows"]).has_value("name", "Bob");
-/// 
-/// // Use in bound traversal
-/// let snap = graph.snapshot();
-/// let g = snap.traversal();
-/// let results = g.v()
-///     .has_label("person")
-///     .where_(anon)
-///     .to_list();
-/// ```
-pub mod __ {
-    use super::*;
+**Note**: The `__` factory module and chainable `Traversal<In, Value>` methods are **already implemented** in `src/traversal/mod.rs` as part of Phase 3. This phase adds new step types that integrate with the existing infrastructure.
 
-    // ─────────────────────────────────────────────────────────────
-    // Identity and Constants
-    // ─────────────────────────────────────────────────────────────
+### 4.1 Existing Infrastructure (Already Implemented)
 
-    /// Identity traversal - passes input through unchanged
-    pub fn identity() -> Traversal<Value, Value> {
-        Traversal::new()
-    }
+The following are already in place from Phase 3:
 
-    /// Constant emission - ignores input, emits constant value
-    pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value> {
-        Traversal::new().add_step(ConstantStep::new(value))
-    }
+- **`__` module** (`src/traversal/mod.rs`): Factory functions for anonymous traversals (`__::out()`, `__::has_label()`, etc.)
+- **`Traversal<In, Out>`**: Chainable methods for anonymous traversals (`.out()`, `.has_label()`, etc.)
+- **`execute_traversal()`** and **`execute_traversal_from()`**: Helpers for sub-traversal execution (`src/traversal/step.rs`)
+- **`AnyStep` trait**: Type-erased step interface with `apply()`, `clone_box()`, `name()`
 
-    // ─────────────────────────────────────────────────────────────
-    // Navigation Steps
-    // ─────────────────────────────────────────────────────────────
-
-    /// Traverse to outgoing adjacent vertices
-    pub fn out() -> Traversal<Value, Value> {
-        Traversal::new().add_step(OutStep::new())
-    }
-
-    /// Traverse to outgoing adjacent vertices via edges with given labels
-    pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(OutStep::with_labels(labels))
-    }
-
-    /// Traverse to incoming adjacent vertices
-    pub fn in_() -> Traversal<Value, Value> {
-        Traversal::new().add_step(InStep::new())
-    }
-
-    /// Traverse to incoming adjacent vertices via edges with given labels
-    pub fn in_labels(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(InStep::with_labels(labels))
-    }
-
-    /// Traverse both directions
-    pub fn both() -> Traversal<Value, Value> {
-        Traversal::new().add_step(BothStep::new())
-    }
-
-    /// Traverse both directions via edges with given labels
-    pub fn both_labels(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(BothStep::with_labels(labels))
-    }
-
-    /// Traverse to outgoing edges
-    pub fn out_e() -> Traversal<Value, Value> {
-        Traversal::new().add_step(OutEStep::new())
-    }
-
-    /// Traverse to outgoing edges with given labels
-    pub fn out_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(OutEStep::with_labels(labels))
-    }
-
-    /// Traverse to incoming edges
-    pub fn in_e() -> Traversal<Value, Value> {
-        Traversal::new().add_step(InEStep::new())
-    }
-
-    /// Traverse to incoming edges with given labels
-    pub fn in_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(InEStep::with_labels(labels))
-    }
-
-    /// Get source vertex of edge
-    pub fn out_v() -> Traversal<Value, Value> {
-        Traversal::new().add_step(OutVStep)
-    }
-
-    /// Get target vertex of edge
-    pub fn in_v() -> Traversal<Value, Value> {
-        Traversal::new().add_step(InVStep)
-    }
-
-    /// Get both vertices of edge
-    pub fn both_v() -> Traversal<Value, Value> {
-        Traversal::new().add_step(BothVStep)
-    }
-
-    /// Traverse to all incident edges (both directions)
-    pub fn both_e() -> Traversal<Value, Value> {
-        Traversal::new().add_step(BothEStep::new())
-    }
-
-    /// Traverse to all incident edges with given labels
-    pub fn both_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(BothEStep::with_labels(labels))
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Property Access
-    // ─────────────────────────────────────────────────────────────
-
-    /// Extract property value
-    pub fn values(key: &str) -> Traversal<Value, Value> {
-        Traversal::new().add_step(ValuesStep::new(key))
-    }
-
-    /// Get element label
-    pub fn label() -> Traversal<Value, Value> {
-        Traversal::new().add_step(LabelStep)
-    }
-
-    /// Get element ID
-    pub fn id() -> Traversal<Value, Value> {
-        Traversal::new().add_step(IdStep)
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Filtering
-    // ─────────────────────────────────────────────────────────────
-
-    /// Filter by property existence
-    pub fn has(key: &str) -> Traversal<Value, Value> {
-        Traversal::new().add_step(HasStep::new(key))
-    }
-
-    /// Filter by property value
-    pub fn has_value(key: &str, value: impl Into<Value>) -> Traversal<Value, Value> {
-        Traversal::new().add_step(HasValueStep::new(key, value))
-    }
-
-    /// Filter by label
-    pub fn has_label(label: &str) -> Traversal<Value, Value> {
-        Traversal::new().add_step(HasLabelStep::single(label))
-    }
-
-    /// Filter by any of the given labels
-    pub fn has_label_any(labels: &[&str]) -> Traversal<Value, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        Traversal::new().add_step(HasLabelStep::new(labels))
-    }
-
-    /// Filter by vertex/edge ID
-    pub fn has_id(id: impl Into<Value>) -> Traversal<Value, Value> {
-        Traversal::new().add_step(HasIdStep::from_value(id.into()))
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Control Flow
-    // ─────────────────────────────────────────────────────────────
-
-    /// Deduplicate traversers
-    pub fn dedup() -> Traversal<Value, Value> {
-        Traversal::new().add_step(DedupStep)
-    }
-
-    /// Limit number of results
-    pub fn limit(n: usize) -> Traversal<Value, Value> {
-        Traversal::new().add_step(LimitStep::new(n))
-    }
-}
-```
-
-#### Chainable API on Traversal
-
-Anonymous traversals can be chained exactly like bound traversals. The `Traversal<In, Out>` type provides the same fluent methods:
-
-```rust
-impl<In, Out> Traversal<In, Out> {
-    /// Traverse to outgoing adjacent vertices
-    pub fn out(self) -> Traversal<In, Value> {
-        self.add_step(OutStep::new())
-    }
-
-    /// Traverse to outgoing adjacent vertices via edges with given labels
-    pub fn out_labels(self, labels: &[&str]) -> Traversal<In, Value> {
-        let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        self.add_step(OutStep::with_labels(labels))
-    }
-
-    /// Filter by label
-    pub fn has_label(self, label: &str) -> Traversal<In, Out> {
-        self.add_step(HasLabelStep::single(label))
-    }
-
-    /// Filter by property value
-    pub fn has_value(self, key: &str, value: impl Into<Value>) -> Traversal<In, Out> {
-        self.add_step(HasValueStep::new(key, value))
-    }
-
-    /// Extract property value
-    pub fn values(self, key: &str) -> Traversal<In, Value> {
-        self.add_step(ValuesStep::new(key))
-    }
-
-    /// Deduplicate
-    pub fn dedup(self) -> Traversal<In, Out> {
-        self.add_step(DedupStep)
-    }
-
-    /// Limit results
-    pub fn limit(self, n: usize) -> Traversal<In, Out> {
-        self.add_step(LimitStep::new(n))
-    }
-
-    // ... all other step methods from BoundTraversal
-}
-```
+This phase extends the existing `__` module and `Traversal` with new step methods after implementing the underlying steps.
 
 ### 4.2 Filter Steps with Anonymous Traversals (`src/traversal/branch.rs`)
 
@@ -290,6 +71,10 @@ Filter steps use anonymous traversals to determine whether to pass or reject inp
 Filters the current traverser by executing a sub-traversal. The traverser is emitted only if the sub-traversal produces at least one result.
 
 ```rust
+use crate::traversal::{ExecutionContext, Traversal, Traverser};
+use crate::traversal::step::{AnyStep, execute_traversal_from};
+use crate::value::Value;
+
 /// Filter by sub-traversal existence
 /// 
 /// Emits input traverser only if the sub-traversal produces results.
@@ -313,8 +98,8 @@ impl AnyStep for WhereStep {
         let sub = self.sub.clone();
         Box::new(input.filter(move |t| {
             // Execute sub-traversal with current traverser as input
-            let sub_input = std::iter::once(t.clone());
-            let results = execute_traversal(ctx, sub.clone(), sub_input);
+            let sub_input = Box::new(std::iter::once(t.clone()));
+            let mut results = execute_traversal_from(ctx, &sub, sub_input);
             results.next().is_some() // Pass if any results
         }))
     }
@@ -377,8 +162,8 @@ impl AnyStep for NotStep {
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         let sub = self.sub.clone();
         Box::new(input.filter(move |t| {
-            let sub_input = std::iter::once(t.clone());
-            let results = execute_traversal(ctx, sub.clone(), sub_input);
+            let sub_input = Box::new(std::iter::once(t.clone()));
+            let mut results = execute_traversal_from(ctx, &sub, sub_input);
             results.next().is_none() // Pass if NO results
         }))
     }
@@ -422,8 +207,8 @@ impl AnyStep for AndStep {
         Box::new(input.filter(move |t| {
             // All sub-traversals must produce at least one result
             subs.iter().all(|sub| {
-                let sub_input = std::iter::once(t.clone());
-                let mut results = execute_traversal(ctx, sub.clone(), sub_input);
+                let sub_input = Box::new(std::iter::once(t.clone()));
+                let mut results = execute_traversal_from(ctx, sub, sub_input);
                 results.next().is_some()
             })
         }))
@@ -468,8 +253,8 @@ impl AnyStep for OrStep {
         Box::new(input.filter(move |t| {
             // At least one sub-traversal must produce a result
             subs.iter().any(|sub| {
-                let sub_input = std::iter::once(t.clone());
-                let mut results = execute_traversal(ctx, sub.clone(), sub_input);
+                let sub_input = Box::new(std::iter::once(t.clone()));
+                let mut results = execute_traversal_from(ctx, sub, sub_input);
                 results.next().is_some()
             })
         }))
@@ -567,8 +352,8 @@ impl AnyStep for UnionStep {
         Box::new(input.flat_map(move |t| {
             // For each input traverser, execute all branches
             branches.iter().flat_map(|branch| {
-                let sub_input = std::iter::once(t.clone());
-                execute_traversal(ctx, branch.clone(), sub_input)
+                let sub_input = Box::new(std::iter::once(t.clone()));
+                execute_traversal_from(ctx, branch, sub_input)
             }).collect::<Vec<_>>().into_iter()
         }))
     }
@@ -629,8 +414,8 @@ impl AnyStep for CoalesceStep {
         Box::new(input.flat_map(move |t| {
             // Try each branch in order
             for branch in branches.iter() {
-                let sub_input = std::iter::once(t.clone());
-                let results: Vec<_> = execute_traversal(ctx, branch.clone(), sub_input).collect();
+                let sub_input = Box::new(std::iter::once(t.clone()));
+                let results: Vec<_> = execute_traversal_from(ctx, branch, sub_input).collect();
                 
                 if !results.is_empty() {
                     return results.into_iter();
@@ -705,8 +490,8 @@ impl AnyStep for ChooseStep {
         
         Box::new(input.flat_map(move |t| {
             // Evaluate condition
-            let cond_input = std::iter::once(t.clone());
-            let cond_result = execute_traversal(ctx, condition.clone(), cond_input);
+            let cond_input = Box::new(std::iter::once(t.clone()));
+            let mut cond_result = execute_traversal_from(ctx, &condition, cond_input);
             
             let branch = if cond_result.next().is_some() {
                 &if_true
@@ -714,8 +499,8 @@ impl AnyStep for ChooseStep {
                 &if_false
             };
             
-            let sub_input = std::iter::once(t);
-            execute_traversal(ctx, branch.clone(), sub_input)
+            let sub_input = Box::new(std::iter::once(t));
+            execute_traversal_from(ctx, branch, sub_input).collect::<Vec<_>>().into_iter()
         }))
     }
 
@@ -758,8 +543,8 @@ impl AnyStep for OptionalStep {
         let sub = self.sub.clone();
         
         Box::new(input.flat_map(move |t| {
-            let sub_input = std::iter::once(t.clone());
-            let results: Vec<_> = execute_traversal(ctx, sub.clone(), sub_input).collect();
+            let sub_input = Box::new(std::iter::once(t.clone()));
+            let results: Vec<_> = execute_traversal_from(ctx, &sub, sub_input).collect();
             
             if results.is_empty() {
                 // No results, emit original
@@ -810,8 +595,8 @@ impl AnyStep for LocalStep {
         
         Box::new(input.flat_map(move |t| {
             // Execute sub-traversal for this traverser in isolation
-            let sub_input = std::iter::once(t);
-            execute_traversal(ctx, sub.clone(), sub_input)
+            let sub_input = Box::new(std::iter::once(t));
+            execute_traversal_from(ctx, &sub, sub_input).collect::<Vec<_>>().into_iter()
         }))
     }
 
@@ -915,8 +700,8 @@ impl RepeatStep {
     fn satisfies_until(&self, ctx: &ExecutionContext, traverser: &Traverser) -> bool {
         match &self.config.until {
             Some(until_trav) => {
-                let sub_input = std::iter::once(traverser.clone());
-                let mut results = execute_traversal(ctx, until_trav.clone(), sub_input);
+                let sub_input = Box::new(std::iter::once(traverser.clone()));
+                let mut results = execute_traversal_from(ctx, until_trav, sub_input);
                 results.next().is_some()
             }
             None => false,
@@ -930,8 +715,8 @@ impl RepeatStep {
         }
         match &self.config.emit_if {
             Some(emit_trav) => {
-                let sub_input = std::iter::once(traverser.clone());
-                let mut results = execute_traversal(ctx, emit_trav.clone(), sub_input);
+                let sub_input = Box::new(std::iter::once(traverser.clone()));
+                let mut results = execute_traversal_from(ctx, emit_trav, sub_input);
                 results.next().is_some()
             }
             None => true, // emit() without condition emits all
@@ -1024,8 +809,8 @@ impl<'a> RepeatIterator<'a> {
             }
 
             // Execute sub-traversal
-            let sub_input = std::iter::once(traverser.clone());
-            let results: Vec<_> = execute_traversal(self.ctx, self.sub.clone(), sub_input).collect();
+            let sub_input = Box::new(std::iter::once(traverser.clone()));
+            let results: Vec<_> = execute_traversal_from(self.ctx, &self.sub, sub_input).collect();
 
             if results.is_empty() {
                 // No more results from this branch
@@ -2026,64 +1811,68 @@ let complex_filter = g.v()
 
 ---
 
-### 4.6 Helper Function: `execute_traversal`
+### 4.6 Helper Functions: `execute_traversal` and `execute_traversal_from`
 
-All branch and filter steps that use anonymous traversals rely on the `execute_traversal` helper function defined in Phase 3 (Section 3.9). This function executes a traversal's steps with a given context and input:
+All branch and filter steps that use anonymous traversals rely on the helper functions defined in Phase 3 (`src/traversal/step.rs`). These functions execute a traversal's steps with a given context and input.
+
+**Note**: These functions already exist in the codebase. The signatures below match the actual implementation.
 
 ```rust
-/// Execute an anonymous traversal with the given context and input
+/// Execute steps on provided input (low-level).
 /// 
 /// This is the core function used by branch/filter steps to evaluate
-/// sub-traversals. It creates a fresh iterator from the traversal's
-/// steps, piping each traverser through the step pipeline.
+/// sub-traversals. It applies steps in sequence, building a lazy iterator chain.
 /// 
 /// # Arguments
 /// * `ctx` - The execution context (provides graph access)
-/// * `traversal` - The anonymous traversal to execute
+/// * `steps` - The steps to apply (extracted from a traversal via `.steps()`)
 /// * `input` - Input traversers to feed into the traversal
 /// 
 /// # Returns
-/// An iterator over the output traversers
-/// 
-/// # Note
-/// This function is defined in `src/traversal/mod.rs` as part of Phase 3.
-/// See spec-03-traversal-engine-core.md Section 3.9 for the implementation.
-pub fn execute_traversal<'a, I>(
+/// A boxed iterator over the output traversers
+pub fn execute_traversal<'a>(
     ctx: &'a ExecutionContext<'a>,
-    traversal: Traversal<Value, Value>,
-    input: I,
-) -> Box<dyn Iterator<Item = Traverser> + 'a>
-where
-    I: Iterator<Item = Traverser> + 'a,
-{
-    let (_, steps) = traversal.into_steps();
-    
-    // Start with the input
-    let mut current: Box<dyn Iterator<Item = Traverser> + 'a> = Box::new(input);
-    
-    // Apply each step in sequence
-    for step in steps {
-        current = step.apply(ctx, current);
-    }
-    
-    current
+    steps: &'a [Box<dyn AnyStep>],
+    input: Box<dyn Iterator<Item = Traverser> + 'a>,
+) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    steps
+        .iter()
+        .fold(input, |current, step| step.apply(ctx, current))
+}
+
+/// Execute a traversal on provided input (convenience wrapper).
+/// 
+/// Accesses the traversal's steps via `.steps()` and calls `execute_traversal`.
+/// The traversal's source (if any) is ignored.
+/// 
+/// # Arguments
+/// * `ctx` - The execution context
+/// * `traversal` - The traversal whose steps to execute (borrowed, not consumed)
+/// * `input` - Iterator of input traversers
+pub fn execute_traversal_from<'a, In, Out>(
+    ctx: &'a ExecutionContext<'a>,
+    traversal: &'a Traversal<In, Out>,
+    input: Box<dyn Iterator<Item = Traverser> + 'a>,
+) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    execute_traversal(ctx, traversal.steps(), input)
 }
 ```
 
 **Key Points:**
 - Anonymous traversals have no source (the source comes from the parent's current traverser)
 - The `ExecutionContext` is shared between parent and sub-traversals
-- Steps are applied lazily via the iterator chain
+- Steps are applied lazily via the iterator chain (fold builds the iterator chain)
+- Traversals are **borrowed** (not consumed), enabling reuse across multiple inputs
 - The function returns a boxed iterator for uniform handling
 
 **Usage in Steps:**
 ```rust
-// In WhereStep
+// In WhereStep - use execute_traversal_from for convenience
 fn apply<'a>(&'a self, ctx: &'a ExecutionContext<'a>, input: ...) -> ... {
     let sub = self.sub.clone();
     Box::new(input.filter(move |t| {
-        let sub_input = std::iter::once(t.clone());
-        let mut results = execute_traversal(ctx, sub.clone(), sub_input);
+        let sub_input = Box::new(std::iter::once(t.clone()));
+        let mut results = execute_traversal_from(ctx, &sub, sub_input);
         results.next().is_some()
     }))
 }
@@ -2093,8 +1882,8 @@ fn apply<'a>(&'a self, ctx: &'a ExecutionContext<'a>, input: ...) -> ... {
     let branches = self.branches.clone();
     Box::new(input.flat_map(move |t| {
         branches.iter().flat_map(|branch| {
-            let sub_input = std::iter::once(t.clone());
-            execute_traversal(ctx, branch.clone(), sub_input)
+            let sub_input = Box::new(std::iter::once(t.clone()));
+            execute_traversal_from(ctx, branch, sub_input)
         }).collect::<Vec<_>>().into_iter()
     }))
 }
@@ -2201,8 +1990,8 @@ mod tests {
     #[test]
     fn test_anonymous_identity() {
         let anon = __::identity();
-        // Should have 0 steps (just passes through)
-        assert_eq!(anon.step_count(), 0);
+        // Should have 1 step (IdentityStep that passes through)
+        assert_eq!(anon.step_count(), 1);
     }
 
     #[test]
