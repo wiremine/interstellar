@@ -259,9 +259,9 @@ pub struct SideEffects {
 3. Test both steps compile and implement `AnyStep`
 
 **Acceptance Criteria**:
-- [ ] `IdentityStep.apply()` returns input unchanged
-- [ ] `StartStep` expands source to traversers
-- [ ] Both implement `AnyStep` correctly
+- [x] `IdentityStep.apply()` returns input unchanged
+- [x] `StartStep` expands source to traversers
+- [x] Both implement `AnyStep` correctly
 
 ---
 

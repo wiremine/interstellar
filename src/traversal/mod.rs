@@ -23,7 +23,7 @@ pub mod context;
 pub mod step;
 
 pub use context::{ExecutionContext, SideEffects};
-pub use step::{AnyStep, IdentityStep};
+pub use step::{AnyStep, IdentityStep, StartStep};
 
 // Re-export macros
 pub use crate::{impl_filter_step, impl_flatmap_step};
