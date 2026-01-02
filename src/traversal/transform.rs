@@ -485,6 +485,146 @@ where
 }
 
 // -----------------------------------------------------------------------------
+// ConstantStep - emit a constant value for each traverser
+// -----------------------------------------------------------------------------
+
+/// Transform step that replaces each traverser's value with a constant.
+///
+/// This step replaces the value of each traverser with the specified constant
+/// value, preserving all traverser metadata (path, loops, bulk, sack).
+///
+/// # Behavior
+///
+/// - Each input traverser produces exactly one output traverser
+/// - The output value is always the constant, regardless of input
+/// - Path history, loop count, bulk, and sack are preserved
+///
+/// # Example
+///
+/// ```ignore
+/// // Replace all values with the string "found"
+/// let results = g.v().constant("found").to_list();
+/// // All results will be Value::String("found")
+///
+/// // Replace with a number
+/// let results = g.inject([1, 2, 3]).constant(42i64).to_list();
+/// // All results will be Value::Int(42)
+/// ```
+#[derive(Clone, Debug)]
+pub struct ConstantStep {
+    /// The constant value to emit for each traverser.
+    value: Value,
+}
+
+impl ConstantStep {
+    /// Create a new ConstantStep with the given value.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The constant value to emit for each traverser
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = ConstantStep::new("constant_value");
+    /// let step = ConstantStep::new(42i64);
+    /// let step = ConstantStep::new(Value::Bool(true));
+    /// ```
+    pub fn new(value: impl Into<Value>) -> Self {
+        Self {
+            value: value.into(),
+        }
+    }
+
+    /// Get the constant value.
+    #[inline]
+    pub fn value(&self) -> &Value {
+        &self.value
+    }
+}
+
+impl crate::traversal::step::AnyStep for ConstantStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let value = self.value.clone();
+        Box::new(input.map(move |t| t.with_value(value.clone())))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "constant"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// PathStep - convert traverser path to Value::List
+// -----------------------------------------------------------------------------
+
+/// Transform step that converts the traverser's path to a Value::List.
+///
+/// This step replaces the traverser's value with a list containing all
+/// elements from its path history. Each path element is converted to
+/// its corresponding Value representation.
+///
+/// # Behavior
+///
+/// - Each input traverser produces exactly one output traverser
+/// - The output value is a `Value::List` containing path elements
+/// - Empty paths produce empty lists
+/// - Path labels are preserved in the path structure (accessible via traverser.path)
+/// - Vertices become `Value::Vertex(id)`, edges become `Value::Edge(id)`
+/// - Property values remain as their original `Value` type
+///
+/// # Example
+///
+/// ```ignore
+/// // Get the path of a multi-hop traversal
+/// let paths = g.v().out().out().path().to_list();
+/// // Each result is a Value::List of [vertex, vertex, vertex]
+///
+/// // With labeled steps
+/// let paths = g.v().as("start").out().as("end").path().to_list();
+/// // Path labels are preserved in traverser.path
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PathStep;
+
+impl PathStep {
+    /// Create a new PathStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::AnyStep for PathStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.map(|t| {
+            // Convert path elements to a Value::List
+            let path_values: Vec<Value> = t.path.objects().map(|pv| pv.to_value()).collect();
+            t.with_value(Value::List(path_values))
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "path"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -2119,6 +2259,633 @@ mod tests {
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
+        }
+    }
+
+    // =========================================================================
+    // ConstantStep Tests
+    // =========================================================================
+
+    mod constant_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step_with_string() {
+            let step = ConstantStep::new("hello");
+            assert_eq!(step.value(), &Value::String("hello".to_string()));
+            assert_eq!(step.name(), "constant");
+        }
+
+        #[test]
+        fn new_creates_step_with_int() {
+            let step = ConstantStep::new(42i64);
+            assert_eq!(step.value(), &Value::Int(42));
+        }
+
+        #[test]
+        fn new_creates_step_with_float() {
+            let step = ConstantStep::new(3.14f64);
+            assert_eq!(step.value(), &Value::Float(3.14));
+        }
+
+        #[test]
+        fn new_creates_step_with_bool() {
+            let step = ConstantStep::new(true);
+            assert_eq!(step.value(), &Value::Bool(true));
+        }
+
+        #[test]
+        fn new_creates_step_with_value() {
+            let step = ConstantStep::new(Value::Null);
+            assert_eq!(step.value(), &Value::Null);
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = ConstantStep::new("test");
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "constant");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = ConstantStep::new("debug_value");
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("ConstantStep"));
+            assert!(debug_str.contains("debug_value"));
+        }
+    }
+
+    mod constant_step_transform_tests {
+        use super::*;
+
+        #[test]
+        fn replaces_single_value_with_constant() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("replaced");
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("replaced".to_string()));
+        }
+
+        #[test]
+        fn replaces_multiple_values_with_same_constant() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new(100i64);
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::String("hello".to_string())),
+                Traverser::new(Value::Bool(true)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(100));
+            assert_eq!(output[1].value, Value::Int(100));
+            assert_eq!(output[2].value, Value::Int(100));
+        }
+
+        #[test]
+        fn replaces_vertex_values_with_constant() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("vertex_found");
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("vertex_found".to_string()));
+            assert_eq!(output[1].value, Value::String("vertex_found".to_string()));
+        }
+
+        #[test]
+        fn replaces_edge_values_with_constant() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("edge_found");
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("edge_found".to_string()));
+        }
+
+        #[test]
+        fn works_with_null_constant() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new(Value::Null);
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Null);
+        }
+    }
+
+    mod constant_step_metadata_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_path() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("constant");
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.extend_path_labeled("start");
+            traverser.extend_path_labeled("middle");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert!(output[0].path.has_label("middle"));
+            assert_eq!(output[0].path.len(), 2);
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("constant");
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("constant");
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn preserves_all_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("constant");
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.extend_path_labeled("labeled");
+            traverser.loops = 3;
+            traverser.bulk = 7;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("labeled"));
+            assert_eq!(output[0].loops, 3);
+            assert_eq!(output[0].bulk, 7);
+            assert_eq!(output[0].value, Value::String("constant".to_string()));
+        }
+    }
+
+    mod constant_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ConstantStep::new("constant");
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    // =========================================================================
+    // PathStep Tests
+    // =========================================================================
+
+    mod path_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step() {
+            let step = PathStep::new();
+            assert_eq!(step.name(), "path");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = PathStep::default();
+            assert_eq!(step.name(), "path");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = PathStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "path");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = PathStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("PathStep"));
+        }
+    }
+
+    mod path_step_empty_path_tests {
+        use super::*;
+
+        #[test]
+        fn empty_path_produces_empty_list() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::List(vec![]));
+        }
+
+        #[test]
+        fn multiple_traversers_with_empty_paths() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+            let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::List(vec![]));
+            assert_eq!(output[1].value, Value::List(vec![]));
+        }
+    }
+
+    mod path_step_with_elements_tests {
+        use super::*;
+        use crate::traversal::PathValue;
+
+        #[test]
+        fn path_with_single_vertex() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(0)));
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            let path_list = &output[0].value;
+            if let Value::List(elements) = path_list {
+                assert_eq!(elements.len(), 1);
+                assert_eq!(elements[0], Value::Vertex(VertexId(0)));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn path_with_multiple_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(2));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(0)));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(1)));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(2)));
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(elements) = &output[0].value {
+                assert_eq!(elements.len(), 3);
+                assert_eq!(elements[0], Value::Vertex(VertexId(0)));
+                assert_eq!(elements[1], Value::Vertex(VertexId(1)));
+                assert_eq!(elements[2], Value::Vertex(VertexId(2)));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn path_with_mixed_elements() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(1));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(0)));
+            traverser.path.push_unlabeled(PathValue::Edge(EdgeId(0)));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(1)));
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(elements) = &output[0].value {
+                assert_eq!(elements.len(), 3);
+                assert_eq!(elements[0], Value::Vertex(VertexId(0)));
+                assert_eq!(elements[1], Value::Edge(EdgeId(0)));
+                assert_eq!(elements[2], Value::Vertex(VertexId(1)));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn path_with_property_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::new(Value::String("name".to_string()));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Vertex(VertexId(0)));
+            traverser
+                .path
+                .push_unlabeled(PathValue::Property(Value::String("Alice".to_string())));
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(elements) = &output[0].value {
+                assert_eq!(elements.len(), 2);
+                assert_eq!(elements[0], Value::Vertex(VertexId(0)));
+                assert_eq!(elements[1], Value::String("Alice".to_string()));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+    }
+
+    mod path_step_with_labels_tests {
+        use super::*;
+        use crate::traversal::PathValue;
+
+        #[test]
+        fn path_preserves_labels_in_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(1));
+            traverser
+                .path
+                .push_labeled(PathValue::Vertex(VertexId(0)), "start");
+            traverser
+                .path
+                .push_labeled(PathValue::Vertex(VertexId(1)), "end");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            // The path should still have its labels
+            assert!(output[0].path.has_label("start"));
+            assert!(output[0].path.has_label("end"));
+            // And the value should be a list
+            if let Value::List(elements) = &output[0].value {
+                assert_eq!(elements.len(), 2);
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn path_with_multiple_labels_on_same_element() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.path.push(
+                PathValue::Vertex(VertexId(0)),
+                &["a".to_string(), "b".to_string()],
+            );
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("a"));
+            assert!(output[0].path.has_label("b"));
+        }
+    }
+
+    mod path_step_metadata_tests {
+        use super::*;
+        use crate::traversal::PathValue;
+
+        #[test]
+        fn preserves_path_structure() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser
+                .path
+                .push_labeled(PathValue::Vertex(VertexId(0)), "start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            // Path should still be intact
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].path.len(), 1);
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod path_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    mod path_step_multiple_traversers_tests {
+        use super::*;
+        use crate::traversal::PathValue;
+
+        #[test]
+        fn multiple_traversers_with_different_paths() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PathStep::new();
+
+            let mut t1 = Traverser::from_vertex(VertexId(0));
+            t1.path.push_unlabeled(PathValue::Vertex(VertexId(0)));
+
+            let mut t2 = Traverser::from_vertex(VertexId(1));
+            t2.path.push_unlabeled(PathValue::Vertex(VertexId(0)));
+            t2.path.push_unlabeled(PathValue::Vertex(VertexId(1)));
+
+            let mut t3 = Traverser::from_vertex(VertexId(2));
+            // t3 has an empty path
+
+            let input = vec![t1, t2, t3];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+
+            // First traverser: path with 1 element
+            if let Value::List(elements) = &output[0].value {
+                assert_eq!(elements.len(), 1);
+            } else {
+                panic!("Expected Value::List for first traverser");
+            }
+
+            // Second traverser: path with 2 elements
+            if let Value::List(elements) = &output[1].value {
+                assert_eq!(elements.len(), 2);
+            } else {
+                panic!("Expected Value::List for second traverser");
+            }
+
+            // Third traverser: empty path
+            if let Value::List(elements) = &output[2].value {
+                assert_eq!(elements.len(), 0);
+            } else {
+                panic!("Expected Value::List for third traverser");
+            }
         }
     }
 }

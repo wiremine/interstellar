@@ -34,7 +34,7 @@ pub use navigation::{
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
-pub use transform::{FlatMapStep, IdStep, LabelStep, MapStep, ValuesStep};
+pub use transform::{ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, ValuesStep};
 
 // Re-export macros
 pub use crate::{impl_filter_step, impl_flatmap_step};
@@ -1263,6 +1263,44 @@ impl<In> Traversal<In, Value> {
         F: Fn(&context::ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static,
     {
         self.add_step(transform::FlatMapStep::new(f))
+    }
+
+    /// Replace each traverser's value with a constant (for anonymous traversals).
+    ///
+    /// For each input traverser, replaces the value with the specified constant.
+    /// All traverser metadata (path, loops, bulk, sack) is preserved.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that replaces values with "found"
+    /// let anon = Traversal::<Value, Value>::new().constant("found");
+    /// let results = g.v().append(anon).to_list();
+    /// // All results: Value::String("found")
+    ///
+    /// // With numeric constant
+    /// let anon = Traversal::<Value, Value>::new().constant(42i64);
+    /// ```
+    pub fn constant(self, value: impl Into<Value>) -> Traversal<In, Value> {
+        self.add_step(transform::ConstantStep::new(value))
+    }
+
+    /// Convert the traverser's path to a Value::List (for anonymous traversals).
+    ///
+    /// Replaces the traverser's value with a list containing all elements
+    /// from its path history. Each path element is converted to its
+    /// corresponding Value representation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that returns the path
+    /// let anon = Traversal::<Value, Value>::new().out().path();
+    /// let paths = g.v().append(anon).to_list();
+    /// // Each result is a Value::List of path elements
+    /// ```
+    pub fn path(self) -> Traversal<In, Value> {
+        self.add_step(transform::PathStep::new())
     }
 }
 

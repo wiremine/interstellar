@@ -893,6 +893,54 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::FlatMapStep;
         self.add_step(FlatMapStep::new(f))
     }
+
+    /// Replace each traverser's value with a constant.
+    ///
+    /// For each input traverser, replaces the value with the specified constant.
+    /// All traverser metadata (path, loops, bulk, sack) is preserved.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Replace all vertex values with "found"
+    /// let results = g.v().constant("found").to_list();
+    /// // All results will be Value::String("found")
+    ///
+    /// // Count vertices by replacing with 1 and summing
+    /// let results = g.v().constant(1i64).to_list();
+    /// ```
+    pub fn constant(self, value: impl Into<Value>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::ConstantStep;
+        self.add_step(ConstantStep::new(value))
+    }
+
+    /// Convert the traverser's path to a Value::List.
+    ///
+    /// Replaces the traverser's value with a list containing all elements
+    /// from its path history. Each path element is converted to its
+    /// corresponding Value representation.
+    ///
+    /// # Note
+    ///
+    /// For the path to contain elements, you need to use path-tracking steps
+    /// like `as()` or enable path tracking. Without path tracking, paths
+    /// will be empty.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get the path of a multi-hop traversal
+    /// let paths = g.v().out().out().path().to_list();
+    /// // Each result is a Value::List of [vertex, vertex, vertex]
+    ///
+    /// // With labeled steps
+    /// let paths = g.v().as("start").out().as("end").path().to_list();
+    /// // Path labels are preserved in traverser.path
+    /// ```
+    pub fn path(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::PathStep;
+        self.add_step(PathStep::new())
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
