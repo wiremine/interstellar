@@ -756,6 +756,44 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::navigation::BothVStep;
         self.add_step(BothVStep::new())
     }
+
+    // -------------------------------------------------------------------------
+    // Transform steps
+    // -------------------------------------------------------------------------
+
+    /// Extract property values from vertices/edges.
+    ///
+    /// For each input element, extracts the value of the specified property.
+    /// Missing properties are silently skipped.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let names = g.v().has_label("person").values("name").to_list();
+    /// ```
+    pub fn values(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::ValuesStep;
+        self.add_step(ValuesStep::new(key))
+    }
+
+    /// Extract multiple property values from vertices/edges.
+    ///
+    /// For each input element, extracts the values of the specified properties.
+    /// Missing properties are silently skipped.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let data = g.v().values_multi(&["name", "age"]).to_list();
+    /// ```
+    pub fn values_multi<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::transform::ValuesStep;
+        self.add_step(ValuesStep::from_keys(keys))
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {

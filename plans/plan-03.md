@@ -599,10 +599,10 @@ pub struct SideEffects {
 4. Add `values()` and `values_multi()` methods
 
 **Acceptance Criteria**:
-- [ ] `values("name")` extracts name property
-- [ ] `values_multi(&["name", "age"])` extracts multiple properties
-- [ ] Works for both vertices and edges
-- [ ] Missing properties are skipped
+- [x] `values("name")` extracts name property
+- [x] `values_multi(&["name", "age"])` extracts multiple properties
+- [x] Works for both vertices and edges
+- [x] Missing properties are skipped
 
 ---
 

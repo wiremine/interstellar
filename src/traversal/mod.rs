@@ -22,6 +22,7 @@ pub mod filter;
 pub mod navigation;
 pub mod source;
 pub mod step;
+pub mod transform;
 
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
@@ -33,6 +34,7 @@ pub use navigation::{
 };
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{AnyStep, IdentityStep, StartStep};
+pub use transform::ValuesStep;
 
 // Re-export macros
 pub use crate::{impl_filter_step, impl_flatmap_step};
@@ -1139,6 +1141,44 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn both_v(self) -> Traversal<In, Value> {
         self.add_step(navigation::BothVStep::new())
+    }
+
+    // -------------------------------------------------------------------------
+    // Transform steps (for anonymous traversals)
+    // -------------------------------------------------------------------------
+
+    /// Extract property values from vertices/edges (for anonymous traversals).
+    ///
+    /// For each input element, extracts the value of the specified property.
+    /// Missing properties are silently skipped.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().values("name");
+    /// let names = g.v().has_label("person").append(anon).to_list();
+    /// ```
+    pub fn values(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(transform::ValuesStep::new(key))
+    }
+
+    /// Extract multiple property values from vertices/edges (for anonymous traversals).
+    ///
+    /// For each input element, extracts the values of the specified properties.
+    /// Missing properties are silently skipped.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().values_multi(["name", "age"]);
+    /// let data = g.v().append(anon).to_list();
+    /// ```
+    pub fn values_multi<I, S>(self, keys: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(transform::ValuesStep::from_keys(keys))
     }
 }
 
