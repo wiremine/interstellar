@@ -703,6 +703,114 @@ impl HasIdStep {
 impl_filter_step!(HasIdStep, "hasId");
 
 // -----------------------------------------------------------------------------
+// HasWhereStep - filter by property value using a predicate
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only elements where a property satisfies a predicate.
+///
+/// Works with both vertices and edges. Non-element values (integers, strings, etc.)
+/// are filtered out since they don't have properties. Elements without the
+/// specified property are also filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// use rustgremlin::traversal::p;
+///
+/// // Filter to vertices where age >= 18
+/// let adults = g.v().has_where("age", p::gte(18)).to_list();
+///
+/// // Filter to vertices where name starts with "A"
+/// let a_names = g.v().has_where("name", p::starting_with("A")).to_list();
+///
+/// // Filter with logical predicates
+/// let adults_under_65 = g.v().has_where("age", p::and(p::gte(18), p::lt(65))).to_list();
+/// ```
+#[derive(Clone)]
+pub struct HasWhereStep {
+    /// The property key to extract and test
+    key: String,
+    /// The predicate to test the property value against
+    predicate: Box<dyn crate::traversal::predicate::Predicate>,
+}
+
+impl HasWhereStep {
+    /// Create a new HasWhereStep with the given key and predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to extract from vertices/edges
+    /// * `predicate` - The predicate to test the property value against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let step = HasWhereStep::new("age", p::gte(18));
+    /// ```
+    pub fn new(
+        key: impl Into<String>,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            predicate: Box::new(predicate),
+        }
+    }
+
+    /// Check if a traverser's element has a property that satisfies the predicate.
+    ///
+    /// Returns `false` for:
+    /// - Non-element values (integers, strings, etc.)
+    /// - Elements that don't have the specified property
+    /// - Properties that don't satisfy the predicate
+    fn matches(&self, ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        match &traverser.value {
+            Value::Vertex(id) => {
+                // Get the vertex from the snapshot
+                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                    // Get the property value and test it against the predicate
+                    vertex
+                        .properties
+                        .get(&self.key)
+                        .map(|prop_value| self.predicate.test(prop_value))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+            Value::Edge(id) => {
+                // Get the edge from the snapshot
+                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                    // Get the property value and test it against the predicate
+                    edge.properties
+                        .get(&self.key)
+                        .map(|prop_value| self.predicate.test(prop_value))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+            // Non-element values don't have properties
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for HasWhereStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HasWhereStep")
+            .field("key", &self.key)
+            .field("predicate", &"<predicate>")
+            .finish()
+    }
+}
+
+// Use the macro to implement AnyStep for HasWhereStep
+impl_filter_step!(HasWhereStep, "has");
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -3189,6 +3297,495 @@ mod tests {
             let cloned = step.clone();
             assert_eq!(cloned.ids.len(), 1);
             assert_eq!(cloned.ids[0], Value::Vertex(VertexId(42)));
+        }
+    }
+
+    mod has_where_step_tests {
+        use super::*;
+        use crate::traversal::predicate::p;
+        use crate::traversal::step::AnyStep;
+
+        fn create_graph_with_ages() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Vertex 0: Alice, age 30
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+
+            // Vertex 1: Bob, age 25
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props.insert("age".to_string(), Value::Int(25));
+                props
+            });
+
+            // Vertex 2: Charlie, age 35
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Charlie".to_string()));
+                props.insert("age".to_string(), Value::Int(35));
+                props
+            });
+
+            // Vertex 3: Dave, no age
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Dave".to_string()));
+                props
+            });
+
+            // Vertex 4: Software with version 1.5
+            storage.add_vertex("software", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Graph DB".to_string()));
+                props.insert("version".to_string(), Value::Float(1.5));
+                props
+            });
+
+            // Edge 0: knows with weight
+            storage
+                .add_edge(VertexId(0), VertexId(1), "knows", {
+                    let mut props = HashMap::new();
+                    props.insert("weight".to_string(), Value::Float(0.8));
+                    props
+                })
+                .unwrap();
+
+            // Edge 1: knows with weight
+            storage
+                .add_edge(VertexId(1), VertexId(2), "knows", {
+                    let mut props = HashMap::new();
+                    props.insert("weight".to_string(), Value::Float(0.3));
+                    props
+                })
+                .unwrap();
+
+            Graph::new(Arc::new(storage))
+        }
+
+        #[test]
+        fn new_creates_has_where_step() {
+            let step = HasWhereStep::new("age", p::gte(18));
+            assert_eq!(step.key, "age");
+        }
+
+        #[test]
+        fn name_returns_has() {
+            let step = HasWhereStep::new("age", p::gte(18));
+            assert_eq!(step.name(), "has");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = HasWhereStep::new("age", p::gte(18));
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "has");
+        }
+
+        #[test]
+        fn filters_vertices_with_gte_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::gte(30i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, should pass
+                Traverser::from_vertex(VertexId(1)), // age 25, should fail
+                Traverser::from_vertex(VertexId(2)), // age 35, should pass
+                Traverser::from_vertex(VertexId(3)), // no age, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice, 30
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2))); // Charlie, 35
+        }
+
+        #[test]
+        fn filters_vertices_with_lt_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::lt(30i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, should fail
+                Traverser::from_vertex(VertexId(1)), // age 25, should pass
+                Traverser::from_vertex(VertexId(2)), // age 35, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1))); // Bob, 25
+        }
+
+        #[test]
+        fn filters_vertices_with_between_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::between(26i64, 34i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, should pass
+                Traverser::from_vertex(VertexId(1)), // age 25, should fail (below range)
+                Traverser::from_vertex(VertexId(2)), // age 35, should fail (above range)
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice, 30
+        }
+
+        #[test]
+        fn filters_vertices_with_eq_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::eq(30i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, should pass
+                Traverser::from_vertex(VertexId(1)), // age 25, should fail
+                Traverser::from_vertex(VertexId(2)), // age 35, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice
+        }
+
+        #[test]
+        fn filters_vertices_with_neq_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::neq(30i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, should fail
+                Traverser::from_vertex(VertexId(1)), // age 25, should pass
+                Traverser::from_vertex(VertexId(2)), // age 35, should pass
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1))); // Bob
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2))); // Charlie
+        }
+
+        #[test]
+        fn filters_vertices_with_within_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::within([25i64, 35i64]));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, not in set
+                Traverser::from_vertex(VertexId(1)), // age 25, in set
+                Traverser::from_vertex(VertexId(2)), // age 35, in set
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1))); // Bob, 25
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2))); // Charlie, 35
+        }
+
+        #[test]
+        fn filters_vertices_with_without_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::without([25i64, 35i64]));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, not in set -> passes
+                Traverser::from_vertex(VertexId(1)), // age 25, in set -> fails
+                Traverser::from_vertex(VertexId(2)), // age 35, in set -> fails
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice, 30
+        }
+
+        #[test]
+        fn filters_vertices_with_string_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("name", p::starting_with("A"));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Alice, should pass
+                Traverser::from_vertex(VertexId(1)), // Bob, should fail
+                Traverser::from_vertex(VertexId(2)), // Charlie, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice
+        }
+
+        #[test]
+        fn filters_vertices_with_containing_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("name", p::containing("li"));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Alice, contains "li" -> pass
+                Traverser::from_vertex(VertexId(1)), // Bob, no "li" -> fail
+                Traverser::from_vertex(VertexId(2)), // Charlie, contains "li" -> pass
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2))); // Charlie
+        }
+
+        #[test]
+        fn filters_vertices_with_and_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // age >= 25 AND age < 35
+            let step = HasWhereStep::new("age", p::and(p::gte(25i64), p::lt(35i64)));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, passes both
+                Traverser::from_vertex(VertexId(1)), // age 25, passes both
+                Traverser::from_vertex(VertexId(2)), // age 35, fails lt
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice, 30
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(1))); // Bob, 25
+        }
+
+        #[test]
+        fn filters_vertices_with_or_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // age == 25 OR age == 35
+            let step = HasWhereStep::new("age", p::or(p::eq(25i64), p::eq(35i64)));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, fails both
+                Traverser::from_vertex(VertexId(1)), // age 25, passes
+                Traverser::from_vertex(VertexId(2)), // age 35, passes
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1))); // Bob
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2))); // Charlie
+        }
+
+        #[test]
+        fn filters_vertices_with_not_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // NOT age == 30
+            let step = HasWhereStep::new("age", p::not(p::eq(30i64)));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // age 30, fails
+                Traverser::from_vertex(VertexId(1)), // age 25, passes
+                Traverser::from_vertex(VertexId(2)), // age 35, passes
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1))); // Bob
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2))); // Charlie
+        }
+
+        #[test]
+        fn filters_edges_with_predicate() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("weight", p::gt(0.5));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)), // weight 0.8, should pass
+                Traverser::from_edge(EdgeId(1)), // weight 0.3, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(0)));
+        }
+
+        #[test]
+        fn filters_out_vertices_without_property() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::gte(0i64)); // Would match any age
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // has age, should pass
+                Traverser::from_vertex(VertexId(3)), // no age, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+        }
+
+        #[test]
+        fn filters_out_non_element_values() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::gte(0i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),        // vertex, should pass
+                Traverser::new(Value::Int(30)),             // not an element
+                Traverser::new(Value::String("30".into())), // not an element
+                Traverser::new(Value::Bool(true)),          // not an element
+                Traverser::new(Value::Null),                // not an element
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+        }
+
+        #[test]
+        fn filters_out_nonexistent_vertices() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::gte(0i64));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),   // exists
+                Traverser::from_vertex(VertexId(999)), // doesn't exist
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+        }
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::gte(18i64));
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("age", p::gte(18i64));
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = HasWhereStep::new("age", p::gte(18i64));
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("HasWhereStep"));
+            assert!(debug_str.contains("age"));
+            assert!(debug_str.contains("<predicate>"));
+        }
+
+        #[test]
+        fn clone_works() {
+            let step = HasWhereStep::new("age", p::gte(18i64));
+            let cloned = step.clone();
+            assert_eq!(cloned.key, "age");
+        }
+
+        #[test]
+        fn filters_float_property_with_gte() {
+            let graph = create_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasWhereStep::new("version", p::gte(Value::Float(1.0)));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(4)), // version 1.5, should pass
+                Traverser::from_vertex(VertexId(0)), // no version, should fail
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(4)));
         }
     }
 }

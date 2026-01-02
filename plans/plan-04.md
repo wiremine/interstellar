@@ -227,11 +227,11 @@ impl<P1: Predicate + Clone + 'static, P2: Predicate + Clone + 'static> Predicate
 6. Add `has_where()` method to `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `has_where("age", p::gte(18))` filters vertices by property
-- [ ] Works for both vertices and edges
-- [ ] Missing properties cause the traverser to be filtered out
-- [ ] Non-element values are filtered out
-- [ ] Unit tests pass
+- [x] `has_where("age", p::gte(18))` filters vertices by property
+- [x] Works for both vertices and edges
+- [x] Missing properties cause the traverser to be filtered out
+- [x] Non-element values are filtered out
+- [x] Unit tests pass
 
 ---
 

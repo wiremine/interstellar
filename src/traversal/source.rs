@@ -413,6 +413,38 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(HasValueStep::new(key, value))
     }
 
+    /// Filter elements by property value using a predicate.
+    ///
+    /// Keeps only vertices/edges where the specified property satisfies the predicate.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    /// Elements without the specified property are also filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Get all vertices where age >= 18
+    /// let adults = g.v().has_where("age", p::gte(18)).to_list();
+    ///
+    /// // Get all vertices where name starts with "A"
+    /// let a_names = g.v().has_where("name", p::starting_with("A")).to_list();
+    ///
+    /// // Get vertices with age between 25 and 65
+    /// let working_age = g.v().has_where("age", p::between(25, 65)).to_list();
+    ///
+    /// // Combine predicates with logical operators
+    /// let adults_under_65 = g.v().has_where("age", p::and(p::gte(18), p::lt(65))).to_list();
+    /// ```
+    pub fn has_where(
+        self,
+        key: impl Into<String>,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasWhereStep;
+        self.add_step(HasWhereStep::new(key, predicate))
+    }
+
     /// Filter elements using a custom predicate.
     ///
     /// The predicate receives the execution context and the value, returning

@@ -27,8 +27,8 @@ pub mod transform;
 
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
-    DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, LimitStep, RangeStep,
-    SkipStep,
+    DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, HasWhereStep, LimitStep,
+    RangeStep, SkipStep,
 };
 pub use navigation::{
     BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
@@ -890,6 +890,33 @@ impl<In> Traversal<In, Value> {
         self.add_step(filter::HasValueStep::new(key, value))
     }
 
+    /// Filter elements by property value using a predicate (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges where the specified property satisfies the predicate.
+    /// Non-element values (integers, strings, etc.) are filtered out.
+    /// Elements without the specified property are also filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Create an anonymous traversal that filters to adults
+    /// let anon = Traversal::<Value, Value>::new().has_where("age", p::gte(18));
+    /// let adults = g.v().append(anon).to_list();
+    ///
+    /// // With string predicates
+    /// let anon = Traversal::<Value, Value>::new().has_where("name", p::starting_with("A"));
+    /// let a_names = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_where(
+        self,
+        key: impl Into<String>,
+        predicate: impl predicate::Predicate + 'static,
+    ) -> Traversal<In, Value> {
+        self.add_step(filter::HasWhereStep::new(key, predicate))
+    }
+
     /// Filter elements using a custom predicate (for anonymous traversals).
     ///
     /// The predicate receives the execution context and the value, returning
@@ -1480,12 +1507,13 @@ pub use predicate::Predicate;
 pub mod __ {
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::filter::{
-        DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, LimitStep,
-        RangeStep, SkipStep,
+        DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, HasWhereStep,
+        LimitStep, RangeStep, SkipStep,
     };
     use crate::traversal::navigation::{
         BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
     };
+    use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
         AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, SelectStep,
@@ -1780,6 +1808,29 @@ pub mod __ {
         Traversal::<Value, Value>::new().add_step(HasIdStep::from_values(
             ids.into_iter().map(Into::into).collect(),
         ))
+    }
+
+    /// Filter elements by property value using a predicate.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter to adults
+    /// let adults = __::has_where("age", p::gte(18));
+    ///
+    /// // Filter names starting with "A"
+    /// let a_names = __::has_where("name", p::starting_with("A"));
+    ///
+    /// // Combine predicates
+    /// let working_age = __::has_where("age", p::and(p::gte(18), p::lt(65)));
+    /// ```
+    pub fn has_where(
+        key: impl Into<String>,
+        predicate: impl Predicate + 'static,
+    ) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasWhereStep::new(key, predicate))
     }
 
     /// Filter elements using a custom predicate.
