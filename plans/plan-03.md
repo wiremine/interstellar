@@ -96,10 +96,10 @@ impl Eq for Value {}
 
 **Acceptance Criteria**:
 - [x] `OrderedFloat` implements `Hash` (done in 1.1)
-- [ ] `Value` can be used as `HashMap` key
-- [ ] `Value` can be inserted into `HashSet`
-- [ ] Hash is consistent (same value = same hash)
-- [ ] Unit tests for hash consistency pass
+- [x] `Value` can be used as `HashMap` key
+- [x] `Value` can be inserted into `HashSet`
+- [x] Hash is consistent (same value = same hash)
+- [x] Unit tests for hash consistency pass
 
 ---
 

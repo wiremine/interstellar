@@ -69,6 +69,35 @@ impl std::hash::Hash for OrderedFloat {
     }
 }
 
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash the discriminant first for type safety
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Value::Null => {}
+            Value::Bool(b) => b.hash(state),
+            Value::Int(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::String(s) => s.hash(state),
+            Value::List(items) => items.hash(state),
+            Value::Map(map) => {
+                // Hash map entries in sorted order for consistency
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(k, _)| *k);
+                for (k, v) in entries {
+                    k.hash(state);
+                    v.hash(state);
+                }
+            }
+            Value::Vertex(id) => id.hash(state),
+            Value::Edge(id) => id.hash(state),
+        }
+    }
+}
+
+impl Eq for Value {}
+
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Value::Bool(value)
@@ -532,6 +561,132 @@ mod tests {
         let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize edge");
         assert_eq!(parsed, edge);
         assert_eq!(pos, buf.len());
+    }
+
+    #[test]
+    fn value_can_be_used_as_hashmap_key() {
+        use std::collections::HashMap;
+
+        let mut map: HashMap<Value, i32> = HashMap::new();
+        map.insert(Value::Int(42), 1);
+        map.insert(Value::String("hello".to_string()), 2);
+        map.insert(Value::Bool(true), 3);
+        map.insert(Value::Null, 4);
+        map.insert(Value::Float(3.14), 5);
+        map.insert(Value::Vertex(VertexId(100)), 6);
+        map.insert(Value::Edge(EdgeId(200)), 7);
+        map.insert(Value::List(vec![Value::Int(1), Value::Int(2)]), 8);
+
+        assert_eq!(map.get(&Value::Int(42)), Some(&1));
+        assert_eq!(map.get(&Value::String("hello".to_string())), Some(&2));
+        assert_eq!(map.get(&Value::Bool(true)), Some(&3));
+        assert_eq!(map.get(&Value::Null), Some(&4));
+        assert_eq!(map.get(&Value::Float(3.14)), Some(&5));
+        assert_eq!(map.get(&Value::Vertex(VertexId(100))), Some(&6));
+        assert_eq!(map.get(&Value::Edge(EdgeId(200))), Some(&7));
+        assert_eq!(
+            map.get(&Value::List(vec![Value::Int(1), Value::Int(2)])),
+            Some(&8)
+        );
+    }
+
+    #[test]
+    fn value_can_be_inserted_into_hashset() {
+        use std::collections::HashSet;
+
+        let mut set: HashSet<Value> = HashSet::new();
+        set.insert(Value::Int(1));
+        set.insert(Value::Int(2));
+        set.insert(Value::Int(1)); // Duplicate
+        set.insert(Value::String("test".to_string()));
+        set.insert(Value::Vertex(VertexId(42)));
+        set.insert(Value::Edge(EdgeId(99)));
+
+        assert_eq!(set.len(), 5); // 1, 2, "test", Vertex(42), Edge(99)
+        assert!(set.contains(&Value::Int(1)));
+        assert!(set.contains(&Value::Int(2)));
+        assert!(set.contains(&Value::String("test".to_string())));
+        assert!(set.contains(&Value::Vertex(VertexId(42))));
+        assert!(set.contains(&Value::Edge(EdgeId(99))));
+    }
+
+    #[test]
+    fn value_hash_is_consistent() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_value(v: &Value) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            v.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Same values should produce same hash
+        assert_eq!(hash_value(&Value::Int(42)), hash_value(&Value::Int(42)));
+        assert_eq!(
+            hash_value(&Value::String("hello".to_string())),
+            hash_value(&Value::String("hello".to_string()))
+        );
+        assert_eq!(
+            hash_value(&Value::Float(3.14)),
+            hash_value(&Value::Float(3.14))
+        );
+        assert_eq!(hash_value(&Value::Null), hash_value(&Value::Null));
+        assert_eq!(
+            hash_value(&Value::Bool(true)),
+            hash_value(&Value::Bool(true))
+        );
+        assert_eq!(
+            hash_value(&Value::Vertex(VertexId(100))),
+            hash_value(&Value::Vertex(VertexId(100)))
+        );
+        assert_eq!(
+            hash_value(&Value::Edge(EdgeId(200))),
+            hash_value(&Value::Edge(EdgeId(200)))
+        );
+
+        // Different values should (generally) produce different hashes
+        assert_ne!(hash_value(&Value::Int(1)), hash_value(&Value::Int(2)));
+        assert_ne!(
+            hash_value(&Value::String("a".to_string())),
+            hash_value(&Value::String("b".to_string()))
+        );
+        // Different types with same-ish values should produce different hashes
+        assert_ne!(hash_value(&Value::Int(42)), hash_value(&Value::Float(42.0)));
+        assert_ne!(
+            hash_value(&Value::Vertex(VertexId(1))),
+            hash_value(&Value::Edge(EdgeId(1)))
+        );
+    }
+
+    #[test]
+    fn value_map_hash_is_order_independent() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_value(v: &Value) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            v.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Create two maps with same content but potentially different insertion order
+        let mut map1 = HashMap::new();
+        map1.insert("a".to_string(), Value::Int(1));
+        map1.insert("b".to_string(), Value::Int(2));
+        map1.insert("c".to_string(), Value::Int(3));
+
+        let mut map2 = HashMap::new();
+        map2.insert("c".to_string(), Value::Int(3));
+        map2.insert("a".to_string(), Value::Int(1));
+        map2.insert("b".to_string(), Value::Int(2));
+
+        let v1 = Value::Map(map1);
+        let v2 = Value::Map(map2);
+
+        // Maps with same content should have same hash
+        assert_eq!(hash_value(&v1), hash_value(&v2));
+        assert_eq!(v1, v2);
     }
 
     fn arb_value() -> impl Strategy<Value = Value> {
