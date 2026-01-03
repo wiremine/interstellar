@@ -443,9 +443,10 @@ impl AnyStep for MeanStep {
 
 ---
 
-#### Phase 2.6: OrderStep Implementation
-**File**: `src/traversal/transform.rs`  
+#### Phase 2.6: OrderStep Implementation ✅ COMPLETE
+**File**: `src/traversal/transform/order.rs` (created)  
 **Duration**: 2-3 hours
+**Completed**: January 3, 2026
 
 **Tasks**:
 1. Define `Order` enum (Asc, Desc)
@@ -489,12 +490,22 @@ impl<In> OrderBuilder<In> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `order().build()` sorts by natural order ascending
-- [ ] `order().by_desc().build()` sorts descending
-- [ ] `order().by_key_asc("age").build()` sorts by property
-- [ ] `order().by_key_desc("name").build()` sorts by property descending
-- [ ] Multiple sort keys work correctly
-- [ ] Unit tests pass
+- [x] `order().build()` sorts by natural order ascending
+- [x] `order().by_desc().build()` sorts descending
+- [x] `order().by_key_asc("age").build()` sorts by property
+- [x] `order().by_key_desc("name").build()` sorts by property descending
+- [x] Multiple sort keys work correctly
+- [x] Unit tests pass
+- [x] BoundTraversal integration complete (g.v().order() works)
+- [x] 20 tests passing (14 unit + 6 integration)
+
+**Implementation Notes**:
+- Created separate `BoundOrderBuilder` to handle bound traversals with graph references
+- OrderStep is a barrier step that collects all input, sorts, then emits
+- Supports multi-level sorting with multiple `.by()` clauses
+- Preserves traversal source and path tracking state
+- Files: `src/traversal/transform/order.rs` (new, ~920 lines with tests)
+- Exports: Added `BoundOrderBuilder`, `Order`, `OrderBuilder`, `OrderKey`, `OrderStep` to public API
 
 ---
 

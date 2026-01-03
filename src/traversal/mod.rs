@@ -44,8 +44,9 @@ pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
-    AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, MeanStep,
-    PathStep, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
+    AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, MeanStep, Order,
+    OrderBuilder, OrderKey, OrderStep, PathStep, PropertiesStep, SelectStep, UnfoldStep,
+    ValueMapStep, ValuesStep,
 };
 
 // Re-export macros
@@ -1517,6 +1518,45 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::MeanStep::new())
     }
 
+    /// Sort traversers using a fluent builder.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing sorted output.
+    /// Returns an `OrderBuilder` that allows chaining multiple sort keys using `by` methods.
+    ///
+    /// # Behavior
+    ///
+    /// - Collects all input traversers (barrier)
+    /// - Sorts according to configured keys
+    /// - Multiple `by` clauses create multi-level sorts
+    /// - Supports sorting by:
+    ///   - Natural order of current value
+    ///   - Property values from vertices/edges
+    ///   - Results of sub-traversals
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sort by natural order ascending (default)
+    /// let sorted = g.v().values("name").order().build().to_list();
+    ///
+    /// // Sort by property descending
+    /// let sorted = g.v().has_label("person")
+    ///     .order().by_key_desc("age").build()
+    ///     .to_list();
+    ///
+    /// // Multi-level sort: by age desc, then name asc
+    /// let sorted = g.v().has_label("person")
+    ///     .order()
+    ///     .by_key_desc("age")
+    ///     .by_key_asc("name")
+    ///     .build()
+    ///     .to_list();
+    /// ```
+    pub fn order(self) -> transform::OrderBuilder<In> {
+        let (_, steps) = self.into_steps();
+        transform::OrderBuilder::new(steps)
+    }
+
     /// Extract the ID from vertices/edges (for anonymous traversals).
     ///
     /// For each input element, extracts its ID as a `Value::Int`.
@@ -1923,8 +1963,8 @@ pub mod __ {
     use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
-        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep,
-        PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
+        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep,
+        OrderBuilder, PathStep, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -2592,6 +2632,24 @@ pub mod __ {
     pub fn mean() -> Traversal<Value, Value> {
         use crate::traversal::transform::MeanStep;
         Traversal::<Value, Value>::new().add_step(MeanStep::new())
+    }
+
+    /// Sort traversers using a fluent builder.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing sorted output.
+    /// Returns an `OrderBuilder` for configuring sort keys.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sort by natural order
+    /// let sorted = __::order().build();
+    ///
+    /// // Sort by property
+    /// let sorted = __::order().by_key_desc("age").build();
+    /// ```
+    pub fn order() -> OrderBuilder<Value> {
+        OrderBuilder::new(vec![])
     }
 
     /// Extract the element ID.

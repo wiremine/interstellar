@@ -1242,6 +1242,41 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(SelectStep::single(label))
     }
 
+    /// Sort traversers using a fluent builder.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing sorted output.
+    /// Returns a `BoundOrderBuilder` that allows chaining multiple sort keys using `by` methods.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sort by natural order ascending
+    /// let sorted = g.v().values("name").order().build().to_list();
+    ///
+    /// // Sort by property descending
+    /// let sorted = g.v().has_label("person")
+    ///     .order().by_key_desc("age").build()
+    ///     .to_list();
+    ///
+    /// // Multi-level sort
+    /// let sorted = g.v().has_label("person")
+    ///     .order()
+    ///     .by_key_desc("age")
+    ///     .by_key_asc("name")
+    ///     .build()
+    ///     .to_list();
+    /// ```
+    pub fn order(self) -> crate::traversal::transform::BoundOrderBuilder<'g, In> {
+        use crate::traversal::transform::BoundOrderBuilder;
+
+        // Extract the steps and source from the traversal
+        let track_paths = self.track_paths;
+        let (source, steps) = self.traversal.into_steps();
+
+        // Create and return the builder with graph references
+        BoundOrderBuilder::new(self.snapshot, self.interner, source, steps, track_paths)
+    }
+
     // -------------------------------------------------------------------------
     // Filter steps using anonymous traversals
     // -------------------------------------------------------------------------
