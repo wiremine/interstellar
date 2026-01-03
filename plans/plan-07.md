@@ -198,11 +198,11 @@ impl_filter_step!(SimplePathStep, "simplePath");
 5. Add `__::cyclic_path()` factory function
 
 **Acceptance Criteria**:
-- [ ] `cyclic_path()` keeps paths with repeated vertices
-- [ ] Linear paths are filtered out
-- [ ] Cyclic paths pass through
-- [ ] Inverse behavior of `simple_path()`
-- [ ] Unit tests pass
+- [x] `cyclic_path()` keeps paths with repeated vertices
+- [x] Linear paths are filtered out
+- [x] Cyclic paths pass through
+- [x] Inverse behavior of `simple_path()`
+- [x] Unit tests pass
 
 ---
 
@@ -269,11 +269,11 @@ impl AnyStep for OtherVStep {
 ```
 
 **Acceptance Criteria**:
-- [ ] `outE().other_v()` returns the in-vertex
-- [ ] `inE().other_v()` returns the out-vertex
-- [ ] `bothE().other_v()` returns the opposite vertex
-- [ ] Non-edge values are filtered out
-- [ ] Unit tests pass
+- [x] `outE().other_v()` returns the in-vertex
+- [x] `inE().other_v()` returns the out-vertex
+- [x] `bothE().other_v()` returns the opposite vertex
+- [x] Non-edge values are filtered out
+- [x] Unit tests pass
 
 ---
 

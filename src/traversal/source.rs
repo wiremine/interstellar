@@ -843,6 +843,23 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(BothVStep::new())
     }
 
+    /// Get the "other" vertex of an edge.
+    ///
+    /// When traversing from a vertex to an edge, `other_v()` returns the
+    /// vertex at the opposite end from where the traverser came from.
+    /// This requires path tracking to be enabled (via `.with_path()`).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Navigate: vertex -> outgoing edges -> other vertex (the target)
+    /// let others = g.with_path().v().has("name", "marko").out_e("knows").other_v().to_list();
+    /// ```
+    pub fn other_v(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::navigation::OtherVStep;
+        self.add_step(OtherVStep::new())
+    }
+
     // -------------------------------------------------------------------------
     // Transform steps
     // -------------------------------------------------------------------------

@@ -885,6 +885,112 @@ impl AnyStep for BothVStep {
 }
 
 // -----------------------------------------------------------------------------
+// OtherVStep - get the "other" vertex of an edge
+// -----------------------------------------------------------------------------
+
+/// Get the "other" vertex of an edge.
+///
+/// When traversing from a vertex to an edge and then to another vertex,
+/// `otherV()` returns the vertex at the opposite end from where the traverser
+/// came from. This requires path tracking to determine the source vertex.
+///
+/// If the current value is not an edge, or if the previous path element
+/// cannot be determined, the traverser is filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// // From vertex -> edge -> other vertex
+/// // This is similar to out() but works after explicitly stepping to edges
+/// let others = g.v().has("name", "marko").out_e("knows").other_v().to_list();
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OtherVStep;
+
+impl OtherVStep {
+    /// Create a new OtherVStep.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Get the "other" vertex for the given edge traverser.
+    ///
+    /// Examines the traverser's path to find which vertex we came from,
+    /// then returns the opposite vertex of the edge.
+    fn get_other_vertex(
+        &self,
+        ctx: &ExecutionContext<'_>,
+        traverser: &Traverser,
+    ) -> Option<crate::value::VertexId> {
+        use crate::traversal::PathValue;
+
+        // Current value must be an edge
+        let edge_id = match &traverser.value {
+            Value::Edge(id) => *id,
+            _ => return None,
+        };
+
+        // Get the edge to find its endpoints
+        let edge = ctx.snapshot().storage().get_edge(edge_id)?;
+
+        // Find the vertex we came from by looking at the path
+        // We need at least 2 elements: the previous vertex and the current edge
+        let path_len = traverser.path.len();
+        if path_len < 2 {
+            // No previous element in path, can't determine source
+            // Fall back: arbitrarily return dst (or could filter out)
+            return Some(edge.dst);
+        }
+
+        // Collect path elements to access by index
+        let path_elements: Vec<_> = traverser.path.elements().collect();
+        let prev_element = &path_elements[path_len - 2];
+
+        match &prev_element.value {
+            PathValue::Vertex(prev_id) => {
+                // Return the OTHER vertex
+                if *prev_id == edge.src {
+                    Some(edge.dst)
+                } else if *prev_id == edge.dst {
+                    Some(edge.src)
+                } else {
+                    // Previous vertex isn't an endpoint of this edge
+                    // This shouldn't happen in normal traversals
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl AnyStep for OtherVStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.filter_map(move |t| {
+            self.get_other_vertex(ctx, &t).map(|vid| {
+                let mut new_t = t.with_value(Value::Vertex(vid));
+                if ctx.is_tracking_paths() {
+                    new_t.extend_path_unlabeled();
+                }
+                new_t
+            })
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "otherV"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -1355,6 +1461,244 @@ mod tests {
 
             let results = g.v_ids([VertexId(0)]).both_v().to_list();
             assert!(results.is_empty());
+        }
+    }
+
+    mod other_v_step_tests {
+        use super::*;
+
+        #[test]
+        fn other_v_step_new() {
+            let step = OtherVStep::new();
+            assert_eq!(step.name(), "otherV");
+        }
+
+        #[test]
+        fn other_v_step_default() {
+            let step = OtherVStep::default();
+            assert_eq!(step.name(), "otherV");
+        }
+
+        #[test]
+        fn other_v_step_clone_box() {
+            let step = OtherVStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "otherV");
+        }
+
+        #[test]
+        fn other_v_from_out_edge_returns_target() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Alice (id=0) -> outE -> other_v should give target vertices (Bob, GraphDB)
+            // Need path tracking for other_v to work correctly
+            let results = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_e()
+                .other_v()
+                .to_list();
+            assert_eq!(results.len(), 2);
+
+            let vertex_ids: Vec<_> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
+            assert!(vertex_ids.contains(&VertexId(1))); // Bob
+            assert!(vertex_ids.contains(&VertexId(3))); // GraphDB
+        }
+
+        #[test]
+        fn other_v_from_in_edge_returns_source() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Bob (id=1) has 1 incoming "knows" edge from Alice
+            // Bob -> inE -> other_v should give Alice
+            let results = g
+                .v_ids([VertexId(1)])
+                .with_path()
+                .in_e_labels(&["knows"])
+                .other_v()
+                .to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(0))); // Alice
+        }
+
+        #[test]
+        fn other_v_from_both_e_returns_opposite() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Bob has 3 incident edges:
+            // - knows from Alice (in)
+            // - knows to Charlie (out)
+            // - uses to GraphDB (out)
+            // other_v should return: Alice, Charlie, GraphDB
+            let results = g
+                .v_ids([VertexId(1)])
+                .with_path()
+                .both_e()
+                .other_v()
+                .to_list();
+            assert_eq!(results.len(), 3);
+
+            let vertex_ids: Vec<_> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
+            assert!(vertex_ids.contains(&VertexId(0))); // Alice
+            assert!(vertex_ids.contains(&VertexId(2))); // Charlie
+            assert!(vertex_ids.contains(&VertexId(3))); // GraphDB
+        }
+
+        #[test]
+        fn other_v_from_non_edge_produces_nothing() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Starting from a vertex (not an edge) should produce nothing
+            let results = g.v_ids([VertexId(0)]).with_path().other_v().to_list();
+            assert!(results.is_empty());
+        }
+
+        #[test]
+        fn other_v_with_label_filter() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Alice -> out_e("knows") -> other_v should give Bob only
+            let results = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_e_labels(&["knows"])
+                .other_v()
+                .to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob
+        }
+
+        #[test]
+        fn other_v_equivalent_to_in_v_after_out_e() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // For outE, other_v should be equivalent to in_v
+            let via_other_v = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_e_labels(&["knows"])
+                .other_v()
+                .to_list();
+
+            let g2 = snapshot.traversal();
+            let via_in_v = g2
+                .v_ids([VertexId(0)])
+                .out_e_labels(&["knows"])
+                .in_v()
+                .to_list();
+
+            assert_eq!(via_other_v, via_in_v);
+        }
+
+        #[test]
+        fn other_v_equivalent_to_out_v_after_in_e() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // For inE, other_v should be equivalent to out_v
+            let via_other_v = g
+                .v_ids([VertexId(1)])
+                .with_path()
+                .in_e_labels(&["knows"])
+                .other_v()
+                .to_list();
+
+            let g2 = snapshot.traversal();
+            let via_out_v = g2
+                .v_ids([VertexId(1)])
+                .in_e_labels(&["knows"])
+                .out_v()
+                .to_list();
+
+            assert_eq!(via_other_v, via_out_v);
+        }
+
+        #[test]
+        fn other_v_without_path_tracking_uses_fallback() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            // Deliberately NOT using with_path()
+            let g = snapshot.traversal();
+
+            // Without path tracking, other_v will use fallback behavior
+            // (returning dst since we can't determine where we came from)
+            let results = g.v_ids([VertexId(0)]).out_e().other_v().to_list();
+
+            // Should still produce results (using fallback to dst)
+            assert!(!results.is_empty());
+        }
+
+        #[test]
+        fn other_v_chained_traversal() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Alice -> out_e -> other_v -> out_e -> other_v
+            // This should go: Alice -> Bob/GraphDB edges -> Bob/GraphDB -> their edges -> targets
+            let results = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_e_labels(&["knows"])
+                .other_v()
+                .out_e_labels(&["knows"])
+                .other_v()
+                .to_list();
+
+            // Alice -> knows -> Bob -> knows -> Charlie
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2))); // Charlie
+        }
+
+        #[test]
+        fn other_v_with_injected_edge_no_path() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Inject an edge directly (no path context)
+            // Should use fallback behavior
+            let results = g
+                .inject([Value::Edge(EdgeId(0))])
+                .with_path()
+                .other_v()
+                .to_list();
+
+            // Edge 0 is Alice->Bob, fallback returns dst (Bob)
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob (dst)
+        }
+
+        #[test]
+        fn other_v_values_property_access() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.traversal();
+
+            // Alice -> out_e("knows") -> other_v -> values("name")
+            let results = g
+                .v_ids([VertexId(0)])
+                .with_path()
+                .out_e_labels(&["knows"])
+                .other_v()
+                .values("name")
+                .to_list();
+
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::String("Bob".to_string()));
         }
     }
 

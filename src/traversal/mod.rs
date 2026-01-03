@@ -37,7 +37,8 @@ pub use filter::{
     HasValueStep, HasWhereStep, IsStep, LimitStep, RangeStep, SimplePathStep, SkipStep,
 };
 pub use navigation::{
-    BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
+    BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,
+    OutVStep,
 };
 pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
@@ -1374,6 +1375,22 @@ impl<In> Traversal<In, Value> {
         self.add_step(navigation::BothVStep::new())
     }
 
+    /// Get the "other" vertex of an edge (for anonymous traversals).
+    ///
+    /// When traversing from a vertex to an edge, `other_v()` returns the
+    /// vertex at the opposite end from where the traverser came from.
+    /// Requires path tracking to be enabled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().other_v();
+    /// let others = g.v().out_e().append(anon).to_list();
+    /// ```
+    pub fn other_v(self) -> Traversal<In, Value> {
+        self.add_step(navigation::OtherVStep::new())
+    }
+
     // -------------------------------------------------------------------------
     // Transform steps (for anonymous traversals)
     // -------------------------------------------------------------------------
@@ -1812,7 +1829,8 @@ pub mod __ {
         HasWhereStep, LimitStep, RangeStep, SkipStep,
     };
     use crate::traversal::navigation::{
-        BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
+        BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,
+        OutVStep,
     };
     use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
@@ -2032,6 +2050,22 @@ pub mod __ {
     #[inline]
     pub fn both_v() -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(BothVStep::new())
+    }
+
+    /// Get the "other" vertex of an edge.
+    ///
+    /// When traversing from a vertex to an edge, `other_v()` returns the
+    /// vertex at the opposite end from where the traverser came from.
+    /// Requires path tracking to be enabled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let others = __::other_v();
+    /// ```
+    #[inline]
+    pub fn other_v() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(OtherVStep::new())
     }
 
     // -------------------------------------------------------------------------
