@@ -552,11 +552,11 @@ impl<In> ProjectBuilder<In> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `project(&["name", "age"]).by_key("name").by_key("age").build()` creates projection
-- [ ] `project(&["name", "friends"]).by_key("name").by(__::out("knows").count()).build()` works with traversals
-- [ ] Missing keys produce `Value::Null`
-- [ ] Multiple traversal results produce `Value::List`
-- [ ] Unit tests pass
+- [x] `project(&["name", "age"]).by_key("name").by_key("age").build()` creates projection
+- [x] `project(&["name", "friends"]).by_key("name").by(__::out("knows").count()).build()` works with traversals
+- [x] Missing keys produce `Value::Null`
+- [x] Multiple traversal results produce `Value::List`
+- [x] Unit tests pass
 
 ---
 

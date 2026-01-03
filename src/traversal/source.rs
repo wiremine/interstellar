@@ -1277,6 +1277,67 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         BoundOrderBuilder::new(self.snapshot, self.interner, source, steps, track_paths)
     }
 
+    /// Create a projection with named keys.
+    ///
+    /// The `project()` step creates a map with specific named keys. Each key's value
+    /// is defined by a `by()` modulator, which can extract a property or execute
+    /// a sub-traversal.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().hasLabel('person')
+    ///     .project('name', 'age', 'friends')
+    ///     .by('name')
+    ///     .by('age')
+    ///     .by(out('knows').count())
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// let results = g.v().has_label("person")
+    ///     .project(&["name", "friend_count"])
+    ///     .by_key("name")
+    ///     .by(__::out("knows").count())
+    ///     .build()
+    ///     .to_list();
+    /// // Results: [{name: "Alice", friend_count: 2}, ...]
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The keys for the projection map
+    ///
+    /// # Returns
+    ///
+    /// A `BoundProjectBuilder` that requires `by()` clauses to be added for each key.
+    pub fn project(
+        self,
+        keys: &[&str],
+    ) -> crate::traversal::transform::BoundProjectBuilder<'g, In> {
+        use crate::traversal::transform::BoundProjectBuilder;
+
+        // Extract the steps and source from the traversal
+        let track_paths = self.track_paths;
+        let (source, steps) = self.traversal.into_steps();
+
+        // Convert keys to strings
+        let key_strings: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+
+        // Create and return the builder with graph references
+        BoundProjectBuilder::new(
+            self.snapshot,
+            self.interner,
+            source,
+            steps,
+            key_strings,
+            track_paths,
+        )
+    }
+
     // -------------------------------------------------------------------------
     // Filter steps using anonymous traversals
     // -------------------------------------------------------------------------

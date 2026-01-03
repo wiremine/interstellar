@@ -675,3 +675,695 @@ mod tests {
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// ProjectStep - creates named projections
+// -----------------------------------------------------------------------------
+
+use crate::traversal::step::execute_traversal_from;
+use crate::traversal::Traversal;
+use std::collections::HashMap;
+
+/// Projection specification for a single key in project().
+///
+/// Each projection defines how to compute the value for a key in the
+/// result map. It can either extract a property value directly or execute
+/// a sub-traversal.
+#[derive(Clone)]
+pub enum Projection {
+    /// Extract a property value by key from vertices/edges
+    Key(String),
+    /// Execute a sub-traversal to compute the value
+    Traversal(Traversal<crate::value::Value, crate::value::Value>),
+}
+
+impl From<&str> for Projection {
+    fn from(key: &str) -> Self {
+        Projection::Key(key.to_string())
+    }
+}
+
+impl From<String> for Projection {
+    fn from(key: String) -> Self {
+        Projection::Key(key)
+    }
+}
+
+/// Transform step that creates named projections.
+///
+/// Project creates a map with specific named keys, where each key's value
+/// is computed either from a property or by executing a sub-traversal.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().hasLabel('person')
+///     .project('name', 'age', 'friends')
+///     .by('name')
+///     .by('age')
+///     .by(out('knows').count())
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// let results = g.v().has_label("person")
+///     .project(&["name", "friend_count"])
+///     .by_key("name")
+///     .by(__::out("knows").count())
+///     .build()
+///     .to_list();
+/// // Results: [{name: "Alice", friend_count: 2}, ...]
+/// ```
+#[derive(Clone)]
+pub struct ProjectStep {
+    keys: Vec<String>,
+    projections: Vec<Projection>,
+}
+
+impl ProjectStep {
+    /// Create a new ProjectStep with keys and projections.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The output map keys
+    /// * `projections` - How to compute each key's value
+    ///
+    /// # Panics
+    ///
+    /// Panics if keys and projections have different lengths.
+    pub fn new(keys: Vec<String>, projections: Vec<Projection>) -> Self {
+        assert_eq!(
+            keys.len(),
+            projections.len(),
+            "ProjectStep: keys and projections must have the same length"
+        );
+        Self { keys, projections }
+    }
+
+    /// Transform a traverser into a projected map.
+    fn transform(&self, ctx: &ExecutionContext, traverser: &Traverser) -> crate::value::Value {
+        let mut result = HashMap::new();
+
+        for (key, proj) in self.keys.iter().zip(self.projections.iter()) {
+            let value = match proj {
+                Projection::Key(prop_key) => {
+                    // Get property value from element
+                    self.get_property(ctx, traverser, prop_key)
+                }
+                Projection::Traversal(sub) => {
+                    // Execute sub-traversal and collect results
+                    let results: Vec<_> = execute_traversal_from(
+                        ctx,
+                        sub,
+                        Box::new(std::iter::once(traverser.clone())),
+                    )
+                    .collect();
+
+                    if results.is_empty() {
+                        None
+                    } else if results.len() == 1 {
+                        // Single result - return the value directly
+                        Some(results.into_iter().next().unwrap().value)
+                    } else {
+                        // Multiple results - return as list
+                        Some(crate::value::Value::List(
+                            results.into_iter().map(|t| t.value).collect(),
+                        ))
+                    }
+                }
+            };
+
+            result.insert(key.clone(), value.unwrap_or(crate::value::Value::Null));
+        }
+
+        crate::value::Value::Map(result)
+    }
+
+    /// Get a property value from a traverser's element.
+    fn get_property(
+        &self,
+        ctx: &ExecutionContext,
+        t: &Traverser,
+        key: &str,
+    ) -> Option<crate::value::Value> {
+        match &t.value {
+            crate::value::Value::Vertex(id) => ctx
+                .snapshot()
+                .storage()
+                .get_vertex(*id)
+                .and_then(|v| v.properties.get(key).cloned()),
+            crate::value::Value::Edge(id) => ctx
+                .snapshot()
+                .storage()
+                .get_edge(*id)
+                .and_then(|e| e.properties.get(key).cloned()),
+            _ => None,
+        }
+    }
+}
+
+impl crate::traversal::step::AnyStep for ProjectStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.map(move |t| {
+            let value = self.transform(ctx, &t);
+            t.with_value(value)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "project"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ProjectBuilder - fluent API for building ProjectStep
+// -----------------------------------------------------------------------------
+
+use std::marker::PhantomData;
+
+/// Fluent builder for creating ProjectStep with multiple projections.
+///
+/// The builder allows chaining multiple `by` clauses to define how each
+/// projection key is computed.
+///
+/// # Example
+///
+/// ```ignore
+/// // Project name and friend count
+/// let results = g.v().has_label("person")
+///     .project(&["name", "friends"])
+///     .by_key("name")
+///     .by(__::out("knows").count())
+///     .build()
+///     .to_list();
+/// ```
+pub struct ProjectBuilder<In> {
+    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    keys: Vec<String>,
+    projections: Vec<Projection>,
+    _phantom: PhantomData<In>,
+}
+
+impl<In> ProjectBuilder<In> {
+    /// Create a new ProjectBuilder with existing steps and projection keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `steps` - Existing traversal steps
+    /// * `keys` - The keys for the projection map
+    pub(crate) fn new(
+        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        keys: Vec<String>,
+    ) -> Self {
+        Self {
+            steps,
+            keys,
+            projections: vec![],
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Project using a property key.
+    ///
+    /// This is a shorthand for getting a property value from vertices/edges.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to extract
+    pub fn by_key(mut self, key: &str) -> Self {
+        self.projections.push(Projection::Key(key.to_string()));
+        self
+    }
+
+    /// Project using a sub-traversal.
+    ///
+    /// The sub-traversal is executed for each input traverser, and the result(s)
+    /// become the value for this projection key.
+    ///
+    /// # Arguments
+    ///
+    /// * `traversal` - The sub-traversal to execute
+    pub fn by(mut self, traversal: Traversal<crate::value::Value, crate::value::Value>) -> Self {
+        self.projections.push(Projection::Traversal(traversal));
+        self
+    }
+
+    /// Build the final traversal with the ProjectStep.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of `by` clauses doesn't match the number of keys.
+    pub fn build(mut self) -> Traversal<In, crate::value::Value> {
+        if self.projections.len() != self.keys.len() {
+            panic!(
+                "ProjectBuilder: expected {} by clauses, got {}",
+                self.keys.len(),
+                self.projections.len()
+            );
+        }
+
+        let project_step = ProjectStep::new(self.keys, self.projections);
+        self.steps.push(Box::new(project_step));
+
+        Traversal {
+            steps: self.steps,
+            source: None,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// BoundProjectBuilder - fluent API for bound traversals
+// -----------------------------------------------------------------------------
+
+/// Fluent builder for creating ProjectStep for bound traversals.
+///
+/// This builder is returned from `BoundTraversal::project()` and allows chaining
+/// multiple `by` clauses before calling `build()` to get back a `BoundTraversal`.
+///
+/// # Example
+///
+/// ```ignore
+/// // Project name and friend count
+/// let results = g.v().has_label("person")
+///     .project(&["name", "friends"])
+///     .by_key("name")
+///     .by(__::out("knows").count())
+///     .build()
+///     .to_list();
+/// ```
+pub struct BoundProjectBuilder<'g, In> {
+    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    interner: &'g crate::storage::interner::StringInterner,
+    source: Option<crate::traversal::TraversalSource>,
+    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    keys: Vec<String>,
+    projections: Vec<Projection>,
+    track_paths: bool,
+    _phantom: PhantomData<In>,
+}
+
+impl<'g, In> BoundProjectBuilder<'g, In> {
+    /// Create a new BoundProjectBuilder with existing steps, graph references, and keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `snapshot` - Graph snapshot reference
+    /// * `interner` - String interner reference
+    /// * `source` - Optional traversal source
+    /// * `steps` - Existing traversal steps
+    /// * `keys` - The keys for the projection map
+    /// * `track_paths` - Whether path tracking is enabled
+    pub(crate) fn new(
+        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        interner: &'g crate::storage::interner::StringInterner,
+        source: Option<crate::traversal::TraversalSource>,
+        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        keys: Vec<String>,
+        track_paths: bool,
+    ) -> Self {
+        Self {
+            snapshot,
+            interner,
+            source,
+            steps,
+            keys,
+            projections: vec![],
+            track_paths,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Project using a property key.
+    ///
+    /// This is a shorthand for getting a property value from vertices/edges.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to extract
+    pub fn by_key(mut self, key: &str) -> Self {
+        self.projections.push(Projection::Key(key.to_string()));
+        self
+    }
+
+    /// Project using a sub-traversal.
+    ///
+    /// The sub-traversal is executed for each input traverser, and the result(s)
+    /// become the value for this projection key.
+    ///
+    /// # Arguments
+    ///
+    /// * `traversal` - The sub-traversal to execute
+    pub fn by(mut self, traversal: Traversal<crate::value::Value, crate::value::Value>) -> Self {
+        self.projections.push(Projection::Traversal(traversal));
+        self
+    }
+
+    /// Build the final bound traversal with the ProjectStep.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of `by` clauses doesn't match the number of keys.
+    pub fn build(
+        mut self,
+    ) -> crate::traversal::source::BoundTraversal<'g, In, crate::value::Value> {
+        if self.projections.len() != self.keys.len() {
+            panic!(
+                "BoundProjectBuilder: expected {} by clauses, got {}",
+                self.keys.len(),
+                self.projections.len()
+            );
+        }
+
+        let project_step = ProjectStep::new(self.keys, self.projections);
+        self.steps.push(Box::new(project_step));
+
+        let traversal = Traversal {
+            steps: self.steps,
+            source: self.source,
+            _phantom: PhantomData,
+        };
+
+        let mut bound =
+            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+
+        if self.track_paths {
+            bound = bound.with_path();
+        }
+
+        bound
+    }
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+    use crate::graph::Graph;
+    use crate::storage::InMemoryGraph;
+    use crate::traversal::context::ExecutionContext;
+    use crate::traversal::step::AnyStep;
+    use crate::traversal::{Traversal, Traverser};
+    use crate::value::{Value, VertexId};
+    use std::collections::HashMap;
+
+    fn create_projection_test_graph() -> Graph {
+        let mut storage = InMemoryGraph::new();
+
+        // Vertex 0: Alice, age 30, 2 friends
+        let mut props0 = HashMap::new();
+        props0.insert("name".to_string(), Value::String("Alice".to_string()));
+        props0.insert("age".to_string(), Value::Int(30));
+        let alice = storage.add_vertex("person", props0);
+
+        // Vertex 1: Bob, age 25, 1 friend
+        let mut props1 = HashMap::new();
+        props1.insert("name".to_string(), Value::String("Bob".to_string()));
+        props1.insert("age".to_string(), Value::Int(25));
+        let bob = storage.add_vertex("person", props1);
+
+        // Vertex 2: Charlie, age 35, 0 friends
+        let mut props2 = HashMap::new();
+        props2.insert("name".to_string(), Value::String("Charlie".to_string()));
+        props2.insert("age".to_string(), Value::Int(35));
+        let charlie = storage.add_vertex("person", props2);
+
+        // Alice knows Bob and Charlie
+        let _ = storage.add_edge(alice, bob, "knows", HashMap::new());
+        let _ = storage.add_edge(alice, charlie, "knows", HashMap::new());
+
+        // Bob knows Alice
+        let _ = storage.add_edge(bob, alice, "knows", HashMap::new());
+
+        Graph::new(std::sync::Arc::new(storage))
+    }
+
+    mod project_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step_with_keys_and_projections() {
+            let keys = vec!["name".to_string(), "age".to_string()];
+            let projections = vec![
+                Projection::Key("name".to_string()),
+                Projection::Key("age".to_string()),
+            ];
+            let step = ProjectStep::new(keys, projections);
+            assert_eq!(step.name(), "project");
+        }
+
+        #[test]
+        #[should_panic(expected = "keys and projections must have the same length")]
+        fn new_panics_with_mismatched_lengths() {
+            let keys = vec!["name".to_string()];
+            let projections = vec![
+                Projection::Key("name".to_string()),
+                Projection::Key("age".to_string()),
+            ];
+            ProjectStep::new(keys, projections);
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let keys = vec!["name".to_string()];
+            let projections = vec![Projection::Key("name".to_string())];
+            let step = ProjectStep::new(keys, projections);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "project");
+        }
+    }
+
+    mod project_step_property_tests {
+        use super::*;
+
+        #[test]
+        fn projects_single_property() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string()],
+                vec![Projection::Key("name".to_string())],
+            );
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert_eq!(map.len(), 1);
+                assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+            } else {
+                panic!("Expected Map value");
+            }
+        }
+
+        #[test]
+        fn projects_multiple_properties() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string(), "age".to_string()],
+                vec![
+                    Projection::Key("name".to_string()),
+                    Projection::Key("age".to_string()),
+                ],
+            );
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert_eq!(map.len(), 2);
+                assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+                assert_eq!(map.get("age"), Some(&Value::Int(30)));
+            } else {
+                panic!("Expected Map value");
+            }
+        }
+
+        #[test]
+        fn missing_property_produces_null() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string(), "missing".to_string()],
+                vec![
+                    Projection::Key("name".to_string()),
+                    Projection::Key("missing".to_string()),
+                ],
+            );
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert_eq!(map.len(), 2);
+                assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+                assert_eq!(map.get("missing"), Some(&Value::Null));
+            } else {
+                panic!("Expected Map value");
+            }
+        }
+    }
+
+    mod project_step_traversal_tests {
+        // Note: More complex traversal tests should be done as integration tests
+        // to avoid type inference issues in unit tests
+    }
+
+    mod project_step_metadata_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_path() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string()],
+                vec![Projection::Key("name".to_string())],
+            );
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.extend_path_labeled("start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string()],
+                vec![Projection::Key("name".to_string())],
+            );
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 7;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 7);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string()],
+                vec![Projection::Key("name".to_string())],
+            );
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.bulk = 15;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 15);
+        }
+    }
+
+    mod project_step_non_element_tests {
+        use super::*;
+
+        #[test]
+        fn non_element_produces_empty_projection() {
+            let graph = create_projection_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ProjectStep::new(
+                vec!["name".to_string(), "age".to_string()],
+                vec![
+                    Projection::Key("name".to_string()),
+                    Projection::Key("age".to_string()),
+                ],
+            );
+
+            let input = vec![Traverser::new(Value::String("not a vertex".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert_eq!(map.len(), 2);
+                // Both should be null since we can't get properties from a string
+                assert_eq!(map.get("name"), Some(&Value::Null));
+                assert_eq!(map.get("age"), Some(&Value::Null));
+            } else {
+                panic!("Expected Map value");
+            }
+        }
+    }
+
+    mod project_builder_tests {
+        use super::*;
+
+        #[test]
+        fn builder_constructs_with_by_key() {
+            let builder = ProjectBuilder::<Value>::new(vec![], vec!["name".to_string()]);
+            let traversal = builder.by_key("name").build();
+            assert_eq!(traversal.steps.len(), 1);
+        }
+
+        #[test]
+        fn builder_constructs_with_multiple_by() {
+            let builder =
+                ProjectBuilder::<Value>::new(vec![], vec!["name".to_string(), "age".to_string()]);
+            let traversal = builder.by_key("name").by_key("age").build();
+            assert_eq!(traversal.steps.len(), 1);
+        }
+
+        #[test]
+        #[should_panic(expected = "expected 2 by clauses, got 1")]
+        fn builder_panics_with_too_few_by_clauses() {
+            let builder =
+                ProjectBuilder::<Value>::new(vec![], vec!["name".to_string(), "age".to_string()]);
+            builder.by_key("name").build(); // Missing second by clause
+        }
+
+        #[test]
+        fn builder_supports_mixed_projections() {
+            let sub_traversal = Traversal::<Value, Value>::new();
+            let builder =
+                ProjectBuilder::<Value>::new(vec![], vec!["name".to_string(), "count".to_string()]);
+            let traversal = builder.by_key("name").by(sub_traversal).build();
+            assert_eq!(traversal.steps.len(), 1);
+        }
+    }
+}

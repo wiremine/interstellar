@@ -44,9 +44,9 @@ pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
-    AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, MeanStep, Order,
-    OrderBuilder, OrderKey, OrderStep, PathStep, PropertiesStep, SelectStep, UnfoldStep,
-    ValueMapStep, ValuesStep,
+    AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep,
+    MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep, PathStep, ProjectBuilder,
+    ProjectStep, Projection, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
 };
 
 // Re-export macros
@@ -1557,6 +1557,49 @@ impl<In> Traversal<In, Value> {
         transform::OrderBuilder::new(steps)
     }
 
+    /// Create a projection with named keys (for anonymous traversals).
+    ///
+    /// The `project()` step creates a map with specific named keys. Each key's value
+    /// is defined by a `by()` modulator, which can extract a property or execute
+    /// a sub-traversal.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().hasLabel('person')
+    ///     .project('name', 'age', 'friends')
+    ///     .by('name')
+    ///     .by('age')
+    ///     .by(out('knows').count())
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use __; // Anonymous traversal module
+    ///
+    /// let results = g.v().has_label("person")
+    ///     .project(&["name", "friend_count"])
+    ///     .by_key("name")
+    ///     .by(__::out("knows").count())
+    ///     .build()
+    ///     .to_list();
+    /// // Results: [{name: "Alice", friend_count: 2}, ...]
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The keys for the projection map
+    ///
+    /// # Returns
+    ///
+    /// A `ProjectBuilder` that requires `by()` clauses to be added for each key.
+    pub fn project(self, keys: &[&str]) -> transform::ProjectBuilder<In> {
+        let (_, steps) = self.into_steps();
+        let key_strings: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+        transform::ProjectBuilder::new(steps, key_strings)
+    }
+
     /// Extract the ID from vertices/edges (for anonymous traversals).
     ///
     /// For each input element, extracts its ID as a `Value::Int`.
@@ -1964,7 +2007,8 @@ pub mod __ {
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
         AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep,
-        OrderBuilder, PathStep, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
+        OrderBuilder, PathStep, ProjectBuilder, PropertiesStep, SelectStep, UnfoldStep,
+        ValueMapStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -2650,6 +2694,45 @@ pub mod __ {
     /// ```
     pub fn order() -> OrderBuilder<Value> {
         OrderBuilder::new(vec![])
+    }
+
+    /// Create a projection with named keys.
+    ///
+    /// The `project()` step creates a map with specific named keys. Each key's value
+    /// is defined by a `by()` modulator, which can extract a property or execute
+    /// a sub-traversal.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// .project('name', 'age', 'friends')
+    ///   .by('name')
+    ///   .by('age')
+    ///   .by(out('knows').count())
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use __; // Anonymous traversal module
+    ///
+    /// // Use in a where clause to project data
+    /// let projection = __::project(&["name", "friend_count"])
+    ///     .by_key("name")
+    ///     .by(__::out("knows").count())
+    ///     .build();
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The keys for the projection map
+    ///
+    /// # Returns
+    ///
+    /// A `ProjectBuilder` that requires `by()` clauses to be added for each key.
+    pub fn project(keys: &[&str]) -> ProjectBuilder<Value> {
+        let key_strings: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+        ProjectBuilder::new(vec![], key_strings)
     }
 
     /// Extract the element ID.
