@@ -33,8 +33,8 @@ pub use branch::{
 };
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
-    DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep,
-    HasWhereStep, IsStep, LimitStep, RangeStep, SkipStep,
+    CyclicPathStep, DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep,
+    HasValueStep, HasWhereStep, IsStep, LimitStep, RangeStep, SimplePathStep, SkipStep,
 };
 pub use navigation::{
     BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
@@ -107,7 +107,7 @@ impl Clone for Box<dyn CloneSack> {
 ///
 /// Path values represent the elements encountered during traversal.
 /// They are categorized into vertices, edges, and other property values.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PathValue {
     /// A vertex in the path
     Vertex(VertexId),
@@ -115,6 +115,25 @@ pub enum PathValue {
     Edge(EdgeId),
     /// A property or other value in the path
     Property(Value),
+}
+
+impl std::hash::Hash for PathValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            PathValue::Vertex(id) => {
+                0u8.hash(state);
+                id.hash(state);
+            }
+            PathValue::Edge(id) => {
+                1u8.hash(state);
+                id.hash(state);
+            }
+            PathValue::Property(v) => {
+                2u8.hash(state);
+                v.hash(state);
+            }
+        }
+    }
 }
 
 impl From<&Value> for PathValue {
@@ -1073,6 +1092,56 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn range(self, start: usize, end: usize) -> Traversal<In, Value> {
         self.add_step(filter::RangeStep::new(start, end))
+    }
+
+    /// Filter to only paths with no repeated elements (simple paths).
+    ///
+    /// A simple path visits each element at most once. This is useful
+    /// for preventing cycles during traversal and finding unique paths.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().repeat(out()).until(hasLabel("target")).simplePath()
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all simple paths of length 3
+    /// let simple = g.v()
+    ///     .repeat(__::out())
+    ///     .times(3)
+    ///     .simple_path()
+    ///     .to_list();
+    /// ```
+    pub fn simple_path(self) -> Traversal<In, Value> {
+        self.add_step(filter::SimplePathStep::new())
+    }
+
+    /// Filter to only paths with at least one repeated element (cyclic paths).
+    ///
+    /// A cyclic path contains at least one element that appears more than once.
+    /// This is the inverse of `simple_path()`.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().repeat(out()).until(hasLabel("target")).cyclicPath()
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all cyclic paths
+    /// let cyclic = g.v()
+    ///     .repeat(__::out())
+    ///     .times(4)
+    ///     .cyclic_path()
+    ///     .to_list();
+    /// ```
+    pub fn cyclic_path(self) -> Traversal<In, Value> {
+        self.add_step(filter::CyclicPathStep::new())
     }
 
     /// Filter elements by a single ID (for anonymous traversals).
@@ -2184,6 +2253,36 @@ pub mod __ {
     #[inline]
     pub fn range(start: usize, end: usize) -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(RangeStep::new(start, end))
+    }
+
+    /// Filter to only simple paths (no repeated elements).
+    ///
+    /// A simple path visits each element at most once.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let simple = __::simple_path();
+    /// ```
+    #[inline]
+    pub fn simple_path() -> Traversal<Value, Value> {
+        use crate::traversal::filter::SimplePathStep;
+        Traversal::<Value, Value>::new().add_step(SimplePathStep::new())
+    }
+
+    /// Filter to only cyclic paths (at least one repeated element).
+    ///
+    /// A cyclic path contains at least one element that appears more than once.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let cyclic = __::cyclic_path();
+    /// ```
+    #[inline]
+    pub fn cyclic_path() -> Traversal<Value, Value> {
+        use crate::traversal::filter::CyclicPathStep;
+        Traversal::<Value, Value>::new().add_step(CyclicPathStep::new())
     }
 
     // -------------------------------------------------------------------------

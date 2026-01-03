@@ -178,11 +178,11 @@ impl_filter_step!(SimplePathStep, "simplePath");
 ```
 
 **Acceptance Criteria**:
-- [ ] `simple_path()` filters out paths with repeated vertices
-- [ ] Linear paths (A -> B -> C -> D) pass through
-- [ ] Cyclic paths (A -> B -> C -> A) are filtered out
-- [ ] Works correctly with `repeat()` step
-- [ ] Unit tests pass
+- [x] `simple_path()` filters out paths with repeated vertices
+- [x] Linear paths (A -> B -> C -> D) pass through
+- [x] Cyclic paths (A -> B -> C -> A) are filtered out
+- [x] Works correctly with `repeat()` step
+- [x] Unit tests pass
 
 ---
 

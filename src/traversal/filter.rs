@@ -960,6 +960,130 @@ impl std::fmt::Debug for IsStep {
 impl_filter_step!(IsStep, "is");
 
 // -----------------------------------------------------------------------------
+// SimplePathStep - Filter to paths with no repeated elements
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only traversers with simple (non-repeating) paths.
+///
+/// A simple path is one where no element appears more than once. This is useful
+/// for finding unique paths through a graph and avoiding cycles during traversal.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().repeat(out()).until(hasLabel("target")).simplePath()
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use rustgremlin::prelude::*;
+///
+/// // Find all simple paths of length 3
+/// let simple_paths = g.v()
+///     .repeat(__::out())
+///     .times(3)
+///     .simple_path()
+///     .path()
+///     .to_list();
+/// ```
+#[derive(Clone, Debug, Copy)]
+pub struct SimplePathStep;
+
+impl SimplePathStep {
+    /// Create a new SimplePathStep.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Check if the traverser's path contains only unique elements.
+    ///
+    /// Returns `true` if all path elements are unique (simple path),
+    /// `false` if any element appears more than once.
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        for element in traverser.path.elements() {
+            if !seen.insert(&element.value) {
+                return false; // Duplicate found
+            }
+        }
+        true // All elements unique
+    }
+}
+
+impl Default for SimplePathStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Use the macro to implement AnyStep for SimplePathStep
+impl_filter_step!(SimplePathStep, "simplePath");
+
+// -----------------------------------------------------------------------------
+// CyclicPathStep - Filter to paths with at least one repeated element
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only traversers with cyclic (repeating) paths.
+///
+/// A cyclic path is one where at least one element appears more than once.
+/// This is the inverse of `SimplePathStep`.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().repeat(out()).until(hasLabel("target")).cyclicPath()
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use rustgremlin::prelude::*;
+///
+/// // Find all cyclic paths
+/// let cyclic_paths = g.v()
+///     .repeat(__::out())
+///     .times(4)
+///     .cyclic_path()
+///     .path()
+///     .to_list();
+/// ```
+#[derive(Clone, Debug, Copy)]
+pub struct CyclicPathStep;
+
+impl CyclicPathStep {
+    /// Create a new CyclicPathStep.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Check if the traverser's path contains any repeated elements.
+    ///
+    /// Returns `true` if any element appears more than once (cyclic path),
+    /// `false` if all elements are unique.
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        for element in traverser.path.elements() {
+            if !seen.insert(&element.value) {
+                return true; // Duplicate found - it's cyclic
+            }
+        }
+        false // All elements unique - not cyclic
+    }
+}
+
+impl Default for CyclicPathStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Use the macro to implement AnyStep for CyclicPathStep
+impl_filter_step!(CyclicPathStep, "cyclicPath");
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -4849,6 +4973,488 @@ mod tests {
 
             // Neither should match due to type mismatch
             assert!(output.is_empty());
+        }
+    }
+
+    mod simple_path_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        fn create_empty_graph() -> Graph {
+            Graph::new(Arc::new(InMemoryGraph::new()))
+        }
+
+        /// Helper to create a traverser with a path containing the given values.
+        /// The final value becomes the traverser's current value.
+        fn create_traverser_with_path(values: Vec<Value>) -> Traverser {
+            let final_value = values.last().cloned().unwrap_or(Value::Null);
+            let mut traverser = Traverser::new(final_value);
+            // Build path by setting value and extending for each element
+            for value in values {
+                traverser.value = value;
+                traverser.extend_path_unlabeled();
+            }
+            traverser
+        }
+
+        #[test]
+        fn new_creates_step() {
+            let step = SimplePathStep::new();
+            assert_eq!(step.name(), "simplePath");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = SimplePathStep::default();
+            assert_eq!(step.name(), "simplePath");
+        }
+
+        #[test]
+        fn clone_works() {
+            let step = SimplePathStep::new();
+            let cloned = step.clone();
+            assert_eq!(step.name(), cloned.name());
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = SimplePathStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "simplePath");
+        }
+
+        #[test]
+        fn simple_linear_path_passes() {
+            // Path: A -> B -> C -> D (all unique)
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+                Value::Vertex(VertexId(3)),
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+        }
+
+        #[test]
+        fn cyclic_path_filtered_out() {
+            // Path: A -> B -> C -> A (cycle back to A)
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+                Value::Vertex(VertexId(0)), // Cycle back to 0
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn single_element_path_is_simple() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            let traverser = create_traverser_with_path(vec![Value::Vertex(VertexId(0))]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+        }
+
+        #[test]
+        fn empty_path_is_simple() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            // Create a traverser without extending the path
+            let traverser = Traverser::new(Value::Vertex(VertexId(0)));
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+        }
+
+        #[test]
+        fn consecutive_duplicates_filtered_out() {
+            // Path: A -> A (immediate duplicate)
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(0)), // Immediate repeat
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn mixed_simple_and_cyclic_paths() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            // Simple path: A -> B -> C
+            let simple_traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+            ]);
+
+            // Cyclic path: D -> E -> D
+            let cyclic_traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(3)),
+                Value::Vertex(VertexId(4)),
+                Value::Vertex(VertexId(3)),
+            ]);
+
+            let input = vec![simple_traverser, cyclic_traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only the simple path should pass
+            assert_eq!(output.len(), 1);
+            // Verify it's the simple path (ends at vertex 2)
+            assert_eq!(output[0].value, Value::Vertex(VertexId(2)));
+        }
+
+        #[test]
+        fn edges_in_path_checked_for_duplicates() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            // Path with repeated edge: V0 -> E0 -> V1 -> E0 -> V2
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Edge(EdgeId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Edge(EdgeId(0)), // Repeat edge
+                Value::Vertex(VertexId(2)),
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Should be filtered because edge is repeated
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn properties_in_path_checked_for_duplicates() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            // Path with repeated property value
+            let traverser = create_traverser_with_path(vec![
+                Value::String("Alice".to_string()),
+                Value::String("Bob".to_string()),
+                Value::String("Alice".to_string()), // Duplicate
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SimplePathStep::new();
+
+            let mut traverser = Traverser::new(Value::Vertex(VertexId(0)));
+            traverser.extend_path_unlabeled();
+            traverser.value = Value::Vertex(VertexId(1));
+            traverser.extend_path_labeled("end");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("end"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod cyclic_path_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        fn create_empty_graph() -> Graph {
+            Graph::new(Arc::new(InMemoryGraph::new()))
+        }
+
+        /// Helper to create a traverser with a path containing the given values.
+        fn create_traverser_with_path(values: Vec<Value>) -> Traverser {
+            let final_value = values.last().cloned().unwrap_or(Value::Null);
+            let mut traverser = Traverser::new(final_value);
+            for value in values {
+                traverser.value = value;
+                traverser.extend_path_unlabeled();
+            }
+            traverser
+        }
+
+        #[test]
+        fn new_creates_step() {
+            let step = CyclicPathStep::new();
+            assert_eq!(step.name(), "cyclicPath");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = CyclicPathStep::default();
+            assert_eq!(step.name(), "cyclicPath");
+        }
+
+        #[test]
+        fn clone_works() {
+            let step = CyclicPathStep::new();
+            let cloned = step.clone();
+            assert_eq!(step.name(), cloned.name());
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = CyclicPathStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "cyclicPath");
+        }
+
+        #[test]
+        fn cyclic_path_passes() {
+            // Path: A -> B -> C -> A (cycle back to A)
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+                Value::Vertex(VertexId(0)), // Cycle back to 0
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+        }
+
+        #[test]
+        fn simple_path_filtered_out() {
+            // Path: A -> B -> C -> D (all unique)
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+                Value::Vertex(VertexId(3)),
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn single_element_path_is_not_cyclic() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            let traverser = create_traverser_with_path(vec![Value::Vertex(VertexId(0))]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn empty_path_is_not_cyclic() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            let traverser = Traverser::new(Value::Vertex(VertexId(0)));
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn consecutive_duplicates_pass() {
+            // Path: A -> A (immediate duplicate)
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            let traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(0)), // Immediate repeat
+            ]);
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+        }
+
+        #[test]
+        fn mixed_simple_and_cyclic_paths() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            // Simple path: A -> B -> C
+            let simple_traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(0)),
+                Value::Vertex(VertexId(1)),
+                Value::Vertex(VertexId(2)),
+            ]);
+
+            // Cyclic path: D -> E -> D
+            let cyclic_traverser = create_traverser_with_path(vec![
+                Value::Vertex(VertexId(3)),
+                Value::Vertex(VertexId(4)),
+                Value::Vertex(VertexId(3)),
+            ]);
+
+            let input = vec![simple_traverser, cyclic_traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only the cyclic path should pass
+            assert_eq!(output.len(), 1);
+            // Verify it's the cyclic path (ends at vertex 3)
+            assert_eq!(output[0].value, Value::Vertex(VertexId(3)));
+        }
+
+        #[test]
+        fn is_inverse_of_simple_path() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let simple_step = SimplePathStep::new();
+            let cyclic_step = CyclicPathStep::new();
+
+            // Create both types of paths
+            let paths = vec![
+                // Simple
+                create_traverser_with_path(vec![
+                    Value::Vertex(VertexId(0)),
+                    Value::Vertex(VertexId(1)),
+                ]),
+                // Cyclic
+                create_traverser_with_path(vec![
+                    Value::Vertex(VertexId(2)),
+                    Value::Vertex(VertexId(2)),
+                ]),
+            ];
+
+            let simple_output: Vec<Traverser> = simple_step
+                .apply(&ctx, Box::new(paths.clone().into_iter()))
+                .collect();
+            let cyclic_output: Vec<Traverser> = cyclic_step
+                .apply(&ctx, Box::new(paths.into_iter()))
+                .collect();
+
+            // Together they should give all paths
+            assert_eq!(simple_output.len() + cyclic_output.len(), 2);
+            // One is simple (VertexId(1))
+            assert_eq!(simple_output.len(), 1);
+            assert_eq!(simple_output[0].value, Value::Vertex(VertexId(1)));
+            // One is cyclic (VertexId(2))
+            assert_eq!(cyclic_output.len(), 1);
+            assert_eq!(cyclic_output[0].value, Value::Vertex(VertexId(2)));
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CyclicPathStep::new();
+
+            let mut traverser = Traverser::new(Value::Vertex(VertexId(0)));
+            traverser.extend_path_unlabeled();
+            // Make it cyclic by adding the same vertex again
+            traverser.extend_path_labeled("end");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("end"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
         }
     }
 }
