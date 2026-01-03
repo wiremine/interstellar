@@ -642,11 +642,11 @@ struct RepeatIterator<'a> {
 5. Add integration tests for `or_()` step
 
 **Acceptance Criteria**:
-- [ ] `where_(__.out().has_label("person"))` filters correctly
-- [ ] `not(__.out())` finds leaf vertices
-- [ ] `and_()` requires all conditions
-- [ ] `or_()` accepts any condition
-- [ ] All tests pass
+- [x] `where_(__.out().has_label("person"))` filters correctly
+- [x] `not(__.out())` finds leaf vertices
+- [x] `and_()` requires all conditions
+- [x] `or_()` accepts any condition
+- [x] All tests pass
 
 ---
 
@@ -662,12 +662,12 @@ struct RepeatIterator<'a> {
 5. Add integration tests for `local()` step
 
 **Acceptance Criteria**:
-- [ ] `union()` merges results correctly
-- [ ] `coalesce()` short-circuits correctly
-- [ ] `choose()` branches correctly
-- [ ] `optional()` falls back correctly
-- [ ] `local()` isolates aggregations
-- [ ] All tests pass
+- [x] `union()` merges results correctly
+- [x] `coalesce()` short-circuits correctly
+- [x] `choose()` branches correctly
+- [x] `optional()` falls back correctly
+- [x] `local()` isolates aggregations
+- [x] All tests pass
 
 ---
 
@@ -683,11 +683,11 @@ struct RepeatIterator<'a> {
 5. Add integration tests for combined modifiers
 
 **Acceptance Criteria**:
-- [ ] `repeat(__.out()).times(2)` traverses exactly 2 hops
-- [ ] `repeat(__.out()).until(__.has_label("company"))` terminates correctly
-- [ ] `repeat(__.out()).emit()` includes intermediate results
-- [ ] `repeat(__.out()).times(3).emit()` works together
-- [ ] All tests pass
+- [x] `repeat(__.out()).times(2)` traverses exactly 2 hops
+- [x] `repeat(__.out()).until(__.has_label("company"))` terminates correctly
+- [x] `repeat(__.out()).emit()` includes intermediate results
+- [x] `repeat(__.out()).times(3).emit()` works together
+- [x] All tests pass
 
 ---
 
@@ -702,11 +702,11 @@ struct RepeatIterator<'a> {
 4. Add integration tests for `has_where()` with composed predicates
 
 **Acceptance Criteria**:
-- [ ] `has_where("age", p::gte(18))` filters correctly
-- [ ] `has_where("age", p::between(25, 35))` filters range
-- [ ] `has_where("name", p::starting_with("A"))` filters strings
-- [ ] `has_where("age", p::and(p::gte(18), p::lt(65)))` composes
-- [ ] All tests pass
+- [x] `has_where("age", p::gte(18))` filters correctly
+- [x] `has_where("age", p::between(25, 35))` filters range
+- [x] `has_where("name", p::starting_with("A"))` filters strings
+- [x] `has_where("age", p::and(p::gte(18), p::lt(65)))` composes
+- [x] All tests pass
 
 ---
 
