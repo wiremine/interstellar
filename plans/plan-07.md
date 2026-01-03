@@ -280,7 +280,7 @@ impl AnyStep for OtherVStep {
 ### Week 1-2: Transform Steps
 
 #### Phase 2.1: PropertiesStep Implementation
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/properties.rs`  
 **Duration**: 1-2 hours
 
 **Tasks**:
@@ -320,7 +320,7 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 ---
 
 #### Phase 2.2: ValueMapStep Implementation
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/properties.rs`  
 **Duration**: 1-2 hours
 
 **Tasks**:
@@ -342,7 +342,7 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 ---
 
 #### Phase 2.3: ElementMapStep Implementation
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/properties.rs`  
 **Duration**: 1-2 hours
 
 **Tasks**:
@@ -365,7 +365,7 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 ---
 
 #### Phase 2.4: UnfoldStep Implementation
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/collection.rs`  
 **Duration**: 1 hour
 
 **Tasks**:
@@ -387,7 +387,7 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 ---
 
 #### Phase 2.5: MeanStep Implementation
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/collection.rs`  
 **Duration**: 1 hour
 
 **Tasks**:
@@ -512,7 +512,7 @@ impl<In> OrderBuilder<In> {
 ### Week 2: Complex Transform Steps
 
 #### Phase 3.1: ProjectStep Implementation
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/functional.rs` (or create `src/traversal/transform/project.rs`)  
 **Duration**: 2-3 hours
 
 **Tasks**:
@@ -561,7 +561,7 @@ impl<In> ProjectBuilder<In> {
 ---
 
 #### Phase 3.2: MathStep Implementation (Basic)
-**File**: `src/traversal/transform.rs`  
+**File**: `src/traversal/transform/functional.rs` (or create `src/traversal/transform/math.rs`)  
 **Duration**: 2-3 hours
 
 **Tasks**:
@@ -747,17 +747,17 @@ impl<In> GroupBuilder<In> {
 ---
 
 #### Phase 5.5: Unit Tests for Transform Steps
-**File**: `src/traversal/transform.rs` (tests module)  
+**Files**: Test modules in respective transform files  
 **Duration**: 2-3 hours
 
 **Tasks**:
-1. Add tests for `PropertiesStep`
-2. Add tests for `ValueMapStep`
-3. Add tests for `ElementMapStep`
-4. Add tests for `UnfoldStep`
-5. Add tests for `OrderStep`
-6. Add tests for `MeanStep`
-7. Add tests for `ProjectStep`
+1. Add tests for `PropertiesStep` in `src/traversal/transform/properties.rs`
+2. Add tests for `ValueMapStep` in `src/traversal/transform/properties.rs`
+3. Add tests for `ElementMapStep` in `src/traversal/transform/properties.rs`
+4. Add tests for `UnfoldStep` in `src/traversal/transform/collection.rs`
+5. Add tests for `OrderStep` in `src/traversal/transform/order.rs` (already complete)
+6. Add tests for `MeanStep` in `src/traversal/transform/collection.rs`
+7. Add tests for `ProjectStep` in appropriate transform file
 
 **Acceptance Criteria**:
 - [ ] All transform step unit tests pass
@@ -885,11 +885,17 @@ From spec section "Goals":
 
 New files to create:
 - `src/traversal/aggregate.rs` - `GroupStep`, `GroupCountStep`, builders
+- `src/traversal/transform/project.rs` (optional) - `ProjectStep` if not added to functional.rs
+- `src/traversal/transform/math.rs` (optional) - `MathStep` if not added to functional.rs
 
 Files to modify:
 - `src/traversal/filter.rs` - Add `HasNotStep`, `IsStep`, `SimplePathStep`, `CyclicPathStep`
 - `src/traversal/navigation.rs` - Add `OtherVStep`
-- `src/traversal/transform.rs` - Add `PropertiesStep`, `ValueMapStep`, `ElementMapStep`, `UnfoldStep`, `ProjectStep`, `MathStep`, `OrderStep`, `MeanStep`
+- `src/traversal/transform/properties.rs` - Add `PropertiesStep`, `ValueMapStep`, `ElementMapStep` (may already exist)
+- `src/traversal/transform/collection.rs` - Add `UnfoldStep`, `MeanStep` (may already exist)
+- `src/traversal/transform/order.rs` - `OrderStep` (✅ already complete)
+- `src/traversal/transform/functional.rs` - Add `ProjectStep`, `MathStep` (or create separate files)
+- `src/traversal/transform/mod.rs` - Update exports for new steps
 - `src/traversal/mod.rs` - Update exports, add `__` methods, add `Traversal` methods
 - `src/traversal/context.rs` - May need `Hash` implementation for `Value`
 - `tests/traversal.rs` - Add integration tests
