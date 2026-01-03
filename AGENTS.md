@@ -28,6 +28,8 @@ cargo clippy -- -D warnings          # Lint with warnings as errors
 cargo fmt --check                    # Check formatting
 cargo bench                          # Run benchmarks
 cargo test --features mmap           # Test with feature flags
+cargo doc --open                     # Build and open docs
+
 ```
 
 ## Project Structure
