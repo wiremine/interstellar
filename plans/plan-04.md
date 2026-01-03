@@ -247,8 +247,8 @@ impl<P1: Predicate + Clone + 'static, P2: Predicate + Clone + 'static> Predicate
 3. Add module to `src/traversal/mod.rs`
 
 **Acceptance Criteria**:
-- [ ] Module compiles
-- [ ] Exports are accessible from `src/traversal/mod.rs`
+- [x] Module compiles
+- [x] Exports are accessible from `src/traversal/mod.rs`
 
 ---
 

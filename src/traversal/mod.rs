@@ -17,6 +17,7 @@ use smallvec::SmallVec;
 
 use crate::value::{EdgeId, Value, VertexId};
 
+pub mod branch;
 pub mod context;
 pub mod filter;
 pub mod navigation;
@@ -25,6 +26,10 @@ pub mod source;
 pub mod step;
 pub mod transform;
 
+pub use branch::{
+    AndStep, ChooseStep, CoalesceStep, LocalStep, NotStep, OptionalStep, OrStep, UnionStep,
+    WhereStep,
+};
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
     DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, HasWhereStep, LimitStep,
