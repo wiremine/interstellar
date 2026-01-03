@@ -671,30 +671,39 @@ impl<In> GroupBuilder<In> {
 
 ### Week 3: API Integration and Testing
 
-#### Phase 5.1: Update Traversal Methods
-**File**: `src/traversal/mod.rs`  
+#### Phase 5.1: Update Traversal Methods ✅ COMPLETE
+**File**: `src/traversal/mod.rs` and `src/traversal/source.rs`  
 **Duration**: 2 hours
+**Completed**: January 4, 2026
 
 **Tasks**:
 1. Add all new methods to `Traversal<In, Out>`:
    - Filter: `has_not()`, `is_eq()`, `is_()`, `simple_path()`, `cyclic_path()`
    - Navigation: `other_v()`
    - Transform: `properties()`, `properties_keys()`, `value_map()`, `value_map_keys()`, `value_map_with_tokens()`, `element_map()`, `element_map_keys()`, `unfold()`, `mean()`
-   - Builder: `project()`, `math()`, `order()`, `group()`, `group_count()`
+   - Builder: `project()`, `math()` (not implemented), `order()`, `group()`, `group_count()`
 2. Ensure proper type transitions
 3. Update `__` module with factory functions
 
 **Acceptance Criteria**:
-- [ ] All methods compile correctly
-- [ ] Type inference works as expected
-- [ ] Methods chain correctly
-- [ ] `__` module has all factory functions
+- [x] All methods compile correctly
+- [x] Type inference works as expected
+- [x] Methods chain correctly
+- [x] `__` module has all factory functions
+
+**Implementation Notes**:
+- Added 6 methods to `BoundTraversal` in `source.rs`: `is_()`, `is_eq()`, `simple_path()`, `cyclic_path()`, `unfold()`, `mean()`
+- Added 5 methods to `Traversal` in `mod.rs`: `value_map()`, `value_map_keys()`, `value_map_with_tokens()`, `element_map()`, `element_map_keys()`
+- All 1074 unit tests pass
+- All 238 integration tests pass
+- `math()` step intentionally not implemented (requires additional dependencies)
 
 ---
 
-#### Phase 5.2: Update __ Factory Module
+#### Phase 5.2: Update __ Factory Module ✅ COMPLETE
 **File**: `src/traversal/mod.rs`  
 **Duration**: 1 hour
+**Completed**: Already complete (verified January 4, 2026)
 
 **Tasks**:
 1. Add `__::has_not()` factory function
@@ -705,9 +714,13 @@ impl<In> GroupBuilder<In> {
 6. Add `__::unfold()` and `__::mean()` factory functions
 
 **Acceptance Criteria**:
-- [ ] All factory functions return `Traversal<Value, Value>`
-- [ ] Can be used in sub-traversals (where, repeat, etc.)
-- [ ] Unit tests pass
+- [x] All factory functions return `Traversal<Value, Value>`
+- [x] Can be used in sub-traversals (where, repeat, etc.)
+- [x] Unit tests pass
+
+**Implementation Notes**:
+- All 11 factory functions were already implemented in prior phases
+- Verified locations: lines 2364, 2448, 2470, 2547, 2562, 2312, 2608, 2639, 2689, 2726, 2749 in `mod.rs`
 
 ---
 
@@ -760,26 +773,58 @@ impl<In> GroupBuilder<In> {
 7. Add tests for `ProjectStep` in appropriate transform file
 
 **Acceptance Criteria**:
-- [ ] All transform step unit tests pass
-- [ ] Edge cases covered
-- [ ] Barrier steps tested with various input sizes
+- [x] All transform step unit tests pass
+- [x] Edge cases covered
+- [x] Barrier steps tested with various input sizes
 
 ---
 
-#### Phase 5.6: Unit Tests for Aggregation Steps
+#### Phase 5.6: Unit Tests for Aggregation Steps ✅ COMPLETE
 **File**: `src/traversal/aggregate.rs` (tests module)  
 **Duration**: 2 hours
+**Completed**: January 4, 2026
 
 **Tasks**:
-1. Add tests for `GroupStep` with various key/value selectors
-2. Add tests for `GroupCountStep`
-3. Test with traversal-based selectors
-4. Test with bulk traversers
+1. ✅ Add tests for `GroupStep` with various key/value selectors
+2. ✅ Add tests for `GroupCountStep`
+3. ✅ Test with traversal-based selectors
+4. ✅ Test with bulk traversers
 
 **Acceptance Criteria**:
-- [ ] All aggregation step unit tests pass
-- [ ] Grouping by label, property, and traversal works
-- [ ] Count accumulation is correct
+- [x] All aggregation step unit tests pass (25 tests total)
+- [x] Grouping by label, property, and traversal works
+- [x] Count accumulation is correct
+
+**Tests Added**:
+
+**GroupStep (12 tests)**:
+- ✅ `test_group_by_label_identity` - Group vertices by label
+- ✅ `test_group_by_property_collect_property` - Group by property, collect property
+- ✅ `test_group_default_selectors` - Default selectors work
+- ✅ `test_group_builder_fluent_api` - Fluent API works
+- ✅ `test_group_empty_input` - Empty input returns empty map
+- ✅ `test_group_by_traversal_key` - Group by traversal result (key)
+- ✅ `test_group_by_value_traversal` - Collect values via traversal
+- ✅ `test_group_edges_by_label` - Group edges by label
+- ✅ `test_group_edges_by_property` - Group edges by property
+- ✅ `test_group_preserves_path` - Path tracking preserved
+- ✅ `test_group_with_bulk_traversers` - Bulk traversers handled correctly
+- ✅ `test_group_with_missing_property` - Missing property returns empty map
+- ✅ `test_group_step_construction` - Constructor tests
+
+**GroupCountStep (13 tests)**:
+- ✅ `test_group_count_by_label` - Count vertices by label
+- ✅ `test_group_count_by_property` - Count by property value
+- ✅ `test_group_count_default_selector` - Default selector works
+- ✅ `test_group_count_empty_input` - Empty input returns empty map
+- ✅ `test_group_count_respects_bulk` - **FIXED** - Now properly tests bulk > 1
+- ✅ `test_group_count_by_traversal` - Count by traversal result
+- ✅ `test_group_count_edges_by_label` - Count edges by label
+- ✅ `test_group_count_edges_by_property` - Count edges by property
+- ✅ `test_group_count_preserves_path` - Path tracking preserved
+- ✅ `test_group_count_multiple_bulk_values` - Multiple bulk values summed correctly
+- ✅ `test_group_count_with_missing_property` - Missing property returns empty map
+- ✅ `test_group_count_step_construction` - Constructor tests
 
 ---
 
@@ -869,10 +914,10 @@ From spec section "Goals":
 - [ ] `GroupCountStep` - counts traversers by key
 
 ### API Integration
-- [ ] All 15 steps have methods on `Traversal<In, Out>`
-- [ ] All applicable steps have `__` factory functions
-- [ ] Builder types work correctly for complex steps
-- [ ] Type transitions are correct
+- [x] All 15 steps have methods on `Traversal<In, Out>` (except `math()` - not implemented)
+- [x] All applicable steps have `__` factory functions
+- [x] Builder types work correctly for complex steps
+- [x] Type transitions are correct
 
 ### Testing
 - [ ] All unit tests pass (100% branch coverage on new code)

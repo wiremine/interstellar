@@ -604,6 +604,93 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         ))
     }
 
+    /// Filter the current value using a predicate.
+    ///
+    /// Unlike `has_where()` which filters by property, `is_()` tests the
+    /// traverser's current value directly. Commonly used after `values()`
+    /// to filter property values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter to ages greater than 25
+    /// let older = g.v().values("age").is_(p::gt(25)).to_list();
+    ///
+    /// // Filter using between predicate
+    /// let working_age = g.v().values("age").is_(p::between(25, 65)).to_list();
+    /// ```
+    pub fn is_(
+        self,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::IsStep;
+        self.add_step(IsStep::new(predicate))
+    }
+
+    /// Filter the current value by equality.
+    ///
+    /// Convenience method for `is_(p::eq(value))`. Tests the traverser's
+    /// current value for equality with the given value.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to age exactly 30
+    /// let age_30 = g.v().values("age").is_eq(30i64).to_list();
+    ///
+    /// // Filter to specific name
+    /// let alice = g.v().values("name").is_eq("Alice").to_list();
+    /// ```
+    pub fn is_eq(self, value: impl Into<Value>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::IsStep;
+        self.add_step(IsStep::eq(value))
+    }
+
+    /// Filter to traversers with simple (non-cyclic) paths.
+    ///
+    /// A simple path contains no repeated elements. This is useful when
+    /// traversing graphs to avoid cycles.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all simple paths from a vertex
+    /// let simple = g.v()
+    ///     .has("name", "marko")
+    ///     .repeat(__::both())
+    ///     .times(3)
+    ///     .simple_path()
+    ///     .path()
+    ///     .to_list();
+    /// ```
+    pub fn simple_path(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::SimplePathStep;
+        self.add_step(SimplePathStep::new())
+    }
+
+    /// Filter to traversers with cyclic paths.
+    ///
+    /// A cyclic path contains at least one repeated element. This is the
+    /// inverse of `simple_path()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all paths that contain cycles
+    /// let cycles = g.v()
+    ///     .repeat(__::both())
+    ///     .times(4)
+    ///     .cyclic_path()
+    ///     .path()
+    ///     .to_list();
+    /// ```
+    pub fn cyclic_path(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::CyclicPathStep;
+        self.add_step(CyclicPathStep::new())
+    }
+
     // -------------------------------------------------------------------------
     // Navigation steps
     // -------------------------------------------------------------------------
@@ -1240,6 +1327,53 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     pub fn select_one(self, label: &str) -> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::SelectStep;
         self.add_step(SelectStep::single(label))
+    }
+
+    /// Unroll collections into individual elements.
+    ///
+    /// This is a flatMap operation that:
+    /// - Expands `Value::List` items into separate traversers (one per element)
+    /// - Expands `Value::Map` items into separate single-entry maps (one per key-value pair)
+    /// - Passes through non-collection values unchanged
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Unfold a folded list back to individual vertices
+    /// let vertices = g.v().fold().unfold().to_list();
+    ///
+    /// // Unfold map entries
+    /// let entries = g.v().value_map().unfold().to_list();
+    /// // Each entry is a single-key map like {"name": ["Alice"]}
+    /// ```
+    pub fn unfold(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::UnfoldStep;
+        self.add_step(UnfoldStep::new())
+    }
+
+    /// Calculate the arithmetic mean of numeric values.
+    ///
+    /// This is a **barrier step** - it collects ALL input before calculating.
+    /// Only numeric values (`Value::Integer`, `Value::Float`) are included
+    /// in the calculation. Non-numeric values are ignored.
+    ///
+    /// Returns a single `Value::Float` with the mean, or no traversers if
+    /// there are no numeric values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Calculate average age
+    /// let avg_age = g.v().values("age").mean().next();
+    /// // Returns: Some(Value::Float(29.5))
+    ///
+    /// // Mean of mixed types (non-numeric ignored)
+    /// let avg = g.inject([1i64, 2i64, "skip", 3i64]).mean().next();
+    /// // Returns: Some(Value::Float(2.0))
+    /// ```
+    pub fn mean(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::MeanStep;
+        self.add_step(MeanStep::new())
     }
 
     /// Sort traversers using a fluent builder.

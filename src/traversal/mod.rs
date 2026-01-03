@@ -1469,6 +1469,95 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::PropertiesStep::with_keys(keys))
     }
 
+    /// Get all properties as a map (for anonymous traversals).
+    ///
+    /// Transforms each element into a `Value::Map` containing all its properties.
+    /// Property values are wrapped in `Value::List` for multi-property compatibility.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().value_map();
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{"name": ["Alice"], "age": [30]}, ...]
+    /// ```
+    pub fn value_map(self) -> Traversal<In, Value> {
+        self.add_step(transform::ValueMapStep::new())
+    }
+
+    /// Get specific properties as a map (for anonymous traversals).
+    ///
+    /// Transforms each element into a `Value::Map` containing only the
+    /// specified properties. Property values are wrapped in `Value::List`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().value_map_keys(&["name"]);
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{"name": ["Alice"]}, {"name": ["Bob"]}]
+    /// ```
+    pub fn value_map_keys<I, S>(self, keys: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(transform::ValueMapStep::from_keys(keys))
+    }
+
+    /// Get all properties as a map including id and label tokens (for anonymous traversals).
+    ///
+    /// Like `value_map()`, but also includes "id" and "label" entries.
+    /// The id and label are NOT wrapped in lists, but property values are.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().value_map_with_tokens();
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{"id": 0, "label": "person", "name": ["Alice"], "age": [30]}]
+    /// ```
+    pub fn value_map_with_tokens(self) -> Traversal<In, Value> {
+        self.add_step(transform::ValueMapStep::new().with_tokens())
+    }
+
+    /// Get complete element representation as a map (for anonymous traversals).
+    ///
+    /// Transforms each element into a `Value::Map` with id, label, and all
+    /// properties. Unlike `value_map()`, property values are NOT wrapped in lists.
+    /// For edges, also includes "IN" and "OUT" vertex references.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().element_map();
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{"id": 0, "label": "person", "name": "Alice", "age": 30}]
+    /// ```
+    pub fn element_map(self) -> Traversal<In, Value> {
+        self.add_step(transform::ElementMapStep::new())
+    }
+
+    /// Get element representation with specific properties (for anonymous traversals).
+    ///
+    /// Like `element_map()`, but includes only the specified properties
+    /// along with the id, label, and (for edges) IN/OUT references.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().element_map_keys(&["name"]);
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{"id": 0, "label": "person", "name": "Alice"}]
+    /// ```
+    pub fn element_map_keys<I, S>(self, keys: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(transform::ElementMapStep::from_keys(keys))
+    }
+
     /// Unroll collections into individual elements (for anonymous traversals).
     ///
     /// This step expands `Value::List` and `Value::Map` into separate traversers:

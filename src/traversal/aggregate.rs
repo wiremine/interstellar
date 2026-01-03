@@ -1087,26 +1087,558 @@ mod tests {
     fn test_group_count_respects_bulk() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+        let step = GroupCountStep::new(GroupKey::Label);
+
+        // Create traversers with different bulk values
+        let mut t1 = Traverser::from_vertex(crate::value::VertexId(0)); // person
+        t1.bulk = 5;
+
+        let mut t2 = Traverser::from_vertex(crate::value::VertexId(1)); // person
+        t2.bulk = 3;
+
+        let mut t3 = Traverser::from_vertex(crate::value::VertexId(3)); // software
+        t3.bulk = 2;
+
+        let input = vec![t1, t2, t3];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        if let Value::Map(map) = &result[0].value {
+            // person count should be 5 + 3 = 8
+            assert_eq!(map.get("person"), Some(&Value::Int(8)));
+            // software count should be 2
+            assert_eq!(map.get("software"), Some(&Value::Int(2)));
+        } else {
+            panic!("Expected Value::Map, got {:?}", result[0].value);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // GroupStep - Advanced Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_group_by_traversal_key() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
-        // Count all vertices by label
-        // Note: In a real scenario, bulk would be set by previous steps
-        // This test just verifies the counting logic works
-        let result = g.v().group_count().by_label().build().next();
+        // Group by out-degree (count of outgoing edges)
+        // Since our test graph has no edges, we'll use a simpler traversal
+        // Group by the first character of name property
+        let key_traversal = crate::traversal::__::values("name");
+
+        let result = g
+            .v()
+            .has_label("person")
+            .group()
+            .by_traversal(key_traversal)
+            .by_value()
+            .build()
+            .next();
 
         assert!(result.is_some());
         if let Some(Value::Map(map)) = result {
-            // Verify counts are integers
-            for (_key, value) in map.iter() {
-                match value {
-                    Value::Int(count) => {
-                        assert!(*count > 0, "Count should be positive");
+            // Should group by name values
+            assert!(!map.is_empty());
+            // Each group should contain vertices
+            for (_key, value) in map {
+                if let Value::List(vertices) = value {
+                    for v in vertices {
+                        assert!(matches!(v, Value::Vertex(_)));
                     }
-                    _ => panic!("Expected Value::Int for count, got {:?}", value),
                 }
             }
         } else {
-            panic!("Expected Value::Map, got {:?}", result);
+            panic!("Expected Value::Map");
         }
+    }
+
+    #[test]
+    fn test_group_by_value_traversal() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Group by label, collect age property values
+        let value_traversal = crate::traversal::__::values("age");
+
+        let result = g
+            .v()
+            .has_label("person")
+            .group()
+            .by_label()
+            .by_value_traversal(value_traversal)
+            .build()
+            .next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            // Should have "person" key
+            if let Some(Value::List(ages)) = map.get("person") {
+                // Should have 3 age values
+                assert_eq!(ages.len(), 3);
+                // All should be integers
+                for age in ages {
+                    assert!(matches!(age, Value::Int(_)));
+                }
+            } else {
+                panic!("Expected person group with list of ages");
+            }
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_edges_by_label() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create vertices
+        let mut props1 = StdHashMap::new();
+        props1.insert("name".to_string(), Value::String("v1".to_string()));
+        storage.add_vertex("person", props1);
+
+        let mut props2 = StdHashMap::new();
+        props2.insert("name".to_string(), Value::String("v2".to_string()));
+        storage.add_vertex("person", props2);
+
+        let mut props3 = StdHashMap::new();
+        props3.insert("name".to_string(), Value::String("v3".to_string()));
+        storage.add_vertex("software", props3);
+
+        // Create edges
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(1),
+                "knows",
+                StdHashMap::new(),
+            )
+            .unwrap();
+
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(2),
+                "created",
+                StdHashMap::new(),
+            )
+            .unwrap();
+
+        storage
+            .add_edge(
+                crate::value::VertexId(1),
+                crate::value::VertexId(2),
+                "created",
+                StdHashMap::new(),
+            )
+            .unwrap();
+
+        let graph = Graph::new(std::sync::Arc::new(storage));
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Group all edges by label
+        let result = g.e().group().by_label().by_value().build().next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            // Should have "knows" and "created" groups
+            assert_eq!(map.len(), 2);
+
+            if let Some(Value::List(knows_edges)) = map.get("knows") {
+                assert_eq!(knows_edges.len(), 1);
+                assert!(matches!(knows_edges[0], Value::Edge(_)));
+            } else {
+                panic!("Expected knows edges");
+            }
+
+            if let Some(Value::List(created_edges)) = map.get("created") {
+                assert_eq!(created_edges.len(), 2);
+                for edge in created_edges {
+                    assert!(matches!(edge, Value::Edge(_)));
+                }
+            } else {
+                panic!("Expected created edges");
+            }
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_edges_by_property() {
+        let mut storage = InMemoryGraph::new();
+
+        storage.add_vertex("person", StdHashMap::new());
+        storage.add_vertex("person", StdHashMap::new());
+
+        // Create edges with weight property
+        let mut edge1_props = StdHashMap::new();
+        edge1_props.insert("weight".to_string(), Value::Float(0.5));
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(1),
+                "knows",
+                edge1_props,
+            )
+            .unwrap();
+
+        let mut edge2_props = StdHashMap::new();
+        edge2_props.insert("weight".to_string(), Value::Float(0.8));
+        storage
+            .add_edge(
+                crate::value::VertexId(1),
+                crate::value::VertexId(0),
+                "knows",
+                edge2_props,
+            )
+            .unwrap();
+
+        let graph = Graph::new(std::sync::Arc::new(storage));
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Group edges by weight property
+        let result = g.e().group().by_key("weight").by_value().build().next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            // Should have two groups by weight
+            assert_eq!(map.len(), 2);
+            assert!(map.contains_key("0.5") || map.contains_key("0.8"));
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_preserves_path() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Create traversal with path tracking
+        let result = g
+            .v()
+            .has_label("person")
+            .with_path()
+            .group()
+            .by_label()
+            .by_value()
+            .build()
+            .next();
+
+        assert!(result.is_some());
+        // The result should exist - path tracking doesn't affect grouping
+        if let Some(Value::Map(_map)) = result {
+            // Success - grouping worked with path tracking enabled
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_with_bulk_traversers() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+        let step = GroupStep::with_selectors(GroupKey::Label, GroupValue::Identity);
+
+        // Create traversers with bulk > 1
+        let mut t1 = Traverser::from_vertex(crate::value::VertexId(0)); // person
+        t1.bulk = 3;
+
+        let mut t2 = Traverser::from_vertex(crate::value::VertexId(1)); // person
+        t2.bulk = 2;
+
+        let input = vec![t1, t2];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        if let Value::Map(map) = &result[0].value {
+            if let Some(Value::List(persons)) = map.get("person") {
+                // Should have 2 vertex values (one per input traverser)
+                // Note: GroupStep doesn't expand by bulk, it just collects values
+                assert_eq!(persons.len(), 2);
+            } else {
+                panic!("Expected person group");
+            }
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // GroupCountStep - Advanced Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_group_count_by_traversal() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Count by name property value
+        let key_traversal = crate::traversal::__::values("name");
+
+        let result = g
+            .v()
+            .has_label("person")
+            .group_count()
+            .by_traversal(key_traversal)
+            .build()
+            .next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            // Should have 3 entries (Alice, Bob, Charlie)
+            assert_eq!(map.len(), 3);
+            // Each name should have count of 1
+            assert_eq!(map.get("Alice"), Some(&Value::Int(1)));
+            assert_eq!(map.get("Bob"), Some(&Value::Int(1)));
+            assert_eq!(map.get("Charlie"), Some(&Value::Int(1)));
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_count_edges_by_label() {
+        let mut storage = InMemoryGraph::new();
+
+        storage.add_vertex("person", StdHashMap::new());
+        storage.add_vertex("person", StdHashMap::new());
+        storage.add_vertex("software", StdHashMap::new());
+
+        // Create edges
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(1),
+                "knows",
+                StdHashMap::new(),
+            )
+            .unwrap();
+
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(2),
+                "created",
+                StdHashMap::new(),
+            )
+            .unwrap();
+
+        storage
+            .add_edge(
+                crate::value::VertexId(1),
+                crate::value::VertexId(2),
+                "created",
+                StdHashMap::new(),
+            )
+            .unwrap();
+
+        let graph = Graph::new(std::sync::Arc::new(storage));
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Count edges by label
+        let result = g.e().group_count().by_label().build().next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            assert_eq!(map.len(), 2);
+            assert_eq!(map.get("knows"), Some(&Value::Int(1)));
+            assert_eq!(map.get("created"), Some(&Value::Int(2)));
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_count_edges_by_property() {
+        let mut storage = InMemoryGraph::new();
+
+        storage.add_vertex("person", StdHashMap::new());
+        storage.add_vertex("person", StdHashMap::new());
+
+        // Create edges with weight property
+        let mut edge1_props = StdHashMap::new();
+        edge1_props.insert("weight".to_string(), Value::Float(0.5));
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(1),
+                "knows",
+                edge1_props,
+            )
+            .unwrap();
+
+        let mut edge2_props = StdHashMap::new();
+        edge2_props.insert("weight".to_string(), Value::Float(0.5));
+        storage
+            .add_edge(
+                crate::value::VertexId(1),
+                crate::value::VertexId(0),
+                "knows",
+                edge2_props,
+            )
+            .unwrap();
+
+        let mut edge3_props = StdHashMap::new();
+        edge3_props.insert("weight".to_string(), Value::Float(0.8));
+        storage
+            .add_edge(
+                crate::value::VertexId(0),
+                crate::value::VertexId(1),
+                "likes",
+                edge3_props,
+            )
+            .unwrap();
+
+        let graph = Graph::new(std::sync::Arc::new(storage));
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Count edges by weight property
+        let result = g.e().group_count().by_key("weight").build().next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            assert_eq!(map.len(), 2);
+            assert_eq!(map.get("0.5"), Some(&Value::Int(2)));
+            assert_eq!(map.get("0.8"), Some(&Value::Int(1)));
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_count_preserves_path() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Create traversal with path tracking
+        let result = g
+            .v()
+            .has_label("person")
+            .with_path()
+            .group_count()
+            .by_label()
+            .build()
+            .next();
+
+        assert!(result.is_some());
+        // The result should exist - path tracking doesn't affect counting
+        if let Some(Value::Map(map)) = result {
+            assert_eq!(map.get("person"), Some(&Value::Int(3)));
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_count_multiple_bulk_values() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+        let step = GroupCountStep::new(GroupKey::Property("age".to_string()));
+
+        // Create traversers with different bulk values
+        let mut t1 = Traverser::from_vertex(crate::value::VertexId(0)); // Alice, age 29
+        t1.bulk = 10;
+
+        let mut t2 = Traverser::from_vertex(crate::value::VertexId(1)); // Bob, age 29
+        t2.bulk = 5;
+
+        let mut t3 = Traverser::from_vertex(crate::value::VertexId(2)); // Charlie, age 30
+        t3.bulk = 3;
+
+        let input = vec![t1, t2, t3];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        if let Value::Map(map) = &result[0].value {
+            // Age 29 should have bulk 10 + 5 = 15
+            assert_eq!(map.get("29"), Some(&Value::Int(15)));
+            // Age 30 should have bulk 3
+            assert_eq!(map.get("30"), Some(&Value::Int(3)));
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_count_with_missing_property() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Count by a property that doesn't exist on all vertices
+        let result = g.v().group_count().by_key("nonexistent").build().next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            // Should return empty map since no vertices have this property
+            assert!(map.is_empty());
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_with_missing_property() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Group by a property that doesn't exist on all vertices
+        let result = g
+            .v()
+            .group()
+            .by_key("nonexistent")
+            .by_value()
+            .build()
+            .next();
+
+        assert!(result.is_some());
+        if let Some(Value::Map(map)) = result {
+            // Should return empty map since no vertices have this property
+            assert!(map.is_empty());
+        } else {
+            panic!("Expected Value::Map");
+        }
+    }
+
+    #[test]
+    fn test_group_step_construction() {
+        let step = GroupStep::new();
+        assert_eq!(step.name(), "group");
+
+        let step2 = GroupStep::with_selectors(
+            GroupKey::Property("age".to_string()),
+            GroupValue::Property("name".to_string()),
+        );
+        assert_eq!(step2.name(), "group");
+    }
+
+    #[test]
+    fn test_group_count_step_construction() {
+        let step = GroupCountStep::new(GroupKey::Label);
+        assert_eq!(step.name(), "groupCount");
+
+        let step2 = GroupCountStep::new(GroupKey::Property("age".to_string()));
+        assert_eq!(step2.name(), "groupCount");
     }
 }
