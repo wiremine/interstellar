@@ -469,9 +469,9 @@ impl AnyStep for WhereStep {
 5. Add `__::local()` factory function
 
 **Acceptance Criteria**:
-- [ ] All factory functions return `Traversal<Value, Value>`
-- [ ] Can be used as sub-traversals in filter/branch steps
-- [ ] Unit tests pass
+- [x] All factory functions return `Traversal<Value, Value>`
+- [x] Can be used as sub-traversals in filter/branch steps
+- [x] Unit tests pass
 
 ---
 
