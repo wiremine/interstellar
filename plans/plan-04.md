@@ -741,9 +741,9 @@ struct RepeatIterator<'a> {
 5. Update prelude in `src/lib.rs`
 
 **Acceptance Criteria**:
-- [ ] `use rustgremlin::prelude::*` imports `p`, `__`, all step types
-- [ ] `use rustgremlin::p;` works
-- [ ] Public API is clean
+- [x] `use rustgremlin::prelude::*` imports `p`, `__`, all step types
+- [x] `use rustgremlin::p;` works
+- [x] Public API is clean
 
 ---
 
@@ -760,11 +760,11 @@ struct RepeatIterator<'a> {
 7. Verify all tests pass
 
 **Acceptance Criteria**:
-- [ ] All public items have doc comments
-- [ ] No clippy warnings (with `-D warnings`)
-- [ ] Code is properly formatted
-- [ ] All tests pass
-- [ ] `cargo doc` builds without errors
+- [x] All public items have doc comments
+- [x] No clippy warnings (with `-D warnings`)
+- [x] Code is properly formatted
+- [x] All tests pass
+- [x] `cargo doc` builds without errors
 
 ---
 
@@ -773,50 +773,50 @@ struct RepeatIterator<'a> {
 From spec section "Exit Criteria":
 
 ### Predicate System
-- [ ] `Predicate` trait compiles with `test()`, `clone_box()` methods
-- [ ] `Box<dyn Predicate>` is clonable
-- [ ] **Comparison predicates**: `eq`, `neq`, `lt`, `lte`, `gt`, `gte`
-- [ ] **Range predicates**: `between`, `inside`, `outside`
-- [ ] **Collection predicates**: `within`, `without`
-- [ ] **String predicates**: `containing`, `starting_with`, `ending_with`, `regex`
-- [ ] **Logical predicates**: `and`, `or`, `not`
-- [ ] All predicates are `Clone + Send + Sync`
+- [x] `Predicate` trait compiles with `test()`, `clone_box()` methods
+- [x] `Box<dyn Predicate>` is clonable
+- [x] **Comparison predicates**: `eq`, `neq`, `lt`, `lte`, `gt`, `gte`
+- [x] **Range predicates**: `between`, `inside`, `outside`
+- [x] **Collection predicates**: `within`, `without`
+- [x] **String predicates**: `containing`, `starting_with`, `ending_with`, `regex`
+- [x] **Logical predicates**: `and`, `or`, `not`
+- [x] All predicates are `Clone + Send + Sync`
 
 ### HasWhere Step
-- [ ] `has_where(key, predicate)` filters by property with predicate
-- [ ] Works for both vertices and edges
-- [ ] Missing properties filter out traverser
+- [x] `has_where(key, predicate)` filters by property with predicate
+- [x] Works for both vertices and edges
+- [x] Missing properties filter out traverser
 
 ### Filter Steps
-- [ ] `where_(sub)` - filter by sub-traversal producing results
-- [ ] `not(sub)` - filter by sub-traversal NOT producing results
-- [ ] `and_(subs)` - all sub-traversals must produce results
-- [ ] `or_(subs)` - at least one sub-traversal must produce results
+- [x] `where_(sub)` - filter by sub-traversal producing results
+- [x] `not(sub)` - filter by sub-traversal NOT producing results
+- [x] `and_(subs)` - all sub-traversals must produce results
+- [x] `or_(subs)` - at least one sub-traversal must produce results
 
 ### Branch Steps
-- [ ] `union(branches)` - merge results from multiple branches
-- [ ] `coalesce(branches)` - first branch with results wins
-- [ ] `choose(cond, if_true, if_false)` - conditional branching
-- [ ] `optional(sub)` - try sub-traversal, keep original if empty
-- [ ] `local(sub)` - execute in isolated scope
+- [x] `union(branches)` - merge results from multiple branches
+- [x] `coalesce(branches)` - first branch with results wins
+- [x] `choose(cond, if_true, if_false)` - conditional branching
+- [x] `optional(sub)` - try sub-traversal, keep original if empty
+- [x] `local(sub)` - execute in isolated scope
 
 ### Repeat Step
-- [ ] `repeat(sub).times(n)` - fixed iterations
-- [ ] `repeat(sub).until(cond)` - conditional termination
-- [ ] `repeat(sub).emit()` - emit intermediate results
-- [ ] `repeat(sub).emit_if(cond)` - conditional emission
-- [ ] `repeat(sub).emit_first()` - emit initial input
-- [ ] BFS frontier processing for level-order traversal
+- [x] `repeat(sub).times(n)` - fixed iterations
+- [x] `repeat(sub).until(cond)` - conditional termination
+- [x] `repeat(sub).emit()` - emit intermediate results
+- [x] `repeat(sub).emit_if(cond)` - conditional emission
+- [x] `repeat(sub).emit_first()` - emit initial input
+- [x] BFS frontier processing for level-order traversal
 
 ### Anonymous Traversal Extensions
-- [ ] `__` module extended with filter step factories
-- [ ] `__` module extended with branch step factories
-- [ ] Anonymous traversals chain correctly
-- [ ] `Traversal<In, Out>` is cloneable for branching operations
+- [x] `__` module extended with filter step factories
+- [x] `__` module extended with branch step factories
+- [x] Anonymous traversals chain correctly
+- [x] `Traversal<In, Out>` is cloneable for branching operations
 
 ### Testing
-- [ ] All unit tests pass
-- [ ] All integration tests pass
+- [x] All unit tests pass
+- [x] All integration tests pass
 - [ ] Benchmarks run successfully on 10K vertex graph
 
 ---
