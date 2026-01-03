@@ -306,9 +306,9 @@ impl AnyStep for WhereStep {
 4. Add `not()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `not(__.out())` filters to traversers WITHOUT outgoing edges
-- [ ] Inverse of `where_()` behavior
-- [ ] Unit tests pass
+- [x] `not(__.out())` filters to traversers WITHOUT outgoing edges
+- [x] Inverse of `where_()` behavior
+- [x] Unit tests pass
 
 ---
 
@@ -323,9 +323,9 @@ impl AnyStep for WhereStep {
 4. Add `and_()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `and_(vec![__.out(), __.in_()])` requires both directions
-- [ ] Short-circuits on first failing condition
-- [ ] Unit tests pass
+- [x] `and_(vec![__.out(), __.in_()])` requires both directions
+- [x] Short-circuits on first failing condition
+- [x] Unit tests pass
 
 ---
 
@@ -340,9 +340,9 @@ impl AnyStep for WhereStep {
 4. Add `or_()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `or_(vec![__.has_label("a"), __.has_label("b")])` matches either label
-- [ ] Short-circuits on first successful condition
-- [ ] Unit tests pass
+- [x] `or_(vec![__.has_label("a"), __.has_label("b")])` matches either label
+- [x] Short-circuits on first successful condition
+- [x] Unit tests pass
 
 ---
 
@@ -358,10 +358,10 @@ impl AnyStep for WhereStep {
 5. Ensure all return `Traversal<Value, Value>`
 
 **Acceptance Criteria**:
-- [ ] `__::where_(__.out())` creates anonymous where traversal
-- [ ] `__::not(__.out())` creates anonymous not traversal
-- [ ] Anonymous traversals can be nested
-- [ ] Unit tests pass
+- [x] `__::where_(__.out())` creates anonymous where traversal
+- [x] `__::not(__.out())` creates anonymous not traversal
+- [x] Anonymous traversals can be nested
+- [x] Unit tests pass
 
 ---
 

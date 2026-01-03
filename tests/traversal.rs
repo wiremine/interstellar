@@ -1198,6 +1198,389 @@ mod anonymous_traversal_tests {
 }
 
 // =============================================================================
+// Filter Steps with Anonymous Traversals (Phase 2.3+)
+// =============================================================================
+
+mod filter_step_tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // WhereStep Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn where_filters_by_sub_traversal_existence() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that have outgoing edges
+        // Alice: out to Bob, GraphDB (2 out) -> passes
+        // Bob: out to Charlie, GraphDB (2 out) -> passes
+        // Charlie: out to Alice (1 out) -> passes
+        // GraphDB: no outgoing edges -> filtered out
+        let results = g.v().where_(__::out()).to_list();
+        assert_eq!(results.len(), 3); // Alice, Bob, Charlie have outgoing edges
+    }
+
+    #[test]
+    fn where_filters_by_labeled_edges() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that have outgoing "knows" edges
+        // Alice: knows Bob -> passes
+        // Bob: knows Charlie -> passes
+        // Charlie: knows Alice -> passes
+        // GraphDB: no knows edges -> filtered out
+        let results = g.v().where_(__::out_labels(&["knows"])).to_list();
+        assert_eq!(results.len(), 3);
+
+        // Verify all results are people (not GraphDB)
+        for v in &results {
+            let id = v.as_vertex_id().unwrap();
+            assert!(id == tg.alice || id == tg.bob || id == tg.charlie);
+        }
+    }
+
+    #[test]
+    fn where_filters_by_chained_sub_traversal() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that know someone who uses software
+        // Alice knows Bob, Bob uses GraphDB -> Alice passes
+        // Bob knows Charlie, Charlie doesn't use anything -> Bob fails
+        // Charlie knows Alice, Alice uses GraphDB -> Charlie passes
+        let results = g
+            .v()
+            .where_(__::out_labels(&["knows"]).out_labels(&["uses"]))
+            .to_list();
+        assert_eq!(results.len(), 2); // Alice and Charlie
+    }
+
+    #[test]
+    fn where_empty_sub_traversal_filters_out() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // No vertex has outgoing "nonexistent" edges
+        let results = g.v().where_(__::out_labels(&["nonexistent"])).to_list();
+        assert!(results.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // NotStep Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn not_filters_to_traversers_without_outgoing_edges() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices WITHOUT outgoing edges
+        // GraphDB has no outgoing edges -> passes
+        // Alice, Bob, Charlie all have outgoing edges -> filtered out
+        let results = g.v().not(__::out()).to_list();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
+    }
+
+    #[test]
+    fn not_is_inverse_of_where() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Vertices with outgoing edges (where)
+        let with_out = g.v().where_(__::out()).to_list();
+
+        // Vertices without outgoing edges (not)
+        let without_out = g.v().not(__::out()).to_list();
+
+        // Together they should equal all vertices
+        assert_eq!(with_out.len() + without_out.len(), 4);
+
+        // No overlap between results
+        let with_ids: Vec<_> = with_out.iter().filter_map(|v| v.as_vertex_id()).collect();
+        let without_ids: Vec<_> = without_out
+            .iter()
+            .filter_map(|v| v.as_vertex_id())
+            .collect();
+        for id in &with_ids {
+            assert!(!without_ids.contains(id));
+        }
+    }
+
+    #[test]
+    fn not_filters_by_labeled_edges() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices WITHOUT outgoing "uses" edges
+        // Alice: uses GraphDB -> filtered out
+        // Bob: uses GraphDB -> filtered out
+        // Charlie: no uses edges -> passes
+        // GraphDB: no uses edges -> passes
+        let results = g.v().not(__::out_labels(&["uses"])).to_list();
+        assert_eq!(results.len(), 2); // Charlie and GraphDB
+
+        let ids: Vec<_> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
+        assert!(ids.contains(&tg.charlie));
+        assert!(ids.contains(&tg.graphdb));
+    }
+
+    #[test]
+    fn not_with_has_label_sub_traversal() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that are NOT persons
+        // This uses a sub-traversal pattern - filter out if has_label matches
+        let results = g.v().not(__::has_label("person")).to_list();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
+    }
+
+    #[test]
+    fn not_finds_leaf_vertices() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Leaf vertices have no outgoing edges
+        // In this graph, only GraphDB has no outgoing edges
+        let leaves = g.v().not(__::out()).to_list();
+        assert_eq!(leaves.len(), 1);
+
+        // Verify it's GraphDB (the software vertex)
+        let leaf = &leaves[0];
+        assert!(leaf.is_vertex());
+        assert_eq!(leaf.as_vertex_id(), Some(tg.graphdb));
+    }
+
+    // -------------------------------------------------------------------------
+    // AndStep Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn and_requires_all_conditions() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that have BOTH outgoing AND incoming edges
+        // Alice: out(Bob,GraphDB), in(Charlie) -> passes
+        // Bob: out(Charlie,GraphDB), in(Alice) -> passes
+        // Charlie: out(Alice), in(Bob) -> passes
+        // GraphDB: out(), in(Alice,Bob) -> fails (no outgoing)
+        let results = g.v().and_(vec![__::out(), __::in_()]).to_list();
+        assert_eq!(results.len(), 3); // Alice, Bob, Charlie
+    }
+
+    #[test]
+    fn and_short_circuits_on_first_failure() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Require outgoing "knows" AND outgoing "uses" edges
+        // Alice: knows(Bob), uses(GraphDB) -> passes
+        // Bob: knows(Charlie), uses(GraphDB) -> passes
+        // Charlie: knows(Alice), no uses -> fails
+        // GraphDB: no knows, no uses -> fails
+        let results = g
+            .v()
+            .and_(vec![__::out_labels(&["knows"]), __::out_labels(&["uses"])])
+            .to_list();
+        assert_eq!(results.len(), 2); // Alice, Bob
+
+        let ids: Vec<_> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
+        assert!(ids.contains(&tg.alice));
+        assert!(ids.contains(&tg.bob));
+    }
+
+    #[test]
+    fn and_with_empty_vec_passes_all() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Empty and_ should pass all traversers (vacuous truth)
+        let results = g.v().and_(vec![]).to_list();
+        assert_eq!(results.len(), 4);
+    }
+
+    // -------------------------------------------------------------------------
+    // OrStep Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn or_accepts_any_condition() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that have EITHER "knows" OR "uses" outgoing edges
+        // Alice: knows(Bob), uses(GraphDB) -> passes
+        // Bob: knows(Charlie), uses(GraphDB) -> passes
+        // Charlie: knows(Alice) -> passes
+        // GraphDB: neither -> fails
+        let results = g
+            .v()
+            .or_(vec![__::out_labels(&["knows"]), __::out_labels(&["uses"])])
+            .to_list();
+        assert_eq!(results.len(), 3); // Alice, Bob, Charlie
+    }
+
+    #[test]
+    fn or_short_circuits_on_first_success() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Keep vertices that are person OR software
+        let results = g
+            .v()
+            .or_(vec![__::has_label("person"), __::has_label("software")])
+            .to_list();
+        assert_eq!(results.len(), 4); // All vertices match
+    }
+
+    #[test]
+    fn or_with_empty_vec_filters_all() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Empty or_ should filter all traversers (no conditions to satisfy)
+        let results = g.v().or_(vec![]).to_list();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn or_finds_vertices_with_either_edge_type() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Find vertices that either use something OR are used by someone
+        // Alice: uses(GraphDB) -> passes
+        // Bob: uses(GraphDB) -> passes
+        // Charlie: neither uses nor is used -> fails
+        // GraphDB: is used by Alice, Bob -> passes
+        let results = g
+            .v()
+            .or_(vec![__::out_labels(&["uses"]), __::in_labels(&["uses"])])
+            .to_list();
+        assert_eq!(results.len(), 3); // Alice, Bob, GraphDB
+
+        let ids: Vec<_> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
+        assert!(ids.contains(&tg.alice));
+        assert!(ids.contains(&tg.bob));
+        assert!(ids.contains(&tg.graphdb));
+    }
+
+    // -------------------------------------------------------------------------
+    // Combined Filter Steps Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn where_and_not_combined() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Find persons who don't use anything
+        // Filter to persons first, then filter out those who use something
+        let results = g
+            .v()
+            .has_label("person")
+            .not(__::out_labels(&["uses"]))
+            .to_list();
+        assert_eq!(results.len(), 1); // Charlie
+        assert_eq!(results[0].as_vertex_id(), Some(tg.charlie));
+    }
+
+    #[test]
+    fn nested_filter_steps() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Find vertices that know someone who knows someone
+        // Alice knows Bob, Bob knows Charlie -> Alice passes
+        // Bob knows Charlie, Charlie knows Alice -> Bob passes
+        // Charlie knows Alice, Alice knows Bob -> Charlie passes
+        // GraphDB knows nobody -> fails
+        let results = g
+            .v()
+            .where_(__::out_labels(&["knows"]).out_labels(&["knows"]))
+            .to_list();
+        assert_eq!(results.len(), 3);
+    }
+
+    // -------------------------------------------------------------------------
+    // Anonymous Traversal Factory Tests (__ module)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn anonymous_where_factory() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use __::where_ factory to create anonymous traversal
+        let anon = __::where_(__::out());
+        let results = g.v().append(anon).to_list();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn anonymous_not_factory() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use __::not factory to create anonymous traversal
+        let anon = __::not(__::out());
+        let results = g.v().append(anon).to_list();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
+    }
+
+    #[test]
+    fn anonymous_and_factory() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use __::and_ factory to create anonymous traversal
+        let anon = __::and_(vec![__::out(), __::in_()]);
+        let results = g.v().append(anon).to_list();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn anonymous_or_factory() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use __::or_ factory to create anonymous traversal
+        let anon = __::or_(vec![__::has_label("person"), __::has_label("software")]);
+        let results = g.v().append(anon).to_list();
+        assert_eq!(results.len(), 4);
+    }
+}
+
+// =============================================================================
 // Complex Traversal Tests
 // =============================================================================
 
