@@ -379,10 +379,10 @@ impl AnyStep for WhereStep {
 5. Add `union()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `union(vec![__.out(), __.in_()])` returns neighbors from both directions
-- [ ] Results are merged in traverser-major order
-- [ ] Works with empty branches
-- [ ] Unit tests pass
+- [x] `union(vec![__.out(), __.in_()])` returns neighbors from both directions
+- [x] Results are merged in traverser-major order
+- [x] Works with empty branches
+- [x] Unit tests pass
 
 ---
 
@@ -398,10 +398,10 @@ impl AnyStep for WhereStep {
 5. Add `coalesce()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `coalesce(vec![__.values("nickname"), __.values("name")])` tries nickname first
-- [ ] Falls back to subsequent branches if prior is empty
-- [ ] Returns empty if all branches are empty
-- [ ] Unit tests pass
+- [x] `coalesce(vec![__.values("nickname"), __.values("name")])` tries nickname first
+- [x] Falls back to subsequent branches if prior is empty
+- [x] Returns empty if all branches are empty
+- [x] Unit tests pass
 
 ---
 
@@ -416,10 +416,10 @@ impl AnyStep for WhereStep {
 4. Add `choose()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `choose(__.has_label("a"), __.out(), __.in_())` branches based on label
-- [ ] Both branches execute correctly
-- [ ] Condition is evaluated per-traverser
-- [ ] Unit tests pass
+- [x] `choose(__.has_label("a"), __.out(), __.in_())` branches based on label
+- [x] Both branches execute correctly
+- [x] Condition is evaluated per-traverser
+- [x] Unit tests pass
 
 ---
 
@@ -434,9 +434,9 @@ impl AnyStep for WhereStep {
 4. Add `optional()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `optional(__.out())` returns neighbors if any, else keeps original
-- [ ] Traversers without matching neighbors pass through unchanged
-- [ ] Unit tests pass
+- [x] `optional(__.out())` returns neighbors if any, else keeps original
+- [x] Traversers without matching neighbors pass through unchanged
+- [x] Unit tests pass
 
 ---
 
@@ -451,9 +451,9 @@ impl AnyStep for WhereStep {
 4. Add `local()` method to `BoundTraversal` and `Traversal`
 
 **Acceptance Criteria**:
-- [ ] `local(__.out().count())` counts per-traverser, not globally
-- [ ] Aggregations operate per-input
-- [ ] Unit tests pass
+- [x] `local(__.out().count())` counts per-traverser, not globally
+- [x] Aggregations operate per-input
+- [x] Unit tests pass
 
 ---
 
