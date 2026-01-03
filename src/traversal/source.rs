@@ -1284,6 +1284,62 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::branch::LocalStep;
         self.add_step(LocalStep::new(sub))
     }
+
+    // -------------------------------------------------------------------------
+    // Repeat step
+    // -------------------------------------------------------------------------
+
+    /// Start a repeat loop with the given sub-traversal.
+    ///
+    /// The repeat step enables iterative graph exploration with fine-grained
+    /// control over termination and emission. Returns a `RepeatTraversal`
+    /// builder that allows configuration via chained methods:
+    ///
+    /// - `times(n)` - Execute exactly n iterations
+    /// - `until(condition)` - Stop when condition traversal produces results
+    /// - `emit()` - Emit results from all iterations (not just final)
+    /// - `emit_if(condition)` - Conditional emission based on traversal
+    /// - `emit_first()` - Emit the initial input before first iteration
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Get friends-of-friends (2 hops exactly)
+    /// let fof = g.v()
+    ///     .has_value("name", "Alice")
+    ///     .repeat(__.out_labels(&["knows"]))
+    ///     .times(2)
+    ///     .to_list();
+    ///
+    /// // Traverse until reaching a company vertex
+    /// let path_to_company = g.v()
+    ///     .has_value("name", "Alice")
+    ///     .repeat(__.out())
+    ///     .until(__.has_label("company"))
+    ///     .to_list();
+    ///
+    /// // Get all vertices within 3 hops, emitting intermediates
+    /// let all_reachable = g.v()
+    ///     .has_value("name", "Alice")
+    ///     .repeat(__.out())
+    ///     .times(3)
+    ///     .emit()
+    ///     .to_list();
+    /// ```
+    pub fn repeat(
+        self,
+        sub: crate::traversal::Traversal<Value, Value>,
+    ) -> crate::traversal::repeat::RepeatTraversal<'g, In> {
+        crate::traversal::repeat::RepeatTraversal::new(
+            self.snapshot,
+            self.interner,
+            self.traversal,
+            sub,
+            self.track_paths,
+        )
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {

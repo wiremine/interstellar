@@ -528,10 +528,10 @@ impl RepeatStep {
 ```
 
 **Acceptance Criteria**:
-- [ ] `RepeatStep::new()` creates step with default config
-- [ ] `satisfies_until()` correctly evaluates until traversal
-- [ ] `should_emit()` correctly evaluates emit_if traversal
-- [ ] Step is clonable
+- [x] `RepeatStep::new()` creates step with default config
+- [x] `satisfies_until()` correctly evaluates until traversal
+- [x] `should_emit()` correctly evaluates emit_if traversal
+- [x] Step is clonable
 
 ---
 
@@ -563,10 +563,10 @@ struct RepeatIterator<'a> {
 ```
 
 **Acceptance Criteria**:
-- [ ] BFS processes one level at a time
-- [ ] `times` limit is respected
-- [ ] `until` condition terminates correctly
-- [ ] Results are emitted in correct order
+- [x] BFS processes one level at a time
+- [x] `times` limit is respected
+- [x] `until` condition terminates correctly
+- [x] Results are emitted in correct order
 
 ---
 
@@ -587,11 +587,11 @@ struct RepeatIterator<'a> {
 5. Implement continuation methods (`has_label()`, `dedup()`, `values()`, etc.)
 
 **Acceptance Criteria**:
-- [ ] `repeat(__.out()).times(2)` configures correctly
-- [ ] `repeat(__.out()).until(__.has_label("x"))` configures correctly
-- [ ] `repeat(__.out()).emit()` enables emission
-- [ ] Terminal methods work directly on builder
-- [ ] Continuation methods return `BoundTraversal`
+- [x] `repeat(__.out()).times(2)` configures correctly
+- [x] `repeat(__.out()).until(__.has_label("x"))` configures correctly
+- [x] `repeat(__.out()).emit()` enables emission
+- [x] Terminal methods work directly on builder
+- [x] Continuation methods return `BoundTraversal`
 
 ---
 
@@ -605,9 +605,9 @@ struct RepeatIterator<'a> {
 3. Ensure proper type transitions
 
 **Acceptance Criteria**:
-- [ ] `g.v().repeat(__.out())` compiles
-- [ ] Returns `RepeatTraversal` for configuration
-- [ ] Type parameters are correct
+- [x] `g.v().repeat(__.out())` compiles
+- [x] Returns `RepeatTraversal` for configuration
+- [x] Type parameters are correct
 
 ---
 

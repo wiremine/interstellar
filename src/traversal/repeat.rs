@@ -43,6 +43,7 @@
 use crate::traversal::step::{execute_traversal_from, AnyStep};
 use crate::traversal::{ExecutionContext, Traversal, Traverser};
 use crate::value::Value;
+use std::collections::VecDeque;
 
 /// Configuration for the repeat step.
 ///
@@ -381,13 +382,16 @@ impl std::fmt::Debug for RepeatStep {
 impl AnyStep for RepeatStep {
     fn apply<'a>(
         &'a self,
-        _ctx: &'a ExecutionContext<'a>,
+        ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        // Phase 4.2: Return empty iterator as skeleton
-        // Phase 4.3 will implement the full RepeatIterator with BFS frontier processing
-        let _ = input;
-        Box::new(std::iter::empty())
+        Box::new(RepeatIterator::new(
+            ctx,
+            input,
+            self.sub.clone(),
+            self.config.clone(),
+            self.clone(),
+        ))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -396,6 +400,621 @@ impl AnyStep for RepeatStep {
 
     fn name(&self) -> &'static str {
         "repeat"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// RepeatIterator - BFS frontier processing for iterative graph exploration
+// -----------------------------------------------------------------------------
+
+/// Iterator for `RepeatStep` that processes traversers in BFS order.
+///
+/// Maintains a frontier queue of `(Traverser, loop_count)` pairs and processes
+/// one level at a time. This ensures breadth-first traversal order.
+///
+/// # BFS Execution Model
+///
+/// 1. Initialize frontier from input traversers (all at loop_count = 0)
+/// 2. For each level:
+///    - Check termination conditions (`times`, `until`)
+///    - Execute sub-traversal for surviving traversers
+///    - Add results to next frontier with incremented loop_count
+///    - Emit results based on configuration (`emit`, `emit_if`)
+/// 3. Continue until frontier is empty
+///
+/// # Emission Modes
+///
+/// - Default (no emit): Only emit when traverser terminates (times/until/exhaustion)
+/// - `emit()`: Emit after each iteration
+/// - `emit_if(condition)`: Emit only when condition is satisfied
+/// - `emit_first()`: Also emit the initial input before first iteration
+struct RepeatIterator<'a> {
+    /// Execution context providing graph access
+    ctx: &'a ExecutionContext<'a>,
+    /// BFS queue of (traverser, loop_count) pairs
+    frontier: VecDeque<(Traverser, usize)>,
+    /// Sub-traversal to apply each iteration
+    sub: Traversal<Value, Value>,
+    /// Configuration controlling termination and emission
+    config: RepeatConfig,
+    /// Step reference for condition checking methods
+    step: RepeatStep,
+    /// Buffered results to emit
+    emit_buffer: VecDeque<Traverser>,
+    /// Whether we've processed the initial input
+    initialized: bool,
+    /// Original input iterator (consumed during initialization)
+    input: Option<Box<dyn Iterator<Item = Traverser> + 'a>>,
+}
+
+impl<'a> RepeatIterator<'a> {
+    /// Create a new RepeatIterator.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Execution context providing graph access
+    /// * `input` - Input iterator of traversers
+    /// * `sub` - Sub-traversal to repeat
+    /// * `config` - Configuration for termination and emission
+    /// * `step` - RepeatStep reference for condition checks
+    fn new(
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+        sub: Traversal<Value, Value>,
+        config: RepeatConfig,
+        step: RepeatStep,
+    ) -> Self {
+        Self {
+            ctx,
+            frontier: VecDeque::new(),
+            sub,
+            config,
+            step,
+            emit_buffer: VecDeque::new(),
+            initialized: false,
+            input: Some(input),
+        }
+    }
+
+    /// Process one level of the BFS frontier.
+    ///
+    /// For each traverser in the current frontier:
+    /// 1. Check if `times` limit is reached - if so, emit and stop
+    /// 2. Check if `until` condition is satisfied - if so, emit and stop
+    /// 3. Execute sub-traversal to get next-level results
+    /// 4. Handle empty results (graph exhaustion) - emit if not in emit mode
+    /// 5. Add results to next frontier with incremented loop count
+    /// 6. Emit intermediate results if configured
+    fn process_frontier(&mut self) {
+        // Drain current frontier for processing
+        let current_frontier: Vec<_> = self.frontier.drain(..).collect();
+
+        for (traverser, loop_count) in current_frontier {
+            // Check times limit BEFORE iteration
+            if let Some(max_times) = self.config.times {
+                if loop_count >= max_times {
+                    // Reached iteration limit - emit final result if not using emit mode
+                    // (emit mode already emitted this traverser)
+                    if !self.config.emit {
+                        self.emit_buffer.push_back(traverser);
+                    }
+                    continue;
+                }
+            }
+
+            // Check until condition BEFORE iteration
+            if self.step.satisfies_until(self.ctx, &traverser) {
+                // Termination condition met - emit and stop iterating this path
+                self.emit_buffer.push_back(traverser);
+                continue;
+            }
+
+            // Execute sub-traversal for this traverser
+            let sub_input = Box::new(std::iter::once(traverser.clone()));
+            let results: Vec<_> = execute_traversal_from(self.ctx, &self.sub, sub_input).collect();
+
+            if results.is_empty() {
+                // No more results from this branch (graph exhaustion)
+                // Emit if not already emitted via emit mode
+                if !self.config.emit {
+                    self.emit_buffer.push_back(traverser);
+                }
+            } else {
+                // Add results to next frontier with incremented loop count
+                for result in results {
+                    let mut new_traverser = result;
+                    new_traverser.inc_loops();
+
+                    // Emit intermediate result if configured
+                    if self.step.should_emit(self.ctx, &new_traverser) {
+                        self.emit_buffer.push_back(new_traverser.clone());
+                    }
+
+                    // Add to frontier for next iteration
+                    self.frontier.push_back((new_traverser, loop_count + 1));
+                }
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for RepeatIterator<'a> {
+    type Item = Traverser;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // Return buffered emissions first
+            if let Some(t) = self.emit_buffer.pop_front() {
+                return Some(t);
+            }
+
+            // Initialize from input on first call
+            if !self.initialized {
+                self.initialized = true;
+                if let Some(input) = self.input.take() {
+                    for t in input {
+                        // Emit initial input if configured (emit_first requires emit mode)
+                        if self.config.emit_first && self.config.emit {
+                            self.emit_buffer.push_back(t.clone());
+                        }
+                        // Add to frontier with loop_count = 0
+                        self.frontier.push_back((t, 0));
+                    }
+                }
+                // Continue to check emit_buffer or process frontier
+                continue;
+            }
+
+            // Process frontier if we have work to do
+            if !self.frontier.is_empty() {
+                self.process_frontier();
+                continue;
+            }
+
+            // No more work - iteration complete
+            return None;
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// RepeatTraversal - Builder for configuring repeat behavior
+// -----------------------------------------------------------------------------
+
+use crate::graph::GraphSnapshot;
+use crate::storage::interner::StringInterner;
+use crate::traversal::source::BoundTraversal;
+
+/// Builder for configuring repeat step behavior.
+///
+/// Created by calling `.repeat()` on a `BoundTraversal`, configured via
+/// chained methods, and finalized by either:
+/// - Calling a terminal step (`to_list()`, `count()`, `next()`)
+/// - Calling a continuation step (`has_label()`, `out()`, `dedup()`, etc.)
+///
+/// # Example
+///
+/// ```ignore
+/// use rustgremlin::prelude::*;
+///
+/// // Fixed iteration count
+/// let fof = g.v().has_value("name", "Alice")
+///     .repeat(__.out_labels(&["knows"]))
+///     .times(2)
+///     .to_list();
+///
+/// // Conditional termination
+/// let path = g.v().has_value("name", "Alice")
+///     .repeat(__.out())
+///     .until(__.has_label("company"))
+///     .to_list();
+///
+/// // With intermediate emission
+/// let all = g.v().has_value("name", "Alice")
+///     .repeat(__.out())
+///     .times(3)
+///     .emit()
+///     .to_list();
+/// ```
+pub struct RepeatTraversal<'g, In> {
+    /// Graph snapshot for execution
+    snapshot: &'g GraphSnapshot<'g>,
+    /// String interner for label resolution
+    interner: &'g StringInterner,
+    /// Base traversal before the repeat step
+    base: Traversal<In, Value>,
+    /// Sub-traversal to repeat each iteration
+    sub: Traversal<Value, Value>,
+    /// Configuration for termination and emission
+    config: RepeatConfig,
+    /// Whether to track paths
+    track_paths: bool,
+}
+
+impl<'g, In> RepeatTraversal<'g, In> {
+    /// Create a new RepeatTraversal builder.
+    ///
+    /// This is typically called via `BoundTraversal::repeat()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `snapshot` - Graph snapshot for execution
+    /// * `interner` - String interner for label resolution
+    /// * `base` - The base traversal before the repeat step
+    /// * `sub` - The sub-traversal to repeat
+    /// * `track_paths` - Whether path tracking is enabled
+    pub(crate) fn new(
+        snapshot: &'g GraphSnapshot<'g>,
+        interner: &'g StringInterner,
+        base: Traversal<In, Value>,
+        sub: Traversal<Value, Value>,
+        track_paths: bool,
+    ) -> Self {
+        Self {
+            snapshot,
+            interner,
+            base,
+            sub,
+            config: RepeatConfig::default(),
+            track_paths,
+        }
+    }
+
+    /// Execute exactly n iterations.
+    ///
+    /// The repeat loop will stop after exactly n iterations, regardless
+    /// of whether `until` conditions are met.
+    ///
+    /// # Arguments
+    ///
+    /// * `n` - Number of iterations to execute
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get friends-of-friends (exactly 2 hops)
+    /// g.v().has_value("name", "Alice")
+    ///     .repeat(__.out_labels(&["knows"]))
+    ///     .times(2)
+    ///     .to_list()
+    /// ```
+    pub fn times(mut self, n: usize) -> Self {
+        self.config.times = Some(n);
+        self
+    }
+
+    /// Continue until the condition traversal produces results.
+    ///
+    /// Before each iteration, the condition is evaluated on each traverser.
+    /// If it produces results, that traverser is emitted and removed from
+    /// the iteration loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `condition` - Traversal that determines when to stop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Traverse until reaching a company vertex
+    /// g.v().has_value("name", "Alice")
+    ///     .repeat(__.out())
+    ///     .until(__.has_label("company"))
+    ///     .to_list()
+    /// ```
+    pub fn until(mut self, condition: Traversal<Value, Value>) -> Self {
+        self.config.until = Some(condition);
+        self
+    }
+
+    /// Emit results from all iterations (not just final).
+    ///
+    /// By default, only the final iteration's results are emitted.
+    /// With `emit()`, intermediate results from each iteration are
+    /// also included in the output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all vertices within 3 hops (including intermediates)
+    /// g.v().has_value("name", "Alice")
+    ///     .repeat(__.out())
+    ///     .times(3)
+    ///     .emit()
+    ///     .to_list()
+    /// ```
+    pub fn emit(mut self) -> Self {
+        self.config.emit = true;
+        self
+    }
+
+    /// Emit results that satisfy a condition.
+    ///
+    /// Only intermediate results that satisfy the condition traversal
+    /// will be emitted. This also enables emit mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `condition` - Traversal that determines which results to emit
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Traverse up to 5 hops, emit only person vertices
+    /// g.v().repeat(__.out())
+    ///     .times(5)
+    ///     .emit_if(__.has_label("person"))
+    ///     .to_list()
+    /// ```
+    pub fn emit_if(mut self, condition: Traversal<Value, Value>) -> Self {
+        self.config.emit = true;
+        self.config.emit_if = Some(condition);
+        self
+    }
+
+    /// Emit the initial input before the first iteration.
+    ///
+    /// When combined with `emit()`, this includes the starting traversers
+    /// in the output before any iterations occur.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Include Alice in the results along with all reachable vertices
+    /// g.v().has_value("name", "Alice")
+    ///     .repeat(__.out())
+    ///     .times(2)
+    ///     .emit()
+    ///     .emit_first()
+    ///     .to_list()
+    /// ```
+    pub fn emit_first(mut self) -> Self {
+        self.config.emit_first = true;
+        self
+    }
+
+    /// Finalize repeat configuration and return to normal traversal.
+    ///
+    /// This is called internally when a terminal or continuation step
+    /// is invoked on the builder.
+    fn finalize(self) -> BoundTraversal<'g, In, Value> {
+        let repeat_step = RepeatStep::with_config(self.sub, self.config);
+        let mut bound = BoundTraversal::new(
+            self.snapshot,
+            self.interner,
+            self.base.add_step(repeat_step),
+        );
+        if self.track_paths {
+            bound = bound.with_path();
+        }
+        bound
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Terminal steps on RepeatTraversal
+// -----------------------------------------------------------------------------
+
+impl<'g, In> RepeatTraversal<'g, In> {
+    /// Execute and collect all values into a list.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let results = g.v().repeat(__.out()).times(2).to_list();
+    /// ```
+    pub fn to_list(self) -> Vec<Value> {
+        self.finalize().to_list()
+    }
+
+    /// Execute and collect all unique values into a set.
+    pub fn to_set(self) -> std::collections::HashSet<Value> {
+        self.finalize().to_set()
+    }
+
+    /// Execute and return the first value, if any.
+    pub fn next(self) -> Option<Value> {
+        self.finalize().next()
+    }
+
+    /// Check if the traversal produces any results.
+    pub fn has_next(self) -> bool {
+        self.finalize().has_next()
+    }
+
+    /// Execute and count the number of results.
+    pub fn count(self) -> u64 {
+        self.finalize().count()
+    }
+
+    /// Execute and return the first n values.
+    pub fn take(self, n: usize) -> Vec<Value> {
+        self.finalize().take(n)
+    }
+
+    /// Execute and consume the traversal, discarding results.
+    pub fn iterate(self) {
+        self.finalize().iterate()
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Continuation steps on RepeatTraversal (return to BoundTraversal)
+// -----------------------------------------------------------------------------
+
+impl<'g, In> RepeatTraversal<'g, In> {
+    /// Filter elements by label.
+    pub fn has_label(self, label: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has_label(label)
+    }
+
+    /// Filter elements by any of the given labels.
+    pub fn has_label_any<I, S>(self, labels: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.finalize().has_label_any(labels)
+    }
+
+    /// Filter elements by property existence.
+    pub fn has(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has(key)
+    }
+
+    /// Filter elements by property value equality.
+    pub fn has_value(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has_value(key, value)
+    }
+
+    /// Deduplicate traversers by value.
+    pub fn dedup(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().dedup()
+    }
+
+    /// Limit the number of traversers.
+    pub fn limit(self, count: usize) -> BoundTraversal<'g, In, Value> {
+        self.finalize().limit(count)
+    }
+
+    /// Skip the first n traversers.
+    pub fn skip(self, count: usize) -> BoundTraversal<'g, In, Value> {
+        self.finalize().skip(count)
+    }
+
+    /// Extract property values.
+    pub fn values(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().values(key)
+    }
+
+    /// Extract the ID from elements.
+    pub fn id(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().id()
+    }
+
+    /// Extract the label from elements.
+    pub fn label(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().label()
+    }
+
+    /// Traverse to outgoing adjacent vertices.
+    pub fn out(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().out()
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with given labels.
+    pub fn out_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        self.finalize().out_labels(labels)
+    }
+
+    /// Traverse to incoming adjacent vertices.
+    pub fn in_(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().in_()
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with given labels.
+    pub fn in_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        self.finalize().in_labels(labels)
+    }
+
+    /// Traverse to adjacent vertices in both directions.
+    pub fn both(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().both()
+    }
+
+    /// Traverse to adjacent vertices in both directions via edges with given labels.
+    pub fn both_labels(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        self.finalize().both_labels(labels)
+    }
+
+    /// Traverse to outgoing edges.
+    pub fn out_e(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().out_e()
+    }
+
+    /// Traverse to incoming edges.
+    pub fn in_e(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().in_e()
+    }
+
+    /// Traverse to all incident edges.
+    pub fn both_e(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().both_e()
+    }
+
+    /// Convert the path to a Value::List.
+    pub fn path(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().path()
+    }
+
+    /// Label the current position in the traversal path.
+    pub fn as_(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().as_(label)
+    }
+
+    /// Select multiple labeled values from the path.
+    pub fn select(self, labels: &[&str]) -> BoundTraversal<'g, In, Value> {
+        self.finalize().select(labels)
+    }
+
+    /// Select a single labeled value from the path.
+    pub fn select_one(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().select_one(label)
+    }
+
+    /// Filter by sub-traversal existence.
+    pub fn where_(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().where_(sub)
+    }
+
+    /// Filter by sub-traversal non-existence.
+    pub fn not(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().not(sub)
+    }
+
+    /// Execute multiple branches and merge results.
+    pub fn union(self, branches: Vec<Traversal<Value, Value>>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().union(branches)
+    }
+
+    /// Try branches in order, return first non-empty result.
+    pub fn coalesce(self, branches: Vec<Traversal<Value, Value>>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().coalesce(branches)
+    }
+
+    /// Conditional branching.
+    pub fn choose(
+        self,
+        condition: Traversal<Value, Value>,
+        if_true: Traversal<Value, Value>,
+        if_false: Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        self.finalize().choose(condition, if_true, if_false)
+    }
+
+    /// Optional traversal with fallback to input.
+    pub fn optional(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().optional(sub)
+    }
+
+    /// Execute sub-traversal in isolated scope.
+    pub fn local(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().local(sub)
+    }
+}
+
+impl<'g, In> std::fmt::Debug for RepeatTraversal<'g, In> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RepeatTraversal")
+            .field("base_steps", &self.base.step_count())
+            .field("sub_steps", &self.sub.step_count())
+            .field("config", &self.config)
+            .field("track_paths", &self.track_paths)
+            .finish()
     }
 }
 
@@ -695,19 +1314,42 @@ mod tests {
         }
 
         #[test]
-        fn repeat_step_apply_returns_empty_iterator_skeleton() {
+        fn repeat_step_apply_with_times_terminates() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Use identity step with times(2) - will loop twice then emit
+            let sub = Traversal::<Value, Value>::new().add_step(IdentityStep::new());
+            let config = RepeatConfig::new().with_times(2);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Should emit final result after 2 iterations
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(0)));
+            // Loop count should be 2 (incremented each iteration)
+            assert_eq!(output[0].loops, 2);
+        }
+
+        #[test]
+        fn repeat_step_apply_with_times_zero_emits_immediately() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
 
             let sub = Traversal::<Value, Value>::new().add_step(IdentityStep::new());
-            let step = RepeatStep::new(sub);
+            let config = RepeatConfig::new().with_times(0);
+            let step = RepeatStep::with_config(sub, config);
 
             let input = vec![Traverser::from_vertex(VertexId(0))];
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
-            // Phase 4.2 skeleton returns empty
-            assert!(output.is_empty());
+            // times(0) means don't iterate at all - emit input immediately
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 0);
         }
     }
 
@@ -900,6 +1542,520 @@ mod tests {
                 let traverser = Traverser::from_vertex(id);
                 assert!(step.should_emit(&ctx, &traverser));
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // RepeatIterator Tests - BFS frontier processing
+    // -------------------------------------------------------------------------
+
+    mod repeat_iterator_tests {
+        use super::*;
+        use crate::traversal::navigation::OutStep;
+
+        /// Create a test graph with a chain: Alice -> Bob -> TechCorp
+        fn create_chain_graph() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Add vertices
+            let v0 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props
+            });
+            let v1 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props
+            });
+            let v2 = storage.add_vertex("company", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("TechCorp".to_string()));
+                props
+            });
+
+            // Create chain: Alice -> Bob -> TechCorp
+            storage.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
+            storage
+                .add_edge(v1, v2, "works_at", HashMap::new())
+                .unwrap();
+
+            Graph::new(Arc::new(storage))
+        }
+
+        #[test]
+        fn repeat_out_times_1_traverses_one_hop() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(1) from Alice should reach Bob
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(1);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(1))); // Bob
+            assert_eq!(output[0].loops, 1);
+        }
+
+        #[test]
+        fn repeat_out_times_2_traverses_two_hops() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(2) from Alice should reach TechCorp
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(2);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(2))); // TechCorp
+            assert_eq!(output[0].loops, 2);
+        }
+
+        #[test]
+        fn repeat_out_times_3_exhausts_at_leaf() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(3) from Alice - only 2 hops exist, should stop at TechCorp
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(3);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(2))); // TechCorp (exhausted)
+            assert_eq!(output[0].loops, 2); // Only reached 2 hops before exhaustion
+        }
+
+        #[test]
+        fn repeat_out_until_company_terminates_correctly() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).until(has_label("company")) from Alice
+            let until_cond =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("company"));
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_until(until_cond);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(2))); // TechCorp
+        }
+
+        #[test]
+        fn repeat_out_emit_includes_intermediates() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(2).emit() from Alice should emit Bob and TechCorp
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(2).with_emit();
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // With emit(), we get results from each iteration
+            assert_eq!(output.len(), 2);
+            // BFS order: Bob (loop 1), TechCorp (loop 2)
+            assert_eq!(output[0].value, Value::Vertex(VertexId(1))); // Bob
+            assert_eq!(output[0].loops, 1);
+            assert_eq!(output[1].value, Value::Vertex(VertexId(2))); // TechCorp
+            assert_eq!(output[1].loops, 2);
+        }
+
+        #[test]
+        fn repeat_out_emit_first_includes_starting_vertex() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(1).emit().emit_first() from Alice
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new()
+                .with_times(1)
+                .with_emit()
+                .with_emit_first();
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // emit_first emits Alice first, then emit() emits Bob
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(0))); // Alice (emit_first)
+            assert_eq!(output[0].loops, 0);
+            assert_eq!(output[1].value, Value::Vertex(VertexId(1))); // Bob (emit)
+            assert_eq!(output[1].loops, 1);
+        }
+
+        #[test]
+        fn repeat_out_emit_if_only_emits_matching() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(2).emit_if(has_label("company")) from Alice
+            // Should only emit TechCorp (company), not Bob (person)
+            let emit_if_cond =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("company"));
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(2).with_emit_if(emit_if_cond);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(0))]; // Alice
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only TechCorp matches emit_if condition
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(2))); // TechCorp
+        }
+
+        #[test]
+        fn repeat_handles_multiple_input_traversers() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(1) from both Alice and Bob
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(1);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)), // Alice
+                Traverser::from_vertex(VertexId(1)), // Bob
+            ];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Alice -> Bob, Bob -> TechCorp
+            assert_eq!(output.len(), 2);
+            let values: Vec<_> = output.iter().map(|t| &t.value).collect();
+            assert!(values.contains(&&Value::Vertex(VertexId(1)))); // Bob from Alice
+            assert!(values.contains(&&Value::Vertex(VertexId(2)))); // TechCorp from Bob
+        }
+
+        #[test]
+        fn repeat_handles_empty_input() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(2);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input: Vec<Traverser> = vec![];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn repeat_from_leaf_with_no_outgoing_edges() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // repeat(out()).times(2) from TechCorp (leaf node)
+            let sub = Traversal::<Value, Value>::new().add_step(OutStep::new());
+            let config = RepeatConfig::new().with_times(2);
+            let step = RepeatStep::with_config(sub, config);
+
+            let input = vec![Traverser::from_vertex(VertexId(2))]; // TechCorp (leaf)
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // TechCorp has no outgoing edges - emits immediately due to exhaustion
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(2)));
+            assert_eq!(output[0].loops, 0); // No iterations completed
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // RepeatTraversal Builder Tests
+    // -------------------------------------------------------------------------
+
+    mod repeat_traversal_builder_tests {
+        use super::*;
+        use crate::traversal::TraversalSource;
+
+        /// Create a chain graph: Alice -> Bob -> TechCorp
+        fn create_chain_graph() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            let v0 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props
+            });
+            let v1 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props
+            });
+            let v2 = storage.add_vertex("company", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("TechCorp".to_string()));
+                props
+            });
+
+            storage.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
+            storage
+                .add_edge(v1, v2, "works_at", HashMap::new())
+                .unwrap();
+
+            Graph::new(Arc::new(storage))
+        }
+
+        #[test]
+        fn repeat_traversal_builder_times_configures_correctly() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Create base traversal directly
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // Configure with times(2)
+            let builder = builder.times(2);
+            assert_eq!(builder.config.times, Some(2));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_emit_configures_correctly() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // Configure with emit()
+            let builder = builder.emit();
+            assert!(builder.config.emit);
+            assert!(!builder.config.emit_first);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_emit_first_configures_correctly() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let builder = builder.emit().emit_first();
+            assert!(builder.config.emit);
+            assert!(builder.config.emit_first);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_until_configures_correctly() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let until_cond =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("company"));
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let builder = builder.until(until_cond);
+            assert!(builder.config.until.is_some());
+        }
+
+        #[test]
+        fn repeat_traversal_builder_emit_if_configures_correctly() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let emit_cond =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("person"));
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let builder = builder.emit_if(emit_cond);
+            assert!(builder.config.emit);
+            assert!(builder.config.emit_if.is_some());
+        }
+
+        #[test]
+        fn repeat_traversal_builder_chained_config() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // Chain multiple configurations
+            let builder = builder.times(3).emit().emit_first();
+            assert_eq!(builder.config.times, Some(3));
+            assert!(builder.config.emit);
+            assert!(builder.config.emit_first);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_to_list_executes() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) from Alice should reach Bob
+            let results = builder.times(1).to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob
+        }
+
+        #[test]
+        fn repeat_traversal_builder_count_executes() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(2) from Alice should reach TechCorp (1 result)
+            let count = builder.times(2).count();
+            assert_eq!(count, 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_next_executes() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let result = builder.times(1).next();
+            assert!(result.is_some());
+            assert_eq!(result.unwrap(), Value::Vertex(VertexId(1))); // Bob
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_has_label() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(2).has_label("company") - should match TechCorp
+            let results = builder.times(2).has_label("company").to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2)));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_dedup() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(2).dedup() - result is already unique
+            let results = builder.times(2).dedup().to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_debug_format() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false)
+                .times(2)
+                .emit();
+
+            let debug_str = format!("{:?}", builder);
+            assert!(debug_str.contains("RepeatTraversal"));
+            assert!(debug_str.contains("base_steps"));
+            assert!(debug_str.contains("sub_steps"));
+            assert!(debug_str.contains("config"));
         }
     }
 }
