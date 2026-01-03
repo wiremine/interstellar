@@ -1,45 +1,322 @@
+//! Value types and element identifiers for graph data.
+//!
+//! This module provides the core data types used throughout RustGremlin:
+//!
+//! - [`VertexId`] / [`EdgeId`] - Unique identifiers for graph elements
+//! - [`ElementId`] - Union type for either vertex or edge IDs
+//! - [`Value`] - Dynamic property value type (similar to JSON)
+//! - [`ComparableValue`] - An ordered version of `Value` for sorting/dedup
+//!
+//! # Value System
+//!
+//! RustGremlin uses a dynamic type system for property values, similar to JSON
+//! but extended with graph-specific types for vertices and edges. The [`Value`]
+//! enum can hold:
+//!
+//! - Primitives: `Null`, `Bool`, `Int` (i64), `Float` (f64), `String`
+//! - Collections: `List`, `Map`
+//! - Graph references: `Vertex`, `Edge`
+//!
+//! # Type Conversions
+//!
+//! [`Value`] implements [`From`] for common Rust types, making it easy to
+//! construct values:
+//!
+//! ```rust
+//! use rustgremlin::prelude::*;
+//!
+//! let int_val: Value = 42i64.into();
+//! let str_val: Value = "hello".into();
+//! let bool_val: Value = true.into();
+//! let float_val: Value = 3.14f64.into();
+//! ```
+//!
+//! # Serialization
+//!
+//! Values can be serialized to and from a compact binary format using
+//! [`Value::serialize`] and [`Value::deserialize`], useful for persistence.
+//!
+//! # Example
+//!
+//! ```rust
+//! use rustgremlin::prelude::*;
+//! use std::collections::HashMap;
+//!
+//! // Create values from Rust types
+//! let name: Value = "Alice".into();
+//! let age: Value = 30i64.into();
+//!
+//! // Check types
+//! assert!(name.as_str().is_some());
+//! assert!(age.as_i64().is_some());
+//!
+//! // Work with vertex IDs
+//! let vid = VertexId(42);
+//! let vertex_val: Value = vid.into();
+//! assert!(vertex_val.is_vertex());
+//! assert_eq!(vertex_val.as_vertex_id(), Some(VertexId(42)));
+//! ```
+
 use std::collections::{BTreeMap, HashMap};
 
+/// A unique identifier for a vertex in the graph.
+///
+/// `VertexId` is a lightweight, copy-able handle that uniquely identifies
+/// a vertex within a graph. IDs are assigned by the storage backend when
+/// vertices are created.
+///
+/// # Ordering
+///
+/// Vertex IDs implement [`Ord`], allowing them to be sorted and used in
+/// ordered collections like [`BTreeMap`].
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+/// use rustgremlin::storage::InMemoryGraph;
+/// use std::collections::HashMap;
+///
+/// let mut storage = InMemoryGraph::new();
+///
+/// // Adding a vertex returns its ID
+/// let alice_id = storage.add_vertex("person", HashMap::new());
+/// let bob_id = storage.add_vertex("person", HashMap::new());
+///
+/// // IDs can be compared and sorted
+/// assert_ne!(alice_id, bob_id);
+/// let mut ids = vec![bob_id, alice_id];
+/// ids.sort();
+/// ```
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
 pub struct VertexId(pub u64);
 
+/// A unique identifier for an edge in the graph.
+///
+/// `EdgeId` is a lightweight, copy-able handle that uniquely identifies
+/// an edge within a graph. IDs are assigned by the storage backend when
+/// edges are created.
+///
+/// # Ordering
+///
+/// Edge IDs implement [`Ord`], allowing them to be sorted and used in
+/// ordered collections like [`BTreeMap`].
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+/// use rustgremlin::storage::InMemoryGraph;
+/// use std::collections::HashMap;
+///
+/// let mut storage = InMemoryGraph::new();
+/// let alice = storage.add_vertex("person", HashMap::new());
+/// let bob = storage.add_vertex("person", HashMap::new());
+///
+/// // Adding an edge returns its ID
+/// let edge_id = storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+///
+/// // Edge IDs are distinct from vertex IDs
+/// println!("Edge {:?} connects {:?} to {:?}", edge_id, alice, bob);
+/// ```
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
 pub struct EdgeId(pub u64);
 
+/// A union type representing either a vertex or edge identifier.
+///
+/// `ElementId` is useful when working with APIs that can accept either
+/// type of graph element, such as generic property accessors.
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+///
+/// let vertex_elem = ElementId::Vertex(VertexId(1));
+/// let edge_elem = ElementId::Edge(EdgeId(2));
+///
+/// match vertex_elem {
+///     ElementId::Vertex(vid) => println!("Vertex: {:?}", vid),
+///     ElementId::Edge(eid) => println!("Edge: {:?}", eid),
+/// }
+/// ```
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum ElementId {
+    /// A vertex identifier.
     Vertex(VertexId),
+    /// An edge identifier.
     Edge(EdgeId),
 }
 
+/// A dynamic value type for graph properties and traversal results.
+///
+/// `Value` is RustGremlin's universal data type, capable of representing
+/// any property value or traversal result. It's similar to JSON but extended
+/// with graph-specific types for vertex and edge references.
+///
+/// # Variants
+///
+/// | Variant | Rust Type | Description |
+/// |---------|-----------|-------------|
+/// | `Null` | - | Absence of a value |
+/// | `Bool` | `bool` | Boolean true/false |
+/// | `Int` | `i64` | 64-bit signed integer |
+/// | `Float` | `f64` | 64-bit floating point |
+/// | `String` | `String` | UTF-8 text |
+/// | `List` | `Vec<Value>` | Ordered collection |
+/// | `Map` | `HashMap<String, Value>` | Key-value pairs |
+/// | `Vertex` | [`VertexId`] | Reference to a vertex |
+/// | `Edge` | [`EdgeId`] | Reference to an edge |
+///
+/// # Type Conversions
+///
+/// `Value` implements [`From`] for many common types:
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+///
+/// // Primitives
+/// let _: Value = true.into();
+/// let _: Value = 42i64.into();
+/// let _: Value = 3.14f64.into();
+/// let _: Value = "hello".into();
+///
+/// // Graph elements
+/// let _: Value = VertexId(1).into();
+/// let _: Value = EdgeId(2).into();
+/// ```
+///
+/// # Type Checking and Extraction
+///
+/// Use the `as_*` methods to safely extract typed values:
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+///
+/// let val: Value = 42i64.into();
+///
+/// // Type-safe extraction
+/// if let Some(n) = val.as_i64() {
+///     println!("Got integer: {}", n);
+/// }
+///
+/// // Type checking
+/// assert!(!val.is_null());
+/// assert!(!val.is_vertex());
+/// ```
+///
+/// # Hashing
+///
+/// `Value` implements [`Hash`], allowing it to be used in hash-based
+/// collections. Map values are hashed in sorted key order to ensure
+/// consistent hashing regardless of insertion order.
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+/// use std::collections::HashSet;
+///
+/// let mut seen: HashSet<Value> = HashSet::new();
+/// seen.insert(42i64.into());
+/// seen.insert("hello".into());
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
+    /// The null/absent value.
     Null,
+    /// A boolean value.
     Bool(bool),
+    /// A 64-bit signed integer.
     Int(i64),
+    /// A 64-bit floating-point number.
     Float(f64),
+    /// A UTF-8 string.
     String(String),
+    /// An ordered list of values.
     List(Vec<Value>),
+    /// A map of string keys to values.
     Map(HashMap<String, Value>),
-    /// A vertex reference (for traversal)
+    /// A vertex reference (for traversal).
     Vertex(VertexId),
-    /// An edge reference (for traversal)
+    /// An edge reference (for traversal).
     Edge(EdgeId),
 }
 
+/// A comparable version of [`Value`] that implements [`Ord`].
+///
+/// `ComparableValue` mirrors the structure of [`Value`] but provides
+/// total ordering, making it suitable for:
+///
+/// - Sorting traversal results
+/// - Using values as keys in [`BTreeMap`]
+/// - Deduplication with ordered iteration
+///
+/// # Float Ordering
+///
+/// Unlike standard Rust floats, [`ComparableValue::Float`] uses total
+/// ordering via [`OrderedFloat`], where NaN values are ordered consistently.
+///
+/// # Conversion
+///
+/// Use [`Value::to_comparable`] to convert a `Value`:
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+///
+/// let val = Value::Float(3.14);
+/// let comparable = val.to_comparable();
+///
+/// // Now it can be sorted
+/// let mut values = vec![
+///     Value::Float(2.0).to_comparable(),
+///     Value::Float(1.0).to_comparable(),
+///     Value::Float(3.0).to_comparable(),
+/// ];
+/// values.sort();
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComparableValue {
+    /// The null/absent value.
     Null,
+    /// A boolean value.
     Bool(bool),
+    /// A 64-bit signed integer.
     Int(i64),
+    /// A 64-bit floating-point with total ordering.
     Float(OrderedFloat),
+    /// A UTF-8 string.
     String(String),
+    /// An ordered list of comparable values.
     List(Vec<ComparableValue>),
+    /// A sorted map of string keys to comparable values.
     Map(BTreeMap<String, ComparableValue>),
+    /// A vertex reference.
     Vertex(VertexId),
+    /// An edge reference.
     Edge(EdgeId),
 }
 
+/// A floating-point wrapper that provides total ordering.
+///
+/// Standard Rust `f64` only implements [`PartialOrd`] because NaN values
+/// don't have a defined ordering. `OrderedFloat` wraps an `f64` and uses
+/// [`f64::total_cmp`] to provide a total ordering where:
+///
+/// - NaN values are ordered (greater than all other values)
+/// - Negative zero equals positive zero for comparison
+/// - All values have a consistent sort order
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::value::OrderedFloat;
+///
+/// let a = OrderedFloat(1.0);
+/// let b = OrderedFloat(2.0);
+/// let nan = OrderedFloat(f64::NAN);
+///
+/// assert!(a < b);
+/// assert!(b < nan); // NaN is ordered last
+/// ```
 #[derive(Copy, Clone, Debug)]
 pub struct OrderedFloat(pub f64);
 
@@ -177,6 +454,40 @@ impl From<EdgeId> for Value {
 }
 
 impl Value {
+    /// Serialize this value to a compact binary format.
+    ///
+    /// The binary format uses a type tag byte followed by the value data.
+    /// This format is suitable for persistence and network transmission.
+    ///
+    /// # Format
+    ///
+    /// | Tag | Type | Data |
+    /// |-----|------|------|
+    /// | 0x00 | Null | (none) |
+    /// | 0x01 | Bool(false) | (none) |
+    /// | 0x02 | Bool(true) | (none) |
+    /// | 0x03 | Int | 8 bytes (little-endian i64) |
+    /// | 0x04 | Float | 8 bytes (little-endian f64) |
+    /// | 0x05 | String | 4-byte length + UTF-8 bytes |
+    /// | 0x06 | List | 4-byte count + serialized items |
+    /// | 0x07 | Map | 4-byte count + (key, value) pairs |
+    /// | 0x08 | Vertex | 8 bytes (little-endian u64) |
+    /// | 0x09 | Edge | 8 bytes (little-endian u64) |
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// let value = Value::Int(42);
+    /// let mut buf = Vec::new();
+    /// value.serialize(&mut buf);
+    ///
+    /// // Deserialize it back
+    /// let mut pos = 0;
+    /// let parsed = Value::deserialize(&buf, &mut pos).unwrap();
+    /// assert_eq!(parsed, value);
+    /// ```
     pub fn serialize(&self, buf: &mut Vec<u8>) {
         match self {
             Value::Null => buf.push(0x00),
@@ -224,6 +535,37 @@ impl Value {
         }
     }
 
+    /// Deserialize a value from a binary buffer.
+    ///
+    /// Reads a value starting at position `pos` in the buffer, advancing
+    /// `pos` past the consumed bytes. Returns `None` if the buffer is
+    /// malformed or truncated.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - The byte buffer to read from
+    /// * `pos` - Mutable position indicator, updated to point past the read value
+    ///
+    /// # Returns
+    ///
+    /// `Some(Value)` if deserialization succeeds, `None` if the data is invalid.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// // Serialize a value
+    /// let original = Value::String("hello".to_string());
+    /// let mut buf = Vec::new();
+    /// original.serialize(&mut buf);
+    ///
+    /// // Deserialize it
+    /// let mut pos = 0;
+    /// let parsed = Value::deserialize(&buf, &mut pos).unwrap();
+    /// assert_eq!(parsed, original);
+    /// assert_eq!(pos, buf.len()); // Position advanced to end
+    /// ```
     pub fn deserialize(buf: &[u8], pos: &mut usize) -> Option<Value> {
         let tag = *buf.get(*pos)?;
         *pos += 1;
@@ -288,6 +630,29 @@ impl Value {
         }
     }
 
+    /// Convert this value to a comparable version with total ordering.
+    ///
+    /// Returns a [`ComparableValue`] that mirrors this value but implements
+    /// [`Ord`], enabling sorting and use in ordered collections.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// let values = vec![
+    ///     Value::Int(3),
+    ///     Value::Int(1),
+    ///     Value::Int(2),
+    /// ];
+    ///
+    /// let mut comparable: Vec<_> = values.iter()
+    ///     .map(Value::to_comparable)
+    ///     .collect();
+    /// comparable.sort();
+    ///
+    /// // Now sorted: [Int(1), Int(2), Int(3)]
+    /// ```
     pub fn to_comparable(&self) -> ComparableValue {
         match self {
             Value::Null => ComparableValue::Null,
@@ -310,6 +675,18 @@ impl Value {
         }
     }
 
+    /// Extract the value as a boolean, if it is one.
+    ///
+    /// Returns `Some(bool)` if this is a `Bool` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert_eq!(Value::Bool(true).as_bool(), Some(true));
+    /// assert_eq!(Value::Int(1).as_bool(), None);
+    /// ```
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -317,6 +694,18 @@ impl Value {
         }
     }
 
+    /// Extract the value as an i64 integer, if it is one.
+    ///
+    /// Returns `Some(i64)` if this is an `Int` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert_eq!(Value::Int(42).as_i64(), Some(42));
+    /// assert_eq!(Value::Float(42.0).as_i64(), None); // Type mismatch
+    /// ```
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Int(n) => Some(*n),
@@ -324,6 +713,18 @@ impl Value {
         }
     }
 
+    /// Extract the value as an f64 float, if it is one.
+    ///
+    /// Returns `Some(f64)` if this is a `Float` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert_eq!(Value::Float(3.14).as_f64(), Some(3.14));
+    /// assert_eq!(Value::Int(3).as_f64(), None); // Type mismatch
+    /// ```
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Float(f) => Some(*f),
@@ -331,6 +732,19 @@ impl Value {
         }
     }
 
+    /// Extract the value as a string slice, if it is one.
+    ///
+    /// Returns `Some(&str)` if this is a `String` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// let val = Value::String("hello".to_string());
+    /// assert_eq!(val.as_str(), Some("hello"));
+    /// assert_eq!(Value::Int(42).as_str(), None);
+    /// ```
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s.as_str()),
@@ -338,6 +752,20 @@ impl Value {
         }
     }
 
+    /// Extract the value as a list reference, if it is one.
+    ///
+    /// Returns `Some(&Vec<Value>)` if this is a `List` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// let val = Value::List(vec![Value::Int(1), Value::Int(2)]);
+    /// if let Some(items) = val.as_list() {
+    ///     assert_eq!(items.len(), 2);
+    /// }
+    /// ```
     pub fn as_list(&self) -> Option<&Vec<Value>> {
         match self {
             Value::List(items) => Some(items),
@@ -345,6 +773,25 @@ impl Value {
         }
     }
 
+    /// Extract the value as a map reference, if it is one.
+    ///
+    /// Returns `Some(&HashMap<String, Value>)` if this is a `Map` variant,
+    /// `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert("name".to_string(), Value::String("Alice".to_string()));
+    /// let val = Value::Map(map);
+    ///
+    /// if let Some(m) = val.as_map() {
+    ///     assert!(m.contains_key("name"));
+    /// }
+    /// ```
     pub fn as_map(&self) -> Option<&HashMap<String, Value>> {
         match self {
             Value::Map(map) => Some(map),
@@ -352,11 +799,36 @@ impl Value {
         }
     }
 
+    /// Check if this value is null.
+    ///
+    /// Returns `true` if this is the `Null` variant, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert!(Value::Null.is_null());
+    /// assert!(!Value::Int(0).is_null());
+    /// assert!(!Value::String("".to_string()).is_null());
+    /// ```
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }
 
-    /// Get the value as a vertex ID (if it is one)
+    /// Extract the value as a vertex ID, if it is one.
+    ///
+    /// Returns `Some(VertexId)` if this is a `Vertex` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// let val = Value::Vertex(VertexId(42));
+    /// assert_eq!(val.as_vertex_id(), Some(VertexId(42)));
+    /// assert_eq!(Value::Edge(EdgeId(42)).as_vertex_id(), None);
+    /// ```
     pub fn as_vertex_id(&self) -> Option<VertexId> {
         match self {
             Value::Vertex(id) => Some(*id),
@@ -364,7 +836,19 @@ impl Value {
         }
     }
 
-    /// Get the value as an edge ID (if it is one)
+    /// Extract the value as an edge ID, if it is one.
+    ///
+    /// Returns `Some(EdgeId)` if this is an `Edge` variant, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// let val = Value::Edge(EdgeId(99));
+    /// assert_eq!(val.as_edge_id(), Some(EdgeId(99)));
+    /// assert_eq!(Value::Vertex(VertexId(99)).as_edge_id(), None);
+    /// ```
     pub fn as_edge_id(&self) -> Option<EdgeId> {
         match self {
             Value::Edge(id) => Some(*id),
@@ -372,12 +856,36 @@ impl Value {
         }
     }
 
-    /// Check if value is a vertex
+    /// Check if this value is a vertex reference.
+    ///
+    /// Returns `true` if this is a `Vertex` variant, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert!(Value::Vertex(VertexId(1)).is_vertex());
+    /// assert!(!Value::Edge(EdgeId(1)).is_vertex());
+    /// assert!(!Value::Int(1).is_vertex());
+    /// ```
     pub fn is_vertex(&self) -> bool {
         matches!(self, Value::Vertex(_))
     }
 
-    /// Check if value is an edge
+    /// Check if this value is an edge reference.
+    ///
+    /// Returns `true` if this is an `Edge` variant, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert!(Value::Edge(EdgeId(1)).is_edge());
+    /// assert!(!Value::Vertex(VertexId(1)).is_edge());
+    /// assert!(!Value::Int(1).is_edge());
+    /// ```
     pub fn is_edge(&self) -> bool {
         matches!(self, Value::Edge(_))
     }

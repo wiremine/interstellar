@@ -1,3 +1,53 @@
+//! In-memory graph storage backend.
+//!
+//! This module provides [`InMemoryGraph`], a HashMap-based graph storage
+//! implementation suitable for development, testing, and small to medium
+//! sized graphs that fit in memory.
+//!
+//! # Features
+//!
+//! - **O(1) lookups**: Vertex and edge retrieval by ID
+//! - **Indexed labels**: RoaringBitmap indices for fast label filtering
+//! - **String interning**: Compact label storage via [`StringInterner`]
+//! - **Adjacency lists**: Efficient edge traversal
+//!
+//! # Example
+//!
+//! ```
+//! use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+//! use std::collections::HashMap;
+//!
+//! // Create a graph
+//! let mut graph = InMemoryGraph::new();
+//!
+//! // Add vertices
+//! let alice = graph.add_vertex("person", HashMap::from([
+//!     ("name".to_string(), "Alice".into()),
+//!     ("age".to_string(), 30.into()),
+//! ]));
+//! let bob = graph.add_vertex("person", HashMap::from([
+//!     ("name".to_string(), "Bob".into()),
+//! ]));
+//! let rust = graph.add_vertex("software", HashMap::from([
+//!     ("name".to_string(), "Rust".into()),
+//! ]));
+//!
+//! // Add edges
+//! graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+//! graph.add_edge(alice, rust, "uses", HashMap::new()).unwrap();
+//!
+//! // Query the graph
+//! assert_eq!(graph.vertex_count(), 3);
+//! assert_eq!(graph.out_edges(alice).count(), 2);
+//! assert_eq!(graph.vertices_with_label("person").count(), 2);
+//! ```
+//!
+//! # Thread Safety
+//!
+//! `InMemoryGraph` implements `Send + Sync` but does **not** provide interior
+//! mutability. For concurrent access, wrap it in the [`Graph`](crate::Graph)
+//! type which provides readers-writer lock synchronization.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -8,7 +58,59 @@ use crate::storage::interner::StringInterner;
 use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::value::{EdgeId, Value, VertexId};
 
-/// In-memory graph storage with HashMap-based lookups
+/// In-memory graph storage with HashMap-based lookups.
+///
+/// This is the primary storage backend for development and testing. It stores
+/// all graph data in memory using HashMaps for O(1) vertex/edge lookups and
+/// RoaringBitmaps for efficient label indexing.
+///
+/// # Data Structure
+///
+/// ```text
+/// InMemoryGraph
+/// ├── nodes: HashMap<VertexId, NodeData>     # Vertex storage
+/// ├── edges: HashMap<EdgeId, EdgeData>       # Edge storage
+/// ├── vertex_labels: HashMap<u32, Bitmap>    # Label → vertex IDs
+/// ├── edge_labels: HashMap<u32, Bitmap>      # Label → edge IDs
+/// └── string_table: StringInterner           # Label string interning
+/// ```
+///
+/// # Performance Characteristics
+///
+/// | Operation | Complexity |
+/// |-----------|------------|
+/// | `get_vertex` | O(1) |
+/// | `get_edge` | O(1) |
+/// | `add_vertex` | O(1) amortized |
+/// | `add_edge` | O(1) |
+/// | `remove_vertex` | O(degree) |
+/// | `remove_edge` | O(degree) |
+/// | `out_edges` | O(out_degree) |
+/// | `in_edges` | O(in_degree) |
+/// | `vertices_with_label` | O(n) where n = matching vertices |
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+/// use std::collections::HashMap;
+///
+/// let mut graph = InMemoryGraph::new();
+///
+/// // Build a small social network
+/// let alice = graph.add_vertex("person", HashMap::from([
+///     ("name".to_string(), "Alice".into()),
+/// ]));
+/// let bob = graph.add_vertex("person", HashMap::from([
+///     ("name".to_string(), "Bob".into()),
+/// ]));
+///
+/// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+///
+/// // Vertices and edges can be removed
+/// graph.remove_edge(edge_id).unwrap();
+/// graph.remove_vertex(bob).unwrap();
+/// ```
 pub struct InMemoryGraph {
     /// Vertex data keyed by ID
     nodes: HashMap<VertexId, NodeData>,
@@ -71,7 +173,17 @@ struct EdgeData {
 }
 
 impl InMemoryGraph {
-    /// Create a new empty in-memory graph
+    /// Creates a new empty in-memory graph.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    ///
+    /// let graph = InMemoryGraph::new();
+    /// assert_eq!(graph.vertex_count(), 0);
+    /// assert_eq!(graph.edge_count(), 0);
+    /// ```
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
@@ -84,10 +196,41 @@ impl InMemoryGraph {
         }
     }
 
-    /// Add a vertex with the given label and properties
-    /// Returns the new vertex's ID
+    /// Adds a vertex with the given label and properties.
     ///
-    /// Complexity: O(1) amortized
+    /// Returns the new vertex's unique ID. Vertex IDs are assigned sequentially
+    /// starting from 0 and are never reused within a graph instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The vertex label (e.g., "person", "software")
+    /// * `properties` - Key-value pairs of vertex properties
+    ///
+    /// # Returns
+    ///
+    /// The [`VertexId`] of the newly created vertex.
+    ///
+    /// # Complexity
+    ///
+    /// O(1) amortized (HashMap insertion).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use rustgremlin::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut graph = InMemoryGraph::new();
+    ///
+    /// let id = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), Value::String("Alice".to_string())),
+    ///     ("age".to_string(), Value::Int(30)),
+    /// ]));
+    ///
+    /// let vertex = graph.get_vertex(id).unwrap();
+    /// assert_eq!(vertex.label, "person");
+    /// ```
     pub fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId {
         let id = VertexId(self.next_vertex_id.fetch_add(1, Ordering::Relaxed));
         let label_id = self.string_table.intern(label);
@@ -111,10 +254,49 @@ impl InMemoryGraph {
         id
     }
 
-    /// Add an edge between two vertices with the given label and properties
-    /// Returns the new edge's ID, or error if source/destination vertices don't exist
+    /// Adds an edge between two vertices with the given label and properties.
     ///
-    /// Complexity: O(1)
+    /// Edges are directed: they go from `src` (source) to `dst` (destination).
+    /// Self-loops (edges where `src == dst`) are allowed.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - Source vertex ID (where the edge starts)
+    /// * `dst` - Destination vertex ID (where the edge ends)
+    /// * `label` - The edge label (e.g., "knows", "created")
+    /// * `properties` - Key-value pairs of edge properties
+    ///
+    /// # Returns
+    ///
+    /// The [`EdgeId`] of the newly created edge, or an error if either
+    /// vertex doesn't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::VertexNotFound`] if `src` or `dst` doesn't exist.
+    ///
+    /// # Complexity
+    ///
+    /// O(1).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use std::collections::HashMap;
+    ///
+    /// let mut graph = InMemoryGraph::new();
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    ///
+    /// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::from([
+    ///     ("since".to_string(), 2020.into()),
+    /// ])).unwrap();
+    ///
+    /// let edge = graph.get_edge(edge_id).unwrap();
+    /// assert_eq!(edge.src, alice);
+    /// assert_eq!(edge.dst, bob);
+    /// ```
     pub fn add_edge(
         &mut self,
         src: VertexId,
@@ -156,10 +338,40 @@ impl InMemoryGraph {
         Ok(id)
     }
 
-    /// Remove a vertex and all its incident edges
-    /// Returns error if vertex doesn't exist
+    /// Removes a vertex and all its incident edges.
     ///
-    /// Complexity: O(degree) where degree = in_degree + out_degree
+    /// When a vertex is removed, all edges that connect to it (both incoming
+    /// and outgoing) are also removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the vertex to remove
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::VertexNotFound`] if the vertex doesn't exist.
+    ///
+    /// # Complexity
+    ///
+    /// O(degree) where degree = in_degree + out_degree, due to edge removal.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use std::collections::HashMap;
+    ///
+    /// let mut graph = InMemoryGraph::new();
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// // Removing alice also removes the "knows" edge
+    /// graph.remove_vertex(alice).unwrap();
+    ///
+    /// assert_eq!(graph.vertex_count(), 1);
+    /// assert_eq!(graph.edge_count(), 0);
+    /// ```
     pub fn remove_vertex(&mut self, id: VertexId) -> Result<(), StorageError> {
         let node = self
             .nodes
@@ -188,10 +400,39 @@ impl InMemoryGraph {
         Ok(())
     }
 
-    /// Remove an edge
-    /// Returns error if edge doesn't exist
+    /// Removes an edge from the graph.
     ///
-    /// Complexity: O(degree) due to adjacency list removal
+    /// The source and destination vertices are updated to remove this edge
+    /// from their adjacency lists.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the edge to remove
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::EdgeNotFound`] if the edge doesn't exist.
+    ///
+    /// # Complexity
+    ///
+    /// O(degree) due to adjacency list removal.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use std::collections::HashMap;
+    ///
+    /// let mut graph = InMemoryGraph::new();
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// graph.remove_edge(edge_id).unwrap();
+    ///
+    /// assert_eq!(graph.edge_count(), 0);
+    /// assert!(graph.get_edge(edge_id).is_none());
+    /// ```
     pub fn remove_edge(&mut self, id: EdgeId) -> Result<(), StorageError> {
         self.remove_edge_internal(id, None)
     }
