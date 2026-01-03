@@ -841,7 +841,7 @@ impl<S, E, Steps> Traversal<S, E, Steps> {
 - [x] `repeat().times(n)` iterates exactly n times
 - [x] `repeat().until()` stops on condition
 - [x] `repeat().emit()` yields all intermediate results
-- [ ] Aggregation steps produce correct results (`group()`, `groupCount()`, `mean()`)
+- [x] Aggregation steps produce correct results (`group()`, `groupCount()`, `mean()`)
 - [x] Path labeling with `as_()` and `select()` works
 
 ---
