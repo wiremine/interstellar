@@ -44,7 +44,8 @@ pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
-    AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, SelectStep, ValuesStep,
+    AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep,
+    PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
 };
 
 // Re-export macros
@@ -1462,6 +1463,31 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::PropertiesStep::with_keys(keys))
     }
 
+    /// Unroll collections into individual elements (for anonymous traversals).
+    ///
+    /// This step expands `Value::List` and `Value::Map` into separate traversers:
+    /// - `Value::List`: Each element becomes a separate traverser
+    /// - `Value::Map`: Each key-value pair becomes a single-entry map traverser
+    /// - Non-collection values pass through unchanged
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Unfold a list
+    /// let anon = Traversal::<Value, Value>::new().unfold();
+    /// let items = g.inject([Value::List(vec![Value::Int(1), Value::Int(2)])])
+    ///     .append(anon)
+    ///     .to_list();
+    /// // Results: [Value::Int(1), Value::Int(2)]
+    ///
+    /// // Round-trip: fold then unfold
+    /// let original = g.v().fold().unfold().to_list();
+    /// // Returns original vertices
+    /// ```
+    pub fn unfold(self) -> Traversal<In, Value> {
+        self.add_step(transform::UnfoldStep::new())
+    }
+
     /// Extract the ID from vertices/edges (for anonymous traversals).
     ///
     /// For each input element, extracts its ID as a `Value::Int`.
@@ -1868,8 +1894,8 @@ pub mod __ {
     use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
-        AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, PropertiesStep,
-        SelectStep, ValuesStep,
+        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep,
+        PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -2410,6 +2436,109 @@ pub mod __ {
     pub fn properties_keys(keys: &[&str]) -> Traversal<Value, Value> {
         let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
         Traversal::<Value, Value>::new().add_step(PropertiesStep::with_keys(keys))
+    }
+
+    /// Get all properties as a map with list-wrapped values.
+    ///
+    /// Transforms each element into a `Value::Map` containing all properties.
+    /// Property values are wrapped in `Value::List` for multi-property compatibility.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::value_map();
+    /// // Returns: {"name": ["Alice"], "age": [30]}
+    /// ```
+    #[inline]
+    pub fn value_map() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(ValueMapStep::new())
+    }
+
+    /// Get specific properties as a map with list-wrapped values.
+    ///
+    /// Transforms each element into a `Value::Map` containing only the
+    /// specified properties. Property values are wrapped in `Value::List`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::value_map_keys(&["name"]);
+    /// // Returns: {"name": ["Alice"]}
+    /// ```
+    pub fn value_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
+        let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(ValueMapStep::with_keys(keys))
+    }
+
+    /// Get all properties as a map including id and label tokens.
+    ///
+    /// Returns a `Value::Map` containing all properties plus "id" and "label".
+    /// Property values are wrapped in `Value::List`, but tokens are not.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::value_map_with_tokens();
+    /// // Returns: {"id": 0, "label": "person", "name": ["Alice"], "age": [30]}
+    /// ```
+    #[inline]
+    pub fn value_map_with_tokens() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(ValueMapStep::new().with_tokens())
+    }
+
+    /// Get complete element representation as a map.
+    ///
+    /// Transforms each element into a `Value::Map` with id, label, and all
+    /// properties. Unlike `value_map()`, property values are NOT wrapped in lists.
+    /// For edges, also includes "IN" and "OUT" vertex references.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::element_map();
+    /// // Vertex: {"id": 0, "label": "person", "name": "Alice", "age": 30}
+    /// // Edge: {"id": 0, "label": "knows", "IN": {...}, "OUT": {...}, "since": 2020}
+    /// ```
+    #[inline]
+    pub fn element_map() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(ElementMapStep::new())
+    }
+
+    /// Get element representation with specific properties.
+    ///
+    /// Like `element_map()`, but includes only the specified properties
+    /// along with the id, label, and (for edges) IN/OUT references.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::element_map_keys(&["name"]);
+    /// // Returns: {"id": 0, "label": "person", "name": "Alice"}
+    /// ```
+    pub fn element_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
+        let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(ElementMapStep::with_keys(keys))
+    }
+
+    /// Unroll collections into individual elements.
+    ///
+    /// - `Value::List`: Each element becomes a separate traverser
+    /// - `Value::Map`: Each key-value pair becomes a single-entry map traverser
+    /// - Non-collection values pass through unchanged
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Unfold a list
+    /// let unfolded = __::unfold();
+    ///
+    /// // Use in pipeline
+    /// let entries = g.v().value_map().unfold().to_list();
+    /// // Each property entry becomes a separate traverser
+    /// ```
+    #[inline]
+    pub fn unfold() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(UnfoldStep::new())
     }
 
     /// Extract the element ID.

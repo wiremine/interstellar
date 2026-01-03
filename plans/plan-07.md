@@ -333,11 +333,11 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 7. Add `__::value_map()` factory function
 
 **Acceptance Criteria**:
-- [ ] `value_map()` returns `{name: [value], age: [value]}`
-- [ ] `value_map_keys(&["name"])` returns only specified keys
-- [ ] `value_map_with_tokens()` includes "id" and "label"
-- [ ] Values are wrapped in lists
-- [ ] Unit tests pass
+- [x] `value_map()` returns `{name: [value], age: [value]}`
+- [x] `value_map_keys(&["name"])` returns only specified keys
+- [x] `value_map_with_tokens()` includes "id" and "label"
+- [x] Values are wrapped in lists
+- [x] Unit tests pass
 
 ---
 
@@ -356,11 +356,11 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 8. Add `__::element_map()` factory function
 
 **Acceptance Criteria**:
-- [ ] `element_map()` for vertices includes id, label, and properties
-- [ ] `element_map()` for edges includes id, label, IN, OUT, and properties
-- [ ] IN/OUT are vertex reference maps with id and label
-- [ ] Property values are NOT wrapped in lists
-- [ ] Unit tests pass
+- [x] `element_map()` for vertices includes id, label, and properties
+- [x] `element_map()` for edges includes id, label, IN, OUT, and properties
+- [x] IN/OUT are vertex reference maps with id and label
+- [x] Property values are NOT wrapped in lists
+- [x] Unit tests pass
 
 ---
 
@@ -379,10 +379,10 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 8. Add `__::unfold()` factory function
 
 **Acceptance Criteria**:
-- [ ] `fold().unfold()` returns original elements
-- [ ] `value_map().unfold()` returns individual property entries
-- [ ] Non-collection values pass through unchanged
-- [ ] Unit tests pass
+- [x] `fold().unfold()` returns original elements
+- [x] `value_map().unfold()` returns individual property entries
+- [x] Non-collection values pass through unchanged
+- [x] Unit tests pass
 
 ---
 

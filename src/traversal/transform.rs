@@ -1029,6 +1029,483 @@ impl Default for PropertiesStep {
 impl_flatmap_step!(PropertiesStep, "properties");
 
 // -----------------------------------------------------------------------------
+// ValueMapStep - return properties as a map with list-wrapped values
+// -----------------------------------------------------------------------------
+
+/// Transform step that converts elements to maps of their properties.
+///
+/// This step transforms vertices and edges into `Value::Map` containing
+/// their properties. Property values are wrapped in `Value::List` for
+/// multi-property compatibility (following Gremlin semantics).
+///
+/// # Behavior
+///
+/// - For vertices: Returns map of property key → `[value]`
+/// - For edges: Returns map of property key → `[value]`
+/// - Non-element values produce empty maps
+/// - Optionally includes "id" and "label" tokens (not wrapped in lists)
+///
+/// # Example
+///
+/// ```ignore
+/// // Get all properties as a map
+/// let maps = g.v().has_label("person").value_map().to_list();
+/// // Returns: [{"name": ["Alice"], "age": [30]}, {"name": ["Bob"]}]
+///
+/// // Get specific properties
+/// let names = g.v().value_map_keys(&["name"]).to_list();
+/// // Returns: [{"name": ["Alice"]}, {"name": ["Bob"]}]
+///
+/// // Include id and label tokens
+/// let full = g.v().value_map_with_tokens().to_list();
+/// // Returns: [{"id": 0, "label": "person", "name": ["Alice"], "age": [30]}]
+/// ```
+#[derive(Clone, Debug)]
+pub struct ValueMapStep {
+    /// Property keys to include. None means all properties.
+    keys: Option<Vec<String>>,
+    /// Whether to include id and label tokens.
+    include_tokens: bool,
+}
+
+impl ValueMapStep {
+    /// Create a ValueMapStep that extracts all properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = ValueMapStep::new();
+    /// ```
+    pub fn new() -> Self {
+        Self {
+            keys: None,
+            include_tokens: false,
+        }
+    }
+
+    /// Create a ValueMapStep for specific property keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The property keys to extract
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = ValueMapStep::with_keys(vec!["name".to_string(), "age".to_string()]);
+    /// ```
+    pub fn with_keys(keys: Vec<String>) -> Self {
+        Self {
+            keys: Some(keys),
+            include_tokens: false,
+        }
+    }
+
+    /// Create a ValueMapStep from an iterator of keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - Iterator of property keys to extract
+    pub fn from_keys<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            keys: Some(keys.into_iter().map(Into::into).collect()),
+            include_tokens: false,
+        }
+    }
+
+    /// Enable including id and label tokens in the output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = ValueMapStep::new().with_tokens();
+    /// ```
+    pub fn with_tokens(mut self) -> Self {
+        self.include_tokens = true;
+        self
+    }
+
+    /// Transform a traverser's value into a property map.
+    fn transform(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
+        let mut map = std::collections::HashMap::new();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                    // Optionally include id and label tokens (NOT wrapped in lists)
+                    if self.include_tokens {
+                        map.insert("id".to_string(), Value::Int(id.0 as i64));
+                        map.insert("label".to_string(), Value::String(vertex.label.clone()));
+                    }
+
+                    // Add properties (wrapped in lists)
+                    match &self.keys {
+                        None => {
+                            // Include all properties
+                            for (key, value) in &vertex.properties {
+                                map.insert(key.clone(), Value::List(vec![value.clone()]));
+                            }
+                        }
+                        Some(key_list) => {
+                            // Include only specified properties
+                            for key in key_list {
+                                if let Some(value) = vertex.properties.get(key) {
+                                    map.insert(key.clone(), Value::List(vec![value.clone()]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                    // Optionally include id and label tokens (NOT wrapped in lists)
+                    if self.include_tokens {
+                        map.insert("id".to_string(), Value::Int(id.0 as i64));
+                        map.insert("label".to_string(), Value::String(edge.label.clone()));
+                    }
+
+                    // Add properties (wrapped in lists)
+                    match &self.keys {
+                        None => {
+                            // Include all properties
+                            for (key, value) in &edge.properties {
+                                map.insert(key.clone(), Value::List(vec![value.clone()]));
+                            }
+                        }
+                        Some(key_list) => {
+                            // Include only specified properties
+                            for key in key_list {
+                                if let Some(value) = edge.properties.get(key) {
+                                    map.insert(key.clone(), Value::List(vec![value.clone()]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Non-element values produce empty maps
+            _ => {}
+        }
+
+        Value::Map(map)
+    }
+}
+
+impl Default for ValueMapStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::traversal::step::AnyStep for ValueMapStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.map(move |t| {
+            let value = self.transform(ctx, &t);
+            t.with_value(value)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "valueMap"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ElementMapStep - return complete element representation including id, label
+// -----------------------------------------------------------------------------
+
+/// Transform step that converts elements to complete map representations.
+///
+/// This step transforms vertices and edges into `Value::Map` containing
+/// their complete representation including id, label, and properties.
+/// Unlike `ValueMapStep`, property values are NOT wrapped in lists.
+///
+/// # Behavior
+///
+/// - For vertices: Returns map with "id", "label", and all properties
+/// - For edges: Returns map with "id", "label", "IN", "OUT", and all properties
+///   - "IN" contains `{id, label}` of the destination vertex
+///   - "OUT" contains `{id, label}` of the source vertex
+/// - Non-element values produce empty maps
+///
+/// # Example
+///
+/// ```ignore
+/// // Get complete vertex representation
+/// let maps = g.v().has_label("person").element_map().to_list();
+/// // Returns: [{"id": 0, "label": "person", "name": "Alice", "age": 30}]
+///
+/// // Get complete edge representation
+/// let edges = g.e().element_map().to_list();
+/// // Returns: [{"id": 0, "label": "knows", "IN": {"id": 1, "label": "person"},
+/// //           "OUT": {"id": 0, "label": "person"}, "since": 2020}]
+///
+/// // Get specific properties
+/// let partial = g.v().element_map_keys(&["name"]).to_list();
+/// // Returns: [{"id": 0, "label": "person", "name": "Alice"}]
+/// ```
+#[derive(Clone, Debug)]
+pub struct ElementMapStep {
+    /// Property keys to include. None means all properties.
+    keys: Option<Vec<String>>,
+}
+
+impl ElementMapStep {
+    /// Create an ElementMapStep that includes all properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = ElementMapStep::new();
+    /// ```
+    pub fn new() -> Self {
+        Self { keys: None }
+    }
+
+    /// Create an ElementMapStep for specific property keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The property keys to include
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = ElementMapStep::with_keys(vec!["name".to_string()]);
+    /// ```
+    pub fn with_keys(keys: Vec<String>) -> Self {
+        Self { keys: Some(keys) }
+    }
+
+    /// Create an ElementMapStep from an iterator of keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - Iterator of property keys to include
+    pub fn from_keys<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            keys: Some(keys.into_iter().map(Into::into).collect()),
+        }
+    }
+
+    /// Transform a traverser's value into an element map.
+    fn transform(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
+        let mut map = std::collections::HashMap::new();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                    // Always include id and label
+                    map.insert("id".to_string(), Value::Int(id.0 as i64));
+                    map.insert("label".to_string(), Value::String(vertex.label.clone()));
+
+                    // Add properties (NOT wrapped in lists)
+                    match &self.keys {
+                        None => {
+                            // Include all properties
+                            for (key, value) in &vertex.properties {
+                                map.insert(key.clone(), value.clone());
+                            }
+                        }
+                        Some(key_list) => {
+                            // Include only specified properties
+                            for key in key_list {
+                                if let Some(value) = vertex.properties.get(key) {
+                                    map.insert(key.clone(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                    // Always include id and label
+                    map.insert("id".to_string(), Value::Int(id.0 as i64));
+                    map.insert("label".to_string(), Value::String(edge.label.clone()));
+
+                    // Include IN vertex reference (the destination vertex)
+                    let in_ref = self.make_vertex_reference(ctx, edge.dst);
+                    map.insert("IN".to_string(), in_ref);
+
+                    // Include OUT vertex reference (the source vertex)
+                    let out_ref = self.make_vertex_reference(ctx, edge.src);
+                    map.insert("OUT".to_string(), out_ref);
+
+                    // Add properties (NOT wrapped in lists)
+                    match &self.keys {
+                        None => {
+                            // Include all properties
+                            for (key, value) in &edge.properties {
+                                map.insert(key.clone(), value.clone());
+                            }
+                        }
+                        Some(key_list) => {
+                            // Include only specified properties
+                            for key in key_list {
+                                if let Some(value) = edge.properties.get(key) {
+                                    map.insert(key.clone(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Non-element values produce empty maps
+            _ => {}
+        }
+
+        Value::Map(map)
+    }
+
+    /// Create a vertex reference map with id and label.
+    fn make_vertex_reference(
+        &self,
+        ctx: &ExecutionContext,
+        vertex_id: crate::value::VertexId,
+    ) -> Value {
+        let mut ref_map = std::collections::HashMap::new();
+        ref_map.insert("id".to_string(), Value::Int(vertex_id.0 as i64));
+
+        if let Some(vertex) = ctx.snapshot().storage().get_vertex(vertex_id) {
+            ref_map.insert("label".to_string(), Value::String(vertex.label.clone()));
+        }
+
+        Value::Map(ref_map)
+    }
+}
+
+impl Default for ElementMapStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::traversal::step::AnyStep for ElementMapStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.map(move |t| {
+            let value = self.transform(ctx, &t);
+            t.with_value(value)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "elementMap"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// UnfoldStep - unroll collections into individual elements
+// -----------------------------------------------------------------------------
+
+/// Transform step that unrolls collections into individual elements.
+///
+/// This step expands `Value::List` and `Value::Map` into separate traversers:
+/// - `Value::List`: Each element becomes a separate traverser
+/// - `Value::Map`: Each key-value pair becomes a single-entry map traverser
+/// - Non-collection values pass through unchanged
+///
+/// # Behavior
+///
+/// - `Value::List([1, 2, 3])` produces three traversers with values `1`, `2`, `3`
+/// - `Value::Map({a: 1, b: 2})` produces two traversers, each a single-entry map
+/// - `Value::Int(42)` passes through as-is (non-collection)
+/// - `Value::Null` passes through as-is
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().properties().fold().unfold()  // fold then unfold returns original
+/// g.V().valueMap().unfold()  // each property entry becomes a traverser
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// // Unfold a list
+/// let items = g.inject([Value::List(vec![Value::Int(1), Value::Int(2)])])
+///     .unfold()
+///     .to_list();
+/// // Results: [Value::Int(1), Value::Int(2)]
+///
+/// // Unfold a property map
+/// let entries = g.v().value_map().unfold().to_list();
+/// // Each property becomes a separate single-entry map
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct UnfoldStep;
+
+impl UnfoldStep {
+    /// Create a new UnfoldStep.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Expand a traverser by unfolding its value.
+    ///
+    /// Returns an iterator of values produced by unfolding the input.
+    fn expand<'a>(
+        &self,
+        _ctx: &'a ExecutionContext<'a>,
+        traverser: Traverser,
+    ) -> impl Iterator<Item = Traverser> + 'a {
+        let values = match &traverser.value {
+            Value::List(items) => {
+                // Each list element becomes a separate traverser
+                items.clone()
+            }
+            Value::Map(map) => {
+                // Each map entry becomes a single-entry map
+                map.iter()
+                    .map(|(k, v)| {
+                        let mut entry = std::collections::HashMap::new();
+                        entry.insert(k.clone(), v.clone());
+                        Value::Map(entry)
+                    })
+                    .collect()
+            }
+            // Non-collections pass through unchanged
+            other => vec![other.clone()],
+        };
+
+        // Create new traversers for each value
+        values
+            .into_iter()
+            .map(move |value| traverser.split(value))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+
+// Use the macro to implement AnyStep for UnfoldStep
+impl_flatmap_step!(UnfoldStep, "unfold");
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -3828,6 +4305,870 @@ mod tests {
             } else {
                 panic!("Expected Value::Map");
             }
+        }
+    }
+
+    mod value_map_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step_with_no_keys() {
+            let step = ValueMapStep::new();
+            assert!(step.keys.is_none());
+            assert!(!step.include_tokens);
+        }
+
+        #[test]
+        fn with_keys_creates_step_with_specific_keys() {
+            let step = ValueMapStep::with_keys(vec!["name".to_string(), "age".to_string()]);
+            assert!(step.keys.is_some());
+            let keys = step.keys.unwrap();
+            assert_eq!(keys.len(), 2);
+            assert_eq!(keys[0], "name");
+            assert_eq!(keys[1], "age");
+        }
+
+        #[test]
+        fn from_keys_creates_step_from_iterator() {
+            let step = ValueMapStep::from_keys(["name", "age", "email"]);
+            assert!(step.keys.is_some());
+            let keys = step.keys.unwrap();
+            assert_eq!(keys.len(), 3);
+        }
+
+        #[test]
+        fn with_tokens_enables_token_inclusion() {
+            let step = ValueMapStep::new().with_tokens();
+            assert!(step.include_tokens);
+        }
+
+        #[test]
+        fn name_returns_value_map() {
+            let step = ValueMapStep::new();
+            assert_eq!(step.name(), "valueMap");
+        }
+
+        #[test]
+        fn default_creates_empty_step() {
+            let step = ValueMapStep::default();
+            assert!(step.keys.is_none());
+            assert!(!step.include_tokens);
+        }
+    }
+
+    mod value_map_step_vertex_transform {
+        use super::*;
+
+        #[test]
+        fn returns_all_properties_for_vertex() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                // Should have name and age properties
+                assert_eq!(map.len(), 2);
+                assert!(map.contains_key("name"));
+                assert!(map.contains_key("age"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn wraps_property_values_in_lists() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                // Values should be wrapped in lists
+                if let Some(Value::List(list)) = map.get("name") {
+                    assert_eq!(list.len(), 1);
+                    assert_eq!(list[0], Value::String("Alice".to_string()));
+                } else {
+                    panic!("Expected name to be a list");
+                }
+
+                if let Some(Value::List(list)) = map.get("age") {
+                    assert_eq!(list.len(), 1);
+                    assert_eq!(list[0], Value::Int(30));
+                } else {
+                    panic!("Expected age to be a list");
+                }
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn returns_only_specified_keys() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueMapStep::with_keys(vec!["name".to_string()]);
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert_eq!(map.len(), 1);
+                assert!(map.contains_key("name"));
+                assert!(!map.contains_key("age"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn includes_tokens_when_enabled() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueMapStep::new().with_tokens();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                // Should have id, label, name, and age
+                assert_eq!(map.len(), 4);
+                assert_eq!(map.get("id"), Some(&Value::Int(0)));
+                assert_eq!(map.get("label"), Some(&Value::String("person".to_string())));
+                // Properties are still wrapped in lists
+                assert!(matches!(map.get("name"), Some(Value::List(_))));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn returns_empty_map_for_vertex_with_no_properties() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Vertex 3 is a company with no properties
+            let step = ValueMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(3))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod value_map_step_edge_transform {
+        use super::*;
+
+        #[test]
+        fn returns_all_properties_for_edge() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueMapStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                // Edge 0 has since and weight properties
+                assert_eq!(map.len(), 2);
+                assert!(map.contains_key("since"));
+                assert!(map.contains_key("weight"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn returns_empty_map_for_edge_with_no_properties() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Edge 1 has no properties
+            let step = ValueMapStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(1))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod value_map_step_non_element {
+        use super::*;
+
+        #[test]
+        fn returns_empty_map_for_non_element() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueMapStep::new();
+            let input = vec![Traverser::new(Value::String("test".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod element_map_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step_with_no_keys() {
+            let step = ElementMapStep::new();
+            assert!(step.keys.is_none());
+        }
+
+        #[test]
+        fn with_keys_creates_step_with_specific_keys() {
+            let step = ElementMapStep::with_keys(vec!["name".to_string()]);
+            assert!(step.keys.is_some());
+            let keys = step.keys.unwrap();
+            assert_eq!(keys.len(), 1);
+            assert_eq!(keys[0], "name");
+        }
+
+        #[test]
+        fn from_keys_creates_step_from_iterator() {
+            let step = ElementMapStep::from_keys(["name", "age"]);
+            assert!(step.keys.is_some());
+            let keys = step.keys.unwrap();
+            assert_eq!(keys.len(), 2);
+        }
+
+        #[test]
+        fn name_returns_element_map() {
+            let step = ElementMapStep::new();
+            assert_eq!(step.name(), "elementMap");
+        }
+
+        #[test]
+        fn default_creates_empty_step() {
+            let step = ElementMapStep::default();
+            assert!(step.keys.is_none());
+        }
+    }
+
+    mod element_map_step_vertex_transform {
+        use super::*;
+
+        #[test]
+        fn includes_id_and_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert_eq!(map.get("id"), Some(&Value::Int(0)));
+                assert_eq!(map.get("label"), Some(&Value::String("person".to_string())));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn includes_all_properties() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                // id, label, name, age
+                assert_eq!(map.len(), 4);
+                assert!(map.contains_key("name"));
+                assert!(map.contains_key("age"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn property_values_not_wrapped_in_lists() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                // Unlike valueMap, values are NOT wrapped in lists
+                assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+                assert_eq!(map.get("age"), Some(&Value::Int(30)));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn includes_only_specified_keys_plus_id_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::with_keys(vec!["name".to_string()]);
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                // id, label, and name only (not age)
+                assert_eq!(map.len(), 3);
+                assert!(map.contains_key("id"));
+                assert!(map.contains_key("label"));
+                assert!(map.contains_key("name"));
+                assert!(!map.contains_key("age"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod element_map_step_edge_transform {
+        use super::*;
+
+        #[test]
+        fn includes_id_label_and_vertex_references() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                // Should have id, label, IN, OUT, and edge properties
+                assert!(map.contains_key("id"));
+                assert!(map.contains_key("label"));
+                assert!(map.contains_key("IN"));
+                assert!(map.contains_key("OUT"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn in_reference_contains_destination_vertex() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            // Edge 0 goes from vertex 0 to vertex 1
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                if let Some(Value::Map(in_ref)) = map.get("IN") {
+                    // IN is the destination (vertex 1)
+                    assert_eq!(in_ref.get("id"), Some(&Value::Int(1)));
+                    assert_eq!(
+                        in_ref.get("label"),
+                        Some(&Value::String("person".to_string()))
+                    );
+                } else {
+                    panic!("Expected IN to be a Map");
+                }
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn out_reference_contains_source_vertex() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            // Edge 0 goes from vertex 0 to vertex 1
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                if let Some(Value::Map(out_ref)) = map.get("OUT") {
+                    // OUT is the source (vertex 0)
+                    assert_eq!(out_ref.get("id"), Some(&Value::Int(0)));
+                    assert_eq!(
+                        out_ref.get("label"),
+                        Some(&Value::String("person".to_string()))
+                    );
+                } else {
+                    panic!("Expected OUT to be a Map");
+                }
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn includes_edge_properties() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.contains_key("since"));
+                assert!(map.contains_key("weight"));
+                assert_eq!(map.get("since"), Some(&Value::Int(2020)));
+                assert_eq!(map.get("weight"), Some(&Value::Float(0.8)));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod element_map_step_non_element {
+        use super::*;
+
+        #[test]
+        fn returns_empty_map_for_non_element() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ElementMapStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    // =========================================================================
+    // UnfoldStep Tests
+    // =========================================================================
+
+    mod unfold_step_list {
+        use super::*;
+
+        #[test]
+        fn unfolds_list_into_individual_elements() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+            let input = vec![Traverser::new(list)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn empty_list_produces_no_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list = Value::List(vec![]);
+            let input = vec![Traverser::new(list)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 0);
+        }
+
+        #[test]
+        fn preserves_nested_lists() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let nested = Value::List(vec![Value::Int(1), Value::Int(2)]);
+            let list = Value::List(vec![nested.clone(), Value::Int(3)]);
+            let input = vec![Traverser::new(list)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, nested);
+            assert_eq!(output[1].value, Value::Int(3));
+        }
+
+        #[test]
+        fn unfolds_multiple_lists() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list1 = Value::List(vec![Value::Int(1), Value::Int(2)]);
+            let list2 = Value::List(vec![Value::Int(3)]);
+            let input = vec![Traverser::new(list1), Traverser::new(list2)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+    }
+
+    mod unfold_step_map {
+        use super::*;
+
+        #[test]
+        fn unfolds_map_into_single_entry_maps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let mut map = HashMap::new();
+            map.insert("a".to_string(), Value::Int(1));
+            map.insert("b".to_string(), Value::Int(2));
+            let input = vec![Traverser::new(Value::Map(map))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+
+            // Collect all single-entry maps
+            let mut entries: Vec<(String, Value)> = output
+                .iter()
+                .filter_map(|t| {
+                    if let Value::Map(m) = &t.value {
+                        assert_eq!(
+                            m.len(),
+                            1,
+                            "Each unfolded map should have exactly one entry"
+                        );
+                        m.iter().next().map(|(k, v)| (k.clone(), v.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0], ("a".to_string(), Value::Int(1)));
+            assert_eq!(entries[1], ("b".to_string(), Value::Int(2)));
+        }
+
+        #[test]
+        fn empty_map_produces_no_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let map: HashMap<String, Value> = HashMap::new();
+            let input = vec![Traverser::new(Value::Map(map))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 0);
+        }
+
+        #[test]
+        fn single_entry_map_produces_single_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let mut map = HashMap::new();
+            map.insert("key".to_string(), Value::String("value".to_string()));
+            let input = vec![Traverser::new(Value::Map(map.clone()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(m) = &output[0].value {
+                assert_eq!(m.len(), 1);
+                assert_eq!(m.get("key"), Some(&Value::String("value".to_string())));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod unfold_step_non_collection {
+        use super::*;
+
+        #[test]
+        fn int_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(42));
+        }
+
+        #[test]
+        fn string_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::new(Value::String("hello".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("hello".to_string()));
+        }
+
+        #[test]
+        fn null_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::new(Value::Null)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Null);
+        }
+
+        #[test]
+        fn vertex_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(0)));
+        }
+
+        #[test]
+        fn edge_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Edge(EdgeId(0)));
+        }
+
+        #[test]
+        fn bool_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::new(Value::Bool(true))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Bool(true));
+        }
+
+        #[test]
+        fn float_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let input = vec![Traverser::new(Value::Float(3.14))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(3.14));
+        }
+    }
+
+    mod unfold_step_metadata {
+        use super::*;
+        use crate::traversal::PathValue;
+
+        #[test]
+        fn preserves_path_from_parent() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list = Value::List(vec![Value::Int(1), Value::Int(2)]);
+            let mut traverser = Traverser::new(list);
+            // Add a labeled path element
+            traverser.path.push_labeled(
+                PathValue::Property(Value::String("original".to_string())),
+                "start",
+            );
+            let input = vec![traverser];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            // Both outputs should have the same path from parent
+            assert!(output[0].path.get("start").is_some());
+            assert!(output[1].path.get("start").is_some());
+            // The path should contain the original value
+            let start_values_0 = output[0].path.get("start").unwrap();
+            assert_eq!(start_values_0.len(), 1);
+            if let PathValue::Property(v) = start_values_0[0] {
+                assert_eq!(*v, Value::String("original".to_string()));
+            } else {
+                panic!("Expected PathValue::Property");
+            }
+        }
+
+        #[test]
+        fn preserves_loop_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list = Value::List(vec![Value::Int(1)]);
+            let mut traverser = Traverser::new(list);
+            traverser.loops = 5;
+            let input = vec![traverser];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list = Value::List(vec![Value::Int(1)]);
+            let mut traverser = Traverser::new(list);
+            traverser.bulk = 10;
+            let input = vec![traverser];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod unfold_step_integration {
+        use super::*;
+
+        #[test]
+        fn mixed_collection_and_non_collection_input() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = UnfoldStep::new();
+            let list = Value::List(vec![Value::Int(1), Value::Int(2)]);
+            let input = vec![
+                Traverser::new(list),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::List(vec![Value::Int(4)])),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 4);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+            assert_eq!(output[3].value, Value::Int(4));
+        }
+
+        #[test]
+        fn step_name_is_unfold() {
+            let step = UnfoldStep::new();
+            assert_eq!(step.name(), "unfold");
+        }
+
+        #[test]
+        fn step_is_clonable() {
+            let step = UnfoldStep::new();
+            let _cloned = step.clone();
         }
     }
 }

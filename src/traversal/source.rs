@@ -972,6 +972,102 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(PropertiesStep::from_keys(keys))
     }
 
+    /// Get all properties as a map with list-wrapped values.
+    ///
+    /// Transforms each element into a `Value::Map` containing all properties.
+    /// Property values are wrapped in `Value::List` for multi-property compatibility
+    /// (following Gremlin semantics).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = g.v().has_label("person").value_map().to_list();
+    /// // Returns: [{"name": ["Alice"], "age": [30]}, {"name": ["Bob"]}]
+    /// ```
+    pub fn value_map(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::ValueMapStep;
+        self.add_step(ValueMapStep::new())
+    }
+
+    /// Get specific properties as a map with list-wrapped values.
+    ///
+    /// Transforms each element into a `Value::Map` containing only the
+    /// specified properties. Property values are wrapped in `Value::List`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = g.v().value_map_keys(&["name"]).to_list();
+    /// // Returns: [{"name": ["Alice"]}, {"name": ["Bob"]}]
+    /// ```
+    pub fn value_map_keys<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::transform::ValueMapStep;
+        self.add_step(ValueMapStep::from_keys(keys))
+    }
+
+    /// Get all properties as a map including id and label tokens.
+    ///
+    /// Like `value_map()`, but also includes "id" and "label" entries.
+    /// The id and label are NOT wrapped in lists, but property values are.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = g.v().value_map_with_tokens().to_list();
+    /// // Returns: [{"id": 0, "label": "person", "name": ["Alice"], "age": [30]}]
+    /// ```
+    pub fn value_map_with_tokens(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::ValueMapStep;
+        self.add_step(ValueMapStep::new().with_tokens())
+    }
+
+    /// Get complete element representation as a map.
+    ///
+    /// Transforms each element into a `Value::Map` with id, label, and all
+    /// properties. Unlike `value_map()`, property values are NOT wrapped in lists.
+    /// For edges, also includes "IN" and "OUT" vertex references.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Vertex representation
+    /// let maps = g.v().element_map().to_list();
+    /// // Returns: [{"id": 0, "label": "person", "name": "Alice", "age": 30}]
+    ///
+    /// // Edge representation
+    /// let edges = g.e().element_map().to_list();
+    /// // Returns: [{"id": 0, "label": "knows", "IN": {"id": 1, "label": "person"},
+    /// //           "OUT": {"id": 0, "label": "person"}, "since": 2020}]
+    /// ```
+    pub fn element_map(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::ElementMapStep;
+        self.add_step(ElementMapStep::new())
+    }
+
+    /// Get element representation with specific properties.
+    ///
+    /// Like `element_map()`, but includes only the specified properties
+    /// along with the id, label, and (for edges) IN/OUT references.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = g.v().element_map_keys(&["name"]).to_list();
+    /// // Returns: [{"id": 0, "label": "person", "name": "Alice"}]
+    /// ```
+    pub fn element_map_keys<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::transform::ElementMapStep;
+        self.add_step(ElementMapStep::from_keys(keys))
+    }
+
     /// Transform each value using a closure.
     ///
     /// The closure receives the execution context and the current value,
