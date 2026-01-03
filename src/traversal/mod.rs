@@ -504,6 +504,14 @@ impl Traverser {
         self.loops += 1;
     }
 
+    /// Get the current loop count.
+    ///
+    /// Returns the number of times this traverser has been through a `repeat()` loop.
+    #[inline]
+    pub fn loops(&self) -> usize {
+        self.loops
+    }
+
     /// Extend path with current value.
     ///
     /// Adds the current value to the path with the given labels.
@@ -2683,6 +2691,31 @@ mod tests {
 
             t.inc_loops();
             assert_eq!(t.loops, 2);
+        }
+
+        #[test]
+        fn loops_returns_loop_count() {
+            let mut t = Traverser::new(Value::Null);
+            assert_eq!(t.loops(), 0);
+
+            t.inc_loops();
+            assert_eq!(t.loops(), 1);
+
+            t.inc_loops();
+            t.inc_loops();
+            assert_eq!(t.loops(), 3);
+        }
+
+        #[test]
+        fn split_preserves_loop_count() {
+            let mut t = Traverser::from_vertex(VertexId(1));
+            t.inc_loops();
+            t.inc_loops();
+            t.inc_loops();
+            assert_eq!(t.loops(), 3);
+
+            let t2 = t.split(Value::Vertex(VertexId(2)));
+            assert_eq!(t2.loops(), 3);
         }
 
         #[test]

@@ -622,9 +622,9 @@ struct RepeatIterator<'a> {
 4. Update `split()` to preserve loop count
 
 **Acceptance Criteria**:
-- [ ] `traverser.loops()` returns current loop count
-- [ ] `inc_loops()` increments correctly
-- [ ] `split()` preserves loop count
+- [x] `traverser.loops()` returns current loop count
+- [x] `inc_loops()` increments correctly
+- [x] `split()` preserves loop count
 
 ---
 
