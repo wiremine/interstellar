@@ -1506,6 +1506,102 @@ impl UnfoldStep {
 impl_flatmap_step!(UnfoldStep, "unfold");
 
 // -----------------------------------------------------------------------------
+// MeanStep - calculate arithmetic mean of numeric values
+// -----------------------------------------------------------------------------
+
+/// Reducing step that calculates the arithmetic mean (average) of numeric values.
+///
+/// This is a **barrier step** - it collects ALL input values before producing
+/// a single output. Only numeric values (`Value::Int` and `Value::Float`) are
+/// included in the calculation; non-numeric values are silently ignored.
+///
+/// # Behavior
+///
+/// - Collects all numeric values from input traversers
+/// - `Value::Int` values are converted to `f64` for calculation
+/// - `Value::Float` values are used directly
+/// - Non-numeric values (strings, booleans, vertices, etc.) are ignored
+/// - Returns `Value::Float` with the mean if any numeric values exist
+/// - Returns empty (no output) if no numeric values are found
+/// - Path is preserved from the last input traverser
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").mean()  // Calculate average age
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// // Calculate average age of all people
+/// let avg_age = g.v().has_label("person").values("age").mean();
+///
+/// // Mixed values - non-numeric ignored
+/// let avg = g.inject([1i64, 2i64, "three"]).mean(); // Returns 1.5
+///
+/// // Empty numeric input
+/// let empty = g.inject(["a", "b", "c"]).mean(); // Returns nothing
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MeanStep;
+
+impl MeanStep {
+    /// Create a new MeanStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::AnyStep for MeanStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let mut sum = 0.0_f64;
+        let mut count = 0_u64;
+        let mut last_path = None;
+
+        for t in input {
+            last_path = Some(t.path.clone());
+            match &t.value {
+                Value::Int(n) => {
+                    sum += *n as f64;
+                    count += 1;
+                }
+                Value::Float(f) => {
+                    sum += *f;
+                    count += 1;
+                }
+                _ => {} // Ignore non-numeric values
+            }
+        }
+
+        if count == 0 {
+            Box::new(std::iter::empty())
+        } else {
+            let mean = sum / count as f64;
+            Box::new(std::iter::once(Traverser {
+                value: Value::Float(mean),
+                path: last_path.unwrap_or_default(),
+                loops: 0,
+                sack: None,
+                bulk: 1,
+            }))
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "mean"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -5169,6 +5265,551 @@ mod tests {
         fn step_is_clonable() {
             let step = UnfoldStep::new();
             let _cloned = step.clone();
+        }
+    }
+
+    // =========================================================================
+    // MeanStep Tests
+    // =========================================================================
+
+    mod mean_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step() {
+            let step = MeanStep::new();
+            assert_eq!(step.name(), "mean");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = MeanStep::default();
+            assert_eq!(step.name(), "mean");
+        }
+
+        #[test]
+        fn clone_box_creates_equivalent_step() {
+            let step = MeanStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "mean");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = MeanStep::new();
+            let debug_str = format!("{:?}", step);
+            assert_eq!(debug_str, "MeanStep");
+        }
+
+        #[test]
+        fn step_is_copy() {
+            let step = MeanStep::new();
+            let copied = step;
+            let _also_copied = step; // Can use original after copy
+            assert_eq!(copied.name(), "mean");
+        }
+
+        #[test]
+        fn step_is_clone() {
+            let step = MeanStep::new();
+            let cloned = step.clone();
+            assert_eq!(cloned.name(), "mean");
+        }
+    }
+
+    mod mean_step_numeric_tests {
+        use super::*;
+
+        #[test]
+        fn mean_of_integers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - 20.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn mean_of_floats() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Float(1.5)),
+                Traverser::new(Value::Float(2.5)),
+                Traverser::new(Value::Float(3.0)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // (1.5 + 2.5 + 3.0) / 3 = 7.0 / 3 = 2.333...
+                let expected = 7.0 / 3.0;
+                assert!((f - expected).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn mean_of_mixed_int_and_float() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Float(20.0)),
+                Traverser::new(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - 20.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn mean_of_single_integer() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - 42.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn mean_of_single_float() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![Traverser::new(Value::Float(3.14))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - 3.14).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn mean_of_negative_numbers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(-10)),
+                Traverser::new(Value::Int(10)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - 0.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn mean_of_large_numbers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(i64::MAX / 2)),
+                Traverser::new(Value::Int(i64::MAX / 2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                let expected = (i64::MAX / 2) as f64;
+                assert!((f - expected).abs() < 1.0); // Allow small float precision error
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+    }
+
+    mod mean_step_non_numeric_tests {
+        use super::*;
+
+        #[test]
+        fn ignores_strings() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::String("hello".to_string())),
+                Traverser::new(Value::Int(20)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // (10 + 20) / 2 = 15
+                assert!((f - 15.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn ignores_booleans() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Bool(false)),
+                Traverser::new(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // (10 + 30) / 2 = 20
+                assert!((f - 20.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn ignores_null() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Null),
+                Traverser::new(Value::Int(15)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // (5 + 15) / 2 = 10
+                assert!((f - 10.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn ignores_lists() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::Int(100)),
+                Traverser::new(Value::List(vec![Value::Int(1), Value::Int(2)])),
+                Traverser::new(Value::Int(200)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // (100 + 200) / 2 = 150
+                assert!((f - 150.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn ignores_maps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let mut map = std::collections::HashMap::new();
+            map.insert("key".to_string(), Value::Int(999));
+            let input = vec![
+                Traverser::new(Value::Int(50)),
+                Traverser::new(Value::Map(map)),
+                Traverser::new(Value::Int(150)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // (50 + 150) / 2 = 100
+                assert!((f - 100.0).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn all_non_numeric_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![
+                Traverser::new(Value::String("hello".to_string())),
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Null),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 0);
+        }
+    }
+
+    mod mean_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 0);
+        }
+    }
+
+    mod mean_step_path_tests {
+        use super::*;
+        use crate::traversal::PathValue;
+
+        #[test]
+        fn preserves_path_from_last_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+
+            let mut t1 = Traverser::new(Value::Int(10));
+            t1.path.push_labeled(
+                PathValue::Property(Value::String("first".to_string())),
+                "label1",
+            );
+
+            let mut t2 = Traverser::new(Value::Int(20));
+            t2.path.push_labeled(
+                PathValue::Property(Value::String("second".to_string())),
+                "label2",
+            );
+
+            let mut t3 = Traverser::new(Value::Int(30));
+            t3.path.push_labeled(
+                PathValue::Property(Value::String("third".to_string())),
+                "label3",
+            );
+
+            let input = vec![t1, t2, t3];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            // Path should be from the last traverser (t3)
+            assert!(output[0].path.get("label3").is_some());
+            assert!(output[0].path.get("label1").is_none());
+            assert!(output[0].path.get("label2").is_none());
+        }
+
+        #[test]
+        fn path_from_last_numeric_ignores_non_numeric_after() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+
+            let mut t1 = Traverser::new(Value::Int(10));
+            t1.path.push_labeled(
+                PathValue::Property(Value::String("numeric".to_string())),
+                "numeric_label",
+            );
+
+            let mut t2 = Traverser::new(Value::String("non-numeric".to_string()));
+            t2.path.push_labeled(
+                PathValue::Property(Value::String("non_numeric".to_string())),
+                "non_numeric_label",
+            );
+
+            let input = vec![t1, t2];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            // Path should be from t2 (the last traverser, even though non-numeric)
+            assert!(output[0].path.get("non_numeric_label").is_some());
+        }
+
+        #[test]
+        fn empty_path_when_no_input() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // No output means no path to check
+            assert_eq!(output.len(), 0);
+        }
+    }
+
+    mod mean_step_traverser_fields {
+        use super::*;
+
+        #[test]
+        fn output_has_default_loop_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let mut t = Traverser::new(Value::Int(10));
+            t.loops = 5;
+            let input = vec![t];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 0);
+        }
+
+        #[test]
+        fn output_has_default_bulk() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let mut t = Traverser::new(Value::Int(10));
+            t.bulk = 100;
+            let input = vec![t];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 1);
+        }
+
+        #[test]
+        fn output_has_no_sack() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input = vec![Traverser::new(Value::Int(10))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].sack.is_none());
+        }
+    }
+
+    mod mean_step_integration {
+        use super::*;
+
+        #[test]
+        fn step_name_is_mean() {
+            let step = MeanStep::new();
+            assert_eq!(step.name(), "mean");
+        }
+
+        #[test]
+        fn step_is_clonable() {
+            let step = MeanStep::new();
+            let _cloned = step.clone();
+        }
+
+        #[test]
+        fn many_values_mean() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MeanStep::new();
+            let input: Vec<Traverser> = (1..=100).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                // Mean of 1..=100 is 50.5
+                assert!((f - 50.5).abs() < f64::EPSILON);
+            } else {
+                panic!("Expected Value::Float, got {:?}", output[0].value);
+            }
         }
     }
 }

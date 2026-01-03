@@ -44,8 +44,8 @@ pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
-    AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep,
-    PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
+    AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep, MeanStep,
+    PathStep, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
 };
 
 // Re-export macros
@@ -1488,6 +1488,35 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::UnfoldStep::new())
     }
 
+    /// Calculate the arithmetic mean (average) of numeric values.
+    ///
+    /// This is a **barrier step** - it collects ALL input values before producing
+    /// a single output. Only numeric values (`Value::Int` and `Value::Float`) are
+    /// included in the calculation; non-numeric values are silently ignored.
+    ///
+    /// # Behavior
+    ///
+    /// - Collects all numeric values from input traversers
+    /// - `Value::Int` values are converted to `f64` for calculation
+    /// - `Value::Float` values are used directly
+    /// - Non-numeric values (strings, booleans, vertices, etc.) are ignored
+    /// - Returns `Value::Float` with the mean if any numeric values exist
+    /// - Returns empty (no output) if no numeric values are found
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Calculate average age of all people
+    /// let avg_age = g.v().has_label("person").values("age").mean().next();
+    ///
+    /// // Mixed values - non-numeric ignored
+    /// let avg = g.inject(vec![Value::Int(1), Value::Int(2), Value::String("three".into())])
+    ///     .mean().next(); // Returns Some(Value::Float(1.5))
+    /// ```
+    pub fn mean(self) -> Traversal<In, Value> {
+        self.add_step(transform::MeanStep::new())
+    }
+
     /// Extract the ID from vertices/edges (for anonymous traversals).
     ///
     /// For each input element, extracts its ID as a `Value::Int`.
@@ -2539,6 +2568,30 @@ pub mod __ {
     #[inline]
     pub fn unfold() -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(UnfoldStep::new())
+    }
+
+    /// Calculate the arithmetic mean (average) of numeric values.
+    ///
+    /// This is a **barrier step** - it collects ALL input values before producing
+    /// a single output. Only numeric values (`Value::Int` and `Value::Float`) are
+    /// included in the calculation; non-numeric values are silently ignored.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Use in branch to calculate average
+    /// let avg = __::mean();
+    ///
+    /// // As part of a larger traversal
+    /// let avg_ages = g.v().has_label("person")
+    ///     .values("age")
+    ///     .append(__::mean())
+    ///     .to_list();
+    /// ```
+    #[inline]
+    pub fn mean() -> Traversal<Value, Value> {
+        use crate::traversal::transform::MeanStep;
+        Traversal::<Value, Value>::new().add_step(MeanStep::new())
     }
 
     /// Extract the element ID.

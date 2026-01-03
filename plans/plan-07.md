@@ -435,11 +435,11 @@ impl AnyStep for MeanStep {
 ```
 
 **Acceptance Criteria**:
-- [ ] `values("age").mean()` returns average age
-- [ ] Non-numeric values are ignored
-- [ ] Empty input returns no results
-- [ ] Result is `Value::Float`
-- [ ] Unit tests pass
+- [x] `values("age").mean()` returns average age
+- [x] Non-numeric values are ignored
+- [x] Empty input returns no results
+- [x] Result is `Value::Float`
+- [x] Unit tests pass
 
 ---
 
