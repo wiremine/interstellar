@@ -493,9 +493,9 @@ impl AnyStep for WhereStep {
 4. Add module to `src/traversal/mod.rs`
 
 **Acceptance Criteria**:
-- [ ] `RepeatConfig::default()` has all fields as None/false
-- [ ] All fields are accessible
-- [ ] Module exports correctly
+- [x] `RepeatConfig::default()` has all fields as None/false
+- [x] All fields are accessible
+- [x] Module exports correctly
 
 ---
 

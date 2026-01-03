@@ -22,6 +22,7 @@ pub mod context;
 pub mod filter;
 pub mod navigation;
 pub mod predicate;
+pub mod repeat;
 pub mod source;
 pub mod step;
 pub mod transform;
@@ -38,6 +39,7 @@ pub use filter::{
 pub use navigation::{
     BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
 };
+pub use repeat::{RepeatConfig, RepeatStep};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
