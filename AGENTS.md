@@ -32,6 +32,15 @@ cargo doc --open                     # Build and open docs
 
 ```
 
+### Coverage
+
+Aim for 100% branch coverage.
+
+```bash
+cargo +nightly llvm-cov --branch --html        # Generate HTML report with branch coverage
+cargo +nightly llvm-cov --branch --html --open # Generate and open in browser
+```
+
 ## Project Structure
 
 ```
@@ -137,14 +146,7 @@ proptest! {
 }
 ```
 
-### Coverage
 
-Aim for 100% branch coverage.
-
-```bash
-cargo +nightly llvm-cov --branch --html        # Generate HTML report with branch coverage
-cargo +nightly llvm-cov --branch --html --open # Generate and open in browser
-```
 
 Report output: `target/llvm-cov/html/index.html`
 
