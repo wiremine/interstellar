@@ -1338,6 +1338,87 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         )
     }
 
+    /// Group traversers by a key and collect values.
+    ///
+    /// The `group()` step is a **barrier step** that collects all input traversers,
+    /// groups them by a key, and produces a single `Value::Map` output where:
+    /// - Keys are the grouping keys (converted to strings)
+    /// - Values are lists of collected values for each group
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().group().by(label)  // Group by label
+    /// g.V().group().by("age").by("name")  // Group by age, collect names
+    /// g.V().group().by(label).by(out().count())  // Group by label, count outgoing
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Group vertices by label
+    /// let groups = g.v()
+    ///     .group().by_label().by_value().build()
+    ///     .next();
+    /// // Returns: Map { "person" -> [v1, v2], "software" -> [v3] }
+    ///
+    /// // Group by property, collect other property
+    /// let groups = g.v().has_label("person")
+    ///     .group().by_key("age").by_value_key("name").build()
+    ///     .next();
+    /// // Returns: Map { "29" -> ["Alice", "Bob"], "30" -> ["Charlie"] }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `BoundGroupBuilder` that allows configuring the grouping key and value collector.
+    pub fn group(self) -> crate::traversal::aggregate::BoundGroupBuilder<'g, In> {
+        use crate::traversal::aggregate::BoundGroupBuilder;
+
+        // Extract the steps and source from the traversal
+        let track_paths = self.track_paths;
+        let (source, steps) = self.traversal.into_steps();
+
+        // Create and return the builder with graph references
+        BoundGroupBuilder::new(self.snapshot, self.interner, source, steps, track_paths)
+    }
+
+    /// Count traversers grouped by a key.
+    ///
+    /// Creates a `BoundGroupCountBuilder` that allows configuring how to group and count
+    /// traversers. The result is a single `Value::Map` where keys are the grouping keys
+    /// and values are integer counts (respecting traverser bulk).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Count vertices by label
+    /// let label_counts = g.v().group_count().by_label().build().next();
+    /// // Returns: Map { "person" -> 3, "software" -> 1 }
+    ///
+    /// // Count vertices by property
+    /// let age_counts = g.v().has_label("person")
+    ///     .group_count().by_key("age").build()
+    ///     .next();
+    /// // Returns: Map { "29" -> 2, "30" -> 1 }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `BoundGroupCountBuilder` that allows configuring the grouping key.
+    pub fn group_count(self) -> crate::traversal::aggregate::BoundGroupCountBuilder<'g, In> {
+        use crate::traversal::aggregate::BoundGroupCountBuilder;
+
+        // Extract the steps and source from the traversal
+        let track_paths = self.track_paths;
+        let (source, steps) = self.traversal.into_steps();
+
+        // Create and return the builder with graph references
+        BoundGroupCountBuilder::new(self.snapshot, self.interner, source, steps, track_paths)
+    }
+
     // -------------------------------------------------------------------------
     // Filter steps using anonymous traversals
     // -------------------------------------------------------------------------

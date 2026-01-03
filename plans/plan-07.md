@@ -596,9 +596,9 @@ impl<In> ProjectBuilder<In> {
 5. Add module to `src/traversal/mod.rs`
 
 **Acceptance Criteria**:
-- [ ] Module compiles
-- [ ] Enums are defined and clonable
-- [ ] Exports are accessible
+- [x] Module compiles
+- [x] Enums are defined and clonable
+- [x] Exports are accessible
 
 ---
 
@@ -641,11 +641,11 @@ impl<In> GroupBuilder<In> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `group().by_label().by_value().build()` groups by label
-- [ ] `group().by_key("age").by_value_key("name").build()` groups by property
-- [ ] Result is `Value::Map` with lists as values
-- [ ] Traversal-based grouping works
-- [ ] Unit tests pass
+- [x] `group().by_label().by_value().build()` groups by label
+- [x] `group().by_key("age").by_value_key("name").build()` groups by property
+- [x] Result is `Value::Map` with lists as values
+- [x] Traversal-based grouping works
+- [x] Unit tests pass
 
 ---
 
@@ -661,11 +661,11 @@ impl<In> GroupBuilder<In> {
 5. Add `group_count()` method to `Traversal` returning `GroupCountBuilder`
 
 **Acceptance Criteria**:
-- [ ] `group_count().by_label().build()` counts by label
-- [ ] `group_count().by_key("age").build()` counts by property
-- [ ] Result is `Value::Map` with integer counts as values
-- [ ] Respects `bulk` field on traversers
-- [ ] Unit tests pass
+- [x] `group_count().by_label().build()` counts by label
+- [x] `group_count().by_key("age").build()` counts by property
+- [x] Result is `Value::Map` with integer counts as values
+- [x] Respects `bulk` field on traversers
+- [x] Unit tests pass
 
 ---
 

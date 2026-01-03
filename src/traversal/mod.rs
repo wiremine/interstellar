@@ -17,6 +17,7 @@ use smallvec::SmallVec;
 
 use crate::value::{EdgeId, Value, VertexId};
 
+pub mod aggregate;
 pub mod branch;
 pub mod context;
 pub mod filter;
@@ -27,6 +28,10 @@ pub mod source;
 pub mod step;
 pub mod transform;
 
+pub use aggregate::{
+    BoundGroupBuilder, BoundGroupCountBuilder, GroupBuilder, GroupCountBuilder, GroupCountStep,
+    GroupKey, GroupStep, GroupValue,
+};
 pub use branch::{
     AndStep, ChooseStep, CoalesceStep, LocalStep, NotStep, OptionalStep, OrStep, UnionStep,
     WhereStep,
@@ -1600,6 +1605,74 @@ impl<In> Traversal<In, Value> {
         transform::ProjectBuilder::new(steps, key_strings)
     }
 
+    /// Group traversers by a key and collect values (for anonymous traversals).
+    ///
+    /// The `group()` step is a **barrier step** that collects all input traversers,
+    /// groups them by a key, and produces a single `Value::Map` output where:
+    /// - Keys are the grouping keys (converted to strings)
+    /// - Values are lists of collected values for each group
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().group().by(label)  // Group by label
+    /// g.V().group().by("age").by("name")  // Group by age, collect names
+    /// g.V().group().by(label).by(out().count())  // Group by label, count outgoing
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use __; // Anonymous traversal module
+    ///
+    /// // Group vertices by label
+    /// let groups = g.v()
+    ///     .group().by_label().by_value().build()
+    ///     .next();
+    /// // Returns: Map { "person" -> [v1, v2], "software" -> [v3] }
+    ///
+    /// // Group by property, collect other property
+    /// let groups = g.v().has_label("person")
+    ///     .group().by_key("age").by_value_key("name").build()
+    ///     .next();
+    /// // Returns: Map { "29" -> ["Alice", "Bob"], "30" -> ["Charlie"] }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `GroupBuilder` that allows configuring the grouping key and value collector.
+    pub fn group(self) -> aggregate::GroupBuilder<In> {
+        let (_, steps) = self.into_steps();
+        aggregate::GroupBuilder::new(steps)
+    }
+
+    /// Count traversers grouped by a key (for anonymous traversals).
+    ///
+    /// Creates a `GroupCountBuilder` that allows specifying how to group and count
+    /// the traversers. The result is a single `Value::Map` where keys are the
+    /// grouping keys and values are integer counts.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::*;
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Count vertices by label
+    /// let t = __::v().group_count().by_label().build();
+    ///
+    /// // Count vertices by a property
+    /// let t2 = __::v().group_count().by_key("age").build();
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `GroupCountBuilder` that allows configuring the grouping key.
+    pub fn group_count(self) -> aggregate::GroupCountBuilder<In> {
+        let (_, steps) = self.into_steps();
+        aggregate::GroupCountBuilder::new(steps)
+    }
+
     /// Extract the ID from vertices/edges (for anonymous traversals).
     ///
     /// For each input element, extracts its ID as a `Value::Int`.
@@ -2733,6 +2806,64 @@ pub mod __ {
     pub fn project(keys: &[&str]) -> ProjectBuilder<Value> {
         let key_strings: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
         ProjectBuilder::new(vec![], key_strings)
+    }
+
+    /// Group traversers by a key and collect values.
+    ///
+    /// The `group()` step is a **barrier step** that collects all input traversers,
+    /// groups them by a key, and produces a single `Value::Map` output.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// .group().by(label)  // Group by label
+    /// .group().by("age").by("name")  // Group by age, collect names
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use __; // Anonymous traversal module
+    ///
+    /// // Group by label
+    /// let groups = __::group().by_label().by_value().build();
+    ///
+    /// // Group by property
+    /// let groups = __::group().by_key("age").by_value_key("name").build();
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `GroupBuilder` that allows configuring the grouping key and value collector.
+    pub fn group() -> crate::traversal::aggregate::GroupBuilder<Value> {
+        use crate::traversal::aggregate::GroupBuilder;
+        GroupBuilder::new(vec![])
+    }
+
+    /// Count traversers grouped by a key (anonymous traversal factory).
+    ///
+    /// Creates a `GroupCountBuilder` for use in anonymous traversals.
+    /// The result is a single `Value::Map` where keys are the grouping keys
+    /// and values are integer counts.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Count by label
+    /// let count_step = __::group_count().by_label().build();
+    ///
+    /// // Count by property
+    /// let age_count_step = __::group_count().by_key("age").build();
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `GroupCountBuilder` that allows configuring the grouping key.
+    pub fn group_count() -> crate::traversal::aggregate::GroupCountBuilder<Value> {
+        use crate::traversal::aggregate::GroupCountBuilder;
+        GroupCountBuilder::new(vec![])
     }
 
     /// Extract the element ID.

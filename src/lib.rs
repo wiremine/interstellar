@@ -11,8 +11,8 @@ pub mod prelude {
     pub use crate::error::{StorageError, TraversalError};
     pub use crate::graph::{Graph, GraphMut, GraphSnapshot};
     pub use crate::traversal::{
-        p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, Path, PathElement,
-        PathValue, Traversal, Traverser, __,
+        p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,
+        Path, PathElement, PathValue, Traversal, Traverser, __,
     };
     pub use crate::value::{EdgeId, ElementId, Value, VertexId};
 }
