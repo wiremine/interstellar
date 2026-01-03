@@ -288,10 +288,10 @@ impl AnyStep for WhereStep {
 ```
 
 **Acceptance Criteria**:
-- [ ] `where_(__.out())` filters to traversers with outgoing edges
-- [ ] `where_(__.out().has_label("person"))` filters to traversers with person neighbors
-- [ ] Empty sub-traversal results filter out the traverser
-- [ ] Unit tests pass
+- [x] `where_(__.out())` filters to traversers with outgoing edges
+- [x] `where_(__.out().has_label("person"))` filters to traversers with person neighbors
+- [x] Empty sub-traversal results filter out the traverser
+- [x] Unit tests pass
 
 ---
 

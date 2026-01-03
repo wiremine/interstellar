@@ -1075,6 +1075,215 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::SelectStep;
         self.add_step(SelectStep::single(label))
     }
+
+    // -------------------------------------------------------------------------
+    // Filter steps using anonymous traversals
+    // -------------------------------------------------------------------------
+
+    /// Filter by sub-traversal existence.
+    ///
+    /// Emits input traverser only if the sub-traversal produces at least one result.
+    /// This is the primary mechanism for filtering based on graph structure.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep only vertices that have outgoing edges
+    /// let with_out = g.v().where_(__.out()).to_list();
+    ///
+    /// // Keep only vertices that have outgoing "knows" edges to someone named "Bob"
+    /// let knows_bob = g.v().where_(__.out_labels(&["knows"]).has_value("name", "Bob")).to_list();
+    /// ```
+    pub fn where_(
+        self,
+        sub: crate::traversal::Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::WhereStep;
+        self.add_step(WhereStep::new(sub))
+    }
+
+    /// Filter by sub-traversal non-existence.
+    ///
+    /// Emits input traverser only if the sub-traversal produces NO results.
+    /// This is the inverse of `where_`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep only leaf vertices (no outgoing edges)
+    /// let leaves = g.v().not(__.out()).to_list();
+    ///
+    /// // Keep vertices that don't have a "name" property
+    /// let unnamed = g.v().not(__.has("name")).to_list();
+    /// ```
+    pub fn not(
+        self,
+        sub: crate::traversal::Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::NotStep;
+        self.add_step(NotStep::new(sub))
+    }
+
+    /// Filter by multiple sub-traversals (AND logic).
+    ///
+    /// Emits input traverser only if ALL sub-traversals produce at least one result.
+    /// Short-circuits on first failing condition.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep vertices that have both outgoing AND incoming edges
+    /// let connected = g.v().and_(vec![__.out(), __.in_()]).to_list();
+    /// ```
+    pub fn and_(
+        self,
+        subs: Vec<crate::traversal::Traversal<Value, Value>>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::AndStep;
+        self.add_step(AndStep::new(subs))
+    }
+
+    /// Filter by multiple sub-traversals (OR logic).
+    ///
+    /// Emits input traverser if ANY sub-traversal produces at least one result.
+    /// Short-circuits on first successful condition.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep vertices that are either "person" OR "software"
+    /// let entities = g.v().or_(vec![__.has_label("person"), __.has_label("software")]).to_list();
+    /// ```
+    pub fn or_(
+        self,
+        subs: Vec<crate::traversal::Traversal<Value, Value>>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::OrStep;
+        self.add_step(OrStep::new(subs))
+    }
+
+    // -------------------------------------------------------------------------
+    // Branch steps using anonymous traversals
+    // -------------------------------------------------------------------------
+
+    /// Execute multiple branches and merge results.
+    ///
+    /// All branches receive each input traverser; results are merged
+    /// in branch order.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Get neighbors in both directions
+    /// let neighbors = g.v().union(vec![__.out(), __.in_()]).to_list();
+    /// ```
+    pub fn union(
+        self,
+        branches: Vec<crate::traversal::Traversal<Value, Value>>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::UnionStep;
+        self.add_step(UnionStep::new(branches))
+    }
+
+    /// Try branches in order, return first non-empty result.
+    ///
+    /// Short-circuits: once a branch produces results, remaining branches
+    /// are not evaluated for that input traverser.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Try to get nickname, fall back to name
+    /// let names = g.v().coalesce(vec![__.values("nickname"), __.values("name")]).to_list();
+    /// ```
+    pub fn coalesce(
+        self,
+        branches: Vec<crate::traversal::Traversal<Value, Value>>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::CoalesceStep;
+        self.add_step(CoalesceStep::new(branches))
+    }
+
+    /// Conditional branching.
+    ///
+    /// Evaluates condition traversal; if it produces results, executes
+    /// if_true branch, otherwise executes if_false branch.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // If person, get friends; otherwise get all neighbors
+    /// let results = g.v().choose(
+    ///     __.has_label("person"),
+    ///     __.out_labels(&["knows"]),
+    ///     __.out()
+    /// ).to_list();
+    /// ```
+    pub fn choose(
+        self,
+        condition: crate::traversal::Traversal<Value, Value>,
+        if_true: crate::traversal::Traversal<Value, Value>,
+        if_false: crate::traversal::Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::ChooseStep;
+        self.add_step(ChooseStep::new(condition, if_true, if_false))
+    }
+
+    /// Optional traversal with fallback to input.
+    ///
+    /// If sub-traversal produces results, emit those results.
+    /// If sub-traversal produces no results, emit the original input.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Try to traverse to friends, keep original if none found
+    /// let results = g.v().optional(__.out_labels(&["knows"])).to_list();
+    /// ```
+    pub fn optional(
+        self,
+        sub: crate::traversal::Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::OptionalStep;
+        self.add_step(OptionalStep::new(sub))
+    }
+
+    /// Execute sub-traversal in isolated scope.
+    ///
+    /// Aggregations (count, fold, etc.) in the sub-traversal operate
+    /// independently for each input traverser, not across all inputs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Count neighbors per vertex (not total neighbors)
+    /// let neighbor_counts = g.v().local(__.out().count()).to_list();
+    /// ```
+    pub fn local(
+        self,
+        sub: crate::traversal::Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::LocalStep;
+        self.add_step(LocalStep::new(sub))
+    }
 }
 
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {

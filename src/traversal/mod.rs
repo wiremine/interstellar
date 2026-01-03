@@ -1459,6 +1459,163 @@ impl<In> Traversal<In, Value> {
     pub fn select_one(self, label: &str) -> Traversal<In, Value> {
         self.add_step(transform::SelectStep::single(label))
     }
+
+    // -------------------------------------------------------------------------
+    // Filter steps using anonymous traversals
+    // -------------------------------------------------------------------------
+
+    /// Filter by sub-traversal existence (for anonymous traversals).
+    ///
+    /// Emits input traverser only if the sub-traversal produces at least one result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters by sub-traversal
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .where_(__.out());
+    /// let with_out = g.v().append(anon).to_list();
+    /// ```
+    pub fn where_(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
+        self.add_step(branch::WhereStep::new(sub))
+    }
+
+    /// Filter by sub-traversal non-existence (for anonymous traversals).
+    ///
+    /// Emits input traverser only if the sub-traversal produces NO results.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters out vertices with outgoing edges
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .not(__.out());
+    /// let leaves = g.v().append(anon).to_list();
+    /// ```
+    pub fn not(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
+        self.add_step(branch::NotStep::new(sub))
+    }
+
+    /// Filter by multiple sub-traversals (AND logic) (for anonymous traversals).
+    ///
+    /// Emits input traverser only if ALL sub-traversals produce at least one result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that requires both conditions
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .and_(vec![__.out(), __.in_()]);
+    /// let connected = g.v().append(anon).to_list();
+    /// ```
+    pub fn and_(self, subs: Vec<Traversal<Value, Value>>) -> Traversal<In, Value> {
+        self.add_step(branch::AndStep::new(subs))
+    }
+
+    /// Filter by multiple sub-traversals (OR logic) (for anonymous traversals).
+    ///
+    /// Emits input traverser if ANY sub-traversal produces at least one result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that accepts either condition
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .or_(vec![__.has_label("person"), __.has_label("software")]);
+    /// let entities = g.v().append(anon).to_list();
+    /// ```
+    pub fn or_(self, subs: Vec<Traversal<Value, Value>>) -> Traversal<In, Value> {
+        self.add_step(branch::OrStep::new(subs))
+    }
+
+    // -------------------------------------------------------------------------
+    // Branch steps using anonymous traversals
+    // -------------------------------------------------------------------------
+
+    /// Execute multiple branches and merge results (for anonymous traversals).
+    ///
+    /// All branches receive each input traverser; results are merged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that executes multiple branches
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .union(vec![__.out(), __.in_()]);
+    /// let neighbors = g.v().append(anon).to_list();
+    /// ```
+    pub fn union(self, branches: Vec<Traversal<Value, Value>>) -> Traversal<In, Value> {
+        self.add_step(branch::UnionStep::new(branches))
+    }
+
+    /// Try branches in order, return first non-empty result (for anonymous traversals).
+    ///
+    /// Short-circuits on first successful branch.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that tries branches in order
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .coalesce(vec![__.values("nickname"), __.values("name")]);
+    /// let names = g.v().append(anon).to_list();
+    /// ```
+    pub fn coalesce(self, branches: Vec<Traversal<Value, Value>>) -> Traversal<In, Value> {
+        self.add_step(branch::CoalesceStep::new(branches))
+    }
+
+    /// Conditional branching (for anonymous traversals).
+    ///
+    /// Evaluates condition; if it produces results, executes if_true, otherwise if_false.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal with conditional branching
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .choose(__.has_label("person"), __.out_labels(&["knows"]), __.out());
+    /// let results = g.v().append(anon).to_list();
+    /// ```
+    pub fn choose(
+        self,
+        condition: Traversal<Value, Value>,
+        if_true: Traversal<Value, Value>,
+        if_false: Traversal<Value, Value>,
+    ) -> Traversal<In, Value> {
+        self.add_step(branch::ChooseStep::new(condition, if_true, if_false))
+    }
+
+    /// Optional traversal with fallback to input (for anonymous traversals).
+    ///
+    /// If sub-traversal produces results, emit those; otherwise emit input.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal with optional step
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .optional(__.out_labels(&["knows"]));
+    /// let results = g.v().append(anon).to_list();
+    /// ```
+    pub fn optional(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
+        self.add_step(branch::OptionalStep::new(sub))
+    }
+
+    /// Execute sub-traversal in isolated scope (for anonymous traversals).
+    ///
+    /// Aggregations operate independently for each input traverser.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal with local scope
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .local(__.out().limit(1));
+    /// let results = g.v().append(anon).to_list();
+    /// ```
+    pub fn local(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
+        self.add_step(branch::LocalStep::new(sub))
+    }
 }
 
 // Re-export Predicate trait and p module
@@ -2049,6 +2206,171 @@ pub mod __ {
     /// ```
     pub fn select_one(label: &str) -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(SelectStep::single(label))
+    }
+
+    // -------------------------------------------------------------------------
+    // Filter Steps using Anonymous Traversals
+    // -------------------------------------------------------------------------
+
+    /// Filter by sub-traversal existence.
+    ///
+    /// Emits input traverser only if the sub-traversal produces at least one result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep only vertices that have outgoing edges
+    /// let with_out = __::where_(__.out());
+    /// ```
+    pub fn where_(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::WhereStep;
+        Traversal::<Value, Value>::new().add_step(WhereStep::new(sub))
+    }
+
+    /// Filter by sub-traversal non-existence.
+    ///
+    /// Emits input traverser only if the sub-traversal produces NO results.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep only leaf vertices (no outgoing edges)
+    /// let leaves = __::not(__.out());
+    /// ```
+    pub fn not(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::NotStep;
+        Traversal::<Value, Value>::new().add_step(NotStep::new(sub))
+    }
+
+    /// Filter by multiple sub-traversals (AND logic).
+    ///
+    /// Emits input traverser only if ALL sub-traversals produce at least one result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep vertices that have both outgoing AND incoming edges
+    /// let connected = __::and_(vec![__.out(), __.in_()]);
+    /// ```
+    pub fn and_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::AndStep;
+        Traversal::<Value, Value>::new().add_step(AndStep::new(subs))
+    }
+
+    /// Filter by multiple sub-traversals (OR logic).
+    ///
+    /// Emits input traverser if ANY sub-traversal produces at least one result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Keep vertices that are either "person" OR "software"
+    /// let entities = __::or_(vec![__.has_label("person"), __.has_label("software")]);
+    /// ```
+    pub fn or_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::OrStep;
+        Traversal::<Value, Value>::new().add_step(OrStep::new(subs))
+    }
+
+    // -------------------------------------------------------------------------
+    // Branch Steps using Anonymous Traversals
+    // -------------------------------------------------------------------------
+
+    /// Execute multiple branches and merge results.
+    ///
+    /// All branches receive each input traverser; results are merged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Get neighbors in both directions
+    /// let neighbors = __::union(vec![__.out(), __.in_()]);
+    /// ```
+    pub fn union(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::UnionStep;
+        Traversal::<Value, Value>::new().add_step(UnionStep::new(branches))
+    }
+
+    /// Try branches in order, return first non-empty result.
+    ///
+    /// Short-circuits on first successful branch.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Try to get nickname, fall back to name
+    /// let names = __::coalesce(vec![__.values("nickname"), __.values("name")]);
+    /// ```
+    pub fn coalesce(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::CoalesceStep;
+        Traversal::<Value, Value>::new().add_step(CoalesceStep::new(branches))
+    }
+
+    /// Conditional branching.
+    ///
+    /// Evaluates condition; if it produces results, executes if_true, otherwise if_false.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // If person, get friends; otherwise get all neighbors
+    /// let results = __::choose(__.has_label("person"), __.out_labels(&["knows"]), __.out());
+    /// ```
+    pub fn choose(
+        condition: Traversal<Value, Value>,
+        if_true: Traversal<Value, Value>,
+        if_false: Traversal<Value, Value>,
+    ) -> Traversal<Value, Value> {
+        use crate::traversal::branch::ChooseStep;
+        Traversal::<Value, Value>::new().add_step(ChooseStep::new(condition, if_true, if_false))
+    }
+
+    /// Optional traversal with fallback to input.
+    ///
+    /// If sub-traversal produces results, emit those; otherwise emit input.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Try to traverse to friends, keep original if none found
+    /// let results = __::optional(__.out_labels(&["knows"]));
+    /// ```
+    pub fn optional(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::OptionalStep;
+        Traversal::<Value, Value>::new().add_step(OptionalStep::new(sub))
+    }
+
+    /// Execute sub-traversal in isolated scope.
+    ///
+    /// Aggregations operate independently for each input traverser.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Count neighbors per vertex
+    /// let counts = __::local(__.out().limit(1));
+    /// ```
+    pub fn local(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::LocalStep;
+        Traversal::<Value, Value>::new().add_step(LocalStep::new(sub))
     }
 }
 
