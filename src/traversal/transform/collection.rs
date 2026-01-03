@@ -6,6 +6,37 @@ use crate::value::Value;
 // UnfoldStep - unroll collection into individual items
 // -----------------------------------------------------------------------------
 
+/// Transform step that unrolls collections into individual elements.
+///
+/// This is a **flatMap step** - each input traverser may produce zero or more
+/// output traversers. Collections (`Value::List` and `Value::Map`) are expanded
+/// into separate traversers for each element, while non-collection values pass
+/// through unchanged.
+///
+/// # Behavior
+///
+/// - `Value::List`: Each list element becomes a separate traverser
+/// - `Value::Map`: Each key-value pair becomes a single-entry map traverser
+/// - Other values: Pass through as-is
+/// - Preserves path information for all output traversers
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().fold().unfold()  // Collect into list, then expand back
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// // Unfold a list back into individual elements
+/// let items = g.inject([Value::List(vec![1.into(), 2.into(), 3.into()])]).unfold().to_list();
+/// // Returns: [1, 2, 3]
+///
+/// // Unfold map entries
+/// let entries = g.v().value_map().unfold().to_list();
+/// // Each entry is a single-key map like {"name": ["Alice"]}
+/// ```
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UnfoldStep;
 

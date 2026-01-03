@@ -433,7 +433,7 @@ impl Graph {
     /// Create a new in-memory graph with no persistence.
     ///
     /// This is a convenience method that creates a [`Graph`] backed by an
-    /// [`InMemoryGraph`](crate::storage::InMemoryGraph). The graph starts
+    /// [`InMemoryGraph`]. The graph starts
     /// empty and all data is lost when the graph is dropped.
     ///
     /// # Example
