@@ -137,7 +137,14 @@ proptest! {
 
 ### Coverage
 
-Aim for 100% branch coverage
+Aim for 100% branch coverage.
+
+```bash
+cargo +nightly llvm-cov --branch --html        # Generate HTML report with branch coverage
+cargo +nightly llvm-cov --branch --html --open # Generate and open in browser
+```
+
+Report output: `target/llvm-cov/html/index.html`
 
 ## Key Design Principles
 

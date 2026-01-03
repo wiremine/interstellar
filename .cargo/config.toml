@@ -1,0 +1,9 @@
+[alias]
+# Quick terminal summary
+cov = "llvm-cov --features inmemory,mmap"
+# HTML report (opens in browser)
+cov-html = "llvm-cov --features inmemory,mmap --html --open"
+# lcov format (for editor integrations)
+cov-lcov = "llvm-cov --features inmemory,mmap --lcov --output-path lcov.info"
+# Both HTML and lcov
+cov-all = "llvm-cov --features inmemory,mmap --html --lcov --output-path lcov.info"

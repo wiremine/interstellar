@@ -5,3 +5,7 @@
 **/*.rs.bk
 /flycheck*
 .DS_Store
+
+# Coverage
+lcov.info
+target/llvm-cov/
