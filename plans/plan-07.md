@@ -86,11 +86,11 @@ impl_filter_step!(HasNotStep, "hasNot");
 ```
 
 **Acceptance Criteria**:
-- [ ] `has_not("email")` filters vertices WITH email property
-- [ ] `has_not("weight")` filters edges WITH weight property
-- [ ] Non-element values (strings, integers) pass through
-- [ ] Vertices/edges without the property pass through
-- [ ] Unit tests pass
+- [x] `has_not("email")` filters vertices WITH email property
+- [x] `has_not("weight")` filters edges WITH weight property
+- [x] Non-element values (strings, integers) pass through
+- [x] Vertices/edges without the property pass through
+- [x] Unit tests pass
 
 ---
 
@@ -131,11 +131,11 @@ impl_filter_step!(IsStep, "is");
 ```
 
 **Acceptance Criteria**:
-- [ ] `is_eq(29)` filters to value == 29
-- [ ] `is_(p::gt(25))` filters to values > 25
-- [ ] `is_(p::between(20, 40))` filters range correctly
-- [ ] Works with Integer, Float, String values
-- [ ] Unit tests pass
+- [x] `is_eq(29)` filters to value == 29
+- [x] `is_(p::gt(25))` filters to values > 25
+- [x] `is_(p::between(20, 40))` filters range correctly
+- [x] Works with Integer, Float, String values
+- [x] Unit tests pass
 
 ---
 

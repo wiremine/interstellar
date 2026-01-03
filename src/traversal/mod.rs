@@ -33,8 +33,8 @@ pub use branch::{
 };
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
-    DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, HasWhereStep, LimitStep,
-    RangeStep, SkipStep,
+    DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep,
+    HasWhereStep, IsStep, LimitStep, RangeStep, SkipStep,
 };
 pub use navigation::{
     BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
@@ -885,6 +885,23 @@ impl<In> Traversal<In, Value> {
         self.add_step(filter::HasStep::new(key))
     }
 
+    /// Filter elements by property absence (for anonymous traversals).
+    ///
+    /// Keeps only vertices/edges that do NOT have the specified property.
+    /// Non-element values (integers, strings, etc.) pass through since they
+    /// don't have properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to vertices without "email" property
+    /// let anon = Traversal::<Value, Value>::new().has_not("email");
+    /// let without_email = g.v().append(anon).to_list();
+    /// ```
+    pub fn has_not(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(filter::HasNotStep::new(key))
+    }
+
     /// Filter elements by property value equality (for anonymous traversals).
     ///
     /// Keeps only vertices/edges where the specified property equals the given value.
@@ -930,6 +947,49 @@ impl<In> Traversal<In, Value> {
         predicate: impl predicate::Predicate + 'static,
     ) -> Traversal<In, Value> {
         self.add_step(filter::HasWhereStep::new(key, predicate))
+    }
+
+    /// Filter by testing the current value against a predicate (for anonymous traversals).
+    ///
+    /// Unlike `has_where()` which tests a property of vertices/edges, `is_()` tests
+    /// the traverser's current value directly. This is useful after extracting
+    /// property values with `values()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter ages greater than 25
+    /// let anon = Traversal::<Value, Value>::new().is_(p::gt(25));
+    /// let adults = g.v().values("age").append(anon).to_list();
+    ///
+    /// // Filter ages in a range
+    /// let anon = Traversal::<Value, Value>::new().is_(p::between(20, 40));
+    /// let in_range = g.v().values("age").append(anon).to_list();
+    /// ```
+    pub fn is_(self, predicate: impl predicate::Predicate + 'static) -> Traversal<In, Value> {
+        self.add_step(filter::IsStep::new(predicate))
+    }
+
+    /// Filter by testing the current value for equality (for anonymous traversals).
+    ///
+    /// This is a convenience method equivalent to `is_(p::eq(value))`.
+    /// Useful after extracting property values with `values()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to ages equal to 29
+    /// let anon = Traversal::<Value, Value>::new().is_eq(29);
+    /// let age_29 = g.v().values("age").append(anon).to_list();
+    ///
+    /// // Filter to a specific name
+    /// let anon = Traversal::<Value, Value>::new().is_eq("Alice");
+    /// let alice = g.v().values("name").append(anon).to_list();
+    /// ```
+    pub fn is_eq(self, value: impl Into<Value>) -> Traversal<In, Value> {
+        self.add_step(filter::IsStep::eq(value))
     }
 
     /// Filter elements using a custom predicate (for anonymous traversals).
@@ -1679,8 +1739,8 @@ pub use predicate::Predicate;
 pub mod __ {
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::filter::{
-        DedupStep, FilterStep, HasIdStep, HasLabelStep, HasStep, HasValueStep, HasWhereStep,
-        LimitStep, RangeStep, SkipStep,
+        DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep,
+        HasWhereStep, LimitStep, RangeStep, SkipStep,
     };
     use crate::traversal::navigation::{
         BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
@@ -1943,6 +2003,20 @@ pub mod __ {
         Traversal::<Value, Value>::new().add_step(HasStep::new(key))
     }
 
+    /// Filter elements by property absence.
+    ///
+    /// Keeps only vertices/edges that do NOT have the specified property.
+    /// Non-element values pass through since they don't have properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let without_email = __::has_not("email");
+    /// ```
+    pub fn has_not(key: impl Into<String>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasNotStep::new(key))
+    }
+
     /// Filter elements by property value equality.
     ///
     /// # Example
@@ -2003,6 +2077,51 @@ pub mod __ {
         predicate: impl Predicate + 'static,
     ) -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(HasWhereStep::new(key, predicate))
+    }
+
+    /// Filter by testing the current value against a predicate.
+    ///
+    /// Unlike `has_where()` which tests a property of vertices/edges, `is_()` tests
+    /// the traverser's current value directly. This is useful after extracting
+    /// property values with `values()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::{__, p};
+    ///
+    /// // Filter ages greater than 25
+    /// let gt_25 = __::is_(p::gt(25));
+    /// let adults = g.v().values("age").append(gt_25).to_list();
+    ///
+    /// // Filter ages in a range
+    /// let in_range = __::is_(p::between(20, 40));
+    /// ```
+    pub fn is_(predicate: impl Predicate + 'static) -> Traversal<Value, Value> {
+        use crate::traversal::filter::IsStep;
+        Traversal::<Value, Value>::new().add_step(IsStep::new(predicate))
+    }
+
+    /// Filter by testing the current value for equality.
+    ///
+    /// This is a convenience method equivalent to `is_(p::eq(value))`.
+    /// Useful after extracting property values with `values()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Filter to ages equal to 29
+    /// let age_29 = __::is_eq(29);
+    /// let results = g.v().values("age").append(age_29).to_list();
+    ///
+    /// // Filter to a specific name
+    /// let alice = __::is_eq("Alice");
+    /// ```
+    pub fn is_eq(value: impl Into<Value>) -> Traversal<Value, Value> {
+        use crate::traversal::filter::IsStep;
+        Traversal::<Value, Value>::new().add_step(IsStep::eq(value))
     }
 
     /// Filter elements using a custom predicate.

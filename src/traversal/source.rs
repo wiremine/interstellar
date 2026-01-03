@@ -390,6 +390,23 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(HasStep::new(key))
     }
 
+    /// Filter elements by property absence.
+    ///
+    /// Keeps only vertices/edges that do NOT have the specified property.
+    /// Non-element values (integers, strings, etc.) pass through since they
+    /// don't have properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all vertices that do NOT have an "email" property
+    /// let without_email = g.v().has_not("email").to_list();
+    /// ```
+    pub fn has_not(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasNotStep;
+        self.add_step(HasNotStep::new(key))
+    }
+
     /// Filter elements by property value equality.
     ///
     /// Keeps only vertices/edges where the specified property equals the given value.

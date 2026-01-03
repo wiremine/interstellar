@@ -169,6 +169,71 @@ impl HasStep {
 impl_filter_step!(HasStep, "has");
 
 // -----------------------------------------------------------------------------
+// HasNotStep - filter by property absence
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only elements WITHOUT a specific property.
+///
+/// This is the inverse of `HasStep`. Works with both vertices and edges.
+/// Non-element values (integers, strings, etc.) pass through since they
+/// don't have properties.
+///
+/// # Example
+///
+/// ```ignore
+/// // Filter to only vertices that do NOT have an "email" property
+/// let without_email = g.v().has_not("email").to_list();
+/// ```
+#[derive(Clone, Debug)]
+pub struct HasNotStep {
+    /// The property key to check for absence
+    key: String,
+}
+
+impl HasNotStep {
+    /// Create a new HasNotStep that checks for property absence.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to check for absence
+    pub fn new(key: impl Into<String>) -> Self {
+        Self { key: key.into() }
+    }
+
+    /// Check if a traverser's element does NOT have the property.
+    ///
+    /// Returns `true` for:
+    /// - Vertices/edges that do NOT have the property
+    /// - Non-existent vertices/edges (they don't have the property)
+    /// - Non-element values (integers, strings, etc.) - they pass through
+    fn matches(&self, ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        match &traverser.value {
+            Value::Vertex(id) => {
+                // Get the vertex from the snapshot and check property absence
+                ctx.snapshot()
+                    .storage()
+                    .get_vertex(*id)
+                    .map(|v| !v.properties.contains_key(&self.key))
+                    .unwrap_or(true) // Vertex not found = no property
+            }
+            Value::Edge(id) => {
+                // Get the edge from the snapshot and check property absence
+                ctx.snapshot()
+                    .storage()
+                    .get_edge(*id)
+                    .map(|e| !e.properties.contains_key(&self.key))
+                    .unwrap_or(true) // Edge not found = no property
+            }
+            // Non-element values pass through (they don't have properties)
+            _ => true,
+        }
+    }
+}
+
+// Use the macro to implement AnyStep for HasNotStep
+impl_filter_step!(HasNotStep, "hasNot");
+
+// -----------------------------------------------------------------------------
 // HasValueStep - filter by property value equality
 // -----------------------------------------------------------------------------
 
@@ -811,6 +876,90 @@ impl std::fmt::Debug for HasWhereStep {
 impl_filter_step!(HasWhereStep, "has");
 
 // -----------------------------------------------------------------------------
+// IsStep - filter by testing the traverser's current value against a predicate
+// -----------------------------------------------------------------------------
+
+/// Filter step that tests the traverser's current value against a predicate.
+///
+/// Unlike `HasWhereStep` which tests a property of a vertex/edge, `IsStep`
+/// tests the traverser's current value directly. This is useful after
+/// extracting property values with `values()`.
+///
+/// # Example
+///
+/// ```ignore
+/// use rustgremlin::traversal::p;
+///
+/// // Filter to values equal to 29
+/// let age_29 = g.v().values("age").is_eq(29).to_list();
+///
+/// // Filter to values greater than 25
+/// let adults = g.v().values("age").is_(p::gt(25)).to_list();
+///
+/// // Filter using range predicates
+/// let in_range = g.v().values("age").is_(p::between(20, 40)).to_list();
+/// ```
+#[derive(Clone)]
+pub struct IsStep {
+    /// The predicate to test the current value against
+    predicate: Box<dyn crate::traversal::predicate::Predicate>,
+}
+
+impl IsStep {
+    /// Create a new IsStep with the given predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `predicate` - The predicate to test the traverser's value against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let step = IsStep::new(p::gt(25));
+    /// ```
+    pub fn new(predicate: impl crate::traversal::predicate::Predicate + 'static) -> Self {
+        Self {
+            predicate: Box::new(predicate),
+        }
+    }
+
+    /// Create an IsStep that tests for equality with a value.
+    ///
+    /// This is a convenience method equivalent to `IsStep::new(p::eq(value))`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The value to compare against for equality
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = IsStep::eq(29);
+    /// ```
+    pub fn eq(value: impl Into<Value>) -> Self {
+        Self::new(crate::traversal::predicate::p::eq(value))
+    }
+
+    /// Check if the traverser's current value satisfies the predicate.
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        self.predicate.test(&traverser.value)
+    }
+}
+
+impl std::fmt::Debug for IsStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IsStep")
+            .field("predicate", &"<predicate>")
+            .finish()
+    }
+}
+
+// Use the macro to implement AnyStep for IsStep
+impl_filter_step!(IsStep, "is");
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -1365,6 +1514,344 @@ mod tests {
             let debug_str = format!("{:?}", step);
             assert!(debug_str.contains("HasStep"));
             assert!(debug_str.contains("age"));
+        }
+    }
+
+    mod has_not_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        fn create_graph_with_properties() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Vertex 0: person with name and age
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+
+            // Vertex 1: person with only name (no age)
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props
+            });
+
+            // Vertex 2: software with name and version
+            storage.add_vertex("software", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Graph DB".to_string()));
+                props.insert("version".to_string(), Value::Float(1.0));
+                props
+            });
+
+            // Vertex 3: company with no properties
+            storage.add_vertex("company", HashMap::new());
+
+            // Edge 0: knows with since property
+            storage
+                .add_edge(VertexId(0), VertexId(1), "knows", {
+                    let mut props = HashMap::new();
+                    props.insert("since".to_string(), Value::Int(2020));
+                    props
+                })
+                .unwrap();
+
+            // Edge 1: uses with no properties
+            storage
+                .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
+                .unwrap();
+
+            Graph::new(Arc::new(storage))
+        }
+
+        #[test]
+        fn new_creates_step_with_key() {
+            let step = HasNotStep::new("email");
+            assert_eq!(step.key, "email");
+        }
+
+        #[test]
+        fn name_returns_has_not() {
+            let step = HasNotStep::new("email");
+            assert_eq!(step.name(), "hasNot");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = HasNotStep::new("email");
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "hasNot");
+        }
+
+        #[test]
+        fn filters_out_vertices_with_property() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("age");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // has age - should be filtered
+                Traverser::from_vertex(VertexId(1)), // no age - should pass
+                Traverser::from_vertex(VertexId(2)), // no age - should pass
+                Traverser::from_vertex(VertexId(3)), // no properties - should pass
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Vertices 1, 2, 3 don't have "age" property
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(1)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2)));
+            assert_eq!(output[2].as_vertex_id(), Some(VertexId(3)));
+        }
+
+        #[test]
+        fn keeps_vertices_without_property() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("version");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // no version - should pass
+                Traverser::from_vertex(VertexId(1)), // no version - should pass
+                Traverser::from_vertex(VertexId(2)), // has version - should be filtered
+                Traverser::from_vertex(VertexId(3)), // no version - should pass
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Vertices 0, 1, 3 don't have "version" property
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(1)));
+            assert_eq!(output[2].as_vertex_id(), Some(VertexId(3)));
+        }
+
+        #[test]
+        fn filters_out_edges_with_property() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("since");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)), // has since - should be filtered
+                Traverser::from_edge(EdgeId(1)), // no since - should pass
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only edge 1 doesn't have "since" property
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(1)));
+        }
+
+        #[test]
+        fn passes_through_non_element_values() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("name");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // has name - filtered
+                Traverser::new(Value::Int(42)),      // not an element - passes through
+                Traverser::new(Value::String("hello".to_string())), // not an element - passes through
+                Traverser::new(Value::Bool(true)), // not an element - passes through
+                Traverser::new(Value::Null),       // not an element - passes through
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Vertex 0 has name (filtered), all non-elements pass through
+            assert_eq!(output.len(), 4);
+            assert_eq!(output[0].value, Value::Int(42));
+            assert_eq!(output[1].value, Value::String("hello".to_string()));
+            assert_eq!(output[2].value, Value::Bool(true));
+            assert_eq!(output[3].value, Value::Null);
+        }
+
+        #[test]
+        fn nonexistent_vertices_pass_through() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("name");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // exists, has name - filtered
+                Traverser::from_vertex(VertexId(999)), // doesn't exist - passes through
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Vertex 0 filtered, vertex 999 passes (doesn't exist = no property)
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(999)));
+        }
+
+        #[test]
+        fn nonexistent_edges_pass_through() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("since");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_edge(EdgeId(0)),   // exists, has since - filtered
+                Traverser::from_edge(EdgeId(999)), // doesn't exist - passes through
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Edge 0 filtered, edge 999 passes (doesn't exist = no property)
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(999)));
+        }
+
+        #[test]
+        fn all_pass_for_nonexistent_property() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("nonexistent_property");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All vertices pass because none have "nonexistent_property"
+            assert_eq!(output.len(), 4);
+        }
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasNotStep::new("name");
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Vertex 3 has no properties, so it should pass
+            let step = HasNotStep::new("name");
+
+            let mut traverser = Traverser::from_vertex(VertexId(3));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = HasNotStep::new("email");
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("HasNotStep"));
+            assert!(debug_str.contains("email"));
+        }
+
+        #[test]
+        fn mixed_vertices_and_edges() {
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // "name" property exists on vertices 0, 1, 2 but NOT on edges
+            let step = HasNotStep::new("name");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // has name - filtered
+                Traverser::from_edge(EdgeId(0)),     // no name - passes
+                Traverser::from_vertex(VertexId(3)), // no name - passes
+                Traverser::from_edge(EdgeId(1)),     // no name - passes
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].as_edge_id(), Some(EdgeId(0)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(3)));
+            assert_eq!(output[2].as_edge_id(), Some(EdgeId(1)));
+        }
+
+        #[test]
+        fn inverse_of_has_step() {
+            // This test verifies that HasNotStep is the inverse of HasStep
+            let graph = create_graph_with_properties();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let has_step = HasStep::new("age");
+            let has_not_step = HasNotStep::new("age");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // has age
+                Traverser::from_vertex(VertexId(1)), // no age
+                Traverser::from_vertex(VertexId(2)), // no age
+                Traverser::from_vertex(VertexId(3)), // no age
+            ];
+
+            let input_clone: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let has_output: Vec<Traverser> =
+                has_step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let has_not_output: Vec<Traverser> = has_not_step
+                .apply(&ctx, Box::new(input_clone.into_iter()))
+                .collect();
+
+            // HasStep keeps vertices WITH age (vertex 0)
+            assert_eq!(has_output.len(), 1);
+            assert_eq!(has_output[0].as_vertex_id(), Some(VertexId(0)));
+
+            // HasNotStep keeps vertices WITHOUT age (vertices 1, 2, 3)
+            assert_eq!(has_not_output.len(), 3);
+            assert_eq!(has_not_output[0].as_vertex_id(), Some(VertexId(1)));
+            assert_eq!(has_not_output[1].as_vertex_id(), Some(VertexId(2)));
+            assert_eq!(has_not_output[2].as_vertex_id(), Some(VertexId(3)));
+
+            // Together they should cover all vertices (set union)
+            assert_eq!(has_output.len() + has_not_output.len(), 4);
         }
     }
 
@@ -3786,6 +4273,582 @@ mod tests {
 
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].as_vertex_id(), Some(VertexId(4)));
+        }
+    }
+
+    mod is_step_tests {
+        use super::*;
+        use crate::traversal::predicate::p;
+        use crate::traversal::step::AnyStep;
+
+        // Helper to create traversers with Value directly
+        fn create_value_traverser(value: Value) -> Traverser {
+            Traverser::new(value)
+        }
+
+        // Helper to create a Graph for tests
+        fn create_empty_graph() -> Graph {
+            Graph::new(Arc::new(InMemoryGraph::new()))
+        }
+
+        #[test]
+        fn new_creates_is_step() {
+            let step = IsStep::new(p::gt(25i64));
+            assert_eq!(step.name(), "is");
+        }
+
+        #[test]
+        fn eq_creates_equality_step() {
+            let step = IsStep::eq(29i64);
+            assert_eq!(step.name(), "is");
+        }
+
+        #[test]
+        fn filters_integer_values_with_eq() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq(29i64);
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(29)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(29)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(29));
+            assert_eq!(output[1].value, Value::Int(29));
+        }
+
+        #[test]
+        fn filters_integer_values_with_gt() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::gt(25i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(26)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(26));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+
+        #[test]
+        fn filters_integer_values_with_gte() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::gte(25i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(24)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(25));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+
+        #[test]
+        fn filters_integer_values_with_lt() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::lt(25i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(20));
+        }
+
+        #[test]
+        fn filters_integer_values_with_lte() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::lte(25i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(25));
+        }
+
+        #[test]
+        fn filters_integer_values_with_neq() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::neq(25i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+
+        #[test]
+        fn filters_integer_values_with_between() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::between(20i64, 40i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)), // inclusive start
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(40)), // exclusive end
+                create_value_traverser(Value::Int(50)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+
+        #[test]
+        fn filters_integer_values_with_inside() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::inside(20i64, 40i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)), // exclusive start
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(40)), // exclusive end
+                create_value_traverser(Value::Int(50)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(30));
+        }
+
+        #[test]
+        fn filters_integer_values_with_outside() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::outside(20i64, 40i64));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(40)),
+                create_value_traverser(Value::Int(50)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(10));
+            assert_eq!(output[1].value, Value::Int(50));
+        }
+
+        #[test]
+        fn filters_integer_values_with_within() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::within(vec![
+                Value::Int(20),
+                Value::Int(30),
+                Value::Int(40),
+            ]));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(50)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+
+        #[test]
+        fn filters_integer_values_with_without() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::without(vec![Value::Int(20), Value::Int(30)]));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(50)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(10));
+            assert_eq!(output[1].value, Value::Int(25));
+            assert_eq!(output[2].value, Value::Int(50));
+        }
+
+        #[test]
+        fn filters_float_values_with_gt() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::gt(Value::Float(2.5)));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Float(1.0)),
+                create_value_traverser(Value::Float(2.5)),
+                create_value_traverser(Value::Float(3.0)),
+                create_value_traverser(Value::Float(4.5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Float(3.0));
+            assert_eq!(output[1].value, Value::Float(4.5));
+        }
+
+        #[test]
+        fn filters_string_values_with_eq() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq("alice");
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::String("alice".to_string())),
+                create_value_traverser(Value::String("bob".to_string())),
+                create_value_traverser(Value::String("alice".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("alice".to_string()));
+            assert_eq!(output[1].value, Value::String("alice".to_string()));
+        }
+
+        #[test]
+        fn filters_string_values_with_containing() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::containing("lic"));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::String("alice".to_string())),
+                create_value_traverser(Value::String("bob".to_string())),
+                create_value_traverser(Value::String("malice".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("alice".to_string()));
+            assert_eq!(output[1].value, Value::String("malice".to_string()));
+        }
+
+        #[test]
+        fn filters_string_values_with_starting_with() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::starting_with("al"));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::String("alice".to_string())),
+                create_value_traverser(Value::String("bob".to_string())),
+                create_value_traverser(Value::String("alex".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("alice".to_string()));
+            assert_eq!(output[1].value, Value::String("alex".to_string()));
+        }
+
+        #[test]
+        fn filters_string_values_with_ending_with() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::ending_with("ce"));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::String("alice".to_string())),
+                create_value_traverser(Value::String("bob".to_string())),
+                create_value_traverser(Value::String("grace".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("alice".to_string()));
+            assert_eq!(output[1].value, Value::String("grace".to_string()));
+        }
+
+        #[test]
+        fn filters_boolean_values_with_eq() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq(true);
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Bool(true)),
+                create_value_traverser(Value::Bool(false)),
+                create_value_traverser(Value::Bool(true)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Bool(true));
+            assert_eq!(output[1].value, Value::Bool(true));
+        }
+
+        #[test]
+        fn filters_with_and_predicate() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::and(p::gte(20i64), p::lt(30i64)));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(40)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(25));
+        }
+
+        #[test]
+        fn filters_with_or_predicate() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::or(p::lt(15i64), p::gt(35i64)));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(10)),
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(40)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(10));
+            assert_eq!(output[1].value, Value::Int(40));
+        }
+
+        #[test]
+        fn filters_with_not_predicate() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::new(p::not(p::eq(25i64)));
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(25)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq(29i64);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn no_matches_returns_empty_output() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq(100i64);
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(20)),
+                create_value_traverser(Value::Int(30)),
+                create_value_traverser(Value::Int(40)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq(29i64);
+
+            let mut traverser = Traverser::new(Value::Int(29));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = IsStep::eq(29i64);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("IsStep"));
+            assert!(debug_str.contains("<predicate>"));
+        }
+
+        #[test]
+        fn clone_works() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IsStep::eq(29i64);
+            let cloned = step.clone();
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::Int(29)),
+                create_value_traverser(Value::Int(30)),
+            ];
+
+            // Both original and cloned should work the same
+            let output1: Vec<Traverser> = step
+                .apply(&ctx, Box::new(input.clone().into_iter()))
+                .collect();
+            let output2: Vec<Traverser> = cloned.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output1.len(), 1);
+            assert_eq!(output2.len(), 1);
+            assert_eq!(output1[0].value, output2[0].value);
+        }
+
+        #[test]
+        fn type_mismatch_does_not_match() {
+            let graph = create_empty_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Looking for integer 29, but input has string "29"
+            let step = IsStep::eq(29i64);
+
+            let input: Vec<Traverser> = vec![
+                create_value_traverser(Value::String("29".to_string())),
+                create_value_traverser(Value::Float(29.0)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Neither should match due to type mismatch
+            assert!(output.is_empty());
         }
     }
 }
