@@ -117,7 +117,7 @@ rustgremlin/
 ## Implementation Phases
 
 ### Phase 1: Core Foundation
-**Duration: 3-4 weeks | Priority: Critical**
+**Duration: 3-4 weeks | Priority: Critical | Status: ✅ Complete**
 
 Establishes the fundamental types and traits upon which all other modules depend.
 
@@ -573,7 +573,7 @@ g.v().has_label("person")
 ---
 
 ### Phase 4: Predicates & Anonymous Traversals
-**Duration: 2-3 weeks | Priority: High**
+**Duration: 2-3 weeks | Priority: High | Status: ✅ Complete**
 
 Enables expressive filtering and composable traversal fragments. Builds on Phase 3's unified `Traversal<In, Out>` type.
 
@@ -713,18 +713,18 @@ Anonymous traversals use the **same `Traversal<In, Out>` type** as bound travers
 | `In` type | `()` (starts from nothing) | Input element type |
 
 #### Exit Criteria
-- [ ] All predicates work with `has_where()`
-- [ ] Anonymous traversals compile: `__.out().has_value("name", "Bob")`
-- [ ] `where_()` accepts anonymous traversals
-- [ ] `not()`, `and_()`, `or_()` work correctly
-- [ ] Anonymous traversals chain: `__.out().has_label("person").values("name")`
-- [ ] Logical predicate composition works
-- [ ] Regex predicate compiles patterns correctly
+- [x] All predicates work with `has_where()`
+- [x] Anonymous traversals compile: `__.out().has_value("name", "Bob")`
+- [x] `where_()` accepts anonymous traversals
+- [x] `not()`, `and_()`, `or_()` work correctly
+- [x] Anonymous traversals chain: `__.out().has_label("person").values("name")`
+- [x] Logical predicate composition works
+- [x] Regex predicate compiles patterns correctly
 
 ---
 
 ### Phase 5: Branch & Reduce Steps
-**Duration: 3-4 weeks | Priority: High**
+**Duration: 3-4 weeks | Priority: High | Status: Partially Complete**
 
 Implements complex control flow and aggregation.
 
@@ -836,13 +836,13 @@ impl<S, E, Steps> Traversal<S, E, Steps> {
 ```
 
 #### Exit Criteria
-- [ ] `union()` merges results in traverser-major order
-- [ ] `coalesce()` short-circuits on first success
-- [ ] `repeat().times(n)` iterates exactly n times
-- [ ] `repeat().until()` stops on condition
-- [ ] `repeat().emit()` yields all intermediate results
-- [ ] Aggregation steps produce correct results
-- [ ] Path labeling with `as_()` and `select()` works
+- [x] `union()` merges results in traverser-major order
+- [x] `coalesce()` short-circuits on first success
+- [x] `repeat().times(n)` iterates exactly n times
+- [x] `repeat().until()` stops on condition
+- [x] `repeat().emit()` yields all intermediate results
+- [ ] Aggregation steps produce correct results (`group()`, `groupCount()`, `mean()`)
+- [x] Path labeling with `as_()` and `select()` works
 
 ---
 
