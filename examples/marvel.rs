@@ -1162,21 +1162,20 @@ fn main() {
         }
     }
 
-    // Query 40: Track mentorship chains with path
-    print_query("Mentorship chain path for Spider-Man");
+    // Query 40: Track mentorship with path
+    print_query("Mentorship paths: Who mentors whom? (Professor X's students)");
     let mentor_path = g
         .v()
-        .has_value("alias", "Spider-Man")
+        .has_value("alias", "Professor X")
         .with_path()
-        .in_labels(&["mentors"])
-        .in_labels(&["mentors"])
+        .out_labels(&["mentors"]) // Professor X mentors many X-Men
         .path()
         .to_list();
-    println!("Spider-Man mentorship paths:");
+    println!("Professor X mentorship paths:");
     for (i, path_value) in mentor_path.iter().enumerate() {
         if let Value::List(path) = path_value {
             let names: Vec<String> = path.iter().map(|v| get_alias(&storage, v)).collect();
-            println!("  Chain {}: {}", i + 1, names.join(" <- mentored by <- "));
+            println!("  Path {}: {}", i + 1, names.join(" -> mentors -> "));
         }
     }
 
