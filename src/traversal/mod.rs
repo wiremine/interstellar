@@ -1429,6 +1429,39 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::ValuesStep::from_keys(keys))
     }
 
+    /// Extract all property objects from vertices/edges (for anonymous traversals).
+    ///
+    /// Unlike `values()` which returns just property values, `properties()` returns
+    /// the full property including its key as a Map with "key" and "value" entries.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().properties();
+    /// let props = g.v().has_label("person").append(anon).to_list();
+    /// // Each result is Value::Map { "key": "name", "value": "Alice" } etc.
+    /// ```
+    pub fn properties(self) -> Traversal<In, Value> {
+        self.add_step(transform::PropertiesStep::new())
+    }
+
+    /// Extract specific property objects from vertices/edges (for anonymous traversals).
+    ///
+    /// Unlike `values()` which returns just property values, `properties_keys()` returns
+    /// the full property including its key as a Map with "key" and "value" entries.
+    /// Only the specified property keys are extracted.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().properties_keys(&["name", "age"]);
+    /// let props = g.v().append(anon).to_list();
+    /// ```
+    pub fn properties_keys(self, keys: &[&str]) -> Traversal<In, Value> {
+        let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+        self.add_step(transform::PropertiesStep::with_keys(keys))
+    }
+
     /// Extract the ID from vertices/edges (for anonymous traversals).
     ///
     /// For each input element, extracts its ID as a `Value::Int`.
@@ -1835,8 +1868,8 @@ pub mod __ {
     use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
-        AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, SelectStep,
-        ValuesStep,
+        AsStep, ConstantStep, FlatMapStep, IdStep, LabelStep, MapStep, PathStep, PropertiesStep,
+        SelectStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -2347,6 +2380,36 @@ pub mod __ {
         S: Into<String>,
     {
         Traversal::<Value, Value>::new().add_step(ValuesStep::from_keys(keys))
+    }
+
+    /// Extract all property objects.
+    ///
+    /// Unlike `values()` which returns just property values, `properties()` returns
+    /// the full property including its key as a Map with "key" and "value" entries.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let props = __::properties();
+    /// // Each result is Value::Map { "key": "name", "value": "Alice" } etc.
+    /// ```
+    pub fn properties() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(PropertiesStep::new())
+    }
+
+    /// Extract specific property objects.
+    ///
+    /// Unlike `values()` which returns just property values, `properties_keys()` returns
+    /// the full property including its key as a Map with "key" and "value" entries.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let props = __::properties_keys(&["name", "age"]);
+    /// ```
+    pub fn properties_keys(keys: &[&str]) -> Traversal<Value, Value> {
+        let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(PropertiesStep::with_keys(keys))
     }
 
     /// Extract the element ID.

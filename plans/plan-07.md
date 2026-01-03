@@ -311,11 +311,11 @@ impl_flatmap_step!(PropertiesStep, "properties", get_properties);
 ```
 
 **Acceptance Criteria**:
-- [ ] `properties()` returns all properties as key-value maps
-- [ ] `properties_keys(&["name"])` returns only specified properties
-- [ ] Each property is `Value::Map { key: String, value: Value }`
-- [ ] Non-elements produce no output
-- [ ] Unit tests pass
+- [x] `properties()` returns all properties as key-value maps
+- [x] `properties_keys(&["name"])` returns only specified properties
+- [x] Each property is `Value::Map { key: String, value: Value }`
+- [x] Non-elements produce no output
+- [x] Unit tests pass
 
 ---
 

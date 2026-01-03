@@ -936,6 +936,42 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(LabelStep::new())
     }
 
+    /// Extract all properties from vertices/edges.
+    ///
+    /// For each input element, extracts all properties as Maps containing
+    /// "key" and "value" entries. Non-element values produce no output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let props = g.v().has_label("person").properties().to_list();
+    /// // Results: [Map{"key": "name", "value": "marko"}, Map{"key": "age", "value": 29}, ...]
+    /// ```
+    pub fn properties(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::PropertiesStep;
+        self.add_step(PropertiesStep::new())
+    }
+
+    /// Extract specific properties from vertices/edges.
+    ///
+    /// For each input element, extracts only the specified properties as Maps
+    /// containing "key" and "value" entries. Missing properties are skipped.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let props = g.v().properties_keys(&["name", "age"]).to_list();
+    /// // Results: [Map{"key": "name", "value": "marko"}, Map{"key": "age", "value": 29}, ...]
+    /// ```
+    pub fn properties_keys<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::transform::PropertiesStep;
+        self.add_step(PropertiesStep::from_keys(keys))
+    }
+
     /// Transform each value using a closure.
     ///
     /// The closure receives the execution context and the current value,
