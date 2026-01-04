@@ -19,7 +19,8 @@ roaring = "0.10"
 regex = "1.10"
 memmap2 = { version = "0.9", optional = true }
 tantivy = { version = "0.21", optional = true }
-crc32fast = "1.3"
+crc32fast = "1.4"
+bincode = "1.3"
 
 [dev-dependencies]
 criterion = "0.5"

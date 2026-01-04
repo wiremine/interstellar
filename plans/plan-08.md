@@ -32,10 +32,10 @@ This plan breaks down the Memory-Mapped Storage implementation into granular, te
 7. Add `mod mmap;` to `src/storage/mod.rs`
 
 **Acceptance Criteria**:
-- [ ] Dependencies added to `Cargo.toml`
-- [ ] `cargo check` passes
-- [ ] Module structure exists with stub files
-- [ ] `use rustgremlin::storage::mmap::MmapGraph` compiles (empty struct)
+- [x] Dependencies added to `Cargo.toml`
+- [x] `cargo check` passes
+- [x] Module structure exists with stub files
+- [x] `use rustgremlin::storage::mmap::MmapGraph` compiles (empty struct)
 
 ---
 
@@ -71,10 +71,10 @@ pub struct FileHeader {
 ```
 
 **Acceptance Criteria**:
-- [ ] `FileHeader` size is exactly 64 bytes
-- [ ] All fields align correctly in packed struct
-- [ ] Can safely transmute between `&[u8; 64]` and `&FileHeader`
-- [ ] Unit test verifies struct size
+- [x] `FileHeader` size is exactly 64 bytes
+- [x] All fields align correctly in packed struct
+- [x] Can safely transmute between `&[u8; 64]` and `&FileHeader`
+- [x] Unit test verifies struct size
 
 ---
 

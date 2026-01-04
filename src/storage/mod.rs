@@ -13,6 +13,7 @@
 //! | Backend | Description | Use Case |
 //! |---------|-------------|----------|
 //! | [`InMemoryGraph`] | HashMap-based storage | Development, small graphs |
+//! | [`MmapGraph`] | Memory-mapped persistent storage | Production, large graphs (requires `mmap` feature) |
 //!
 //! # Architecture
 //!
@@ -33,7 +34,7 @@
 //!          ┌────────────┴────────────┐
 //!          ▼                         ▼
 //! ┌─────────────────┐      ┌─────────────────┐
-//! │  InMemoryGraph  │      │  (Future: Mmap) │
+//! │  InMemoryGraph  │      │   MmapGraph     │
 //! └─────────────────┘      └─────────────────┘
 //! ```
 //!
@@ -66,8 +67,14 @@ use std::collections::HashMap;
 pub mod inmemory;
 pub mod interner;
 
+#[cfg(feature = "mmap")]
+pub mod mmap;
+
 pub use inmemory::InMemoryGraph;
 pub use interner::StringInterner;
+
+#[cfg(feature = "mmap")]
+pub use mmap::MmapGraph;
 
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -167,6 +174,7 @@ pub struct Edge {
 /// # Implementors
 ///
 /// - [`InMemoryGraph`]: HashMap-based in-memory storage
+/// - [`MmapGraph`]: Memory-mapped persistent storage (requires `mmap` feature)
 ///
 /// # Example
 ///
