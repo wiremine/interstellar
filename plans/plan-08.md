@@ -121,10 +121,10 @@ pub struct EdgeRecord {
 ```
 
 **Acceptance Criteria**:
-- [ ] `NodeRecord` size is exactly 48 bytes
-- [ ] `EdgeRecord` size is exactly 56 bytes
-- [ ] Packed structs don't have unexpected padding
-- [ ] Unit tests verify struct sizes and alignment
+- [x] `NodeRecord` size is exactly 48 bytes
+- [x] `EdgeRecord` size is exactly 56 bytes
+- [x] Packed structs don't have unexpected padding
+- [x] Unit tests verify struct sizes and alignment
 
 ---
 
@@ -163,10 +163,10 @@ pub struct StringEntry {
 ```
 
 **Acceptance Criteria**:
-- [ ] `PropertyEntry` header size matches constant
-- [ ] `StringEntry` header size matches constant
-- [ ] Structures correctly represent on-disk format
-- [ ] Unit tests verify sizes
+- [x] `PropertyEntry` header size matches constant
+- [x] `StringEntry` header size matches constant
+- [x] Structures correctly represent on-disk format
+- [x] Unit tests verify sizes
 
 ---
 

@@ -378,7 +378,173 @@ impl EdgeRecord {
     }
 }
 
-// Property arena structures will be added in Phase 1.4
+// =============================================================================
+// Property Arena Structures
+// =============================================================================
+
+/// Size of the property entry header in bytes
+pub const PROPERTY_ENTRY_HEADER_SIZE: usize = 17;
+
+/// Property entry in the arena (variable length)
+///
+/// Properties are stored in a linked list in the property arena. Each entry
+/// contains a key (string table ID), value type, value data, and a pointer
+/// to the next property in the list.
+///
+/// # Layout
+///
+/// ```text
+/// Offset | Size | Field
+/// -------|------|-------------
+/// 0      | 4    | key_id
+/// 4      | 1    | value_type
+/// 5      | 4    | value_len
+/// 9      | 8    | next
+/// 17     | N    | value_data (variable length)
+/// ```
+///
+/// # Fields
+///
+/// - **key_id**: String table ID for the property key
+/// - **value_type**: Value discriminant (from Value::discriminant())
+/// - **value_len**: Length of serialized value in bytes
+/// - **next**: Offset to next property entry (u64::MAX if last)
+/// - **value_data**: Serialized value data (follows header, not in struct)
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct PropertyEntry {
+    /// String table ID for property key
+    pub key_id: u32,
+
+    /// Value type discriminant
+    pub value_type: u8,
+
+    /// Length of serialized value
+    pub value_len: u32,
+
+    /// Next property in list (u64::MAX if last)
+    pub next: u64,
+}
+
+impl PropertyEntry {
+    /// Create a new property entry
+    pub fn new(key_id: u32, value_type: u8, value_len: u32, next: u64) -> Self {
+        Self {
+            key_id,
+            value_type,
+            value_len,
+            next,
+        }
+    }
+
+    /// Read property entry from bytes
+    ///
+    /// # Safety
+    ///
+    /// Uses `read_unaligned` because the struct is `#[repr(C, packed)]`.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= PROPERTY_ENTRY_HEADER_SIZE,
+            "Buffer too small for PropertyEntry"
+        );
+
+        unsafe {
+            let ptr = bytes.as_ptr() as *const PropertyEntry;
+            ptr.read_unaligned()
+        }
+    }
+
+    /// Write property entry to bytes
+    ///
+    /// # Safety
+    ///
+    /// Creates a byte slice from the packed struct.
+    pub fn to_bytes(&self) -> [u8; PROPERTY_ENTRY_HEADER_SIZE] {
+        unsafe {
+            let ptr = self as *const PropertyEntry as *const u8;
+            let slice = std::slice::from_raw_parts(ptr, PROPERTY_ENTRY_HEADER_SIZE);
+            let mut result = [0u8; PROPERTY_ENTRY_HEADER_SIZE];
+            result.copy_from_slice(slice);
+            result
+        }
+    }
+}
+
+// =============================================================================
+// String Table Structures
+// =============================================================================
+
+/// Size of the string entry header in bytes
+pub const STRING_ENTRY_HEADER_SIZE: usize = 8;
+
+/// String table entry
+///
+/// String table entries store interned strings (labels and property keys).
+/// Each entry contains an ID, length, and the UTF-8 bytes of the string.
+///
+/// # Layout
+///
+/// ```text
+/// Offset | Size | Field
+/// -------|------|-------------
+/// 0      | 4    | id
+/// 4      | 4    | len
+/// 8      | N    | string bytes (variable length, UTF-8)
+/// ```
+///
+/// # Fields
+///
+/// - **id**: String ID (unique identifier)
+/// - **len**: String length in bytes
+/// - **string bytes**: UTF-8 encoded string data (follows header, not in struct)
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct StringEntry {
+    /// String ID
+    pub id: u32,
+
+    /// String length in bytes
+    pub len: u32,
+}
+
+impl StringEntry {
+    /// Create a new string entry
+    pub fn new(id: u32, len: u32) -> Self {
+        Self { id, len }
+    }
+
+    /// Read string entry from bytes
+    ///
+    /// # Safety
+    ///
+    /// Uses `read_unaligned` because the struct is `#[repr(C, packed)]`.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= STRING_ENTRY_HEADER_SIZE,
+            "Buffer too small for StringEntry"
+        );
+
+        unsafe {
+            let ptr = bytes.as_ptr() as *const StringEntry;
+            ptr.read_unaligned()
+        }
+    }
+
+    /// Write string entry to bytes
+    ///
+    /// # Safety
+    ///
+    /// Creates a byte slice from the packed struct.
+    pub fn to_bytes(&self) -> [u8; STRING_ENTRY_HEADER_SIZE] {
+        unsafe {
+            let ptr = self as *const StringEntry as *const u8;
+            let slice = std::slice::from_raw_parts(ptr, STRING_ENTRY_HEADER_SIZE);
+            let mut result = [0u8; STRING_ENTRY_HEADER_SIZE];
+            result.copy_from_slice(slice);
+            result
+        }
+    }
+}
 
 // =============================================================================
 // Tests
@@ -883,5 +1049,276 @@ mod tests {
         assert_eq!(combined, 0x0003);
         assert_ne!(combined & NODE_FLAG_DELETED, 0);
         assert_ne!(combined & NODE_FLAG_INDEXED, 0);
+    }
+
+    // =========================================================================
+    // PropertyEntry Tests
+    // =========================================================================
+
+    #[test]
+    fn test_property_entry_size() {
+        // PropertyEntry header must be exactly 17 bytes
+        assert_eq!(
+            std::mem::size_of::<PropertyEntry>(),
+            PROPERTY_ENTRY_HEADER_SIZE,
+            "PropertyEntry size must be exactly 17 bytes"
+        );
+    }
+
+    #[test]
+    fn test_property_entry_alignment() {
+        // Verify packed struct layout
+        // key_id: u32 (4 bytes)
+        // value_type: u8 (1 byte)
+        // value_len: u32 (4 bytes)
+        // next: u64 (8 bytes)
+        // Total: 4 + 1 + 4 + 8 = 17 bytes
+
+        assert_eq!(
+            std::mem::size_of::<PropertyEntry>(),
+            4 + 1 + 4 + 8,
+            "PropertyEntry fields should sum to 17 bytes"
+        );
+    }
+
+    #[test]
+    fn test_property_entry_new() {
+        let entry = PropertyEntry::new(42, 5, 128, 1024);
+
+        // Copy values to avoid unaligned reference errors
+        let key_id = entry.key_id;
+        let value_type = entry.value_type;
+        let value_len = entry.value_len;
+        let next = entry.next;
+
+        assert_eq!(key_id, 42);
+        assert_eq!(value_type, 5);
+        assert_eq!(value_len, 128);
+        assert_eq!(next, 1024);
+    }
+
+    #[test]
+    fn test_property_entry_roundtrip() {
+        let entry = PropertyEntry::new(123, 7, 256, 4096);
+
+        // Copy original values
+        let orig_key_id = entry.key_id;
+        let orig_value_type = entry.value_type;
+        let orig_value_len = entry.value_len;
+        let orig_next = entry.next;
+
+        // Convert to bytes
+        let bytes = entry.to_bytes();
+        assert_eq!(bytes.len(), PROPERTY_ENTRY_HEADER_SIZE);
+
+        // Convert back from bytes
+        let recovered = PropertyEntry::from_bytes(&bytes);
+
+        // Copy recovered values
+        let rec_key_id = recovered.key_id;
+        let rec_value_type = recovered.value_type;
+        let rec_value_len = recovered.value_len;
+        let rec_next = recovered.next;
+
+        // Verify all fields match
+        assert_eq!(rec_key_id, orig_key_id);
+        assert_eq!(rec_value_type, orig_value_type);
+        assert_eq!(rec_value_len, orig_value_len);
+        assert_eq!(rec_next, orig_next);
+    }
+
+    #[test]
+    fn test_property_entry_byte_order() {
+        // Verify fields are stored in little-endian format
+        let entry = PropertyEntry::new(0x01020304u32, 0xAAu8, 0x05060708u32, 0x090A0B0C0D0E0F10u64);
+
+        let bytes = entry.to_bytes();
+
+        // key_id starts at offset 0
+        let key_id_bytes: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        assert_eq!(key_id_bytes[0], 0x04); // Little-endian: LSB first
+        assert_eq!(key_id_bytes[3], 0x01);
+
+        // value_type at offset 4
+        assert_eq!(bytes[4], 0xAA);
+
+        // value_len starts at offset 5
+        let value_len_bytes: [u8; 4] = [bytes[5], bytes[6], bytes[7], bytes[8]];
+        assert_eq!(value_len_bytes[0], 0x08); // Little-endian: LSB first
+        assert_eq!(value_len_bytes[3], 0x05);
+
+        // next starts at offset 9
+        let next_bytes: [u8; 8] = [
+            bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15], bytes[16],
+        ];
+        assert_eq!(next_bytes[0], 0x10); // Little-endian: LSB first
+        assert_eq!(next_bytes[7], 0x09);
+    }
+
+    #[test]
+    fn test_property_entry_end_of_list() {
+        // Test that u64::MAX is correctly used as end-of-list marker
+        let entry = PropertyEntry::new(1, 2, 3, u64::MAX);
+
+        let bytes = entry.to_bytes();
+        let recovered = PropertyEntry::from_bytes(&bytes);
+
+        let next = recovered.next;
+        assert_eq!(next, u64::MAX, "End-of-list marker should be u64::MAX");
+    }
+
+    #[test]
+    fn test_property_entry_no_unexpected_padding() {
+        // Verify there's no unexpected padding in the struct
+        let entry = PropertyEntry::new(0, 0, 0, 0);
+        let bytes = entry.to_bytes();
+
+        // All 17 bytes should be defined
+        assert_eq!(bytes.len(), 17);
+    }
+
+    // =========================================================================
+    // StringEntry Tests
+    // =========================================================================
+
+    #[test]
+    fn test_string_entry_size() {
+        // StringEntry header must be exactly 8 bytes
+        assert_eq!(
+            std::mem::size_of::<StringEntry>(),
+            STRING_ENTRY_HEADER_SIZE,
+            "StringEntry size must be exactly 8 bytes"
+        );
+    }
+
+    #[test]
+    fn test_string_entry_alignment() {
+        // Verify packed struct layout
+        // id: u32 (4 bytes)
+        // len: u32 (4 bytes)
+        // Total: 4 + 4 = 8 bytes
+
+        assert_eq!(
+            std::mem::size_of::<StringEntry>(),
+            4 + 4,
+            "StringEntry fields should sum to 8 bytes"
+        );
+    }
+
+    #[test]
+    fn test_string_entry_new() {
+        let entry = StringEntry::new(42, 128);
+
+        // Copy values to avoid unaligned reference errors
+        let id = entry.id;
+        let len = entry.len;
+
+        assert_eq!(id, 42);
+        assert_eq!(len, 128);
+    }
+
+    #[test]
+    fn test_string_entry_roundtrip() {
+        let entry = StringEntry::new(123, 456);
+
+        // Copy original values
+        let orig_id = entry.id;
+        let orig_len = entry.len;
+
+        // Convert to bytes
+        let bytes = entry.to_bytes();
+        assert_eq!(bytes.len(), STRING_ENTRY_HEADER_SIZE);
+
+        // Convert back from bytes
+        let recovered = StringEntry::from_bytes(&bytes);
+
+        // Copy recovered values
+        let rec_id = recovered.id;
+        let rec_len = recovered.len;
+
+        // Verify all fields match
+        assert_eq!(rec_id, orig_id);
+        assert_eq!(rec_len, orig_len);
+    }
+
+    #[test]
+    fn test_string_entry_byte_order() {
+        // Verify fields are stored in little-endian format
+        let entry = StringEntry::new(0x01020304u32, 0x05060708u32);
+
+        let bytes = entry.to_bytes();
+
+        // id starts at offset 0
+        let id_bytes: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        assert_eq!(id_bytes[0], 0x04); // Little-endian: LSB first
+        assert_eq!(id_bytes[3], 0x01);
+
+        // len starts at offset 4
+        let len_bytes: [u8; 4] = [bytes[4], bytes[5], bytes[6], bytes[7]];
+        assert_eq!(len_bytes[0], 0x08); // Little-endian: LSB first
+        assert_eq!(len_bytes[3], 0x05);
+    }
+
+    #[test]
+    fn test_string_entry_zero_length() {
+        // Test that zero-length strings are handled correctly
+        let entry = StringEntry::new(1, 0);
+
+        let bytes = entry.to_bytes();
+        let recovered = StringEntry::from_bytes(&bytes);
+
+        let len = recovered.len;
+        assert_eq!(len, 0, "Zero-length string should be valid");
+    }
+
+    #[test]
+    fn test_string_entry_large_length() {
+        // Test that large string lengths are handled correctly
+        let entry = StringEntry::new(1, u32::MAX);
+
+        let bytes = entry.to_bytes();
+        let recovered = StringEntry::from_bytes(&bytes);
+
+        let len = recovered.len;
+        assert_eq!(len, u32::MAX, "Large string length should be preserved");
+    }
+
+    #[test]
+    fn test_string_entry_no_unexpected_padding() {
+        // Verify there's no unexpected padding in the struct
+        let entry = StringEntry::new(0, 0);
+        let bytes = entry.to_bytes();
+
+        // All 8 bytes should be defined
+        assert_eq!(bytes.len(), 8);
+    }
+
+    // =========================================================================
+    // Cross-Structure Tests
+    // =========================================================================
+
+    #[test]
+    fn test_all_record_sizes() {
+        // Verify all record sizes match their constants
+        assert_eq!(std::mem::size_of::<FileHeader>(), HEADER_SIZE);
+        assert_eq!(std::mem::size_of::<NodeRecord>(), NODE_RECORD_SIZE);
+        assert_eq!(std::mem::size_of::<EdgeRecord>(), EDGE_RECORD_SIZE);
+        assert_eq!(
+            std::mem::size_of::<PropertyEntry>(),
+            PROPERTY_ENTRY_HEADER_SIZE
+        );
+        assert_eq!(std::mem::size_of::<StringEntry>(), STRING_ENTRY_HEADER_SIZE);
+    }
+
+    #[test]
+    fn test_constant_values() {
+        // Verify all constant values are as specified
+        assert_eq!(MAGIC, 0x47524D4C);
+        assert_eq!(VERSION, 1);
+        assert_eq!(HEADER_SIZE, 64);
+        assert_eq!(NODE_RECORD_SIZE, 48);
+        assert_eq!(EDGE_RECORD_SIZE, 56);
+        assert_eq!(PROPERTY_ENTRY_HEADER_SIZE, 17);
+        assert_eq!(STRING_ENTRY_HEADER_SIZE, 8);
     }
 }
