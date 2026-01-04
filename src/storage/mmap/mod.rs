@@ -392,6 +392,122 @@ impl MmapGraph {
         let bytes: [u8; 8] = mmap[offset..offset + 8].try_into().unwrap();
         Ok(u64::from_le_bytes(bytes))
     }
+
+    /// Helper: Read a u8 value from mmap at the given offset.
+    ///
+    /// # Safety
+    ///
+    /// This performs bounds checking before reading to ensure the offset
+    /// is valid within the mmap.
+    #[inline]
+    fn read_u8(&self, offset: usize) -> Result<u8, StorageError> {
+        let mmap = self.mmap.read();
+
+        if offset >= mmap.len() {
+            return Err(StorageError::CorruptedData);
+        }
+
+        Ok(mmap[offset])
+    }
+
+    // =========================================================================
+    // Phase 2.3: Property Loading
+    // =========================================================================
+
+    /// Load properties for a node or edge from the property arena.
+    ///
+    /// Properties are stored as a linked list in the property arena. This method
+    /// follows the chain starting at `prop_head`, deserializing each property
+    /// entry and resolving property keys via the string interner.
+    ///
+    /// # Arguments
+    ///
+    /// * `prop_head` - Offset to the first property entry, or `u64::MAX` if no properties
+    ///
+    /// # Returns
+    ///
+    /// A `HashMap` containing all properties for the element. Returns an empty
+    /// map if `prop_head == u64::MAX` (no properties).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::CorruptedData`] if:
+    /// - Property offsets are out of bounds
+    /// - Value data is malformed
+    /// - String IDs cannot be resolved
+    ///
+    /// # Safety
+    ///
+    /// This method reads from the memory-mapped file using validated offsets.
+    /// All reads are bounds-checked before accessing memory.
+    pub(crate) fn load_properties(
+        &self,
+        prop_head: u64,
+    ) -> Result<hashbrown::HashMap<String, crate::value::Value>, StorageError> {
+        use crate::value::Value;
+        use records::PROPERTY_ENTRY_HEADER_SIZE;
+
+        let mut properties = hashbrown::HashMap::new();
+
+        // Empty property list
+        if prop_head == u64::MAX {
+            return Ok(properties);
+        }
+
+        let mut current_offset = prop_head as usize;
+
+        // Follow the linked list of properties
+        loop {
+            let mmap = self.mmap.read();
+
+            // Verify we can read the property entry header
+            if current_offset + PROPERTY_ENTRY_HEADER_SIZE > mmap.len() {
+                return Err(StorageError::CorruptedData);
+            }
+
+            // Read property entry header fields
+            let key_id = self.read_u32(current_offset)?;
+            let value_type = self.read_u8(current_offset + 4)?;
+            let value_len = self.read_u32(current_offset + 5)?;
+            let next = self.read_u64(current_offset + 9)?;
+
+            // Move past the header
+            let value_data_offset = current_offset + PROPERTY_ENTRY_HEADER_SIZE;
+
+            // Verify we can read the value data
+            if value_data_offset + value_len as usize > mmap.len() {
+                return Err(StorageError::CorruptedData);
+            }
+
+            // Get value data slice
+            let value_bytes = &mmap[value_data_offset..value_data_offset + value_len as usize];
+
+            // Deserialize the value
+            let mut pos = 0;
+            let value =
+                Value::deserialize(value_bytes, &mut pos).ok_or(StorageError::CorruptedData)?;
+
+            // Resolve the property key from the string interner
+            let string_table = self.string_table.read();
+            let key = string_table
+                .resolve(key_id)
+                .ok_or(StorageError::CorruptedData)?
+                .to_string();
+
+            // Insert property into map
+            properties.insert(key, value);
+
+            // Check if this is the last property in the list
+            if next == u64::MAX {
+                break;
+            }
+
+            // Move to next property
+            current_offset = next as usize;
+        }
+
+        Ok(properties)
+    }
 }
 
 #[cfg(test)]
@@ -1002,5 +1118,392 @@ mod tests {
             assert_eq!(src, i * 2);
             assert_eq!(dst, i * 2 + 1);
         }
+    }
+
+    // =========================================================================
+    // Phase 2.3: Property Loading Tests
+    // =========================================================================
+
+    #[test]
+    fn test_load_properties_returns_empty_for_no_properties() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // prop_head == u64::MAX indicates no properties
+        let result = graph.load_properties(u64::MAX);
+        assert!(result.is_ok());
+        let properties = result.unwrap();
+        assert!(properties.is_empty(), "Should return empty HashMap");
+    }
+
+    #[test]
+    fn test_load_properties_single_property() {
+        use crate::value::Value;
+        use records::{PropertyEntry, PROPERTY_ENTRY_HEADER_SIZE};
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Setup: Intern a string for the property key
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("name"); // This will get ID 0
+        }
+
+        // Get property arena offset from header
+        let mmap = graph.mmap.read();
+        let header = MmapGraph::read_header(&mmap);
+        let prop_arena_offset = header.property_arena_offset;
+        drop(mmap);
+
+        // Create a property entry for "name" = "Alice"
+        let key_id = 0u32; // "name" string ID
+        let value = Value::String("Alice".to_string());
+        let mut value_bytes = Vec::new();
+        value.serialize(&mut value_bytes);
+        let value_len = value_bytes.len() as u32;
+
+        // Write property entry header
+        let entry = PropertyEntry::new(key_id, value.discriminant(), value_len, u64::MAX);
+        let entry_bytes = entry.to_bytes();
+
+        {
+            let mut file = graph.file.write();
+            // Write header
+            file.seek(SeekFrom::Start(prop_arena_offset)).unwrap();
+            file.write_all(&entry_bytes).unwrap();
+            // Write value data
+            file.write_all(&value_bytes).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        let file = graph.file.read();
+        let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+        *graph.mmap.write() = new_mmap;
+        drop(file);
+
+        // Load the property
+        let result = graph.load_properties(prop_arena_offset);
+        assert!(result.is_ok(), "Should load property successfully");
+        let properties = result.unwrap();
+
+        assert_eq!(properties.len(), 1, "Should have one property");
+        assert_eq!(
+            properties.get("name"),
+            Some(&Value::String("Alice".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_load_properties_multiple_properties() {
+        use crate::value::Value;
+        use records::{PropertyEntry, PROPERTY_ENTRY_HEADER_SIZE};
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Setup: Intern strings for property keys
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("name"); // ID 0
+            string_table.intern("age"); // ID 1
+            string_table.intern("active"); // ID 2
+        }
+
+        // Get property arena offset
+        let mmap = graph.mmap.read();
+        let header = MmapGraph::read_header(&mmap);
+        let prop_arena_offset = header.property_arena_offset;
+        drop(mmap);
+
+        // Create three properties: name, age, active
+        let properties = vec![
+            (0u32, Value::String("Bob".to_string())),
+            (1u32, Value::Int(30)),
+            (2u32, Value::Bool(true)),
+        ];
+
+        let mut current_offset = prop_arena_offset;
+        let mut file = graph.file.write();
+
+        for (i, (key_id, value)) in properties.iter().enumerate() {
+            // Serialize value
+            let mut value_bytes = Vec::new();
+            value.serialize(&mut value_bytes);
+            let value_len = value_bytes.len() as u32;
+
+            // Determine next offset or u64::MAX if last
+            let next = if i < properties.len() - 1 {
+                current_offset + PROPERTY_ENTRY_HEADER_SIZE as u64 + value_len as u64
+            } else {
+                u64::MAX
+            };
+
+            // Write property entry
+            let entry = PropertyEntry::new(*key_id, value.discriminant(), value_len, next);
+            let entry_bytes = entry.to_bytes();
+
+            file.seek(SeekFrom::Start(current_offset)).unwrap();
+            file.write_all(&entry_bytes).unwrap();
+            file.write_all(&value_bytes).unwrap();
+
+            current_offset = next;
+        }
+
+        file.sync_data().unwrap();
+        drop(file);
+
+        // Remap
+        let file = graph.file.read();
+        let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+        *graph.mmap.write() = new_mmap;
+        drop(file);
+
+        // Load all properties
+        let result = graph.load_properties(prop_arena_offset);
+        assert!(result.is_ok(), "Should load all properties successfully");
+        let loaded = result.unwrap();
+
+        assert_eq!(loaded.len(), 3, "Should have three properties");
+        assert_eq!(loaded.get("name"), Some(&Value::String("Bob".to_string())));
+        assert_eq!(loaded.get("age"), Some(&Value::Int(30)));
+        assert_eq!(loaded.get("active"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_load_properties_all_value_types() {
+        use crate::value::{EdgeId as ValueEdgeId, Value, VertexId as ValueVertexId};
+        use records::PropertyEntry;
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Setup: Intern property keys
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("null_prop"); // ID 0
+            string_table.intern("bool_prop"); // ID 1
+            string_table.intern("int_prop"); // ID 2
+            string_table.intern("float_prop"); // ID 3
+            string_table.intern("string_prop"); // ID 4
+            string_table.intern("list_prop"); // ID 5
+            string_table.intern("map_prop"); // ID 6
+            string_table.intern("vertex_prop"); // ID 7
+            string_table.intern("edge_prop"); // ID 8
+        }
+
+        // Get property arena offset
+        let mmap = graph.mmap.read();
+        let header = MmapGraph::read_header(&mmap);
+        let prop_arena_offset = header.property_arena_offset;
+        drop(mmap);
+
+        // Create properties with all value types
+        let mut map = hashbrown::HashMap::new();
+        map.insert("key".to_string(), Value::Int(42));
+
+        let properties = vec![
+            (0u32, Value::Null),
+            (1u32, Value::Bool(false)),
+            (2u32, Value::Int(-123)),
+            (3u32, Value::Float(3.14159)),
+            (4u32, Value::String("test".to_string())),
+            (
+                5u32,
+                Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            ),
+            (6u32, Value::Map(map)),
+            (7u32, Value::Vertex(ValueVertexId(999))),
+            (8u32, Value::Edge(ValueEdgeId(888))),
+        ];
+
+        let mut current_offset = prop_arena_offset;
+        let mut file = graph.file.write();
+
+        for (i, (key_id, value)) in properties.iter().enumerate() {
+            // Serialize value
+            let mut value_bytes = Vec::new();
+            value.serialize(&mut value_bytes);
+            let value_len = value_bytes.len() as u32;
+
+            // Determine next offset
+            let next = if i < properties.len() - 1 {
+                current_offset + records::PROPERTY_ENTRY_HEADER_SIZE as u64 + value_len as u64
+            } else {
+                u64::MAX
+            };
+
+            // Write property entry
+            let entry = PropertyEntry::new(*key_id, value.discriminant(), value_len, next);
+            let entry_bytes = entry.to_bytes();
+
+            file.seek(SeekFrom::Start(current_offset)).unwrap();
+            file.write_all(&entry_bytes).unwrap();
+            file.write_all(&value_bytes).unwrap();
+
+            current_offset = next;
+        }
+
+        file.sync_data().unwrap();
+        drop(file);
+
+        // Remap
+        let file = graph.file.read();
+        let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+        *graph.mmap.write() = new_mmap;
+        drop(file);
+
+        // Load all properties
+        let result = graph.load_properties(prop_arena_offset);
+        assert!(result.is_ok(), "Should load all property types");
+        let loaded = result.unwrap();
+
+        assert_eq!(loaded.len(), 9, "Should have all nine properties");
+        assert_eq!(loaded.get("null_prop"), Some(&Value::Null));
+        assert_eq!(loaded.get("bool_prop"), Some(&Value::Bool(false)));
+        assert_eq!(loaded.get("int_prop"), Some(&Value::Int(-123)));
+        assert_eq!(loaded.get("float_prop"), Some(&Value::Float(3.14159)));
+        assert_eq!(
+            loaded.get("string_prop"),
+            Some(&Value::String("test".to_string()))
+        );
+        assert!(matches!(loaded.get("list_prop"), Some(Value::List(_))));
+        assert!(matches!(loaded.get("map_prop"), Some(Value::Map(_))));
+        assert_eq!(
+            loaded.get("vertex_prop"),
+            Some(&Value::Vertex(ValueVertexId(999)))
+        );
+        assert_eq!(
+            loaded.get("edge_prop"),
+            Some(&Value::Edge(ValueEdgeId(888)))
+        );
+    }
+
+    #[test]
+    fn test_load_properties_corrupted_offset() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get file size
+        let mmap = graph.mmap.read();
+        let file_size = mmap.len();
+        drop(mmap);
+
+        // Try to load properties at an out-of-bounds offset
+        let result = graph.load_properties(file_size as u64 + 1000);
+        assert!(result.is_err(), "Should fail on out-of-bounds offset");
+        assert!(
+            matches!(result, Err(StorageError::CorruptedData)),
+            "Should return CorruptedData error"
+        );
+    }
+
+    #[test]
+    fn test_load_properties_invalid_string_id() {
+        use crate::value::Value;
+        use records::PropertyEntry;
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get property arena offset
+        let mmap = graph.mmap.read();
+        let header = MmapGraph::read_header(&mmap);
+        let prop_arena_offset = header.property_arena_offset;
+        drop(mmap);
+
+        // Create a property with an invalid key_id (not in string table)
+        let invalid_key_id = 9999u32;
+        let value = Value::String("test".to_string());
+        let mut value_bytes = Vec::new();
+        value.serialize(&mut value_bytes);
+        let value_len = value_bytes.len() as u32;
+
+        let entry = PropertyEntry::new(invalid_key_id, value.discriminant(), value_len, u64::MAX);
+        let entry_bytes = entry.to_bytes();
+
+        {
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(prop_arena_offset)).unwrap();
+            file.write_all(&entry_bytes).unwrap();
+            file.write_all(&value_bytes).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        let file = graph.file.read();
+        let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+        *graph.mmap.write() = new_mmap;
+        drop(file);
+
+        // Try to load the property with invalid key
+        let result = graph.load_properties(prop_arena_offset);
+        assert!(result.is_err(), "Should fail on invalid string ID");
+        assert!(
+            matches!(result, Err(StorageError::CorruptedData)),
+            "Should return CorruptedData error"
+        );
+    }
+
+    #[test]
+    fn test_load_properties_truncated_value_data() {
+        use crate::value::Value;
+        use records::PropertyEntry;
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Setup: Intern a property key
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("test"); // ID 0
+        }
+
+        // Get property arena offset
+        let mmap = graph.mmap.read();
+        let header = MmapGraph::read_header(&mmap);
+        let prop_arena_offset = header.property_arena_offset;
+        drop(mmap);
+
+        // Create a property entry claiming a large value_len but not writing the data
+        let key_id = 0u32;
+        let value_len = 1000u32; // Claim 1000 bytes
+        let entry = PropertyEntry::new(key_id, 0x05 /* String */, value_len, u64::MAX);
+        let entry_bytes = entry.to_bytes();
+
+        {
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(prop_arena_offset)).unwrap();
+            file.write_all(&entry_bytes).unwrap();
+            // Don't write the actual value data
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        let file = graph.file.read();
+        let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+        *graph.mmap.write() = new_mmap;
+        drop(file);
+
+        // Try to load the property with truncated data
+        let result = graph.load_properties(prop_arena_offset);
+        assert!(result.is_err(), "Should fail when value data is truncated");
+        assert!(
+            matches!(result, Err(StorageError::CorruptedData)),
+            "Should return CorruptedData error"
+        );
     }
 }

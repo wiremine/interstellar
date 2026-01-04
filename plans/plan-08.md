@@ -260,15 +260,15 @@ pub struct MmapGraph {
 6. Add error handling for corrupted data
 
 **Acceptance Criteria**:
-- [ ] Can load simple properties (single property)
-- [ ] Can load multi-property chains (linked list traversal)
-- [ ] Returns empty HashMap for `prop_head == u64::MAX`
-- [ ] Handles all `Value` types correctly
-- [ ] Returns error on corrupted data (bad offset, etc.)
+- [x] Can load simple properties (single property)
+- [x] Can load multi-property chains (linked list traversal)
+- [x] Returns empty HashMap for `prop_head == u64::MAX`
+- [x] Handles all `Value` types correctly
+- [x] Returns error on corrupted data (bad offset, etc.)
 
 ---
 
-#### Phase 2.4: String Table Implementation
+#### Phase 2.4: String Table Implementation ✅
 **File**: `src/storage/mmap/mod.rs` and `src/storage/interner.rs`  
 **Duration**: 2 hours
 
@@ -280,11 +280,11 @@ pub struct MmapGraph {
 5. Add string table writing at end of file
 
 **Acceptance Criteria**:
-- [ ] Can intern strings and persist to disk
-- [ ] Can load string table on database open
-- [ ] `intern()` deduplicates strings
-- [ ] `resolve()` returns correct string for ID
-- [ ] `lookup()` returns correct ID for string
+- [x] Can intern strings and persist to disk
+- [x] Can load string table on database open
+- [x] `intern()` deduplicates strings
+- [x] `resolve()` returns correct string for ID
+- [x] `lookup()` returns correct ID for string
 
 ---
 

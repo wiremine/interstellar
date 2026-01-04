@@ -37,7 +37,9 @@
 //! assert_eq!(interner.resolve(id1), Some("person"));
 //! ```
 
+use crate::error::StorageError;
 use std::collections::HashMap;
+use std::io::Write;
 
 /// A bidirectional string interner for efficient label storage.
 ///
@@ -74,6 +76,7 @@ use std::collections::HashMap;
 /// assert_eq!(interner.resolve(person_id), Some("person"));
 /// assert_eq!(interner.resolve(knows_id), Some("knows"));
 /// ```
+#[derive(Debug)]
 pub struct StringInterner {
     forward: HashMap<String, u32>,
     reverse: HashMap<u32, String>,
@@ -258,6 +261,152 @@ impl StringInterner {
     pub fn is_empty(&self) -> bool {
         self.forward.is_empty()
     }
+
+    /// Loads string table from memory-mapped file.
+    ///
+    /// Reads string entries from the memory-mapped region starting at the
+    /// given offset. Each entry consists of an 8-byte header (u32 id, u32 len)
+    /// followed by the UTF-8 string bytes.
+    ///
+    /// # Arguments
+    ///
+    /// * `mmap` - The memory-mapped file contents
+    /// * `offset` - Byte offset to start of string table
+    /// * `end` - Byte offset to end of string table (exclusive)
+    ///
+    /// # Returns
+    ///
+    /// A new `StringInterner` populated with all strings from the table.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::CorruptedData` if:
+    /// - String table extends beyond `end` offset
+    /// - String data is not valid UTF-8
+    /// - Entry header is incomplete
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::StringInterner;
+    ///
+    /// // Load string table from a byte slice (e.g., from memory-mapped file)
+    /// let data = vec![
+    ///     0, 0, 0, 0,  // id = 0
+    ///     6, 0, 0, 0,  // len = 6
+    ///     b'p', b'e', b'r', b's', b'o', b'n',  // "person"
+    /// ];
+    ///
+    /// let interner = StringInterner::load_from_mmap(&data, 0, data.len() as u64).unwrap();
+    /// assert_eq!(interner.resolve(0), Some("person"));
+    /// ```
+    pub fn load_from_mmap(mmap: &[u8], offset: u64, end: u64) -> Result<Self, StorageError> {
+        let mut interner = StringInterner::new();
+        let mut pos = offset as usize;
+        let end_pos = end as usize;
+
+        if end_pos > mmap.len() {
+            return Err(StorageError::CorruptedData);
+        }
+
+        while pos < end_pos {
+            // Read string entry header (8 bytes: u32 id + u32 len)
+            if pos + 8 > end_pos {
+                return Err(StorageError::CorruptedData);
+            }
+
+            let id = u32::from_le_bytes([mmap[pos], mmap[pos + 1], mmap[pos + 2], mmap[pos + 3]]);
+            let len =
+                u32::from_le_bytes([mmap[pos + 4], mmap[pos + 5], mmap[pos + 6], mmap[pos + 7]])
+                    as usize;
+            pos += 8;
+
+            // Read string bytes
+            if pos + len > end_pos {
+                return Err(StorageError::CorruptedData);
+            }
+
+            let string_bytes = &mmap[pos..pos + len];
+            let string = std::str::from_utf8(string_bytes)
+                .map_err(|_| StorageError::CorruptedData)?
+                .to_string();
+            pos += len;
+
+            // Insert into interner
+            interner.forward.insert(string.clone(), id);
+            interner.reverse.insert(id, string);
+
+            // Update next_id to be one past the highest ID seen
+            if id >= interner.next_id {
+                interner.next_id = id + 1;
+            }
+        }
+
+        Ok(interner)
+    }
+
+    /// Writes string table to a file.
+    ///
+    /// Serializes all interned strings to the file in ID order. Each entry
+    /// consists of an 8-byte header (u32 id, u32 len) followed by the UTF-8
+    /// string bytes.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The file to write to (must be opened with write permissions)
+    ///
+    /// # Returns
+    ///
+    /// The total number of bytes written.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::Io` if any write operation fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rustgremlin::storage::StringInterner;
+    /// use std::fs::OpenOptions;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut interner = StringInterner::new();
+    /// interner.intern("person");
+    /// interner.intern("knows");
+    ///
+    /// let mut file = OpenOptions::new()
+    ///     .create(true)
+    ///     .write(true)
+    ///     .open("strings.dat")?;
+    ///
+    /// let bytes_written = interner.write_to_file(&mut file)?;
+    /// println!("Wrote {} bytes", bytes_written);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn write_to_file<W: Write>(&self, writer: &mut W) -> Result<u64, StorageError> {
+        let mut total_bytes = 0u64;
+
+        // Collect and sort entries by ID for deterministic output
+        let mut entries: Vec<_> = self.reverse.iter().collect();
+        entries.sort_by_key(|(id, _)| *id);
+
+        for (id, string) in entries {
+            let string_bytes = string.as_bytes();
+            let len = string_bytes.len() as u32;
+
+            // Write header (8 bytes: u32 id + u32 len)
+            writer.write_all(&id.to_le_bytes())?;
+            writer.write_all(&len.to_le_bytes())?;
+            total_bytes += 8;
+
+            // Write string bytes
+            writer.write_all(string_bytes)?;
+            total_bytes += len as u64;
+        }
+
+        Ok(total_bytes)
+    }
 }
 
 impl Default for StringInterner {
@@ -304,5 +453,201 @@ mod tests {
 
         assert!(!interner.is_empty());
         assert_eq!(interner.len(), 2);
+    }
+
+    #[test]
+    fn test_write_and_load_empty_string_table() {
+        let interner = StringInterner::new();
+        let mut buffer = Vec::new();
+
+        let bytes_written = interner.write_to_file(&mut buffer).unwrap();
+        assert_eq!(bytes_written, 0);
+        assert_eq!(buffer.len(), 0);
+
+        let loaded = StringInterner::load_from_mmap(&buffer, 0, 0).unwrap();
+        assert!(loaded.is_empty());
+        assert_eq!(loaded.len(), 0);
+    }
+
+    #[test]
+    fn test_write_and_load_single_string() {
+        let mut interner = StringInterner::new();
+        interner.intern("person");
+
+        let mut buffer = Vec::new();
+        let bytes_written = interner.write_to_file(&mut buffer).unwrap();
+
+        // Header (8 bytes) + string (6 bytes) = 14 bytes
+        assert_eq!(bytes_written, 14);
+        assert_eq!(buffer.len(), 14);
+
+        let loaded = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded.resolve(0), Some("person"));
+        assert_eq!(loaded.lookup("person"), Some(0));
+    }
+
+    #[test]
+    fn test_write_and_load_multiple_strings() {
+        let mut interner = StringInterner::new();
+        let id1 = interner.intern("person");
+        let id2 = interner.intern("software");
+        let id3 = interner.intern("knows");
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        let loaded = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64).unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded.resolve(id1), Some("person"));
+        assert_eq!(loaded.resolve(id2), Some("software"));
+        assert_eq!(loaded.resolve(id3), Some("knows"));
+        assert_eq!(loaded.lookup("person"), Some(id1));
+        assert_eq!(loaded.lookup("software"), Some(id2));
+        assert_eq!(loaded.lookup("knows"), Some(id3));
+    }
+
+    #[test]
+    fn test_write_preserves_id_order() {
+        let mut interner = StringInterner::new();
+        interner.intern("zzz"); // ID 0
+        interner.intern("aaa"); // ID 1
+        interner.intern("mmm"); // ID 2
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        let loaded = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64).unwrap();
+        assert_eq!(loaded.resolve(0), Some("zzz"));
+        assert_eq!(loaded.resolve(1), Some("aaa"));
+        assert_eq!(loaded.resolve(2), Some("mmm"));
+    }
+
+    #[test]
+    fn test_load_from_offset() {
+        let mut interner = StringInterner::new();
+        interner.intern("first");
+        interner.intern("second");
+
+        let mut buffer = vec![0u8; 100]; // Prefix with 100 bytes
+        interner.write_to_file(&mut buffer).unwrap();
+
+        let offset = 100u64;
+        let end = buffer.len() as u64;
+        let loaded = StringInterner::load_from_mmap(&buffer, offset, end).unwrap();
+
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.resolve(0), Some("first"));
+        assert_eq!(loaded.resolve(1), Some("second"));
+    }
+
+    #[test]
+    fn test_load_with_utf8_strings() {
+        let mut interner = StringInterner::new();
+        interner.intern("hello");
+        interner.intern("世界"); // UTF-8 multibyte
+        interner.intern("🦀"); // UTF-8 emoji
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        let loaded = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64).unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded.resolve(0), Some("hello"));
+        assert_eq!(loaded.resolve(1), Some("世界"));
+        assert_eq!(loaded.resolve(2), Some("🦀"));
+    }
+
+    #[test]
+    fn test_load_corrupted_truncated_header() {
+        let mut interner = StringInterner::new();
+        interner.intern("test");
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        // Truncate to only 4 bytes (incomplete header)
+        buffer.truncate(4);
+
+        let result = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StorageError::CorruptedData));
+    }
+
+    #[test]
+    fn test_load_corrupted_truncated_string() {
+        let mut interner = StringInterner::new();
+        interner.intern("test");
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        // Truncate to only header (missing string bytes)
+        buffer.truncate(8);
+
+        let result = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StorageError::CorruptedData));
+    }
+
+    #[test]
+    fn test_load_corrupted_invalid_utf8() {
+        // Manually create a buffer with invalid UTF-8
+        let mut buffer = Vec::new();
+
+        // Valid header: id=0, len=2
+        buffer.extend_from_slice(&0u32.to_le_bytes());
+        buffer.extend_from_slice(&2u32.to_le_bytes());
+
+        // Invalid UTF-8 bytes
+        buffer.push(0xFF);
+        buffer.push(0xFF);
+
+        let result = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StorageError::CorruptedData));
+    }
+
+    #[test]
+    fn test_load_corrupted_offset_beyond_end() {
+        let buffer = vec![0u8; 100];
+
+        // Try to read beyond buffer
+        let result = StringInterner::load_from_mmap(&buffer, 0, 200);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StorageError::CorruptedData));
+    }
+
+    #[test]
+    fn test_next_id_updated_after_load() {
+        let mut interner = StringInterner::new();
+        interner.intern("first"); // ID 0
+        interner.intern("second"); // ID 1
+        interner.intern("third"); // ID 2
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        let mut loaded = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64).unwrap();
+
+        // Next ID should be 3
+        let new_id = loaded.intern("fourth");
+        assert_eq!(new_id, 3);
+    }
+
+    #[test]
+    fn test_deduplication_after_load() {
+        let mut interner = StringInterner::new();
+        interner.intern("person");
+
+        let mut buffer = Vec::new();
+        interner.write_to_file(&mut buffer).unwrap();
+
+        let mut loaded = StringInterner::load_from_mmap(&buffer, 0, buffer.len() as u64).unwrap();
+
+        // Interning same string should return existing ID
+        let id = loaded.intern("person");
+        assert_eq!(id, 0);
+        assert_eq!(loaded.len(), 1); // No new entry added
     }
 }
