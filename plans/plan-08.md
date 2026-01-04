@@ -183,11 +183,11 @@ pub struct StringEntry {
 6. Add roundtrip property tests
 
 **Acceptance Criteria**:
-- [ ] All `Value` variants serialize correctly
-- [ ] Deserialization handles all types
-- [ ] Roundtrip tests pass (serialize -> deserialize = identity)
-- [ ] Property tests with random values pass
-- [ ] Nested structures (List, Map) work correctly
+- [x] All `Value` variants serialize correctly
+- [x] Deserialization handles all types
+- [x] Roundtrip tests pass (serialize -> deserialize = identity)
+- [x] Property tests with random values pass
+- [x] Nested structures (List, Map) work correctly
 
 ---
 

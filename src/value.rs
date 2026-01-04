@@ -889,6 +889,55 @@ impl Value {
     pub fn is_edge(&self) -> bool {
         matches!(self, Value::Edge(_))
     }
+
+    /// Returns the type discriminant (tag) for this value.
+    ///
+    /// The discriminant is the type tag byte used in the binary serialization
+    /// format. This is useful for storage backends that need to know the value
+    /// type without fully deserializing it.
+    ///
+    /// # Discriminant Values
+    ///
+    /// | Discriminant | Type |
+    /// |--------------|------|
+    /// | 0x00 | Null |
+    /// | 0x01 | Bool(false) |
+    /// | 0x02 | Bool(true) |
+    /// | 0x03 | Int |
+    /// | 0x04 | Float |
+    /// | 0x05 | String |
+    /// | 0x06 | List |
+    /// | 0x07 | Map |
+    /// | 0x08 | Vertex |
+    /// | 0x09 | Edge |
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    ///
+    /// assert_eq!(Value::Null.discriminant(), 0x00);
+    /// assert_eq!(Value::Bool(false).discriminant(), 0x01);
+    /// assert_eq!(Value::Bool(true).discriminant(), 0x02);
+    /// assert_eq!(Value::Int(42).discriminant(), 0x03);
+    /// assert_eq!(Value::Float(3.14).discriminant(), 0x04);
+    /// assert_eq!(Value::String("hello".to_string()).discriminant(), 0x05);
+    /// assert_eq!(Value::List(vec![]).discriminant(), 0x06);
+    /// ```
+    pub fn discriminant(&self) -> u8 {
+        match self {
+            Value::Null => 0x00,
+            Value::Bool(false) => 0x01,
+            Value::Bool(true) => 0x02,
+            Value::Int(_) => 0x03,
+            Value::Float(_) => 0x04,
+            Value::String(_) => 0x05,
+            Value::List(_) => 0x06,
+            Value::Map(_) => 0x07,
+            Value::Vertex(_) => 0x08,
+            Value::Edge(_) => 0x09,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1328,6 +1377,199 @@ mod tests {
         })
     }
 
+    #[test]
+    fn discriminant_matches_serialization_tag() {
+        // Null
+        assert_eq!(Value::Null.discriminant(), 0x00);
+        let mut buf = Vec::new();
+        Value::Null.serialize(&mut buf);
+        assert_eq!(buf[0], 0x00);
+
+        // Bool(false)
+        assert_eq!(Value::Bool(false).discriminant(), 0x01);
+        let mut buf = Vec::new();
+        Value::Bool(false).serialize(&mut buf);
+        assert_eq!(buf[0], 0x01);
+
+        // Bool(true)
+        assert_eq!(Value::Bool(true).discriminant(), 0x02);
+        let mut buf = Vec::new();
+        Value::Bool(true).serialize(&mut buf);
+        assert_eq!(buf[0], 0x02);
+
+        // Int
+        assert_eq!(Value::Int(42).discriminant(), 0x03);
+        let mut buf = Vec::new();
+        Value::Int(42).serialize(&mut buf);
+        assert_eq!(buf[0], 0x03);
+
+        // Float
+        assert_eq!(Value::Float(3.14).discriminant(), 0x04);
+        let mut buf = Vec::new();
+        Value::Float(3.14).serialize(&mut buf);
+        assert_eq!(buf[0], 0x04);
+
+        // String
+        assert_eq!(Value::String("test".to_string()).discriminant(), 0x05);
+        let mut buf = Vec::new();
+        Value::String("test".to_string()).serialize(&mut buf);
+        assert_eq!(buf[0], 0x05);
+
+        // List
+        assert_eq!(Value::List(vec![]).discriminant(), 0x06);
+        let mut buf = Vec::new();
+        Value::List(vec![]).serialize(&mut buf);
+        assert_eq!(buf[0], 0x06);
+
+        // Map
+        assert_eq!(Value::Map(HashMap::new()).discriminant(), 0x07);
+        let mut buf = Vec::new();
+        Value::Map(HashMap::new()).serialize(&mut buf);
+        assert_eq!(buf[0], 0x07);
+
+        // Vertex
+        assert_eq!(Value::Vertex(VertexId(1)).discriminant(), 0x08);
+        let mut buf = Vec::new();
+        Value::Vertex(VertexId(1)).serialize(&mut buf);
+        assert_eq!(buf[0], 0x08);
+
+        // Edge
+        assert_eq!(Value::Edge(EdgeId(1)).discriminant(), 0x09);
+        let mut buf = Vec::new();
+        Value::Edge(EdgeId(1)).serialize(&mut buf);
+        assert_eq!(buf[0], 0x09);
+    }
+
+    #[test]
+    fn discriminant_is_unique_for_each_type() {
+        let values = vec![
+            Value::Null,
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Int(0),
+            Value::Float(0.0),
+            Value::String("".to_string()),
+            Value::List(vec![]),
+            Value::Map(HashMap::new()),
+            Value::Vertex(VertexId(0)),
+            Value::Edge(EdgeId(0)),
+        ];
+
+        let discriminants: Vec<u8> = values.iter().map(|v| v.discriminant()).collect();
+
+        // All discriminants should be unique
+        for i in 0..discriminants.len() {
+            for j in (i + 1)..discriminants.len() {
+                assert_ne!(
+                    discriminants[i], discriminants[j],
+                    "Discriminants not unique: {} vs {}",
+                    discriminants[i], discriminants[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn complex_value_serialization_roundtrip() {
+        // Test nested structures with all types
+        let mut map = HashMap::new();
+        map.insert("null".to_string(), Value::Null);
+        map.insert("bool".to_string(), Value::Bool(true));
+        map.insert("int".to_string(), Value::Int(-42));
+        map.insert("float".to_string(), Value::Float(2.718));
+        map.insert("string".to_string(), Value::String("nested".to_string()));
+        map.insert(
+            "list".to_string(),
+            Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+        );
+        map.insert("vertex".to_string(), Value::Vertex(VertexId(100)));
+        map.insert("edge".to_string(), Value::Edge(EdgeId(200)));
+
+        let complex = Value::Map(map);
+
+        let mut buf = Vec::new();
+        complex.serialize(&mut buf);
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
+        assert_eq!(parsed, complex);
+        assert_eq!(pos, buf.len());
+    }
+
+    #[test]
+    fn deeply_nested_list_roundtrip() {
+        // Test deeply nested lists
+        let inner = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        let middle = Value::List(vec![inner.clone(), inner.clone()]);
+        let outer = Value::List(vec![middle.clone(), middle]);
+
+        let mut buf = Vec::new();
+        outer.serialize(&mut buf);
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
+        assert_eq!(parsed, outer);
+        assert_eq!(pos, buf.len());
+    }
+
+    #[test]
+    fn empty_collections_roundtrip() {
+        let empty_list = Value::List(vec![]);
+        let mut buf = Vec::new();
+        empty_list.serialize(&mut buf);
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
+        assert_eq!(parsed, empty_list);
+
+        let empty_map = Value::Map(HashMap::new());
+        let mut buf = Vec::new();
+        empty_map.serialize(&mut buf);
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
+        assert_eq!(parsed, empty_map);
+    }
+
+    #[test]
+    fn large_string_roundtrip() {
+        // Test string larger than 256 bytes
+        let large_string = "a".repeat(1000);
+        let value = Value::String(large_string.clone());
+
+        let mut buf = Vec::new();
+        value.serialize(&mut buf);
+        let mut pos = 0;
+        let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
+        assert_eq!(parsed, value);
+        assert_eq!(parsed.as_str(), Some(large_string.as_str()));
+    }
+
+    #[test]
+    fn special_float_values_roundtrip() {
+        // Test NaN, infinity, and negative zero
+        let values = vec![
+            Value::Float(f64::NAN),
+            Value::Float(f64::INFINITY),
+            Value::Float(f64::NEG_INFINITY),
+            Value::Float(-0.0),
+            Value::Float(0.0),
+        ];
+
+        for val in values {
+            let mut buf = Vec::new();
+            val.serialize(&mut buf);
+            let mut pos = 0;
+            let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
+
+            // For NaN, check that both are NaN (can't use equality)
+            match (&val, &parsed) {
+                (Value::Float(f1), Value::Float(f2)) if f1.is_nan() => {
+                    assert!(f2.is_nan(), "NaN did not roundtrip correctly");
+                }
+                _ => {
+                    assert_eq!(parsed, val, "Value did not roundtrip correctly");
+                }
+            }
+        }
+    }
+
     proptest! {
         #[test]
         fn value_roundtrips_through_serialization(v in arb_value()) {
@@ -1337,6 +1579,14 @@ mod tests {
             let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
             prop_assert_eq!(parsed, v);
             prop_assert_eq!(pos, buf.len());
+        }
+
+        #[test]
+        fn discriminant_matches_first_byte_of_serialization(v in arb_value()) {
+            let mut buf = Vec::new();
+            v.serialize(&mut buf);
+            prop_assert!(!buf.is_empty());
+            prop_assert_eq!(buf[0], v.discriminant());
         }
     }
 }
