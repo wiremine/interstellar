@@ -219,10 +219,10 @@ pub struct MmapGraph {
 ```
 
 **Acceptance Criteria**:
-- [ ] Can create new database file with correct header
-- [ ] `validate_header()` rejects invalid magic/version
-- [ ] Initial file has correct structure (header + node table + edge table + arena space)
-- [ ] Test: Create database, verify header fields
+- [x] Can create new database file with correct header
+- [x] `validate_header()` rejects invalid magic/version
+- [x] Initial file has correct structure (header + node table + edge table + arena space)
+- [x] Test: Create database, verify header fields
 
 ---
 
@@ -239,11 +239,11 @@ pub struct MmapGraph {
 6. Handle deleted flag checking
 
 **Acceptance Criteria**:
-- [ ] `get_node_record()` performs O(1) lookup via offset calculation
-- [ ] Returns `None` for deleted nodes (checks `NODE_FLAG_DELETED`)
-- [ ] Returns `None` for out-of-bounds IDs
-- [ ] `get_edge_record()` works similarly for edges
-- [ ] Unsafe operations are properly documented
+- [x] `get_node_record()` performs O(1) lookup via offset calculation
+- [x] Returns `None` for deleted nodes (checks `NODE_FLAG_DELETED`)
+- [x] Returns `None` for out-of-bounds IDs
+- [x] `get_edge_record()` works similarly for edges
+- [x] Unsafe operations are properly documented
 
 ---
 

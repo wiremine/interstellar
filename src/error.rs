@@ -108,6 +108,13 @@ pub enum StorageError {
     /// database or when the file version is incompatible.
     #[error("invalid file format")]
     InvalidFormat,
+
+    /// The database file contains corrupted data.
+    ///
+    /// This indicates data integrity issues, such as reading beyond valid
+    /// offsets or encountering malformed records.
+    #[error("corrupted data")]
+    CorruptedData,
 }
 
 /// Errors that can occur during graph traversals.
