@@ -112,13 +112,18 @@ impl MmapGraph {
         // Validate header
         Self::validate_header(&mmap)?;
 
-        Ok(Self {
+        let graph = Self {
             mmap: Arc::new(RwLock::new(mmap)),
             file: Arc::new(RwLock::new(file)),
             string_table: Arc::new(RwLock::new(StringInterner::new())),
             vertex_labels: Arc::new(RwLock::new(HashMap::new())),
             edge_labels: Arc::new(RwLock::new(HashMap::new())),
-        })
+        };
+
+        // Rebuild in-memory indexes from disk data
+        graph.rebuild_indexes()?;
+
+        Ok(graph)
     }
 
     /// Initialize a new database file with header and initial structure.
@@ -289,6 +294,13 @@ impl MmapGraph {
             return None;
         }
 
+        // Check if this is a valid initialized record by verifying the ID matches
+        // Uninitialized records have all zeros, so id=0 might be valid for VertexId(0)
+        // but for higher IDs, the record ID must match
+        if record.id != id.0 {
+            return None;
+        }
+
         Some(record)
     }
 
@@ -340,6 +352,11 @@ impl MmapGraph {
 
         // Check deleted flag
         if record.is_deleted() {
+            return None;
+        }
+
+        // Check if this is a valid initialized record by verifying the ID matches
+        if record.id != id.0 {
             return None;
         }
 
@@ -411,6 +428,90 @@ impl MmapGraph {
     }
 
     // =========================================================================
+    // Phase 2.5: Index Rebuilding
+    // =========================================================================
+
+    /// Rebuild in-memory indexes from on-disk data.
+    ///
+    /// This method scans all node and edge records in the database and rebuilds
+    /// the label bitmap indexes. It is called automatically when opening an
+    /// existing database to restore the in-memory indexes.
+    ///
+    /// # Process
+    ///
+    /// 1. Scan all node records from 0 to node_capacity
+    /// 2. For each non-deleted node with matching ID, add its ID to the vertex_labels bitmap
+    /// 3. Scan all edge records from 0 to edge_capacity
+    /// 4. For each non-deleted edge with matching ID, add its ID to the edge_labels bitmap
+    ///
+    /// Records are considered valid only if:
+    /// - The deleted flag is not set
+    /// - The record's ID field matches its position (filters out uninitialized zero records)
+    ///
+    /// # Errors
+    ///
+    /// This method does not return errors currently, but could in the future if
+    /// record corruption is detected during scanning.
+    ///
+    /// # Performance
+    ///
+    /// This is an O(V + E) operation where V is node_capacity and E is edge_capacity.
+    /// For large databases, this can take several seconds. The operation is performed
+    /// on startup to rebuild the indexes.
+    pub(crate) fn rebuild_indexes(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        // Use node_count/edge_count rather than capacity to avoid scanning
+        // uninitialized slots. Zero-initialized memory at slot 0 would otherwise
+        // appear as a valid record (id=0 matches VertexId(0)/EdgeId(0)).
+        let node_count = header.node_count;
+        let edge_count = header.edge_count;
+
+        drop(mmap); // Release mmap lock before taking index locks
+
+        // Rebuild vertex label indexes
+        // Scan slots up to node_count. get_node_record filters out:
+        // - Deleted records
+        // - Records with ID mismatch (shouldn't happen in valid DB)
+        {
+            let mut vertex_labels = self.vertex_labels.write();
+            vertex_labels.clear();
+
+            for node_id in 0..node_count {
+                if let Some(node) = self.get_node_record(VertexId(node_id)) {
+                    let label_id = node.label_id;
+                    vertex_labels
+                        .entry(label_id)
+                        .or_insert_with(RoaringBitmap::new)
+                        .insert(node_id as u32);
+                }
+            }
+        }
+
+        // Rebuild edge label indexes
+        // Scan slots up to edge_count. get_edge_record filters out:
+        // - Deleted records
+        // - Records with ID mismatch (shouldn't happen in valid DB)
+        {
+            let mut edge_labels = self.edge_labels.write();
+            edge_labels.clear();
+
+            for edge_id in 0..edge_count {
+                if let Some(edge) = self.get_edge_record(EdgeId(edge_id)) {
+                    let label_id = edge.label_id;
+                    edge_labels
+                        .entry(label_id)
+                        .or_insert_with(RoaringBitmap::new)
+                        .insert(edge_id as u32);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // =========================================================================
     // Phase 2.3: Property Loading
     // =========================================================================
 
@@ -467,7 +568,7 @@ impl MmapGraph {
 
             // Read property entry header fields
             let key_id = self.read_u32(current_offset)?;
-            let value_type = self.read_u8(current_offset + 4)?;
+            let _value_type = self.read_u8(current_offset + 4)?;
             let value_len = self.read_u32(current_offset + 5)?;
             let next = self.read_u64(current_offset + 9)?;
 
@@ -1065,7 +1166,7 @@ mod tests {
         }
 
         // Verify non-written records return None
-        let result = graph.get_node_record(VertexId(10));
+        let _result = graph.get_node_record(VertexId(10));
         // This will return None because the record will be all zeros (not written)
         // and id field won't match, or it could be considered valid with zeros
         // For a more accurate test, we'd check if label_id is 0 or handle zero-initialized memory
@@ -1140,7 +1241,7 @@ mod tests {
     #[test]
     fn test_load_properties_single_property() {
         use crate::value::Value;
-        use records::{PropertyEntry, PROPERTY_ENTRY_HEADER_SIZE};
+        use records::PropertyEntry;
         use std::io::{Seek, SeekFrom, Write};
 
         let dir = TempDir::new().unwrap();
@@ -1307,7 +1408,7 @@ mod tests {
         drop(mmap);
 
         // Create properties with all value types
-        let mut map = hashbrown::HashMap::new();
+        let mut map = std::collections::HashMap::new();
         map.insert("key".to_string(), Value::Int(42));
 
         let properties = vec![
@@ -1458,7 +1559,6 @@ mod tests {
 
     #[test]
     fn test_load_properties_truncated_value_data() {
-        use crate::value::Value;
         use records::PropertyEntry;
         use std::io::{Seek, SeekFrom, Write};
 
@@ -1472,38 +1572,469 @@ mod tests {
             string_table.intern("test"); // ID 0
         }
 
-        // Get property arena offset
+        // Get file size
         let mmap = graph.mmap.read();
-        let header = MmapGraph::read_header(&mmap);
-        let prop_arena_offset = header.property_arena_offset;
+        let file_size = mmap.len();
         drop(mmap);
 
-        // Create a property entry claiming a large value_len but not writing the data
+        // Write property entry near the end of the file so that the claimed
+        // value_len extends beyond the file boundary. This tests the bounds
+        // check in load_properties().
+        //
+        // Property entry header is 17 bytes. We position it so that:
+        // - The header fits in the file
+        // - The claimed value data (1000 bytes) would extend beyond file end
+        let entry_offset = file_size - 20; // Just enough room for header (17 bytes)
         let key_id = 0u32;
-        let value_len = 1000u32; // Claim 1000 bytes
+        let value_len = 1000u32; // Claims 1000 bytes which won't fit
         let entry = PropertyEntry::new(key_id, 0x05 /* String */, value_len, u64::MAX);
         let entry_bytes = entry.to_bytes();
 
         {
             let mut file = graph.file.write();
-            file.seek(SeekFrom::Start(prop_arena_offset)).unwrap();
+            file.seek(SeekFrom::Start(entry_offset as u64)).unwrap();
             file.write_all(&entry_bytes).unwrap();
-            // Don't write the actual value data
             file.sync_data().unwrap();
         }
 
-        // Remap
+        // Remap (file size unchanged, we just overwrote existing space)
         let file = graph.file.read();
         let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
         *graph.mmap.write() = new_mmap;
         drop(file);
 
-        // Try to load the property with truncated data
-        let result = graph.load_properties(prop_arena_offset);
+        // Try to load the property - value data extends beyond file bounds
+        let result = graph.load_properties(entry_offset as u64);
         assert!(result.is_err(), "Should fail when value data is truncated");
         assert!(
             matches!(result, Err(StorageError::CorruptedData)),
             "Should return CorruptedData error"
         );
+    }
+
+    // =========================================================================
+    // Phase 2.5: Index Rebuilding Tests
+    // =========================================================================
+
+    #[test]
+    fn test_rebuild_indexes_empty_database() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Rebuild indexes on empty database
+        let result = graph.rebuild_indexes();
+        assert!(result.is_ok(), "Should rebuild indexes successfully");
+
+        // Verify indexes are empty (node_count and edge_count are 0)
+        let vertex_labels = graph.vertex_labels.read();
+        assert!(vertex_labels.is_empty(), "Vertex labels should be empty");
+
+        let edge_labels = graph.edge_labels.read();
+        assert!(edge_labels.is_empty(), "Edge labels should be empty");
+    }
+
+    #[test]
+    fn test_rebuild_indexes_with_nodes() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Write several node records with different labels
+        let nodes = vec![
+            (VertexId(0), 10u32), // label_id 10
+            (VertexId(1), 10u32), // label_id 10
+            (VertexId(2), 20u32), // label_id 20
+            (VertexId(3), 10u32), // label_id 10
+            (VertexId(4), 30u32), // label_id 30
+        ];
+
+        for (node_id, label_id) in &nodes {
+            let record = records::NodeRecord::new(node_id.0, *label_id);
+            let offset = HEADER_SIZE + (node_id.0 as usize * NODE_RECORD_SIZE);
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            // Remap
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+            drop(file);
+        }
+
+        // Update header to reflect node_count
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = nodes.len() as u64;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        // Rebuild indexes
+        let result = graph.rebuild_indexes();
+        assert!(result.is_ok(), "Should rebuild indexes successfully");
+
+        // Verify vertex labels index
+        let vertex_labels = graph.vertex_labels.read();
+        assert_eq!(vertex_labels.len(), 3, "Should have 3 different labels");
+
+        // Check label 10 has nodes 0, 1, 3
+        let label_10 = vertex_labels.get(&10).unwrap();
+        assert_eq!(label_10.len(), 3);
+        assert!(label_10.contains(0));
+        assert!(label_10.contains(1));
+        assert!(label_10.contains(3));
+
+        // Check label 20 has node 2
+        let label_20 = vertex_labels.get(&20).unwrap();
+        assert_eq!(label_20.len(), 1);
+        assert!(label_20.contains(2));
+
+        // Check label 30 has node 4
+        let label_30 = vertex_labels.get(&30).unwrap();
+        assert_eq!(label_30.len(), 1);
+        assert!(label_30.contains(4));
+    }
+
+    #[test]
+    fn test_rebuild_indexes_excludes_deleted_nodes() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Write node records, some deleted
+        let nodes = vec![
+            (VertexId(0), 10u32, false), // not deleted
+            (VertexId(1), 10u32, true),  // deleted
+            (VertexId(2), 10u32, false), // not deleted
+            (VertexId(3), 20u32, true),  // deleted
+            (VertexId(4), 20u32, false), // not deleted
+        ];
+
+        for (node_id, label_id, deleted) in &nodes {
+            let mut record = records::NodeRecord::new(node_id.0, *label_id);
+            if *deleted {
+                record.mark_deleted();
+            }
+
+            let offset = HEADER_SIZE + (node_id.0 as usize * NODE_RECORD_SIZE);
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            // Remap
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+            drop(file);
+        }
+
+        // Update header to reflect node_count
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = nodes.len() as u64;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        // Rebuild indexes
+        let result = graph.rebuild_indexes();
+        assert!(result.is_ok(), "Should rebuild indexes successfully");
+
+        // Verify only non-deleted nodes are in the index
+        let vertex_labels = graph.vertex_labels.read();
+
+        // Label 10 should have nodes 0 and 2 (not 1, which is deleted)
+        let label_10 = vertex_labels.get(&10).unwrap();
+        assert_eq!(label_10.len(), 2);
+        assert!(label_10.contains(0));
+        assert!(label_10.contains(2));
+        assert!(!label_10.contains(1), "Deleted node should not be in index");
+
+        // Label 20 should have node 4 (not 3, which is deleted)
+        let label_20 = vertex_labels.get(&20).unwrap();
+        assert_eq!(label_20.len(), 1);
+        assert!(label_20.contains(4));
+        assert!(!label_20.contains(3), "Deleted node should not be in index");
+    }
+
+    #[test]
+    fn test_rebuild_indexes_with_edges() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+
+        // Write several edge records with different labels
+        let edges = vec![
+            (EdgeId(0), 100u32), // label_id 100
+            (EdgeId(1), 100u32), // label_id 100
+            (EdgeId(2), 200u32), // label_id 200
+            (EdgeId(3), 100u32), // label_id 100
+            (EdgeId(4), 300u32), // label_id 300
+        ];
+
+        for (edge_id, label_id) in &edges {
+            let record = records::EdgeRecord::new(edge_id.0, *label_id, 0, 0);
+            let offset = edge_table_offset + (edge_id.0 as usize * EDGE_RECORD_SIZE);
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            // Remap
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+            drop(file);
+        }
+
+        // Update header to reflect edge_count
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.edge_count = edges.len() as u64;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        // Rebuild indexes
+        let result = graph.rebuild_indexes();
+        assert!(result.is_ok(), "Should rebuild indexes successfully");
+
+        // Verify edge labels index
+        let edge_labels = graph.edge_labels.read();
+        assert_eq!(edge_labels.len(), 3, "Should have 3 different labels");
+
+        // Check label 100 has edges 0, 1, 3
+        let label_100 = edge_labels.get(&100).unwrap();
+        assert_eq!(label_100.len(), 3);
+        assert!(label_100.contains(0));
+        assert!(label_100.contains(1));
+        assert!(label_100.contains(3));
+
+        // Check label 200 has edge 2
+        let label_200 = edge_labels.get(&200).unwrap();
+        assert_eq!(label_200.len(), 1);
+        assert!(label_200.contains(2));
+
+        // Check label 300 has edge 4
+        let label_300 = edge_labels.get(&300).unwrap();
+        assert_eq!(label_300.len(), 1);
+        assert!(label_300.contains(4));
+    }
+
+    #[test]
+    fn test_rebuild_indexes_excludes_deleted_edges() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+
+        // Write edge records, some deleted
+        let edges = vec![
+            (EdgeId(0), 100u32, false), // not deleted
+            (EdgeId(1), 100u32, true),  // deleted
+            (EdgeId(2), 100u32, false), // not deleted
+            (EdgeId(3), 200u32, true),  // deleted
+            (EdgeId(4), 200u32, false), // not deleted
+        ];
+
+        for (edge_id, label_id, deleted) in &edges {
+            let mut record = records::EdgeRecord::new(edge_id.0, *label_id, 0, 0);
+            if *deleted {
+                record.mark_deleted();
+            }
+
+            let offset = edge_table_offset + (edge_id.0 as usize * EDGE_RECORD_SIZE);
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            // Remap
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+            drop(file);
+        }
+
+        // Update header to reflect edge_count
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.edge_count = edges.len() as u64;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+            drop(file);
+
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        // Rebuild indexes
+        let result = graph.rebuild_indexes();
+        assert!(result.is_ok(), "Should rebuild indexes successfully");
+
+        // Verify only non-deleted edges are in the index
+        let edge_labels = graph.edge_labels.read();
+
+        // Label 100 should have edges 0 and 2 (not 1, which is deleted)
+        let label_100 = edge_labels.get(&100).unwrap();
+        assert_eq!(label_100.len(), 2);
+        assert!(label_100.contains(0));
+        assert!(label_100.contains(2));
+        assert!(
+            !label_100.contains(1),
+            "Deleted edge should not be in index"
+        );
+
+        // Label 200 should have edge 4 (not 3, which is deleted)
+        let label_200 = edge_labels.get(&200).unwrap();
+        assert_eq!(label_200.len(), 1);
+        assert!(label_200.contains(4));
+        assert!(
+            !label_200.contains(3),
+            "Deleted edge should not be in index"
+        );
+    }
+
+    #[test]
+    fn test_rebuild_indexes_on_reopen() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create database and write some nodes
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            let nodes = vec![
+                (VertexId(0), 10u32),
+                (VertexId(1), 10u32),
+                (VertexId(2), 20u32),
+            ];
+
+            for (node_id, label_id) in &nodes {
+                let record = records::NodeRecord::new(node_id.0, *label_id);
+                let offset = HEADER_SIZE + (node_id.0 as usize * NODE_RECORD_SIZE);
+                let bytes = record.to_bytes();
+
+                let mut file = graph.file.write();
+                file.seek(SeekFrom::Start(offset as u64)).unwrap();
+                file.write_all(&bytes).unwrap();
+                file.sync_data().unwrap();
+                drop(file);
+
+                // Remap
+                let file = graph.file.read();
+                let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+                *graph.mmap.write() = new_mmap;
+                drop(file);
+            }
+
+            // Update header to reflect node_count
+            {
+                let mmap = graph.mmap.read();
+                let mut header = MmapGraph::read_header(&mmap);
+                header.node_count = nodes.len() as u64;
+                drop(mmap);
+
+                let mut file = graph.file.write();
+                file.seek(SeekFrom::Start(0)).unwrap();
+                file.write_all(&header.to_bytes()).unwrap();
+                file.sync_data().unwrap();
+                drop(file);
+
+                let file = graph.file.read();
+                let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+                *graph.mmap.write() = new_mmap;
+            }
+
+            // First rebuild
+            graph.rebuild_indexes().unwrap();
+
+            // Verify indexes
+            let vertex_labels = graph.vertex_labels.read();
+            assert_eq!(vertex_labels.len(), 2);
+        } // Drop graph to close
+
+        // Reopen database - indexes should be rebuilt automatically
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Verify indexes are rebuilt correctly on open
+        {
+            let vertex_labels = graph.vertex_labels.read();
+            assert_eq!(vertex_labels.len(), 2, "Should have 2 different labels");
+
+            let label_10 = vertex_labels.get(&10).unwrap();
+            assert_eq!(label_10.len(), 2);
+            assert!(label_10.contains(0));
+            assert!(label_10.contains(1));
+
+            let label_20 = vertex_labels.get(&20).unwrap();
+            assert_eq!(label_20.len(), 1);
+            assert!(label_20.contains(2));
+        }
     }
 }

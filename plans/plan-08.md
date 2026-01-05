@@ -300,10 +300,10 @@ pub struct MmapGraph {
 5. Call from `open()` after loading file
 
 **Acceptance Criteria**:
-- [ ] Indexes correctly built from on-disk data
-- [ ] Deleted nodes/edges excluded from indexes
-- [ ] Label lookups work after rebuild
-- [ ] Test: Create database, close, reopen, verify indexes
+- [x] Indexes correctly built from on-disk data
+- [x] Deleted nodes/edges excluded from indexes
+- [x] Label lookups work after rebuild
+- [x] Test: Create database, close, reopen, verify indexes
 
 ---
 
