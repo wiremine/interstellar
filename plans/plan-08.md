@@ -609,12 +609,12 @@ struct WalEntryHeader {
 14. Commit transaction
 
 **Acceptance Criteria**:
-- [ ] Can add edge between existing vertices
-- [ ] Edge persisted with properties
-- [ ] Adjacency lists correctly updated
-- [ ] WAL transaction logged
-- [ ] Can traverse edge immediately
-- [ ] Test: Add edge, verify adjacency
+- [x] Can add edge between existing vertices
+- [x] Edge persisted with properties
+- [x] Adjacency lists correctly updated
+- [x] WAL transaction logged
+- [x] Can traverse edge immediately
+- [x] Test: Add edge, verify adjacency
 
 ---
 

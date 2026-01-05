@@ -1614,6 +1614,128 @@ impl MmapGraph {
 
         Ok(slot_id)
     }
+
+    /// Add a new edge to the graph between two existing vertices.
+    ///
+    /// This method:
+    /// 1. Verifies source and destination vertices exist
+    /// 2. Allocates an edge slot (from free list or by extending the table)
+    /// 3. Interns the label string
+    /// 4. Allocates properties in the arena (if any)
+    /// 5. Gets current first_out_edge from source and first_in_edge from destination
+    /// 6. Creates edge record with next_out/next_in pointing to old heads
+    /// 7. Writes the edge record to disk
+    /// 8. Updates source's first_out_edge to point to new edge
+    /// 9. Updates destination's first_in_edge to point to new edge
+    /// 10. Updates edge label index
+    /// 11. Increments edge count
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - The source vertex ID
+    /// * `dst` - The destination vertex ID
+    /// * `label` - The edge label (e.g., "knows", "created")
+    /// * `properties` - A map of property key-value pairs
+    ///
+    /// # Returns
+    ///
+    /// The `EdgeId` of the newly created edge.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::VertexNotFound`] - Source or destination vertex doesn't exist
+    /// - [`StorageError::Io`] - I/O error during file operations
+    /// - [`StorageError::OutOfSpace`] - Not enough space in the property arena
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use rustgremlin::storage::MmapGraph;
+    /// use rustgremlin::value::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = MmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// // Create two vertices
+    /// let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+    /// let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+    ///
+    /// // Create an edge between them
+    /// let mut props = HashMap::new();
+    /// props.insert("since".to_string(), Value::Int(2020));
+    ///
+    /// let edge_id = graph.add_edge(alice, bob, "knows", props).unwrap();
+    /// println!("Created edge with ID: {:?}", edge_id);
+    /// ```
+    pub fn add_edge(
+        &self,
+        src: VertexId,
+        dst: VertexId,
+        label: &str,
+        properties: std::collections::HashMap<String, crate::value::Value>,
+    ) -> Result<EdgeId, StorageError> {
+        // Step 1: Verify source vertex exists
+        let src_record = self
+            .get_node_record(src)
+            .ok_or(StorageError::VertexNotFound(src))?;
+
+        // Step 2: Verify destination vertex exists
+        let dst_record = self
+            .get_node_record(dst)
+            .ok_or(StorageError::VertexNotFound(dst))?;
+
+        // Step 3: Allocate edge slot
+        let slot_id = self.allocate_edge_slot()?;
+
+        // Step 4: Intern label
+        let label_id = {
+            let mut string_table = self.string_table.write();
+            string_table.intern(label)
+        };
+
+        // Step 5: Allocate properties in arena (returns u64::MAX if empty)
+        let prop_head = self.allocate_properties(&properties)?;
+
+        // Step 6: Get current first_out_edge and first_in_edge from the node records
+        // These will become the next_out and next_in pointers for the new edge
+        let old_first_out = src_record.first_out_edge;
+        let old_first_in = dst_record.first_in_edge;
+
+        // Step 7: Create edge record
+        let mut record = EdgeRecord::new(slot_id.0, label_id, src.0, dst.0);
+        record.prop_head = prop_head;
+        record.next_out = old_first_out; // Link to previous head of outgoing list
+        record.next_in = old_first_in; // Link to previous head of incoming list
+
+        // Step 8: Write edge record to disk
+        self.write_edge_record(slot_id, &record)?;
+
+        // Step 9: Update source node's first_out_edge to point to new edge
+        self.update_node_first_out_edge(src, slot_id.0)?;
+
+        // Step 10: Update destination node's first_in_edge to point to new edge
+        self.update_node_first_in_edge(dst, slot_id.0)?;
+
+        // Step 11: Update edge label index
+        {
+            let mut edge_labels = self.edge_labels.write();
+            edge_labels
+                .entry(label_id)
+                .or_insert_with(RoaringBitmap::new)
+                .insert(slot_id.0 as u32);
+        }
+
+        // Step 12: Increment edge count in header
+        self.increment_edge_count()?;
+
+        // Step 13: Persist string table (for label and property key names)
+        self.persist_string_table()?;
+
+        // Step 14: Update arena offset in header (for property data)
+        self.update_arena_offset()?;
+
+        Ok(slot_id)
+    }
 }
 
 // =========================================================================
@@ -5677,5 +5799,381 @@ mod tests {
             vertex.properties.get("data"),
             Some(&Value::String(large_string))
         );
+    }
+
+    // =========================================================================
+    // add_edge Tests
+    // =========================================================================
+
+    #[test]
+    fn test_add_edge_basic() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create two vertices
+        let alice = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        let bob = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+
+        // Create an edge
+        let edge_id = graph
+            .add_edge(alice, bob, "knows", std::collections::HashMap::new())
+            .unwrap();
+
+        // Verify edge exists
+        let edge = graph.get_edge(edge_id).unwrap();
+        assert_eq!(edge.label, "knows");
+        assert_eq!(edge.src, alice);
+        assert_eq!(edge.dst, bob);
+        assert!(edge.properties.is_empty());
+
+        // Verify edge count
+        assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_add_edge_with_properties() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create vertices
+        let v1 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        let v2 = graph
+            .add_vertex("software", std::collections::HashMap::new())
+            .unwrap();
+
+        // Create edge with properties
+        let mut props = std::collections::HashMap::new();
+        props.insert("since".to_string(), Value::Int(2020));
+        props.insert("weight".to_string(), Value::Float(0.85));
+        props.insert("active".to_string(), Value::Bool(true));
+        props.insert(
+            "notes".to_string(),
+            Value::String("Collaborating on project".to_string()),
+        );
+
+        let edge_id = graph.add_edge(v1, v2, "created", props).unwrap();
+
+        // Verify edge and properties
+        let edge = graph.get_edge(edge_id).unwrap();
+        assert_eq!(edge.label, "created");
+        assert_eq!(edge.src, v1);
+        assert_eq!(edge.dst, v2);
+        assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+        assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.85)));
+        assert_eq!(edge.properties.get("active"), Some(&Value::Bool(true)));
+        assert_eq!(
+            edge.properties.get("notes"),
+            Some(&Value::String("Collaborating on project".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_add_edge_nonexistent_source() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create only destination vertex
+        let dst = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+
+        // Try to add edge from nonexistent source
+        let nonexistent_src = VertexId(9999);
+        let result = graph.add_edge(
+            nonexistent_src,
+            dst,
+            "knows",
+            std::collections::HashMap::new(),
+        );
+
+        assert!(result.is_err());
+        match result {
+            Err(StorageError::VertexNotFound(id)) => assert_eq!(id, nonexistent_src),
+            _ => panic!("Expected StorageError::VertexNotFound"),
+        }
+    }
+
+    #[test]
+    fn test_add_edge_nonexistent_destination() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create only source vertex
+        let src = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+
+        // Try to add edge to nonexistent destination
+        let nonexistent_dst = VertexId(8888);
+        let result = graph.add_edge(
+            src,
+            nonexistent_dst,
+            "knows",
+            std::collections::HashMap::new(),
+        );
+
+        assert!(result.is_err());
+        match result {
+            Err(StorageError::VertexNotFound(id)) => assert_eq!(id, nonexistent_dst),
+            _ => panic!("Expected StorageError::VertexNotFound"),
+        }
+    }
+
+    #[test]
+    fn test_add_edge_adjacency_lists() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create vertices
+        let v1 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        let v2 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+
+        // Create edge v1 -> v2
+        let edge_id = graph
+            .add_edge(v1, v2, "knows", std::collections::HashMap::new())
+            .unwrap();
+
+        // Verify out_edges from v1
+        let out_edges: Vec<_> = graph.out_edges(v1).collect();
+        assert_eq!(out_edges.len(), 1);
+        assert_eq!(out_edges[0].id, edge_id);
+        assert_eq!(out_edges[0].src, v1);
+        assert_eq!(out_edges[0].dst, v2);
+
+        // Verify in_edges to v2
+        let in_edges: Vec<_> = graph.in_edges(v2).collect();
+        assert_eq!(in_edges.len(), 1);
+        assert_eq!(in_edges[0].id, edge_id);
+
+        // Verify v1 has no incoming edges and v2 has no outgoing edges
+        let v1_in: Vec<_> = graph.in_edges(v1).collect();
+        assert!(v1_in.is_empty());
+
+        let v2_out: Vec<_> = graph.out_edges(v2).collect();
+        assert!(v2_out.is_empty());
+    }
+
+    #[test]
+    fn test_add_multiple_edges() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a small graph: v1 -> v2 -> v3
+        //                        |         ^
+        //                        +---------+
+        let v1 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        let v2 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        let v3 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+
+        // Add edges
+        let e1 = graph
+            .add_edge(v1, v2, "knows", std::collections::HashMap::new())
+            .unwrap();
+        let e2 = graph
+            .add_edge(v2, v3, "knows", std::collections::HashMap::new())
+            .unwrap();
+        let e3 = graph
+            .add_edge(v1, v3, "likes", std::collections::HashMap::new())
+            .unwrap();
+
+        // Verify edge count
+        assert_eq!(graph.edge_count(), 3);
+
+        // Verify all edges can be retrieved
+        assert!(graph.get_edge(e1).is_some());
+        assert!(graph.get_edge(e2).is_some());
+        assert!(graph.get_edge(e3).is_some());
+
+        // Verify v1's outgoing edges (should have e1 and e3)
+        // Note: new edges are prepended to the list, so order is reversed
+        let v1_out: Vec<_> = graph.out_edges(v1).collect();
+        assert_eq!(v1_out.len(), 2);
+        // e3 was added last, so it's at the head
+        assert!(v1_out.iter().any(|e| e.id == e1));
+        assert!(v1_out.iter().any(|e| e.id == e3));
+
+        // Verify v2's edges
+        let v2_out: Vec<_> = graph.out_edges(v2).collect();
+        assert_eq!(v2_out.len(), 1);
+        assert_eq!(v2_out[0].id, e2);
+
+        let v2_in: Vec<_> = graph.in_edges(v2).collect();
+        assert_eq!(v2_in.len(), 1);
+        assert_eq!(v2_in[0].id, e1);
+
+        // Verify v3's incoming edges (should have e2 and e3)
+        let v3_in: Vec<_> = graph.in_edges(v3).collect();
+        assert_eq!(v3_in.len(), 2);
+        assert!(v3_in.iter().any(|e| e.id == e2));
+        assert!(v3_in.iter().any(|e| e.id == e3));
+
+        // Verify v3 has no outgoing edges
+        let v3_out: Vec<_> = graph.out_edges(v3).collect();
+        assert!(v3_out.is_empty());
+    }
+
+    #[test]
+    fn test_add_edge_self_loop() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a vertex
+        let v1 = graph
+            .add_vertex("node", std::collections::HashMap::new())
+            .unwrap();
+
+        // Create a self-loop edge
+        let edge_id = graph
+            .add_edge(v1, v1, "self_ref", std::collections::HashMap::new())
+            .unwrap();
+
+        // Verify edge
+        let edge = graph.get_edge(edge_id).unwrap();
+        assert_eq!(edge.src, v1);
+        assert_eq!(edge.dst, v1);
+        assert_eq!(edge.label, "self_ref");
+
+        // Verify it appears in both out_edges and in_edges
+        let out_edges: Vec<_> = graph.out_edges(v1).collect();
+        assert_eq!(out_edges.len(), 1);
+        assert_eq!(out_edges[0].id, edge_id);
+
+        let in_edges: Vec<_> = graph.in_edges(v1).collect();
+        assert_eq!(in_edges.len(), 1);
+        assert_eq!(in_edges[0].id, edge_id);
+    }
+
+    #[test]
+    fn test_add_edge_updates_label_index() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create vertices
+        let v1 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        let v2 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+
+        // Create edges with different labels
+        let e1 = graph
+            .add_edge(v1, v2, "knows", std::collections::HashMap::new())
+            .unwrap();
+        let e2 = graph
+            .add_edge(v1, v2, "likes", std::collections::HashMap::new())
+            .unwrap();
+        let e3 = graph
+            .add_edge(v2, v1, "knows", std::collections::HashMap::new())
+            .unwrap();
+
+        // Get the label IDs
+        let knows_id = {
+            let string_table = graph.string_table.read();
+            string_table.lookup("knows").unwrap()
+        };
+        let likes_id = {
+            let string_table = graph.string_table.read();
+            string_table.lookup("likes").unwrap()
+        };
+
+        // Verify edge label indexes
+        let edge_labels = graph.edge_labels.read();
+
+        // "knows" label should have e1 and e3
+        let knows_edges = edge_labels.get(&knows_id).unwrap();
+        assert_eq!(knows_edges.len(), 2);
+        assert!(knows_edges.contains(e1.0 as u32));
+        assert!(knows_edges.contains(e3.0 as u32));
+
+        // "likes" label should have e2
+        let likes_edges = edge_labels.get(&likes_id).unwrap();
+        assert_eq!(likes_edges.len(), 1);
+        assert!(likes_edges.contains(e2.0 as u32));
+    }
+
+    #[test]
+    fn test_add_edge_persistence() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create graph, add vertices and edges
+        let v1;
+        let v2;
+        let edge_id;
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            v1 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+            v2 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+
+            let mut props = std::collections::HashMap::new();
+            props.insert("weight".to_string(), crate::value::Value::Int(42));
+
+            edge_id = graph.add_edge(v1, v2, "knows", props).unwrap();
+        }
+        // Graph is dropped here
+
+        // Reopen the graph
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Verify edge persisted
+            let edge = graph.get_edge(edge_id).unwrap();
+            assert_eq!(edge.label, "knows");
+            assert_eq!(edge.src, v1);
+            assert_eq!(edge.dst, v2);
+            assert_eq!(
+                edge.properties.get("weight"),
+                Some(&crate::value::Value::Int(42))
+            );
+
+            // Verify adjacency lists work after reopen
+            let out_edges: Vec<_> = graph.out_edges(v1).collect();
+            assert_eq!(out_edges.len(), 1);
+            assert_eq!(out_edges[0].id, edge_id);
+
+            let in_edges: Vec<_> = graph.in_edges(v2).collect();
+            assert_eq!(in_edges.len(), 1);
+            assert_eq!(in_edges[0].id, edge_id);
+        }
     }
 }
