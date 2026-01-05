@@ -20,6 +20,7 @@ pub mod records;
 pub mod recovery;
 pub mod wal;
 
+use freelist::FreeList;
 use records::{
     EdgeRecord, FileHeader, NodeRecord, EDGE_RECORD_SIZE, HEADER_SIZE, MAGIC, NODE_RECORD_SIZE,
     VERSION,
@@ -51,7 +52,6 @@ pub struct MmapGraph {
     mmap: Arc<RwLock<Mmap>>,
 
     /// File handle for writes
-    #[allow(dead_code)] // Will be used in Phase 4.2 and beyond
     file: Arc<RwLock<File>>,
 
     /// String interner (in-memory, rebuilt on load)
@@ -65,6 +65,9 @@ pub struct MmapGraph {
 
     /// Property arena allocator (tracks current write position)
     arena: Arc<RwLock<arena::ArenaAllocator>>,
+
+    /// Free list for deleted node slots (enables slot reuse)
+    free_nodes: Arc<RwLock<FreeList>>,
 }
 
 impl MmapGraph {
@@ -125,6 +128,12 @@ impl MmapGraph {
         // For now, we start at the beginning (properties are rebuilt on load)
         let arena = arena::ArenaAllocator::new(arena_start, arena_end, arena_start);
 
+        // Initialize free list from header
+        // For a new database, free_node_head == u64::MAX (empty list)
+        // For an existing database with deleted nodes, we'd need to rebuild the
+        // free list by scanning deleted records, but that's handled in rebuild_indexes
+        let free_nodes = FreeList::with_head(header.free_node_head);
+
         let graph = Self {
             mmap: Arc::new(RwLock::new(mmap)),
             file: Arc::new(RwLock::new(file)),
@@ -132,6 +141,7 @@ impl MmapGraph {
             vertex_labels: Arc::new(RwLock::new(HashMap::new())),
             edge_labels: Arc::new(RwLock::new(HashMap::new())),
             arena: Arc::new(RwLock::new(arena)),
+            free_nodes: Arc::new(RwLock::new(free_nodes)),
         };
 
         // Rebuild in-memory indexes from disk data
@@ -733,6 +743,160 @@ impl MmapGraph {
         drop(file);
 
         // Remap to see the new data
+        self.remap()?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // Phase 4.2: Node Slot Allocation and Writing
+    // =========================================================================
+
+    /// Allocate a slot for a new node.
+    ///
+    /// This method first checks the free list for a reusable slot from a deleted
+    /// node. If no free slots are available, it allocates at the next sequential
+    /// position (extending the table if needed).
+    ///
+    /// # Returns
+    ///
+    /// A `VertexId` for the newly allocated slot.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error if table growth fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let graph = MmapGraph::open("my_graph.db")?;
+    /// let slot_id = graph.allocate_node_slot()?;
+    /// // Now write a node record to this slot
+    /// ```
+    pub fn allocate_node_slot(&self) -> Result<VertexId, StorageError> {
+        let header = self.get_header();
+        let current_count = header.node_count;
+        let current_capacity = header.node_capacity;
+
+        // Try to allocate from free list first
+        let slot_id = {
+            let mut free_nodes = self.free_nodes.write();
+            free_nodes.allocate(current_count)
+        };
+
+        // If we're extending beyond capacity, grow the table
+        if slot_id >= current_capacity {
+            self.grow_node_table()?;
+        }
+
+        Ok(VertexId(slot_id))
+    }
+
+    /// Write a node record to the file at the correct offset.
+    ///
+    /// The record is written at: `HEADER_SIZE + (id * NODE_RECORD_SIZE)`
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The vertex ID (slot number) to write to
+    /// * `record` - The node record to write
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during write
+    ///
+    /// # Platform Notes
+    ///
+    /// On Unix, uses `write_all_at` for positioned writes without seeking.
+    /// On other platforms, uses seek + write_all.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let record = NodeRecord::new(0, label_id);
+    /// graph.write_node_record(VertexId(0), &record)?;
+    /// ```
+    pub fn write_node_record(&self, id: VertexId, record: &NodeRecord) -> Result<(), StorageError> {
+        let offset = HEADER_SIZE as u64 + (id.0 * NODE_RECORD_SIZE as u64);
+        let bytes = record.to_bytes();
+
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&bytes, offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(offset))?;
+            file.write_all(&bytes)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see the new data
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Increment the node count in the file header.
+    ///
+    /// This should be called after successfully writing a new node record
+    /// (not when reusing a deleted slot, since the count wasn't decremented).
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    ///
+    /// # Note
+    ///
+    /// This method reads the current header, increments the count, and writes
+    /// the updated header back. It must be called with proper synchronization
+    /// to avoid race conditions.
+    pub fn increment_node_count(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.node_count += 1;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Update the free node head in the file header.
+    ///
+    /// This persists the current state of the free list head to disk.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    pub fn update_free_node_head(&self) -> Result<(), StorageError> {
+        let free_node_head = self.free_nodes.read().head();
+
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.free_node_head = free_node_head;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
         self.remap()?;
 
         Ok(())
@@ -3895,5 +4059,288 @@ mod tests {
             new_offset > initial_offset,
             "Arena offset should advance after allocation"
         );
+    }
+
+    // =========================================================================
+    // Phase 4.2: Node Slot Allocation and Writing Tests
+    // =========================================================================
+
+    #[test]
+    fn test_allocate_node_slot_returns_sequential_ids() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // First allocation should return slot 0
+        let slot0 = graph.allocate_node_slot().unwrap();
+        assert_eq!(slot0.0, 0, "First slot should be 0");
+
+        // Manually update count to simulate the slot being used
+        graph.increment_node_count().unwrap();
+
+        // Second allocation should return slot 1
+        let slot1 = graph.allocate_node_slot().unwrap();
+        assert_eq!(slot1.0, 1, "Second slot should be 1");
+
+        graph.increment_node_count().unwrap();
+
+        // Third allocation should return slot 2
+        let slot2 = graph.allocate_node_slot().unwrap();
+        assert_eq!(slot2.0, 2, "Third slot should be 2");
+    }
+
+    #[test]
+    fn test_allocate_node_slot_reuses_free_slots() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Simulate allocating 3 slots
+        for _ in 0..3 {
+            let _ = graph.allocate_node_slot().unwrap();
+            graph.increment_node_count().unwrap();
+        }
+
+        // Free slot 1 (simulating deletion)
+        {
+            let mut free_nodes = graph.free_nodes.write();
+            free_nodes.free(1);
+        }
+
+        // Next allocation should reuse slot 1
+        let reused = graph.allocate_node_slot().unwrap();
+        assert_eq!(
+            reused.0, 1,
+            "Should reuse freed slot 1 instead of allocating 3"
+        );
+    }
+
+    #[test]
+    fn test_write_node_record_and_read_back() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create and write a node record
+        let slot = graph.allocate_node_slot().unwrap();
+        let mut record = NodeRecord::new(slot.0, 42);
+        record.first_out_edge = 100;
+        record.first_in_edge = 200;
+        record.prop_head = 300;
+
+        graph.write_node_record(slot, &record).unwrap();
+
+        // Read it back
+        let retrieved = graph.get_node_record(slot);
+        assert!(retrieved.is_some(), "Should be able to read written record");
+
+        let retrieved = retrieved.unwrap();
+        // Copy fields to avoid unaligned reference errors with packed structs
+        let id = retrieved.id;
+        let label_id = retrieved.label_id;
+        let first_out_edge = retrieved.first_out_edge;
+        let first_in_edge = retrieved.first_in_edge;
+        let prop_head = retrieved.prop_head;
+
+        assert_eq!(id, slot.0);
+        assert_eq!(label_id, 42);
+        assert_eq!(first_out_edge, 100);
+        assert_eq!(first_in_edge, 200);
+        assert_eq!(prop_head, 300);
+    }
+
+    #[test]
+    fn test_increment_node_count() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Initial count should be 0
+        let initial = graph.get_header().node_count;
+        assert_eq!(initial, 0, "Initial node count should be 0");
+
+        // Increment
+        graph.increment_node_count().unwrap();
+        let after_first = graph.get_header().node_count;
+        assert_eq!(after_first, 1, "Node count should be 1 after increment");
+
+        // Increment again
+        graph.increment_node_count().unwrap();
+        let after_second = graph.get_header().node_count;
+        assert_eq!(
+            after_second, 2,
+            "Node count should be 2 after second increment"
+        );
+    }
+
+    #[test]
+    fn test_update_free_node_head() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Initial free head should be MAX (empty)
+        let initial = graph.get_header().free_node_head;
+        assert_eq!(initial, u64::MAX, "Initial free head should be MAX");
+
+        // Add some free slots
+        {
+            let mut free_nodes = graph.free_nodes.write();
+            free_nodes.free(5);
+            free_nodes.free(10);
+        }
+
+        // Update header
+        graph.update_free_node_head().unwrap();
+
+        // Verify header updated
+        let after = graph.get_header().free_node_head;
+        assert_eq!(after, 10, "Free head should be 10 (last freed)");
+    }
+
+    #[test]
+    fn test_write_multiple_nodes() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Write 10 nodes
+        for i in 0..10 {
+            let slot = graph.allocate_node_slot().unwrap();
+            let record = NodeRecord::new(slot.0, i as u32 * 10);
+            graph.write_node_record(slot, &record).unwrap();
+            graph.increment_node_count().unwrap();
+        }
+
+        // Verify count
+        let count = graph.get_header().node_count;
+        assert_eq!(count, 10, "Should have 10 nodes");
+
+        // Verify all can be read back
+        for i in 0..10 {
+            let record = graph.get_node_record(VertexId(i));
+            assert!(record.is_some(), "Node {} should exist", i);
+
+            let record = record.unwrap();
+            // Copy fields to avoid unaligned reference errors with packed structs
+            let id = record.id;
+            let label_id = record.label_id;
+            assert_eq!(id, i);
+            assert_eq!(label_id, (i as u32) * 10);
+        }
+    }
+
+    #[test]
+    fn test_allocate_triggers_table_growth() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial capacity
+        let initial_capacity = graph.get_header().node_capacity;
+        assert_eq!(initial_capacity, 1000, "Initial capacity should be 1000");
+
+        // Manually set node_count to capacity to force growth on next allocate
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = 1000;
+            drop(mmap);
+
+            let file = graph.file.write();
+            MmapGraph::write_header(&file, &header).unwrap();
+            drop(file);
+            graph.remap().unwrap();
+        }
+
+        // Allocate should trigger growth
+        let slot = graph.allocate_node_slot().unwrap();
+        assert_eq!(slot.0, 1000, "Should allocate at slot 1000");
+
+        // Capacity should have doubled
+        let new_capacity = graph.get_header().node_capacity;
+        assert_eq!(new_capacity, 2000, "Capacity should double to 2000");
+    }
+
+    #[test]
+    fn test_node_allocate_write_roundtrip_with_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create database and add nodes
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            for i in 0..5 {
+                let slot = graph.allocate_node_slot().unwrap();
+                let record = NodeRecord::new(slot.0, i * 100);
+                graph.write_node_record(slot, &record).unwrap();
+                graph.increment_node_count().unwrap();
+            }
+
+            // Verify nodes exist before close
+            let count = graph.get_header().node_count;
+            assert_eq!(count, 5);
+        }
+
+        // Reopen and verify
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Verify count
+            let count = graph.get_header().node_count;
+            assert_eq!(count, 5);
+
+            // Verify all nodes
+            for i in 0..5 {
+                let record = graph.get_node_record(VertexId(i));
+                assert!(record.is_some(), "Node {} should persist after reopen", i);
+
+                let record = record.unwrap();
+                // Copy fields to avoid unaligned reference errors with packed structs
+                let id = record.id;
+                let label_id = record.label_id;
+                assert_eq!(id, i);
+                assert_eq!(label_id, (i as u32) * 100);
+            }
+        }
+    }
+
+    #[test]
+    fn test_free_list_persists_after_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create database, add nodes, mark one as free
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Add 3 nodes
+            for i in 0..3 {
+                let slot = graph.allocate_node_slot().unwrap();
+                let record = NodeRecord::new(slot.0, i * 10);
+                graph.write_node_record(slot, &record).unwrap();
+                graph.increment_node_count().unwrap();
+            }
+
+            // Free slot 1
+            {
+                let mut free_nodes = graph.free_nodes.write();
+                free_nodes.free(1);
+            }
+            graph.update_free_node_head().unwrap();
+        }
+
+        // Reopen and verify free list head
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            let free_head = graph.free_nodes.read().head();
+            assert_eq!(free_head, 1, "Free list head should be 1 after reopen");
+
+            // Next allocation should reuse slot 1
+            let slot = graph.allocate_node_slot().unwrap();
+            assert_eq!(slot.0, 1, "Should reuse freed slot 1");
+        }
     }
 }

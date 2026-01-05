@@ -533,11 +533,11 @@ struct WalEntryHeader {
 6. Implement `increment_node_count() -> Result<()>` to update header
 
 **Acceptance Criteria**:
-- [ ] Allocates from free list first
-- [ ] Extends table when needed
-- [ ] Writes record at correct offset
-- [ ] Updates header count
-- [ ] Test: Allocate, write, read back, verify
+- [x] Allocates from free list first
+- [x] Extends table when needed
+- [x] Writes record at correct offset
+- [x] Updates header count
+- [x] Test: Allocate, write, read back, verify
 
 ---
 
