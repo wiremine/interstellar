@@ -427,11 +427,11 @@ struct WalEntryHeader {
 6. Add `now()` helper for timestamps
 
 **Acceptance Criteria**:
-- [ ] Can create new WAL file
-- [ ] Can begin transaction and get unique ID
-- [ ] Can log entries with CRC32 checksum
-- [ ] `sync()` ensures data is on disk (fsync)
-- [ ] WAL entries are append-only
+- [x] Can create new WAL file
+- [x] Can begin transaction and get unique ID
+- [x] Can log entries with CRC32 checksum
+- [x] `sync()` ensures data is on disk (fsync)
+- [x] WAL entries are append-only
 
 ---
 

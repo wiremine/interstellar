@@ -366,6 +366,256 @@ impl From<SerializableEdgeRecord> for EdgeRecord {
 // Tests
 // =============================================================================
 
+use crate::error::StorageError;
+use std::fs::{File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+// =============================================================================
+// WriteAheadLog Implementation
+// =============================================================================
+
+/// Write-ahead log for transaction durability.
+///
+/// The `WriteAheadLog` provides atomicity and durability for graph mutations.
+/// All operations are logged to the WAL before being applied to the main data file,
+/// ensuring that committed transactions can be recovered after a crash.
+///
+/// # Usage
+///
+/// ```ignore
+/// use rustgremlin::storage::mmap::wal::{WriteAheadLog, WalEntry};
+///
+/// let mut wal = WriteAheadLog::open("my_graph.wal")?;
+///
+/// // Begin a transaction
+/// let tx_id = wal.begin_transaction()?;
+///
+/// // Log operations
+/// wal.log(WalEntry::InsertNode { id: VertexId(0), record: node_record.into() })?;
+///
+/// // Commit the transaction
+/// wal.log(WalEntry::CommitTx { tx_id })?;
+/// wal.sync()?;
+/// ```
+///
+/// # Thread Safety
+///
+/// `WriteAheadLog` is NOT thread-safe. It should be protected by an external
+/// lock (like `RwLock<WriteAheadLog>`) when used in concurrent contexts.
+///
+/// # File Format
+///
+/// Each WAL entry on disk consists of:
+/// - 4 bytes: CRC32 checksum of the entry data
+/// - 4 bytes: Length of the serialized entry data  
+/// - N bytes: Bincode-serialized WalEntry
+pub struct WriteAheadLog {
+    /// File handle for WAL writes
+    file: File,
+
+    /// Next transaction ID to assign
+    next_tx_id: AtomicU64,
+
+    /// Reusable buffer for serialization to avoid repeated allocations
+    buffer: Vec<u8>,
+}
+
+impl WriteAheadLog {
+    /// Open or create a WAL file at the given path.
+    ///
+    /// If the file doesn't exist, it will be created. If it exists, it will be
+    /// opened for appending. The file is opened with read, write, and create
+    /// permissions.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the WAL file (typically `<database>.wal`)
+    ///
+    /// # Returns
+    ///
+    /// A new `WriteAheadLog` instance ready for writing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] if the file cannot be opened or created.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let wal = WriteAheadLog::open("my_graph.wal")?;
+    /// ```
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+
+        Ok(Self {
+            file,
+            next_tx_id: AtomicU64::new(0),
+            buffer: Vec::with_capacity(4096),
+        })
+    }
+
+    /// Begin a new transaction.
+    ///
+    /// This logs a `BeginTx` entry to the WAL and returns a unique transaction ID.
+    /// All subsequent operations should use this transaction ID until either
+    /// `CommitTx` or `AbortTx` is logged.
+    ///
+    /// # Returns
+    ///
+    /// The unique transaction ID assigned to this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] if writing to the WAL fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tx_id = wal.begin_transaction()?;
+    /// // ... perform operations ...
+    /// wal.log(WalEntry::CommitTx { tx_id })?;
+    /// ```
+    pub fn begin_transaction(&mut self) -> Result<u64, StorageError> {
+        let tx_id = self.next_tx_id.fetch_add(1, Ordering::SeqCst);
+
+        self.log(WalEntry::BeginTx {
+            tx_id,
+            timestamp: Self::now(),
+        })?;
+
+        Ok(tx_id)
+    }
+
+    /// Log an entry to the WAL.
+    ///
+    /// This serializes the entry using bincode, computes a CRC32 checksum,
+    /// and writes the entry to the WAL file. The entry is appended to the
+    /// end of the file.
+    ///
+    /// # Format
+    ///
+    /// Each entry is written as:
+    /// ```text
+    /// ┌──────────────┬──────────────┬───────────────────┐
+    /// │   CRC32      │    Length    │   Entry Data      │
+    /// │   (4 bytes)  │   (4 bytes)  │   (variable)      │
+    /// └──────────────┴──────────────┴───────────────────┘
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The WAL entry to log
+    ///
+    /// # Returns
+    ///
+    /// The byte offset where the entry was written (useful for debugging).
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] if writing to the file fails
+    /// - [`StorageError::WalCorrupted`] if serialization fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let offset = wal.log(WalEntry::InsertNode {
+    ///     id: VertexId(0),
+    ///     record: node_record.into(),
+    /// })?;
+    /// ```
+    pub fn log(&mut self, entry: WalEntry) -> Result<u64, StorageError> {
+        // Clear and serialize to buffer
+        self.buffer.clear();
+        bincode::serialize_into(&mut self.buffer, &entry)
+            .map_err(|e| StorageError::WalCorrupted(format!("serialization error: {}", e)))?;
+
+        // Calculate CRC32
+        let crc = crc32fast::hash(&self.buffer);
+
+        // Create header
+        let header = WalEntryHeader::new(crc, self.buffer.len() as u32);
+        let header_bytes = header.to_bytes();
+
+        // Seek to end and get current position
+        let offset = self.file.seek(SeekFrom::End(0))?;
+
+        // Write header
+        self.file.write_all(&header_bytes)?;
+
+        // Write entry data
+        self.file.write_all(&self.buffer)?;
+
+        Ok(offset)
+    }
+
+    /// Sync the WAL to disk (fsync).
+    ///
+    /// This ensures all logged entries are durably written to disk. For
+    /// transaction durability, `sync()` should be called after logging
+    /// the `CommitTx` entry.
+    ///
+    /// # Performance Note
+    ///
+    /// `fsync` is relatively expensive (1-5ms on typical SSDs). For better
+    /// performance with many small transactions, consider batching multiple
+    /// transactions before calling `sync()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] if the sync operation fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// wal.log(WalEntry::CommitTx { tx_id })?;
+    /// wal.sync()?;  // Ensure transaction is durable
+    /// ```
+    pub fn sync(&mut self) -> Result<(), StorageError> {
+        self.file.sync_data()?;
+        Ok(())
+    }
+
+    /// Get the current Unix timestamp in seconds.
+    ///
+    /// This is used for transaction timestamps in `BeginTx` entries.
+    ///
+    /// # Returns
+    ///
+    /// Seconds since Unix epoch (January 1, 1970).
+    fn now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    /// Get the current file position (for testing).
+    ///
+    /// Returns the current write position in the WAL file.
+    #[cfg(test)]
+    fn position(&mut self) -> Result<u64, StorageError> {
+        Ok(self.file.seek(SeekFrom::Current(0))?)
+    }
+
+    /// Get the current transaction ID counter (for testing).
+    #[cfg(test)]
+    fn current_tx_id(&self) -> u64 {
+        self.next_tx_id.load(Ordering::SeqCst)
+    }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -925,5 +1175,416 @@ mod tests {
         let deserialized: WalEntry = bincode::deserialize(&serialized).expect("deserialize");
 
         assert_eq!(entry, deserialized);
+    }
+
+    // =========================================================================
+    // WriteAheadLog Tests
+    // =========================================================================
+
+    #[test]
+    fn test_wal_open_creates_new_file() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+
+        assert!(!wal_path.exists(), "WAL file should not exist initially");
+
+        let wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+        drop(wal);
+
+        assert!(wal_path.exists(), "WAL file should be created");
+    }
+
+    #[test]
+    fn test_wal_open_existing_file() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+
+        // Create and write to WAL
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+            let _tx_id = wal.begin_transaction().expect("begin tx");
+        }
+
+        // Re-open and verify we can continue using it
+        let mut wal = WriteAheadLog::open(&wal_path).expect("reopen WAL");
+        let tx_id = wal.begin_transaction().expect("begin another tx");
+        // Note: tx_id counter resets on reopen (would need recovery to restore)
+        assert_eq!(tx_id, 0, "tx_id starts at 0 on fresh open");
+    }
+
+    #[test]
+    fn test_wal_begin_transaction_returns_unique_ids() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let tx1 = wal.begin_transaction().expect("begin tx 1");
+        let tx2 = wal.begin_transaction().expect("begin tx 2");
+        let tx3 = wal.begin_transaction().expect("begin tx 3");
+
+        assert_eq!(tx1, 0);
+        assert_eq!(tx2, 1);
+        assert_eq!(tx3, 2);
+    }
+
+    #[test]
+    fn test_wal_begin_transaction_increments_counter() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        assert_eq!(wal.current_tx_id(), 0);
+
+        let _ = wal.begin_transaction().expect("begin tx");
+        assert_eq!(wal.current_tx_id(), 1);
+
+        let _ = wal.begin_transaction().expect("begin tx");
+        assert_eq!(wal.current_tx_id(), 2);
+    }
+
+    #[test]
+    fn test_wal_log_entry_increases_file_size() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let pos_before = wal.position().expect("get position");
+        assert_eq!(pos_before, 0, "should start at position 0");
+
+        let _ = wal.begin_transaction().expect("begin tx");
+
+        let pos_after = wal.position().expect("get position");
+        assert!(
+            pos_after > pos_before,
+            "position should increase after logging"
+        );
+    }
+
+    #[test]
+    fn test_wal_log_returns_offset() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let offset1 = wal
+            .log(WalEntry::BeginTx {
+                tx_id: 0,
+                timestamp: 1000,
+            })
+            .expect("log entry");
+        assert_eq!(offset1, 0, "first entry should be at offset 0");
+
+        let offset2 = wal.log(WalEntry::CommitTx { tx_id: 0 }).expect("log entry");
+        assert!(offset2 > offset1, "second entry should be at higher offset");
+    }
+
+    #[test]
+    fn test_wal_log_multiple_entries() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Log a complete transaction
+        let tx_id = wal.begin_transaction().expect("begin tx");
+
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert node");
+
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert node");
+
+        wal.log(WalEntry::InsertEdge {
+            id: EdgeId(0),
+            record: SerializableEdgeRecord {
+                id: 0,
+                label_id: 2,
+                flags: 0,
+                src: 0,
+                dst: 1,
+                next_out: u64::MAX,
+                next_in: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert edge");
+
+        wal.log(WalEntry::CommitTx { tx_id }).expect("log commit");
+
+        // Verify file has content
+        let pos = wal.position().expect("get position");
+        assert!(pos > 0, "WAL should have content");
+    }
+
+    #[test]
+    fn test_wal_sync_succeeds() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::CommitTx { tx_id }).expect("log commit");
+        wal.sync().expect("sync should succeed");
+    }
+
+    #[test]
+    fn test_wal_entries_are_append_only() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Log several entries and track positions
+        let offsets: Vec<u64> = (0..5)
+            .map(|i| {
+                wal.log(WalEntry::BeginTx {
+                    tx_id: i,
+                    timestamp: 1000 + i,
+                })
+                .expect("log entry")
+            })
+            .collect();
+
+        // Verify offsets are strictly increasing
+        for i in 1..offsets.len() {
+            assert!(
+                offsets[i] > offsets[i - 1],
+                "offsets should be strictly increasing"
+            );
+        }
+    }
+
+    #[test]
+    fn test_wal_crc32_is_written_correctly() {
+        use std::io::Read;
+
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+
+        // Write an entry
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+            wal.log(WalEntry::BeginTx {
+                tx_id: 42,
+                timestamp: 1704067200,
+            })
+            .expect("log entry");
+            wal.sync().expect("sync");
+        }
+
+        // Read the file and verify CRC
+        let mut file = File::open(&wal_path).expect("open file");
+        let mut header_bytes = [0u8; WAL_ENTRY_HEADER_SIZE];
+        file.read_exact(&mut header_bytes).expect("read header");
+
+        let header = WalEntryHeader::from_bytes(&header_bytes);
+        let crc = header.crc32;
+        let len = header.len;
+
+        // Read entry data
+        let mut entry_data = vec![0u8; len as usize];
+        file.read_exact(&mut entry_data).expect("read entry data");
+
+        // Verify CRC
+        let computed_crc = crc32fast::hash(&entry_data);
+        assert_eq!(crc, computed_crc, "CRC32 should match");
+
+        // Verify entry deserializes correctly
+        let entry: WalEntry = bincode::deserialize(&entry_data).expect("deserialize");
+        match entry {
+            WalEntry::BeginTx { tx_id, timestamp } => {
+                assert_eq!(tx_id, 42);
+                assert_eq!(timestamp, 1704067200);
+            }
+            _ => panic!("Expected BeginTx entry"),
+        }
+    }
+
+    #[test]
+    fn test_wal_log_all_entry_types() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Log all entry types
+        let entries = vec![
+            WalEntry::BeginTx {
+                tx_id: 0,
+                timestamp: 1000,
+            },
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                record: SerializableNodeRecord {
+                    id: 0,
+                    label_id: 1,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            },
+            WalEntry::InsertEdge {
+                id: EdgeId(0),
+                record: SerializableEdgeRecord {
+                    id: 0,
+                    label_id: 1,
+                    flags: 0,
+                    src: 0,
+                    dst: 1,
+                    next_out: u64::MAX,
+                    next_in: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            },
+            WalEntry::UpdateProperty {
+                is_vertex: true,
+                element_id: 0,
+                key_id: 1,
+                old_value: Value::Null,
+                new_value: Value::Int(42),
+            },
+            WalEntry::DeleteNode { id: VertexId(0) },
+            WalEntry::DeleteEdge { id: EdgeId(0) },
+            WalEntry::CommitTx { tx_id: 0 },
+            WalEntry::AbortTx { tx_id: 1 },
+            WalEntry::Checkpoint { version: 1 },
+        ];
+
+        for entry in entries {
+            wal.log(entry).expect("log entry");
+        }
+
+        // Verify all were written
+        let pos = wal.position().expect("get position");
+        assert!(
+            pos > 0,
+            "WAL should have content after logging all entry types"
+        );
+    }
+
+    #[test]
+    fn test_wal_log_large_property_value() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Create a large string value
+        let large_string = "x".repeat(100_000);
+
+        wal.log(WalEntry::UpdateProperty {
+            is_vertex: true,
+            element_id: 0,
+            key_id: 1,
+            old_value: Value::Null,
+            new_value: Value::String(large_string),
+        })
+        .expect("log large property");
+
+        wal.sync().expect("sync");
+
+        let pos = wal.position().expect("get position");
+        assert!(pos > 100_000, "WAL should contain the large value");
+    }
+
+    #[test]
+    fn test_wal_multiple_transactions() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Transaction 1: committed
+        let tx1 = wal.begin_transaction().expect("begin tx1");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert node");
+        wal.log(WalEntry::CommitTx { tx_id: tx1 })
+            .expect("commit tx1");
+
+        // Transaction 2: aborted
+        let tx2 = wal.begin_transaction().expect("begin tx2");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert node");
+        wal.log(WalEntry::AbortTx { tx_id: tx2 })
+            .expect("abort tx2");
+
+        // Transaction 3: committed
+        let tx3 = wal.begin_transaction().expect("begin tx3");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(2),
+            record: SerializableNodeRecord {
+                id: 2,
+                label_id: 2,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert node");
+        wal.log(WalEntry::CommitTx { tx_id: tx3 })
+            .expect("commit tx3");
+
+        wal.sync().expect("sync");
+
+        // Verify file has expected transaction IDs
+        assert_eq!(tx1, 0);
+        assert_eq!(tx2, 1);
+        assert_eq!(tx3, 2);
+    }
+
+    #[test]
+    fn test_wal_now_returns_reasonable_timestamp() {
+        // This test verifies that `now()` returns a reasonable Unix timestamp
+        // We can't test the exact value, but we can verify it's in a reasonable range
+        let timestamp = WriteAheadLog::now();
+
+        // Should be after 2024-01-01 (1704067200)
+        assert!(
+            timestamp > 1704067200,
+            "timestamp should be after 2024-01-01"
+        );
+
+        // Should be before 2100-01-01 (4102444800) - gives us plenty of runway
+        assert!(
+            timestamp < 4102444800,
+            "timestamp should be before 2100-01-01"
+        );
     }
 }
