@@ -725,7 +725,7 @@ impl WriteAheadLog {
     /// ```
     pub fn needs_recovery(&mut self) -> bool {
         // Remember current position
-        let original_pos = match self.file.seek(SeekFrom::Current(0)) {
+        let original_pos = match self.file.stream_position() {
             Ok(pos) => pos,
             Err(_) => return false,
         };

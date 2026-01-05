@@ -62,6 +62,9 @@ pub struct MmapGraph {
     /// Label indexes (in-memory, rebuilt on load)
     vertex_labels: Arc<RwLock<HashMap<u32, RoaringBitmap>>>,
     edge_labels: Arc<RwLock<HashMap<u32, RoaringBitmap>>>,
+
+    /// Property arena allocator (tracks current write position)
+    arena: Arc<RwLock<arena::ArenaAllocator>>,
 }
 
 impl MmapGraph {
@@ -113,12 +116,22 @@ impl MmapGraph {
         // Validate header
         Self::validate_header(&mmap)?;
 
+        // Read header to initialize arena allocator
+        let header = Self::read_header(&mmap);
+        let arena_start = header.property_arena_offset;
+        let arena_end = header.string_table_offset;
+        // For a new database, current offset = arena_start
+        // For an existing database, we'd need to scan to find the end of used space
+        // For now, we start at the beginning (properties are rebuilt on load)
+        let arena = arena::ArenaAllocator::new(arena_start, arena_end, arena_start);
+
         let graph = Self {
             mmap: Arc::new(RwLock::new(mmap)),
             file: Arc::new(RwLock::new(file)),
             string_table: Arc::new(RwLock::new(StringInterner::new())),
             vertex_labels: Arc::new(RwLock::new(HashMap::new())),
             edge_labels: Arc::new(RwLock::new(HashMap::new())),
+            arena: Arc::new(RwLock::new(arena)),
         };
 
         // Rebuild in-memory indexes from disk data
@@ -610,6 +623,119 @@ impl MmapGraph {
         }
 
         Ok(properties)
+    }
+
+    // =========================================================================
+    // Phase 4.1: Property Arena Allocation
+    // =========================================================================
+
+    /// Allocate and write properties to the property arena.
+    ///
+    /// This method serializes the properties as a linked list and writes them
+    /// to the property arena. Returns the offset to the first property entry,
+    /// which can be stored in a node or edge record's `prop_head` field.
+    ///
+    /// # Arguments
+    ///
+    /// * `properties` - The properties to store
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(u64::MAX)` if properties is empty (no properties)
+    /// - `Ok(offset)` the absolute file offset to the first property entry
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::OutOfSpace`] - Not enough space in the arena
+    /// - [`StorageError::Io`] - I/O error writing to file
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::collections::HashMap;
+    /// use rustgremlin::value::Value;
+    ///
+    /// let mut props = HashMap::new();
+    /// props.insert("name".to_string(), Value::String("Alice".to_string()));
+    /// props.insert("age".to_string(), Value::Int(30));
+    ///
+    /// let prop_head = graph.allocate_properties(&props)?;
+    /// // prop_head can now be stored in a NodeRecord.prop_head
+    /// ```
+    pub fn allocate_properties(
+        &self,
+        properties: &std::collections::HashMap<String, crate::value::Value>,
+    ) -> Result<u64, StorageError> {
+        // Empty properties -> no allocation needed
+        if properties.is_empty() {
+            return Ok(u64::MAX);
+        }
+
+        // Convert std HashMap to hashbrown HashMap for arena functions
+        let props: hashbrown::HashMap<String, crate::value::Value> = properties
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        // Calculate entry sizes first to determine total allocation
+        let entry_sizes = arena::calculate_entry_sizes(&props);
+        let total_size: usize = entry_sizes.iter().sum();
+
+        // Allocate space in the arena
+        let base_offset = {
+            let arena = self.arena.read();
+            arena.allocate(total_size)?
+        };
+
+        // Serialize properties with key interning
+        let (mut data, next_offsets) = {
+            let mut string_table = self.string_table.write();
+            arena::serialize_properties(&props, |key| string_table.intern(key))
+        };
+
+        // Link the property entries to form a linked list
+        arena::link_property_entries(&mut data, &next_offsets, base_offset, &entry_sizes);
+
+        // Write to file
+        self.write_property_data(base_offset, &data)?;
+
+        Ok(base_offset)
+    }
+
+    /// Write property data to the file at the specified offset.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Absolute file offset to write at
+    /// * `data` - The serialized property data
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error writing to file
+    fn write_property_data(&self, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(data, offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(offset))?;
+            file.write_all(data)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see the new data
+        self.remap()?;
+
+        Ok(())
     }
 
     // =========================================================================
@@ -3493,5 +3619,281 @@ mod tests {
         assert_eq!(label_after, 99, "Edge label should be preserved");
         assert_eq!(src_after, 1, "Edge src should be preserved");
         assert_eq!(dst_after, 2, "Edge dst should be preserved");
+    }
+
+    // =========================================================================
+    // Phase 4.1: Property Arena Allocation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_allocate_properties_empty() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let props = std::collections::HashMap::new();
+        let result = graph.allocate_properties(&props);
+
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            u64::MAX,
+            "Empty properties should return u64::MAX"
+        );
+    }
+
+    #[test]
+    fn test_allocate_properties_single() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("name".to_string(), Value::String("Alice".to_string()));
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+
+        // Should return a valid offset (not u64::MAX)
+        assert_ne!(prop_head, u64::MAX, "Should return valid offset");
+
+        // Offset should be within the arena
+        let header = graph.get_header();
+        assert!(prop_head >= header.property_arena_offset);
+        assert!(prop_head < header.string_table_offset);
+    }
+
+    #[test]
+    fn test_allocate_properties_multiple() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("name".to_string(), Value::String("Bob".to_string()));
+        props.insert("age".to_string(), Value::Int(30));
+        props.insert("active".to_string(), Value::Bool(true));
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+
+        assert_ne!(prop_head, u64::MAX);
+    }
+
+    #[test]
+    fn test_allocate_properties_roundtrip() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("name".to_string(), Value::String("Charlie".to_string()));
+        props.insert("score".to_string(), Value::Int(42));
+
+        // Allocate properties
+        let prop_head = graph.allocate_properties(&props).unwrap();
+
+        // Load them back
+        let loaded = graph.load_properties(prop_head).unwrap();
+
+        // Verify all properties are present
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(
+            loaded.get("name"),
+            Some(&Value::String("Charlie".to_string()))
+        );
+        assert_eq!(loaded.get("score"), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn test_allocate_properties_all_value_types() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("null_val".to_string(), Value::Null);
+        props.insert("bool_true".to_string(), Value::Bool(true));
+        props.insert("bool_false".to_string(), Value::Bool(false));
+        props.insert("int_val".to_string(), Value::Int(-12345));
+        props.insert("float_val".to_string(), Value::Float(3.14159));
+        props.insert(
+            "string_val".to_string(),
+            Value::String("hello world".to_string()),
+        );
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+        let loaded = graph.load_properties(prop_head).unwrap();
+
+        assert_eq!(loaded.len(), 6);
+        assert_eq!(loaded.get("null_val"), Some(&Value::Null));
+        assert_eq!(loaded.get("bool_true"), Some(&Value::Bool(true)));
+        assert_eq!(loaded.get("bool_false"), Some(&Value::Bool(false)));
+        assert_eq!(loaded.get("int_val"), Some(&Value::Int(-12345)));
+        assert_eq!(loaded.get("float_val"), Some(&Value::Float(3.14159)));
+        assert_eq!(
+            loaded.get("string_val"),
+            Some(&Value::String("hello world".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_allocate_properties_multiple_allocations() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Allocate first set
+        let mut props1 = std::collections::HashMap::new();
+        props1.insert("key1".to_string(), Value::String("value1".to_string()));
+        let head1 = graph.allocate_properties(&props1).unwrap();
+
+        // Allocate second set
+        let mut props2 = std::collections::HashMap::new();
+        props2.insert("key2".to_string(), Value::String("value2".to_string()));
+        let head2 = graph.allocate_properties(&props2).unwrap();
+
+        // Both should have valid, different offsets
+        assert_ne!(head1, u64::MAX);
+        assert_ne!(head2, u64::MAX);
+        assert_ne!(
+            head1, head2,
+            "Different allocations should have different offsets"
+        );
+
+        // Both should be loadable
+        let loaded1 = graph.load_properties(head1).unwrap();
+        let loaded2 = graph.load_properties(head2).unwrap();
+
+        assert_eq!(
+            loaded1.get("key1"),
+            Some(&Value::String("value1".to_string()))
+        );
+        assert_eq!(
+            loaded2.get("key2"),
+            Some(&Value::String("value2".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_allocate_properties_large_string() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a large string (> 256 bytes)
+        let large_string = "x".repeat(1000);
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("big".to_string(), Value::String(large_string.clone()));
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+        let loaded = graph.load_properties(prop_head).unwrap();
+
+        assert_eq!(loaded.get("big"), Some(&Value::String(large_string)));
+    }
+
+    #[test]
+    fn test_allocate_properties_nested_list() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let list = Value::List(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::String("three".to_string()),
+        ]);
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("items".to_string(), list.clone());
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+        let loaded = graph.load_properties(prop_head).unwrap();
+
+        assert_eq!(loaded.get("items"), Some(&list));
+    }
+
+    #[test]
+    fn test_allocate_properties_nested_map() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut inner_map = std::collections::HashMap::new();
+        inner_map.insert("nested_key".to_string(), Value::Int(999));
+        let map_val = Value::Map(inner_map);
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("metadata".to_string(), map_val.clone());
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+        let loaded = graph.load_properties(prop_head).unwrap();
+
+        assert_eq!(loaded.get("metadata"), Some(&map_val));
+    }
+
+    #[test]
+    fn test_allocate_properties_vertex_edge_refs() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("vertex_ref".to_string(), Value::Vertex(VertexId(42)));
+        props.insert("edge_ref".to_string(), Value::Edge(EdgeId(123)));
+
+        let prop_head = graph.allocate_properties(&props).unwrap();
+        let loaded = graph.load_properties(prop_head).unwrap();
+
+        assert_eq!(loaded.get("vertex_ref"), Some(&Value::Vertex(VertexId(42))));
+        assert_eq!(loaded.get("edge_ref"), Some(&Value::Edge(EdgeId(123))));
+    }
+
+    #[test]
+    fn test_arena_tracks_offset_correctly() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial arena offset
+        let initial_offset = {
+            let arena = graph.arena.read();
+            arena.current_offset()
+        };
+
+        // Allocate some properties
+        let mut props = std::collections::HashMap::new();
+        props.insert("test".to_string(), Value::Int(1));
+        graph.allocate_properties(&props).unwrap();
+
+        // Offset should have advanced
+        let new_offset = {
+            let arena = graph.arena.read();
+            arena.current_offset()
+        };
+
+        assert!(
+            new_offset > initial_offset,
+            "Arena offset should advance after allocation"
+        );
     }
 }

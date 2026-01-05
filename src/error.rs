@@ -115,6 +115,13 @@ pub enum StorageError {
     /// offsets or encountering malformed records.
     #[error("corrupted data")]
     CorruptedData,
+
+    /// The storage is out of space.
+    ///
+    /// This occurs when attempting to allocate space in the property arena
+    /// or other fixed-size regions and there isn't enough room.
+    #[error("out of space")]
+    OutOfSpace,
 }
 
 /// Errors that can occur during graph traversals.

@@ -512,11 +512,11 @@ struct WalEntryHeader {
 6. Track arena offset (simple bump allocator initially)
 
 **Acceptance Criteria**:
-- [ ] Can allocate single property
-- [ ] Can allocate multiple properties (linked list)
-- [ ] Returns offset to first property
-- [ ] Properties are retrievable via `load_properties()`
-- [ ] Empty property map returns `u64::MAX`
+- [x] Can allocate single property
+- [x] Can allocate multiple properties (linked list)
+- [x] Returns offset to first property
+- [x] Properties are retrievable via `load_properties()`
+- [x] Empty property map returns `u64::MAX`
 
 ---
 
