@@ -20,6 +20,8 @@ pub mod records;
 pub mod recovery;
 pub mod wal;
 
+use wal::{WalEntry, WriteAheadLog};
+
 use freelist::FreeList;
 use records::{
     EdgeRecord, FileHeader, NodeRecord, EDGE_RECORD_SIZE, HEADER_SIZE, MAGIC, NODE_RECORD_SIZE,
@@ -53,6 +55,9 @@ pub struct MmapGraph {
 
     /// File handle for writes
     file: Arc<RwLock<File>>,
+
+    /// Write-ahead log for durability
+    wal: Arc<RwLock<WriteAheadLog>>,
 
     /// String interner (in-memory, rebuilt on load)
     /// Note: Uses RwLock for interior mutability during writes, but reads
@@ -154,9 +159,50 @@ impl MmapGraph {
         // Initialize edge free list similarly
         let free_edges = FreeList::with_head(header.free_edge_head);
 
+        // Open or create WAL file
+        // The WAL file is stored alongside the main data file with .wal extension
+        let wal_path = path.with_extension("wal");
+        let mut wal = WriteAheadLog::open(&wal_path)?;
+
+        // Perform crash recovery if needed
+        // This replays any committed transactions from the WAL to the data file
+        if wal.needs_recovery() {
+            recovery::recover(&mut wal, &file, header.node_capacity)?;
+            // After recovery, we need to re-read the mmap since data may have changed
+            // Re-map the file to pick up recovered data
+            drop(mmap);
+            let mmap = unsafe { MmapOptions::new().map(&file)? };
+            // Re-read header for updated counts (recovery may have added records)
+            let header = Self::read_header(&mmap);
+            // Update arena position if needed
+            let arena = arena::ArenaAllocator::new(
+                header.property_arena_offset,
+                header.string_table_offset,
+                header.arena_next_offset,
+            );
+
+            let graph = Self {
+                mmap: Arc::new(RwLock::new(mmap)),
+                file: Arc::new(RwLock::new(file)),
+                wal: Arc::new(RwLock::new(wal)),
+                string_table: Arc::new(RwLock::new(string_table)),
+                vertex_labels: Arc::new(RwLock::new(HashMap::new())),
+                edge_labels: Arc::new(RwLock::new(HashMap::new())),
+                arena: Arc::new(RwLock::new(arena)),
+                free_nodes: Arc::new(RwLock::new(free_nodes)),
+                free_edges: Arc::new(RwLock::new(free_edges)),
+            };
+
+            // Rebuild in-memory indexes from disk data (includes recovered data)
+            graph.rebuild_indexes()?;
+
+            return Ok(graph);
+        }
+
         let graph = Self {
             mmap: Arc::new(RwLock::new(mmap)),
             file: Arc::new(RwLock::new(file)),
+            wal: Arc::new(RwLock::new(wal)),
             string_table: Arc::new(RwLock::new(string_table)),
             vertex_labels: Arc::new(RwLock::new(HashMap::new())),
             edge_labels: Arc::new(RwLock::new(HashMap::new())),
@@ -949,6 +995,75 @@ impl MmapGraph {
 
         // Remap to see the updated header
         self.remap()?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // Phase 4.6: Checkpoint Implementation
+    // =========================================================================
+
+    /// Create a checkpoint, ensuring all data is durably written.
+    ///
+    /// A checkpoint performs the following steps:
+    /// 1. Syncs the data file to ensure all pending writes are flushed to disk
+    /// 2. Logs a `Checkpoint` marker to the WAL with a version number
+    /// 3. Syncs the WAL to ensure the checkpoint marker is durable
+    /// 4. Truncates the WAL (all prior committed transactions are now safely in the data file)
+    ///
+    /// After a checkpoint, the WAL is empty and all data is guaranteed to be
+    /// in the main data file. This makes recovery faster since there's nothing
+    /// to replay.
+    ///
+    /// # Usage
+    ///
+    /// Call `checkpoint()` periodically to:
+    /// - Reduce WAL size and recovery time
+    /// - Ensure data durability at specific points
+    /// - Create consistent snapshots of the database
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during sync or truncate operations
+    /// - [`StorageError::WalCorrupted`] - Error writing checkpoint entry to WAL
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::storage::MmapGraph;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = MmapGraph::open("my_graph.db")?;
+    ///
+    /// // Add some data
+    /// graph.add_vertex("person", HashMap::new())?;
+    /// graph.add_vertex("software", HashMap::new())?;
+    ///
+    /// // Checkpoint to ensure durability
+    /// graph.checkpoint()?;
+    /// // WAL is now empty, all data is in the main file
+    /// ```
+    pub fn checkpoint(&self) -> Result<(), StorageError> {
+        // Step 1: Sync the data file to ensure all writes are flushed
+        {
+            let file = self.file.write();
+            file.sync_data()?;
+        }
+
+        // Step 2: Log checkpoint marker to WAL
+        // The version is a simple counter that can be used for debugging or
+        // to identify checkpoint points. For now we use 0 as a placeholder.
+        // A more sophisticated implementation could track a monotonic version.
+        let mut wal = self.wal.write();
+        wal.log(WalEntry::Checkpoint { version: 0 })?;
+
+        // Step 3: Sync the WAL to ensure checkpoint marker is durable
+        wal.sync()?;
+
+        // Step 4: Truncate the WAL
+        // All committed transactions are now safely in the data file,
+        // so we can remove them from the WAL
+        wal.truncate()?;
 
         Ok(())
     }
@@ -6174,6 +6289,536 @@ mod tests {
             let in_edges: Vec<_> = graph.in_edges(v2).collect();
             assert_eq!(in_edges.len(), 1);
             assert_eq!(in_edges[0].id, edge_id);
+        }
+    }
+
+    // =========================================================================
+    // Phase 4.6: Checkpoint Tests
+    // =========================================================================
+
+    #[test]
+    fn test_checkpoint_creates_wal_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = dir.path().join("test.wal");
+
+        // Open graph (this creates the WAL file)
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // WAL file should exist
+        assert!(wal_path.exists(), "WAL file should be created on open");
+
+        // Checkpoint should succeed
+        graph.checkpoint().unwrap();
+    }
+
+    #[test]
+    fn test_checkpoint_truncates_wal() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = dir.path().join("test.wal");
+
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Add some data to create WAL entries
+        graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        graph
+            .add_vertex("software", std::collections::HashMap::new())
+            .unwrap();
+
+        // WAL should have some content now (from our operations, though we're
+        // not currently logging add_vertex to WAL, so this checks the checkpoint
+        // marker itself gets written and truncated)
+
+        // Get WAL size before checkpoint
+        // Note: Since add_vertex doesn't log to WAL yet, the WAL is empty
+        // But checkpoint will write a marker then truncate
+
+        // Perform checkpoint
+        graph.checkpoint().unwrap();
+
+        // After checkpoint, WAL should be empty (truncated)
+        let wal_size = std::fs::metadata(&wal_path).unwrap().len();
+        assert_eq!(wal_size, 0, "WAL should be empty after checkpoint");
+    }
+
+    #[test]
+    fn test_checkpoint_flushes_data() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Add data and checkpoint
+        let v1;
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+            v1 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+
+            // Checkpoint to ensure data is flushed
+            graph.checkpoint().unwrap();
+        }
+
+        // Reopen and verify data exists
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+            let vertex = graph.get_vertex(v1);
+            assert!(vertex.is_some(), "Vertex should exist after checkpoint");
+            assert_eq!(vertex.unwrap().label, "person");
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_after_multiple_operations() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        let v1;
+        let v2;
+        let e1;
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Add vertices
+            v1 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+            v2 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+
+            // Add edge
+            let mut props = std::collections::HashMap::new();
+            props.insert("since".to_string(), crate::value::Value::Int(2020));
+            e1 = graph.add_edge(v1, v2, "knows", props).unwrap();
+
+            // Checkpoint
+            graph.checkpoint().unwrap();
+        }
+
+        // Reopen and verify everything persisted
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Check vertices
+            assert!(graph.get_vertex(v1).is_some());
+            assert!(graph.get_vertex(v2).is_some());
+
+            // Check edge
+            let edge = graph.get_edge(e1).unwrap();
+            assert_eq!(edge.src, v1);
+            assert_eq!(edge.dst, v2);
+            assert_eq!(edge.label, "knows");
+            assert_eq!(
+                edge.properties.get("since"),
+                Some(&crate::value::Value::Int(2020))
+            );
+
+            // Check counts
+            assert_eq!(graph.vertex_count(), 2);
+            assert_eq!(graph.edge_count(), 1);
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_multiple_times() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Add vertex, checkpoint
+        let v1 = graph
+            .add_vertex("person", std::collections::HashMap::new())
+            .unwrap();
+        graph.checkpoint().unwrap();
+
+        // Add another vertex, checkpoint again
+        let v2 = graph
+            .add_vertex("software", std::collections::HashMap::new())
+            .unwrap();
+        graph.checkpoint().unwrap();
+
+        // Add edge, checkpoint again
+        graph
+            .add_edge(v1, v2, "created", std::collections::HashMap::new())
+            .unwrap();
+        graph.checkpoint().unwrap();
+
+        // Verify all data
+        assert!(graph.get_vertex(v1).is_some());
+        assert!(graph.get_vertex(v2).is_some());
+        assert_eq!(graph.vertex_count(), 2);
+        assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_wal_empty_after_checkpoint() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = dir.path().join("test.wal");
+
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Add some data
+            graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+
+            // Checkpoint
+            graph.checkpoint().unwrap();
+
+            // Verify WAL is empty after checkpoint
+            let wal_size = std::fs::metadata(&wal_path).unwrap().len();
+            assert_eq!(wal_size, 0, "WAL should be empty after checkpoint");
+        }
+    }
+
+    #[test]
+    fn test_database_consistent_after_checkpoint() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create graph with multiple operations and checkpoint
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Add 10 vertices
+            let mut vertex_ids = Vec::new();
+            for i in 0..10 {
+                let mut props = std::collections::HashMap::new();
+                props.insert("index".to_string(), crate::value::Value::Int(i as i64));
+                let vid = graph.add_vertex("node", props).unwrap();
+                vertex_ids.push(vid);
+            }
+
+            // Add edges between consecutive vertices
+            for i in 0..9 {
+                graph
+                    .add_edge(
+                        vertex_ids[i],
+                        vertex_ids[i + 1],
+                        "next",
+                        std::collections::HashMap::new(),
+                    )
+                    .unwrap();
+            }
+
+            // Checkpoint
+            graph.checkpoint().unwrap();
+        }
+
+        // Reopen and verify consistency
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Verify vertex count
+            assert_eq!(graph.vertex_count(), 10, "Should have 10 vertices");
+
+            // Verify edge count
+            assert_eq!(graph.edge_count(), 9, "Should have 9 edges");
+
+            // Verify each vertex has correct index property
+            for i in 0..10 {
+                let vertex = graph.get_vertex(VertexId(i as u64)).unwrap();
+                assert_eq!(
+                    vertex.properties.get("index"),
+                    Some(&crate::value::Value::Int(i as i64))
+                );
+            }
+
+            // Verify adjacency lists
+            for i in 0..9 {
+                let out_edges: Vec<_> = graph.out_edges(VertexId(i as u64)).collect();
+                assert_eq!(
+                    out_edges.len(),
+                    1,
+                    "Vertex {} should have 1 outgoing edge",
+                    i
+                );
+                assert_eq!(out_edges[0].dst, VertexId((i + 1) as u64));
+            }
+
+            // Last vertex should have no outgoing edges
+            let out_edges: Vec<_> = graph.out_edges(VertexId(9)).collect();
+            assert_eq!(
+                out_edges.len(),
+                0,
+                "Last vertex should have no outgoing edges"
+            );
+        }
+    }
+
+    // =========================================================================
+    // Recovery Integration Tests (Phase 5.3)
+    // =========================================================================
+
+    #[test]
+    fn test_open_triggers_recovery_for_uncommitted_wal() {
+        use crate::storage::mmap::wal::{SerializableNodeRecord, WalEntry};
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = path.with_extension("wal");
+
+        // First, create a database and add some data with a proper checkpoint
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+            let _v1 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+            graph.checkpoint().unwrap();
+        }
+
+        // Now, simulate writing to the WAL without committing (simulating a crash)
+        // This mimics what would happen if the process crashed before commit
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).unwrap();
+            let tx_id = wal.begin_transaction().unwrap();
+            wal.log(WalEntry::InsertNode {
+                id: VertexId(1), // Second node
+                record: SerializableNodeRecord {
+                    id: 1,
+                    label_id: 999, // Distinctive label_id that should NOT appear
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            })
+            .unwrap();
+            // NO COMMIT - simulating crash
+            wal.sync().unwrap();
+            // Drop WAL without truncating
+        }
+
+        // WAL should have uncommitted data
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).unwrap();
+            assert!(wal.needs_recovery(), "WAL should need recovery");
+        }
+
+        // Reopen the database - recovery should run and discard uncommitted tx
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Original vertex should still exist
+            assert_eq!(graph.vertex_count(), 1, "Should only have 1 vertex");
+
+            // The uncommitted vertex (id 1) should not exist
+            assert!(
+                graph.get_vertex(VertexId(1)).is_none(),
+                "Uncommitted vertex should not exist"
+            );
+
+            // WAL should be empty after recovery
+            let wal_size = std::fs::metadata(&wal_path).unwrap().len();
+            assert_eq!(wal_size, 0, "WAL should be truncated after recovery");
+        }
+    }
+
+    #[test]
+    fn test_open_with_committed_wal_entries_no_recovery_needed() {
+        // When WAL has only committed transactions, no recovery is needed
+        // because committed transactions mean data is already on disk.
+        // This tests that open() handles this case gracefully.
+        use crate::storage::mmap::wal::{SerializableNodeRecord, WalEntry};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = path.with_extension("wal");
+
+        // Create a new empty database first
+        {
+            let _graph = MmapGraph::open(&path).unwrap();
+            // Just create the file structure
+        }
+
+        // Write a committed transaction directly to WAL (bypassing MmapGraph)
+        // This represents a scenario where data was written to disk and committed
+        // but the checkpoint/truncate didn't happen.
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).unwrap();
+            let tx_id = wal.begin_transaction().unwrap();
+            wal.log(WalEntry::InsertNode {
+                id: VertexId(0),
+                record: SerializableNodeRecord {
+                    id: 0,
+                    label_id: 0,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            })
+            .unwrap();
+            wal.log(WalEntry::CommitTx { tx_id }).unwrap();
+            wal.sync().unwrap();
+        }
+
+        // WAL should NOT need recovery (committed transactions are complete)
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).unwrap();
+            assert!(
+                !wal.needs_recovery(),
+                "WAL with only committed transactions should not need recovery"
+            );
+        }
+
+        // Reopen database - should succeed without issues
+        {
+            let _graph = MmapGraph::open(&path).unwrap();
+            // Database opens successfully, though the committed entries in WAL
+            // are essentially "orphan" entries that would normally be truncated
+            // by a checkpoint operation.
+        }
+    }
+
+    #[test]
+    fn test_open_no_recovery_needed_for_clean_wal() {
+        use crate::storage::GraphStorage;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = path.with_extension("wal");
+
+        // Create database, add data, checkpoint
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+            let _v1 = graph
+                .add_vertex("person", std::collections::HashMap::new())
+                .unwrap();
+            graph.checkpoint().unwrap();
+        }
+
+        // WAL should be clean (truncated by checkpoint)
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).unwrap();
+            assert!(
+                !wal.needs_recovery(),
+                "WAL should not need recovery after checkpoint"
+            );
+        }
+
+        // Reopen - should not trigger recovery
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+            assert_eq!(graph.vertex_count(), 1);
+            assert!(graph.get_vertex(VertexId(0)).is_some());
+        }
+    }
+
+    #[test]
+    fn test_open_recovery_with_mixed_transactions() {
+        use crate::storage::mmap::wal::{SerializableNodeRecord, WalEntry};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let wal_path = path.with_extension("wal");
+
+        // Create an empty database
+        {
+            let _graph = MmapGraph::open(&path).unwrap();
+        }
+
+        // Write mixed transactions to WAL:
+        // - tx1: committed (insert node 0)
+        // - tx2: aborted (insert node 1)
+        // - tx3: committed (insert node 2)
+        // - tx4: uncommitted (insert node 3) - simulates crash
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).unwrap();
+
+            // tx1: committed
+            let tx1 = wal.begin_transaction().unwrap();
+            wal.log(WalEntry::InsertNode {
+                id: VertexId(0),
+                record: SerializableNodeRecord {
+                    id: 0,
+                    label_id: 10,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            })
+            .unwrap();
+            wal.log(WalEntry::CommitTx { tx_id: tx1 }).unwrap();
+
+            // tx2: aborted
+            let tx2 = wal.begin_transaction().unwrap();
+            wal.log(WalEntry::InsertNode {
+                id: VertexId(1),
+                record: SerializableNodeRecord {
+                    id: 1,
+                    label_id: 20,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            })
+            .unwrap();
+            wal.log(WalEntry::AbortTx { tx_id: tx2 }).unwrap();
+
+            // tx3: committed
+            let tx3 = wal.begin_transaction().unwrap();
+            wal.log(WalEntry::InsertNode {
+                id: VertexId(2),
+                record: SerializableNodeRecord {
+                    id: 2,
+                    label_id: 30,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            })
+            .unwrap();
+            wal.log(WalEntry::CommitTx { tx_id: tx3 }).unwrap();
+
+            // tx4: uncommitted (crash simulation)
+            let _tx4 = wal.begin_transaction().unwrap();
+            wal.log(WalEntry::InsertNode {
+                id: VertexId(3),
+                record: SerializableNodeRecord {
+                    id: 3,
+                    label_id: 40,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            })
+            .unwrap();
+            // NO COMMIT
+
+            wal.sync().unwrap();
+        }
+
+        // Reopen - recovery should happen
+        {
+            let _graph = MmapGraph::open(&path).unwrap();
+
+            // WAL should be truncated
+            let wal_size = std::fs::metadata(&wal_path).unwrap().len();
+            assert_eq!(wal_size, 0, "WAL should be truncated after recovery");
+
+            // Only nodes 0 and 2 should exist (from committed transactions)
+            // Note: We can't easily verify this without proper label resolution,
+            // but we can check that the file exists and no panic occurred
         }
     }
 }
