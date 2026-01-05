@@ -13,7 +13,7 @@ pub const MAGIC: u32 = 0x47524D4C;
 pub const VERSION: u32 = 1;
 
 /// Size of the file header in bytes
-pub const HEADER_SIZE: usize = 72;
+pub const HEADER_SIZE: usize = 88;
 
 /// Size of a node record in bytes
 pub const NODE_RECORD_SIZE: usize = 48;
@@ -25,7 +25,7 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 // FileHeader
 // =============================================================================
 
-/// File header at offset 0 (72 bytes total)
+/// File header at offset 0 (88 bytes total)
 ///
 /// The header contains metadata about the database file, including counts,
 /// capacities, and offsets to major file sections.
@@ -42,9 +42,11 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 /// 24     | 8    | edge_count
 /// 32     | 8    | edge_capacity
 /// 40     | 8    | string_table_offset
-/// 48     | 8    | property_arena_offset
-/// 56     | 8    | free_node_head
-/// 64     | 8    | free_edge_head
+/// 48     | 8    | string_table_end
+/// 56     | 8    | property_arena_offset
+/// 64     | 8    | arena_next_offset
+/// 72     | 8    | free_node_head
+/// 80     | 8    | free_edge_head
 /// ```
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
@@ -70,8 +72,14 @@ pub struct FileHeader {
     /// Byte offset to start of string table
     pub string_table_offset: u64,
 
+    /// Byte offset to end of string table data (exclusive)
+    pub string_table_end: u64,
+
     /// Byte offset to start of property arena
     pub property_arena_offset: u64,
+
+    /// Current write position in property arena (for appending new properties)
+    pub arena_next_offset: u64,
 
     /// First free node slot ID (u64::MAX if empty)
     pub free_node_head: u64,
@@ -91,7 +99,9 @@ impl FileHeader {
             edge_count: 0,
             edge_capacity: 0,
             string_table_offset: 0,
+            string_table_end: 0,
             property_arena_offset: 0,
+            arena_next_offset: 0,
             free_node_head: u64::MAX,
             free_edge_head: u64::MAX,
         }
@@ -558,11 +568,11 @@ mod tests {
 
     #[test]
     fn test_file_header_size() {
-        // FileHeader must be exactly 72 bytes
+        // FileHeader must be exactly 88 bytes
         assert_eq!(
             std::mem::size_of::<FileHeader>(),
             HEADER_SIZE,
-            "FileHeader size must be exactly 72 bytes"
+            "FileHeader size must be exactly 88 bytes"
         );
     }
 
@@ -571,13 +581,13 @@ mod tests {
         // Verify the packed struct has expected layout
 
         // magic and version are u32 (4 bytes each) = 8 bytes
-        // 8 u64 fields (8 × 8 bytes) = 64 bytes
-        // Total: 8 + 64 = 72 bytes
+        // 10 u64 fields (10 × 8 bytes) = 80 bytes
+        // Total: 8 + 80 = 88 bytes
 
         assert_eq!(
             std::mem::size_of::<FileHeader>(),
-            4 + 4 + (8 * 8),
-            "FileHeader fields should sum to 72 bytes"
+            4 + 4 + (10 * 8),
+            "FileHeader fields should sum to 88 bytes"
         );
     }
 
@@ -593,7 +603,9 @@ mod tests {
         let edge_count = header.edge_count;
         let edge_capacity = header.edge_capacity;
         let string_table_offset = header.string_table_offset;
+        let string_table_end = header.string_table_end;
         let property_arena_offset = header.property_arena_offset;
+        let arena_next_offset = header.arena_next_offset;
         let free_node_head = header.free_node_head;
         let free_edge_head = header.free_edge_head;
 
@@ -604,7 +616,9 @@ mod tests {
         assert_eq!(edge_count, 0);
         assert_eq!(edge_capacity, 0);
         assert_eq!(string_table_offset, 0);
+        assert_eq!(string_table_end, 0);
         assert_eq!(property_arena_offset, 0);
+        assert_eq!(arena_next_offset, 0);
         assert_eq!(free_node_head, u64::MAX);
         assert_eq!(free_edge_head, u64::MAX);
     }
@@ -618,7 +632,9 @@ mod tests {
         header.edge_count = 500;
         header.edge_capacity = 5000;
         header.string_table_offset = 123456;
+        header.string_table_end = 124000;
         header.property_arena_offset = 789012;
+        header.arena_next_offset = 800000;
         header.free_node_head = 42;
         header.free_edge_head = 99;
 
@@ -630,7 +646,9 @@ mod tests {
         let orig_edge_count = header.edge_count;
         let orig_edge_capacity = header.edge_capacity;
         let orig_string_table_offset = header.string_table_offset;
+        let orig_string_table_end = header.string_table_end;
         let orig_property_arena_offset = header.property_arena_offset;
+        let orig_arena_next_offset = header.arena_next_offset;
         let orig_free_node_head = header.free_node_head;
         let orig_free_edge_head = header.free_edge_head;
 
@@ -651,7 +669,9 @@ mod tests {
         let rec_edge_count = recovered.edge_count;
         let rec_edge_capacity = recovered.edge_capacity;
         let rec_string_table_offset = recovered.string_table_offset;
+        let rec_string_table_end = recovered.string_table_end;
         let rec_property_arena_offset = recovered.property_arena_offset;
+        let rec_arena_next_offset = recovered.arena_next_offset;
         let rec_free_node_head = recovered.free_node_head;
         let rec_free_edge_head = recovered.free_edge_head;
 
@@ -663,7 +683,9 @@ mod tests {
         assert_eq!(rec_edge_count, orig_edge_count);
         assert_eq!(rec_edge_capacity, orig_edge_capacity);
         assert_eq!(rec_string_table_offset, orig_string_table_offset);
+        assert_eq!(rec_string_table_end, orig_string_table_end);
         assert_eq!(rec_property_arena_offset, orig_property_arena_offset);
+        assert_eq!(rec_arena_next_offset, orig_arena_next_offset);
         assert_eq!(rec_free_node_head, orig_free_node_head);
         assert_eq!(rec_free_edge_head, orig_free_edge_head);
     }
@@ -710,7 +732,7 @@ mod tests {
     fn test_constants() {
         assert_eq!(MAGIC, 0x47524D4C); // "GRML"
         assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 72);
+        assert_eq!(HEADER_SIZE, 88);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
     }
@@ -1323,7 +1345,7 @@ mod tests {
         // Verify all constant values are as specified
         assert_eq!(MAGIC, 0x47524D4C);
         assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 72);
+        assert_eq!(HEADER_SIZE, 88);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
         assert_eq!(PROPERTY_ENTRY_HEADER_SIZE, 17);

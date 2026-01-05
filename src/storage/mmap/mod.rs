@@ -126,10 +126,24 @@ impl MmapGraph {
         let header = Self::read_header(&mmap);
         let arena_start = header.property_arena_offset;
         let arena_end = header.string_table_offset;
-        // For a new database, current offset = arena_start
-        // For an existing database, we'd need to scan to find the end of used space
-        // For now, we start at the beginning (properties are rebuilt on load)
-        let arena = arena::ArenaAllocator::new(arena_start, arena_end, arena_start);
+        // Use the persisted arena_next_offset for existing databases,
+        // which tracks where the last property write ended
+        let arena_current = header.arena_next_offset;
+        let arena = arena::ArenaAllocator::new(arena_start, arena_end, arena_current);
+
+        // Load string table from disk
+        // The string table region is from string_table_offset to string_table_end
+        let string_table = if file_exists && header.string_table_end > header.string_table_offset {
+            // For existing databases with strings, load from disk
+            StringInterner::load_from_mmap(
+                &mmap,
+                header.string_table_offset,
+                header.string_table_end,
+            )?
+        } else {
+            // For new databases or databases with no strings, start empty
+            StringInterner::new()
+        };
 
         // Initialize free list from header
         // For a new database, free_node_head == u64::MAX (empty list)
@@ -143,7 +157,7 @@ impl MmapGraph {
         let graph = Self {
             mmap: Arc::new(RwLock::new(mmap)),
             file: Arc::new(RwLock::new(file)),
-            string_table: Arc::new(RwLock::new(StringInterner::new())),
+            string_table: Arc::new(RwLock::new(string_table)),
             vertex_labels: Arc::new(RwLock::new(HashMap::new())),
             edge_labels: Arc::new(RwLock::new(HashMap::new())),
             arena: Arc::new(RwLock::new(arena)),
@@ -160,7 +174,7 @@ impl MmapGraph {
     /// Initialize a new database file with header and initial structure.
     ///
     /// Creates a file with:
-    /// - 64-byte header
+    /// - 80-byte header
     /// - Space for 1000 initial node records
     /// - Space for 10000 initial edge records
     /// - 64KB for properties and strings
@@ -192,7 +206,9 @@ impl MmapGraph {
         header.node_capacity = INITIAL_NODE_CAPACITY;
         header.edge_capacity = INITIAL_EDGE_CAPACITY;
         header.property_arena_offset = property_arena_offset;
+        header.arena_next_offset = property_arena_offset; // Start writing at arena beginning
         header.string_table_offset = string_table_offset;
+        header.string_table_end = string_table_offset; // Empty string table initially
 
         // Write header
         Self::write_header(file, &header)?;
@@ -909,6 +925,95 @@ impl MmapGraph {
         Ok(())
     }
 
+    /// Update the arena_next_offset in the file header.
+    ///
+    /// This persists the current arena write position to disk so that
+    /// after reopening the database, new properties are written at the
+    /// correct location.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    pub fn update_arena_offset(&self) -> Result<(), StorageError> {
+        let arena_next_offset = self.arena.read().current_offset();
+
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.arena_next_offset = arena_next_offset;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Persist the string table to disk.
+    ///
+    /// Writes all interned strings to the string table region of the file.
+    /// The string table starts at `string_table_offset` (from the header).
+    /// Also updates `string_table_end` in the header to track the actual data size.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during file write
+    pub fn persist_string_table(&self) -> Result<(), StorageError> {
+        let header = self.get_header();
+        let string_table_offset = header.string_table_offset;
+
+        // Serialize string table to buffer
+        let mut buffer = Vec::new();
+        {
+            let string_table = self.string_table.read();
+            string_table.write_to_file(&mut buffer)?;
+        }
+
+        let string_table_end = string_table_offset + buffer.len() as u64;
+
+        // Write to file at string_table_offset
+        {
+            let file = self.file.write();
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileExt;
+                file.write_all_at(&buffer, string_table_offset)?;
+            }
+
+            #[cfg(not(unix))]
+            {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut file_ref = &*file;
+                file_ref.seek(SeekFrom::Start(string_table_offset))?;
+                file_ref.write_all(&buffer)?;
+            }
+
+            file.sync_data()?;
+        }
+
+        // Update string_table_end in header
+        {
+            let mmap = self.mmap.read();
+            let mut header = Self::read_header(&mmap);
+            drop(mmap);
+
+            header.string_table_end = string_table_end;
+
+            let file = self.file.write();
+            Self::write_header(&file, &header)?;
+        }
+
+        // Remap to see the updated string table
+        self.remap()?;
+
+        Ok(())
+    }
+
     // =========================================================================
     // Phase 4.3: Edge Slot Allocation and Writing
     // =========================================================================
@@ -1418,6 +1523,96 @@ impl MmapGraph {
     fn get_header(&self) -> FileHeader {
         let mmap = self.mmap.read();
         Self::read_header(&mmap)
+    }
+
+    // =========================================================================
+    // Phase 4.4: add_vertex Implementation
+    // =========================================================================
+
+    /// Add a new vertex to the graph with the given label and properties.
+    ///
+    /// This method:
+    /// 1. Allocates a node slot (from free list or by extending the table)
+    /// 2. Interns the label string
+    /// 3. Allocates properties in the arena (if any)
+    /// 4. Creates and writes the node record
+    /// 5. Updates the label index
+    /// 6. Increments the node count
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - The vertex label (e.g., "person", "software")
+    /// * `properties` - A map of property key-value pairs
+    ///
+    /// # Returns
+    ///
+    /// The `VertexId` of the newly created vertex.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during file operations
+    /// - [`StorageError::OutOfSpace`] - Not enough space in the property arena
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use rustgremlin::storage::MmapGraph;
+    /// use rustgremlin::value::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = MmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// let mut props = HashMap::new();
+    /// props.insert("name".to_string(), Value::String("Alice".to_string()));
+    /// props.insert("age".to_string(), Value::Int(30));
+    ///
+    /// let vertex_id = graph.add_vertex("person", props).unwrap();
+    /// println!("Created vertex with ID: {:?}", vertex_id);
+    /// ```
+    pub fn add_vertex(
+        &self,
+        label: &str,
+        properties: std::collections::HashMap<String, crate::value::Value>,
+    ) -> Result<VertexId, StorageError> {
+        // Step 1: Allocate node slot
+        let slot_id = self.allocate_node_slot()?;
+
+        // Step 2: Intern label
+        let label_id = {
+            let mut string_table = self.string_table.write();
+            string_table.intern(label)
+        };
+
+        // Step 3: Allocate properties in arena (returns u64::MAX if empty)
+        let prop_head = self.allocate_properties(&properties)?;
+
+        // Step 4: Create node record
+        let mut record = NodeRecord::new(slot_id.0, label_id);
+        record.prop_head = prop_head;
+        // first_out_edge and first_in_edge default to u64::MAX (no edges)
+
+        // Step 5: Write node record to disk
+        self.write_node_record(slot_id, &record)?;
+
+        // Step 6: Update label index
+        {
+            let mut vertex_labels = self.vertex_labels.write();
+            vertex_labels
+                .entry(label_id)
+                .or_insert_with(RoaringBitmap::new)
+                .insert(slot_id.0 as u32);
+        }
+
+        // Step 7: Increment node count in header
+        self.increment_node_count()?;
+
+        // Step 8: Persist string table (for label and property key names)
+        self.persist_string_table()?;
+
+        // Step 9: Update arena offset in header (for property data)
+        self.update_arena_offset()?;
+
+        Ok(slot_id)
     }
 }
 
@@ -5087,5 +5282,400 @@ mod tests {
         let node2 = graph.get_node_record(VertexId(2)).unwrap();
         let node2_first_in = node2.first_in_edge;
         assert_eq!(node2_first_in, 1, "Node 2's first_in should be edge 1");
+    }
+
+    // =========================================================================
+    // Phase 4.4: add_vertex Tests
+    // =========================================================================
+
+    #[test]
+    fn test_add_vertex_basic() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Add vertex with label, no properties
+        let props = std::collections::HashMap::new();
+        let vertex_id = graph.add_vertex("person", props).unwrap();
+
+        assert_eq!(vertex_id.0, 0, "First vertex should have ID 0");
+
+        // Verify it can be retrieved
+        let vertex = graph.get_vertex(vertex_id);
+        assert!(vertex.is_some(), "Vertex should exist after add");
+
+        let vertex = vertex.unwrap();
+        assert_eq!(vertex.id, vertex_id);
+        assert_eq!(vertex.label, "person");
+        assert!(vertex.properties.is_empty());
+    }
+
+    #[test]
+    fn test_add_vertex_with_properties() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Add vertex with properties
+        let mut props = std::collections::HashMap::new();
+        props.insert("name".to_string(), Value::String("Alice".to_string()));
+        props.insert("age".to_string(), Value::Int(30));
+        props.insert("active".to_string(), Value::Bool(true));
+
+        let vertex_id = graph.add_vertex("person", props).unwrap();
+
+        // Verify properties roundtrip
+        let vertex = graph.get_vertex(vertex_id).unwrap();
+        assert_eq!(vertex.label, "person");
+        assert_eq!(vertex.properties.len(), 3);
+        assert_eq!(
+            vertex.properties.get("name"),
+            Some(&Value::String("Alice".to_string()))
+        );
+        assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+        assert_eq!(vertex.properties.get("active"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_add_vertex_updates_label_index() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Add multiple vertices with different labels
+        let props = std::collections::HashMap::new();
+        let v1 = graph.add_vertex("person", props.clone()).unwrap();
+        let v2 = graph.add_vertex("person", props.clone()).unwrap();
+        let v3 = graph.add_vertex("software", props.clone()).unwrap();
+
+        // Query by label
+        let people: Vec<_> = graph.vertices_with_label("person").collect();
+        assert_eq!(people.len(), 2, "Should have 2 people");
+        assert!(people.iter().any(|v| v.id == v1));
+        assert!(people.iter().any(|v| v.id == v2));
+
+        let software: Vec<_> = graph.vertices_with_label("software").collect();
+        assert_eq!(software.len(), 1, "Should have 1 software");
+        assert_eq!(software[0].id, v3);
+    }
+
+    #[test]
+    fn test_add_vertex_increments_count() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        assert_eq!(graph.vertex_count(), 0, "Initial count should be 0");
+
+        let props = std::collections::HashMap::new();
+        graph.add_vertex("person", props.clone()).unwrap();
+        assert_eq!(graph.vertex_count(), 1, "Count should be 1 after first add");
+
+        graph.add_vertex("person", props.clone()).unwrap();
+        assert_eq!(
+            graph.vertex_count(),
+            2,
+            "Count should be 2 after second add"
+        );
+
+        graph.add_vertex("software", props).unwrap();
+        assert_eq!(graph.vertex_count(), 3, "Count should be 3 after third add");
+    }
+
+    #[test]
+    fn test_add_vertex_persists_after_reopen() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        let vertex_id;
+
+        // Create database and add vertex
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            let mut props = std::collections::HashMap::new();
+            props.insert("name".to_string(), Value::String("Bob".to_string()));
+            props.insert("score".to_string(), Value::Int(42));
+
+            vertex_id = graph.add_vertex("player", props).unwrap();
+
+            // Verify vertex exists before close
+            let v = graph.get_vertex(vertex_id);
+            assert!(v.is_some());
+        }
+
+        // Reopen and verify
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Verify count persisted
+            assert_eq!(graph.vertex_count(), 1);
+
+            // Verify vertex data persisted
+            let vertex = graph.get_vertex(vertex_id);
+            assert!(vertex.is_some(), "Vertex should persist after reopen");
+
+            let vertex = vertex.unwrap();
+            assert_eq!(vertex.label, "player");
+            assert_eq!(vertex.properties.len(), 2);
+            assert_eq!(
+                vertex.properties.get("name"),
+                Some(&Value::String("Bob".to_string()))
+            );
+            assert_eq!(vertex.properties.get("score"), Some(&Value::Int(42)));
+
+            // Verify label index rebuilt
+            let players: Vec<_> = graph.vertices_with_label("player").collect();
+            assert_eq!(players.len(), 1);
+            assert_eq!(players[0].id, vertex_id);
+        }
+    }
+
+    #[test]
+    fn test_add_vertex_multiple_with_various_properties() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Add several vertices with varying properties
+        let mut alice_props = std::collections::HashMap::new();
+        alice_props.insert("name".to_string(), Value::String("Alice".to_string()));
+        let alice = graph.add_vertex("person", alice_props).unwrap();
+
+        let bob_props = std::collections::HashMap::new(); // No properties
+        let bob = graph.add_vertex("person", bob_props).unwrap();
+
+        let mut repo_props = std::collections::HashMap::new();
+        repo_props.insert("name".to_string(), Value::String("gremlin".to_string()));
+        repo_props.insert("stars".to_string(), Value::Int(1000));
+        repo_props.insert("active".to_string(), Value::Bool(true));
+        let repo = graph.add_vertex("repository", repo_props).unwrap();
+
+        // Verify all vertices
+        assert_eq!(graph.vertex_count(), 3);
+
+        let alice_v = graph.get_vertex(alice).unwrap();
+        assert_eq!(alice_v.label, "person");
+        assert_eq!(alice_v.properties.len(), 1);
+
+        let bob_v = graph.get_vertex(bob).unwrap();
+        assert_eq!(bob_v.label, "person");
+        assert_eq!(bob_v.properties.len(), 0);
+
+        let repo_v = graph.get_vertex(repo).unwrap();
+        assert_eq!(repo_v.label, "repository");
+        assert_eq!(repo_v.properties.len(), 3);
+    }
+
+    #[test]
+    fn test_add_vertex_all_property_types() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut inner_map = std::collections::HashMap::new();
+        inner_map.insert("key".to_string(), Value::Int(100));
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("null_val".to_string(), Value::Null);
+        props.insert("bool_val".to_string(), Value::Bool(false));
+        props.insert("int_val".to_string(), Value::Int(-999));
+        props.insert("float_val".to_string(), Value::Float(2.71828));
+        props.insert(
+            "string_val".to_string(),
+            Value::String("test string".to_string()),
+        );
+        props.insert(
+            "list_val".to_string(),
+            Value::List(vec![Value::Int(1), Value::Int(2)]),
+        );
+        props.insert("map_val".to_string(), Value::Map(inner_map.clone()));
+        props.insert("vertex_ref".to_string(), Value::Vertex(VertexId(777)));
+        props.insert("edge_ref".to_string(), Value::Edge(EdgeId(888)));
+
+        let vertex_id = graph.add_vertex("test_node", props).unwrap();
+
+        let vertex = graph.get_vertex(vertex_id).unwrap();
+        assert_eq!(vertex.properties.len(), 9);
+        assert_eq!(vertex.properties.get("null_val"), Some(&Value::Null));
+        assert_eq!(vertex.properties.get("bool_val"), Some(&Value::Bool(false)));
+        assert_eq!(vertex.properties.get("int_val"), Some(&Value::Int(-999)));
+        assert_eq!(
+            vertex.properties.get("float_val"),
+            Some(&Value::Float(2.71828))
+        );
+        assert_eq!(
+            vertex.properties.get("string_val"),
+            Some(&Value::String("test string".to_string()))
+        );
+        assert!(matches!(
+            vertex.properties.get("list_val"),
+            Some(Value::List(_))
+        ));
+        assert!(matches!(
+            vertex.properties.get("map_val"),
+            Some(Value::Map(_))
+        ));
+        assert_eq!(
+            vertex.properties.get("vertex_ref"),
+            Some(&Value::Vertex(VertexId(777)))
+        );
+        assert_eq!(
+            vertex.properties.get("edge_ref"),
+            Some(&Value::Edge(EdgeId(888)))
+        );
+    }
+
+    #[test]
+    fn test_add_vertex_triggers_table_growth() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial capacity
+        let initial_capacity = graph.get_header().node_capacity;
+        assert_eq!(initial_capacity, 1000);
+
+        // Manually set node_count to capacity - 1 to force growth on second add
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = 999;
+            drop(mmap);
+
+            let file = graph.file.write();
+            MmapGraph::write_header(&file, &header).unwrap();
+            drop(file);
+            graph.remap().unwrap();
+        }
+
+        // First add at slot 999
+        let props = std::collections::HashMap::new();
+        let v1 = graph.add_vertex("person", props.clone()).unwrap();
+        assert_eq!(v1.0, 999);
+
+        // Second add should trigger growth
+        let v2 = graph.add_vertex("person", props).unwrap();
+        assert_eq!(v2.0, 1000);
+
+        // Verify capacity grew
+        let new_capacity = graph.get_header().node_capacity;
+        assert_eq!(new_capacity, 2000, "Capacity should double");
+
+        // Verify both vertices are accessible
+        assert!(graph.get_vertex(v1).is_some());
+        assert!(graph.get_vertex(v2).is_some());
+    }
+
+    #[test]
+    fn test_add_vertex_sequential_ids() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let props = std::collections::HashMap::new();
+
+        let v0 = graph.add_vertex("a", props.clone()).unwrap();
+        let v1 = graph.add_vertex("b", props.clone()).unwrap();
+        let v2 = graph.add_vertex("c", props.clone()).unwrap();
+        let v3 = graph.add_vertex("d", props).unwrap();
+
+        assert_eq!(v0.0, 0);
+        assert_eq!(v1.0, 1);
+        assert_eq!(v2.0, 2);
+        assert_eq!(v3.0, 3);
+    }
+
+    #[test]
+    fn test_add_vertex_all_vertices_iteration() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let props = std::collections::HashMap::new();
+
+        let v0 = graph.add_vertex("person", props.clone()).unwrap();
+        let v1 = graph.add_vertex("person", props.clone()).unwrap();
+        let v2 = graph.add_vertex("software", props).unwrap();
+
+        // Verify all_vertices returns all 3
+        let all: Vec<_> = graph.all_vertices().collect();
+        assert_eq!(all.len(), 3);
+
+        let ids: Vec<_> = all.iter().map(|v| v.id).collect();
+        assert!(ids.contains(&v0));
+        assert!(ids.contains(&v1));
+        assert!(ids.contains(&v2));
+    }
+
+    #[test]
+    fn test_add_vertex_empty_label() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Empty label should work (though not recommended)
+        let props = std::collections::HashMap::new();
+        let vertex_id = graph.add_vertex("", props).unwrap();
+
+        let vertex = graph.get_vertex(vertex_id).unwrap();
+        assert_eq!(vertex.label, "");
+    }
+
+    #[test]
+    fn test_add_vertex_unicode_label_and_properties() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("名前".to_string(), Value::String("太郎".to_string()));
+        props.insert("emoji".to_string(), Value::String("🚀🌟".to_string()));
+
+        let vertex_id = graph.add_vertex("日本語ラベル", props).unwrap();
+
+        let vertex = graph.get_vertex(vertex_id).unwrap();
+        assert_eq!(vertex.label, "日本語ラベル");
+        assert_eq!(
+            vertex.properties.get("名前"),
+            Some(&Value::String("太郎".to_string()))
+        );
+        assert_eq!(
+            vertex.properties.get("emoji"),
+            Some(&Value::String("🚀🌟".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_add_vertex_large_property_value() {
+        use crate::value::Value;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a large string (> 1KB)
+        let large_string = "x".repeat(5000);
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("data".to_string(), Value::String(large_string.clone()));
+
+        let vertex_id = graph.add_vertex("big_data", props).unwrap();
+
+        let vertex = graph.get_vertex(vertex_id).unwrap();
+        assert_eq!(
+            vertex.properties.get("data"),
+            Some(&Value::String(large_string))
+        );
     }
 }
