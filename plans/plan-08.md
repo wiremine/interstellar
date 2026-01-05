@@ -553,11 +553,11 @@ struct WalEntryHeader {
 5. Implement `increment_edge_count() -> Result<()>`
 
 **Acceptance Criteria**:
-- [ ] Edge allocation works like node allocation
-- [ ] Edge records written correctly
-- [ ] Adjacency list pointers updated in source/destination nodes
-- [ ] Header count updated
-- [ ] Test: Add edge, verify linked lists correct
+- [x] Edge allocation works like node allocation
+- [x] Edge records written correctly
+- [x] Adjacency list pointers updated in source/destination nodes
+- [x] Header count updated
+- [x] Test: Add edge, verify linked lists correct
 
 ---
 

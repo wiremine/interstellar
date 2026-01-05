@@ -68,6 +68,9 @@ pub struct MmapGraph {
 
     /// Free list for deleted node slots (enables slot reuse)
     free_nodes: Arc<RwLock<FreeList>>,
+
+    /// Free list for deleted edge slots (enables slot reuse)
+    free_edges: Arc<RwLock<FreeList>>,
 }
 
 impl MmapGraph {
@@ -134,6 +137,9 @@ impl MmapGraph {
         // free list by scanning deleted records, but that's handled in rebuild_indexes
         let free_nodes = FreeList::with_head(header.free_node_head);
 
+        // Initialize edge free list similarly
+        let free_edges = FreeList::with_head(header.free_edge_head);
+
         let graph = Self {
             mmap: Arc::new(RwLock::new(mmap)),
             file: Arc::new(RwLock::new(file)),
@@ -142,6 +148,7 @@ impl MmapGraph {
             edge_labels: Arc::new(RwLock::new(HashMap::new())),
             arena: Arc::new(RwLock::new(arena)),
             free_nodes: Arc::new(RwLock::new(free_nodes)),
+            free_edges: Arc::new(RwLock::new(free_edges)),
         };
 
         // Rebuild in-memory indexes from disk data
@@ -903,6 +910,287 @@ impl MmapGraph {
     }
 
     // =========================================================================
+    // Phase 4.3: Edge Slot Allocation and Writing
+    // =========================================================================
+
+    /// Allocate a slot for a new edge.
+    ///
+    /// This method first checks the free list for a reusable slot from a deleted
+    /// edge. If no free slots are available, it allocates at the next sequential
+    /// position (extending the table if needed).
+    ///
+    /// # Returns
+    ///
+    /// An `EdgeId` for the newly allocated slot.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error if table growth fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let graph = MmapGraph::open("my_graph.db")?;
+    /// let slot_id = graph.allocate_edge_slot()?;
+    /// // Now write an edge record to this slot
+    /// ```
+    pub fn allocate_edge_slot(&self) -> Result<EdgeId, StorageError> {
+        let header = self.get_header();
+        let current_count = header.edge_count;
+        let current_capacity = header.edge_capacity;
+
+        // Try to allocate from free list first
+        let slot_id = {
+            let mut free_edges = self.free_edges.write();
+            free_edges.allocate(current_count)
+        };
+
+        // If we're extending beyond capacity, grow the table
+        if slot_id >= current_capacity {
+            self.grow_edge_table()?;
+        }
+
+        Ok(EdgeId(slot_id))
+    }
+
+    /// Write an edge record to the file at the correct offset.
+    ///
+    /// The record is written at: `edge_table_offset + (id * EDGE_RECORD_SIZE)`
+    /// where `edge_table_offset = HEADER_SIZE + (node_capacity * NODE_RECORD_SIZE)`
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The edge ID (slot number) to write to
+    /// * `record` - The edge record to write
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during write
+    ///
+    /// # Platform Notes
+    ///
+    /// On Unix, uses `write_all_at` for positioned writes without seeking.
+    /// On other platforms, uses seek + write_all.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let record = EdgeRecord::new(0, label_id, src, dst);
+    /// graph.write_edge_record(EdgeId(0), &record)?;
+    /// ```
+    pub fn write_edge_record(&self, id: EdgeId, record: &EdgeRecord) -> Result<(), StorageError> {
+        // Calculate edge table offset: header + (node_capacity * node_record_size)
+        let header = self.get_header();
+        let edge_table_offset =
+            HEADER_SIZE as u64 + (header.node_capacity * NODE_RECORD_SIZE as u64);
+        let offset = edge_table_offset + (id.0 * EDGE_RECORD_SIZE as u64);
+        let bytes = record.to_bytes();
+
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&bytes, offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(offset))?;
+            file.write_all(&bytes)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see the new data
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Update a node's first_out_edge pointer.
+    ///
+    /// This is used when adding a new outgoing edge to prepend it to the
+    /// source vertex's adjacency list. The new edge becomes the head of
+    /// the outgoing edge list.
+    ///
+    /// # Arguments
+    ///
+    /// * `vertex` - The vertex whose first_out_edge should be updated
+    /// * `edge_id` - The new edge ID to set as first_out_edge
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during write
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // When adding edge 5 from vertex 0:
+    /// // 1. Get vertex 0's current first_out_edge (e.g., 3)
+    /// // 2. Create edge 5 with next_out = 3
+    /// // 3. Update vertex 0's first_out_edge to 5
+    /// graph.update_node_first_out_edge(VertexId(0), 5)?;
+    /// ```
+    pub fn update_node_first_out_edge(
+        &self,
+        vertex: VertexId,
+        edge_id: u64,
+    ) -> Result<(), StorageError> {
+        // Calculate offset to the first_out_edge field in the node record
+        // NodeRecord layout: id(8) + label_id(4) + flags(4) + first_out_edge(8) + first_in_edge(8) + prop_head(8)
+        // first_out_edge is at offset 16 within the record
+        let node_offset = HEADER_SIZE as u64 + (vertex.0 * NODE_RECORD_SIZE as u64);
+        let first_out_edge_offset = node_offset + 16; // id(8) + label_id(4) + flags(4)
+
+        let bytes = edge_id.to_le_bytes();
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&bytes, first_out_edge_offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(first_out_edge_offset))?;
+            file.write_all(&bytes)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see the updated data
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Update a node's first_in_edge pointer.
+    ///
+    /// This is used when adding a new incoming edge to prepend it to the
+    /// destination vertex's adjacency list. The new edge becomes the head
+    /// of the incoming edge list.
+    ///
+    /// # Arguments
+    ///
+    /// * `vertex` - The vertex whose first_in_edge should be updated
+    /// * `edge_id` - The new edge ID to set as first_in_edge
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during write
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // When adding edge 5 to vertex 1:
+    /// // 1. Get vertex 1's current first_in_edge (e.g., 2)
+    /// // 2. Create edge 5 with next_in = 2
+    /// // 3. Update vertex 1's first_in_edge to 5
+    /// graph.update_node_first_in_edge(VertexId(1), 5)?;
+    /// ```
+    pub fn update_node_first_in_edge(
+        &self,
+        vertex: VertexId,
+        edge_id: u64,
+    ) -> Result<(), StorageError> {
+        // Calculate offset to the first_in_edge field in the node record
+        // NodeRecord layout: id(8) + label_id(4) + flags(4) + first_out_edge(8) + first_in_edge(8) + prop_head(8)
+        // first_in_edge is at offset 24 within the record
+        let node_offset = HEADER_SIZE as u64 + (vertex.0 * NODE_RECORD_SIZE as u64);
+        let first_in_edge_offset = node_offset + 24; // id(8) + label_id(4) + flags(4) + first_out_edge(8)
+
+        let bytes = edge_id.to_le_bytes();
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&bytes, first_in_edge_offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(first_in_edge_offset))?;
+            file.write_all(&bytes)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see the updated data
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Increment the edge count in the file header.
+    ///
+    /// This should be called after successfully writing a new edge record
+    /// (not when reusing a deleted slot, since the count wasn't decremented).
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    ///
+    /// # Note
+    ///
+    /// This method reads the current header, increments the count, and writes
+    /// the updated header back. It must be called with proper synchronization
+    /// to avoid race conditions.
+    pub fn increment_edge_count(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.edge_count += 1;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Update the free edge head in the file header.
+    ///
+    /// This persists the current state of the free list head to disk.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    pub fn update_free_edge_head(&self) -> Result<(), StorageError> {
+        let free_edge_head = self.free_edges.read().head();
+
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.free_edge_head = free_edge_head;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
+        self.remap()?;
+
+        Ok(())
+    }
+
+    // =========================================================================
     // Phase 3.6: File Growth and Remapping
     // =========================================================================
 
@@ -1502,9 +1790,9 @@ mod tests {
         let file_size = metadata.len();
 
         // Size should be: header + nodes + edges + arena
-        // 64 + (1000 * 48) + (10000 * 56) + (64 * 1024)
-        let expected_size = 64 + (1000 * 48) + (10000 * 56) + (64 * 1024);
-        assert_eq!(file_size, expected_size);
+        // HEADER_SIZE (72) + (1000 * 48) + (10000 * 56) + (64 * 1024)
+        let expected_size = HEADER_SIZE + (1000 * 48) + (10000 * 56) + (64 * 1024);
+        assert_eq!(file_size, expected_size as u64);
 
         // Verify header fields
         let mmap = graph.mmap.read();
@@ -1515,7 +1803,7 @@ mod tests {
         let free_node_head = header.free_node_head;
 
         // Property arena should start after node and edge tables
-        let expected_arena_offset = 64 + (1000 * 48) + (10000 * 56);
+        let expected_arena_offset = HEADER_SIZE + (1000 * 48) + (10000 * 56);
         assert_eq!(property_arena_offset, expected_arena_offset as u64);
 
         // String table should be in last 32KB
@@ -4342,5 +4630,462 @@ mod tests {
             let slot = graph.allocate_node_slot().unwrap();
             assert_eq!(slot.0, 1, "Should reuse freed slot 1");
         }
+    }
+
+    // =========================================================================
+    // Phase 4.3: Edge Slot Allocation and Writing Tests
+    // =========================================================================
+
+    #[test]
+    fn test_allocate_edge_slot_returns_sequential_ids() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // First allocation should return slot 0
+        let slot0 = graph.allocate_edge_slot().unwrap();
+        assert_eq!(slot0.0, 0, "First edge slot should be 0");
+
+        // Manually update count to simulate the slot being used
+        graph.increment_edge_count().unwrap();
+
+        // Second allocation should return slot 1
+        let slot1 = graph.allocate_edge_slot().unwrap();
+        assert_eq!(slot1.0, 1, "Second edge slot should be 1");
+
+        graph.increment_edge_count().unwrap();
+
+        // Third allocation should return slot 2
+        let slot2 = graph.allocate_edge_slot().unwrap();
+        assert_eq!(slot2.0, 2, "Third edge slot should be 2");
+    }
+
+    #[test]
+    fn test_allocate_edge_slot_reuses_free_slots() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Simulate allocating 3 slots
+        for _ in 0..3 {
+            let _ = graph.allocate_edge_slot().unwrap();
+            graph.increment_edge_count().unwrap();
+        }
+
+        // Free slot 1 (simulating deletion)
+        {
+            let mut free_edges = graph.free_edges.write();
+            free_edges.free(1);
+        }
+
+        // Next allocation should reuse slot 1
+        let reused = graph.allocate_edge_slot().unwrap();
+        assert_eq!(
+            reused.0, 1,
+            "Should reuse freed edge slot 1 instead of allocating 3"
+        );
+    }
+
+    #[test]
+    fn test_write_edge_record_and_read_back() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create and write an edge record
+        let slot = graph.allocate_edge_slot().unwrap();
+        let mut record = EdgeRecord::new(slot.0, 42, 10, 20); // label=42, src=10, dst=20
+        record.next_out = 100;
+        record.next_in = 200;
+        record.prop_head = 300;
+
+        graph.write_edge_record(slot, &record).unwrap();
+
+        // Read it back
+        let retrieved = graph.get_edge_record(slot);
+        assert!(
+            retrieved.is_some(),
+            "Should be able to read written edge record"
+        );
+
+        let retrieved = retrieved.unwrap();
+        // Copy fields to avoid unaligned reference errors with packed structs
+        let id = retrieved.id;
+        let label_id = retrieved.label_id;
+        let src = retrieved.src;
+        let dst = retrieved.dst;
+        let next_out = retrieved.next_out;
+        let next_in = retrieved.next_in;
+        let prop_head = retrieved.prop_head;
+
+        assert_eq!(id, slot.0);
+        assert_eq!(label_id, 42);
+        assert_eq!(src, 10);
+        assert_eq!(dst, 20);
+        assert_eq!(next_out, 100);
+        assert_eq!(next_in, 200);
+        assert_eq!(prop_head, 300);
+    }
+
+    #[test]
+    fn test_increment_edge_count() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Initial count should be 0
+        let initial = graph.get_header().edge_count;
+        assert_eq!(initial, 0, "Initial edge count should be 0");
+
+        // Increment
+        graph.increment_edge_count().unwrap();
+        let after_first = graph.get_header().edge_count;
+        assert_eq!(after_first, 1, "Edge count should be 1 after increment");
+
+        // Increment again
+        graph.increment_edge_count().unwrap();
+        let after_second = graph.get_header().edge_count;
+        assert_eq!(
+            after_second, 2,
+            "Edge count should be 2 after second increment"
+        );
+    }
+
+    #[test]
+    fn test_update_free_edge_head() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Initial free head should be MAX (empty)
+        let initial = graph.get_header().free_edge_head;
+        assert_eq!(initial, u64::MAX, "Initial edge free head should be MAX");
+
+        // Add some free slots
+        {
+            let mut free_edges = graph.free_edges.write();
+            free_edges.free(5);
+            free_edges.free(10);
+        }
+
+        // Update header
+        graph.update_free_edge_head().unwrap();
+
+        // Verify header updated
+        let after = graph.get_header().free_edge_head;
+        assert_eq!(after, 10, "Edge free head should be 10 (last freed)");
+    }
+
+    #[test]
+    fn test_write_multiple_edges() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Write 10 edges
+        for i in 0..10 {
+            let slot = graph.allocate_edge_slot().unwrap();
+            let record = EdgeRecord::new(slot.0, i as u32 * 10, i, i + 1);
+            graph.write_edge_record(slot, &record).unwrap();
+            graph.increment_edge_count().unwrap();
+        }
+
+        // Verify count
+        let count = graph.get_header().edge_count;
+        assert_eq!(count, 10, "Should have 10 edges");
+
+        // Verify all can be read back
+        for i in 0..10 {
+            let record = graph.get_edge_record(EdgeId(i));
+            assert!(record.is_some(), "Edge {} should exist", i);
+
+            let record = record.unwrap();
+            // Copy fields to avoid unaligned reference errors with packed structs
+            let id = record.id;
+            let label_id = record.label_id;
+            let src = record.src;
+            let dst = record.dst;
+
+            assert_eq!(id, i);
+            assert_eq!(label_id, (i as u32) * 10);
+            assert_eq!(src, i);
+            assert_eq!(dst, i + 1);
+        }
+    }
+
+    #[test]
+    fn test_update_node_first_out_edge() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a node first
+        let node_slot = graph.allocate_node_slot().unwrap();
+        let mut node_record = NodeRecord::new(node_slot.0, 0);
+        node_record.first_out_edge = u64::MAX; // Initially no edges
+        node_record.first_in_edge = u64::MAX;
+        graph.write_node_record(node_slot, &node_record).unwrap();
+        graph.increment_node_count().unwrap();
+
+        // Verify initial state
+        let node = graph.get_node_record(node_slot).unwrap();
+        let first_out = node.first_out_edge;
+        assert_eq!(first_out, u64::MAX, "Initially no outgoing edges");
+
+        // Update first_out_edge to point to edge 5
+        graph.update_node_first_out_edge(node_slot, 5).unwrap();
+
+        // Verify update
+        let node = graph.get_node_record(node_slot).unwrap();
+        let first_out = node.first_out_edge;
+        let first_in = node.first_in_edge;
+        assert_eq!(first_out, 5, "first_out_edge should be 5");
+        // first_in_edge should be unchanged
+        assert_eq!(first_in, u64::MAX, "first_in_edge should be unchanged");
+    }
+
+    #[test]
+    fn test_update_node_first_in_edge() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a node first
+        let node_slot = graph.allocate_node_slot().unwrap();
+        let mut node_record = NodeRecord::new(node_slot.0, 0);
+        node_record.first_out_edge = u64::MAX;
+        node_record.first_in_edge = u64::MAX;
+        graph.write_node_record(node_slot, &node_record).unwrap();
+        graph.increment_node_count().unwrap();
+
+        // Verify initial state
+        let node = graph.get_node_record(node_slot).unwrap();
+        let first_in = node.first_in_edge;
+        assert_eq!(first_in, u64::MAX, "Initially no incoming edges");
+
+        // Update first_in_edge to point to edge 7
+        graph.update_node_first_in_edge(node_slot, 7).unwrap();
+
+        // Verify update
+        let node = graph.get_node_record(node_slot).unwrap();
+        let first_in = node.first_in_edge;
+        let first_out = node.first_out_edge;
+        assert_eq!(first_in, 7, "first_in_edge should be 7");
+        // first_out_edge should be unchanged
+        assert_eq!(first_out, u64::MAX, "first_out_edge should be unchanged");
+    }
+
+    #[test]
+    fn test_edge_allocate_triggers_table_growth() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial capacity
+        let initial_capacity = graph.get_header().edge_capacity;
+        assert_eq!(
+            initial_capacity, 10000,
+            "Initial edge capacity should be 10000"
+        );
+
+        // Manually set edge_count to capacity to force growth on next allocate
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.edge_count = 10000;
+            drop(mmap);
+
+            let file = graph.file.write();
+            MmapGraph::write_header(&file, &header).unwrap();
+            drop(file);
+            graph.remap().unwrap();
+        }
+
+        // Allocate should trigger growth
+        let slot = graph.allocate_edge_slot().unwrap();
+        assert_eq!(slot.0, 10000, "Should allocate at edge slot 10000");
+
+        // Capacity should have doubled
+        let new_capacity = graph.get_header().edge_capacity;
+        assert_eq!(new_capacity, 20000, "Edge capacity should double to 20000");
+    }
+
+    #[test]
+    fn test_edge_allocate_write_roundtrip_with_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create database and add edges
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            for i in 0u64..5 {
+                let slot = graph.allocate_edge_slot().unwrap();
+                let record = EdgeRecord::new(slot.0, (i * 100) as u32, i, i + 1);
+                graph.write_edge_record(slot, &record).unwrap();
+                graph.increment_edge_count().unwrap();
+            }
+
+            // Verify edges exist before close
+            let count = graph.get_header().edge_count;
+            assert_eq!(count, 5);
+        }
+
+        // Reopen and verify
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Verify count
+            let count = graph.get_header().edge_count;
+            assert_eq!(count, 5);
+
+            // Verify all edges
+            for i in 0..5 {
+                let record = graph.get_edge_record(EdgeId(i));
+                assert!(record.is_some(), "Edge {} should persist after reopen", i);
+
+                let record = record.unwrap();
+                // Copy fields to avoid unaligned reference errors with packed structs
+                let id = record.id;
+                let label_id = record.label_id;
+                assert_eq!(id, i);
+                assert_eq!(label_id, (i as u32) * 100);
+            }
+        }
+    }
+
+    #[test]
+    fn test_edge_free_list_persists_after_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create database, add edges, mark one as free
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            // Add 3 edges
+            for i in 0u64..3 {
+                let slot = graph.allocate_edge_slot().unwrap();
+                let record = EdgeRecord::new(slot.0, (i * 10) as u32, i, i + 1);
+                graph.write_edge_record(slot, &record).unwrap();
+                graph.increment_edge_count().unwrap();
+            }
+
+            // Free slot 1
+            {
+                let mut free_edges = graph.free_edges.write();
+                free_edges.free(1);
+            }
+            graph.update_free_edge_head().unwrap();
+        }
+
+        // Reopen and verify free list head
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            let free_head = graph.free_edges.read().head();
+            assert_eq!(free_head, 1, "Edge free list head should be 1 after reopen");
+
+            // Next allocation should reuse slot 1
+            let slot = graph.allocate_edge_slot().unwrap();
+            assert_eq!(slot.0, 1, "Should reuse freed edge slot 1");
+        }
+    }
+
+    #[test]
+    fn test_adjacency_list_maintenance() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create 3 nodes
+        for i in 0..3 {
+            let slot = graph.allocate_node_slot().unwrap();
+            let mut record = NodeRecord::new(slot.0, 0);
+            record.first_out_edge = u64::MAX;
+            record.first_in_edge = u64::MAX;
+            graph.write_node_record(slot, &record).unwrap();
+            graph.increment_node_count().unwrap();
+        }
+
+        // Add edge 0: node 0 -> node 1
+        // This should be the first outgoing edge from node 0 and first incoming to node 1
+        {
+            let edge_slot = graph.allocate_edge_slot().unwrap();
+            let mut edge_record = EdgeRecord::new(edge_slot.0, 0, 0, 1);
+
+            // Get current first_out and first_in from nodes
+            let src_node = graph.get_node_record(VertexId(0)).unwrap();
+            let dst_node = graph.get_node_record(VertexId(1)).unwrap();
+
+            // Copy fields to avoid unaligned reference errors
+            let src_first_out = src_node.first_out_edge;
+            let dst_first_in = dst_node.first_in_edge;
+
+            edge_record.next_out = src_first_out; // u64::MAX (no previous)
+            edge_record.next_in = dst_first_in; // u64::MAX (no previous)
+
+            graph.write_edge_record(edge_slot, &edge_record).unwrap();
+            graph
+                .update_node_first_out_edge(VertexId(0), edge_slot.0)
+                .unwrap();
+            graph
+                .update_node_first_in_edge(VertexId(1), edge_slot.0)
+                .unwrap();
+            graph.increment_edge_count().unwrap();
+        }
+
+        // Add edge 1: node 0 -> node 2
+        // This should be prepended to node 0's outgoing list
+        {
+            let edge_slot = graph.allocate_edge_slot().unwrap();
+            let mut edge_record = EdgeRecord::new(edge_slot.0, 0, 0, 2);
+
+            // Get current first_out from node 0 (should be edge 0)
+            let src_node = graph.get_node_record(VertexId(0)).unwrap();
+            let dst_node = graph.get_node_record(VertexId(2)).unwrap();
+
+            // Copy fields to avoid unaligned reference errors
+            let src_first_out = src_node.first_out_edge;
+            let dst_first_in = dst_node.first_in_edge;
+
+            edge_record.next_out = src_first_out; // Points to edge 0
+            edge_record.next_in = dst_first_in; // u64::MAX
+
+            graph.write_edge_record(edge_slot, &edge_record).unwrap();
+            graph
+                .update_node_first_out_edge(VertexId(0), edge_slot.0)
+                .unwrap();
+            graph
+                .update_node_first_in_edge(VertexId(2), edge_slot.0)
+                .unwrap();
+            graph.increment_edge_count().unwrap();
+        }
+
+        // Verify adjacency lists
+        // Node 0's first_out_edge should be 1 (most recent), with next_out = 0
+        let node0 = graph.get_node_record(VertexId(0)).unwrap();
+        let node0_first_out = node0.first_out_edge;
+        assert_eq!(node0_first_out, 1, "Node 0's first_out should be edge 1");
+
+        // Edge 1's next_out should be edge 0
+        let edge1 = graph.get_edge_record(EdgeId(1)).unwrap();
+        let edge1_next_out = edge1.next_out;
+        assert_eq!(edge1_next_out, 0, "Edge 1's next_out should be edge 0");
+
+        // Edge 0's next_out should be u64::MAX (end of list)
+        let edge0 = graph.get_edge_record(EdgeId(0)).unwrap();
+        let edge0_next_out = edge0.next_out;
+        assert_eq!(edge0_next_out, u64::MAX, "Edge 0's next_out should be MAX");
+
+        // Node 1's first_in_edge should be edge 0
+        let node1 = graph.get_node_record(VertexId(1)).unwrap();
+        let node1_first_in = node1.first_in_edge;
+        assert_eq!(node1_first_in, 0, "Node 1's first_in should be edge 0");
+
+        // Node 2's first_in_edge should be edge 1
+        let node2 = graph.get_node_record(VertexId(2)).unwrap();
+        let node2_first_in = node2.first_in_edge;
+        assert_eq!(node2_first_in, 1, "Node 2's first_in should be edge 1");
     }
 }
