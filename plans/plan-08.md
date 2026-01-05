@@ -408,9 +408,9 @@ struct WalEntryHeader {
 ```
 
 **Acceptance Criteria**:
-- [ ] All entry types serialize with bincode
-- [ ] Entry types are Clone and Debug
-- [ ] Header struct has correct size
+- [x] All entry types serialize with bincode
+- [x] Entry types are Clone and Debug
+- [x] Header struct has correct size
 
 ---
 

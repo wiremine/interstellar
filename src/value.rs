@@ -88,7 +88,9 @@ use std::collections::{BTreeMap, HashMap};
 /// let mut ids = vec![bob_id, alice_id];
 /// ids.sort();
 /// ```
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct VertexId(pub u64);
 
 /// A unique identifier for an edge in the graph.
@@ -119,7 +121,9 @@ pub struct VertexId(pub u64);
 /// // Edge IDs are distinct from vertex IDs
 /// println!("Edge {:?} connects {:?} to {:?}", edge_id, alice, bob);
 /// ```
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct EdgeId(pub u64);
 
 /// A union type representing either a vertex or edge identifier.
@@ -219,7 +223,7 @@ pub enum ElementId {
 /// seen.insert(42i64.into());
 /// seen.insert("hello".into());
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Value {
     /// The null/absent value.
     Null,
