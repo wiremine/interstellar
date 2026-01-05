@@ -368,10 +368,10 @@ impl FreeList {
 ```
 
 **Acceptance Criteria**:
-- [ ] `allocate()` reuses freed slots first
-- [ ] `allocate()` extends table when free list is empty
-- [ ] `free()` adds slots to free list
-- [ ] Multiple allocate/free cycles work correctly
+- [x] `allocate()` reuses freed slots first
+- [x] `allocate()` extends table when free list is empty
+- [x] `free()` adds slots to free list
+- [x] Multiple allocate/free cycles work correctly
 
 ---
 
