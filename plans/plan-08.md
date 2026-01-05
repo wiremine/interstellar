@@ -320,10 +320,10 @@ pub struct MmapGraph {
 6. Implement `interner()` accessor
 
 **Acceptance Criteria**:
-- [ ] `get_vertex()` constructs full `Vertex` with label and properties
-- [ ] `get_edge()` constructs full `Edge` with src/dst and properties
-- [ ] Label filtering uses bitmap indexes efficiently
-- [ ] Counts return correct values from header
+- [x] `get_vertex()` constructs full `Vertex` with label and properties
+- [x] `get_edge()` constructs full `Edge` with src/dst and properties
+- [x] Label filtering uses bitmap indexes efficiently
+- [x] Counts return correct values from header
 
 ---
 

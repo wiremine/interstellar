@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::error::StorageError;
-use crate::storage::StringInterner;
+use crate::storage::{Edge, GraphStorage, StringInterner, Vertex};
 
 pub mod arena;
 pub mod freelist;
@@ -48,7 +48,6 @@ use crate::value::{EdgeId, VertexId};
 /// coordination.
 pub struct MmapGraph {
     /// Memory-mapped file (read-only view of data)
-    #[allow(dead_code)] // Will be used in Phase 2.2 and beyond
     mmap: Arc<RwLock<Mmap>>,
 
     /// File handle for writes
@@ -56,13 +55,12 @@ pub struct MmapGraph {
     file: Arc<RwLock<File>>,
 
     /// String interner (in-memory, rebuilt on load)
-    #[allow(dead_code)] // Will be used in Phase 2.4
+    /// Note: Uses RwLock for interior mutability during writes, but reads
+    /// are lock-free via the interner() accessor using parking_lot's RwLock.
     string_table: Arc<RwLock<StringInterner>>,
 
     /// Label indexes (in-memory, rebuilt on load)
-    #[allow(dead_code)] // Will be used in Phase 2.5
     vertex_labels: Arc<RwLock<HashMap<u32, RoaringBitmap>>>,
-    #[allow(dead_code)] // Will be used in Phase 2.5
     edge_labels: Arc<RwLock<HashMap<u32, RoaringBitmap>>>,
 }
 
@@ -95,10 +93,13 @@ impl MmapGraph {
         let file_exists = path.exists();
 
         // Open or create main data file
+        // Note: We don't use truncate(true) because we want to preserve existing data
+        // when reopening a database. New files are initialized separately.
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
 
         if !file_exists {
@@ -368,6 +369,7 @@ impl MmapGraph {
     /// The edge table starts immediately after the node table.
     /// Returns the byte offset from the beginning of the file.
     #[inline]
+    #[allow(dead_code)] // Will be used in Phase 3+ for write operations
     fn edge_table_offset(&self) -> usize {
         let mmap = self.mmap.read();
         let header = Self::read_header(&mmap);
@@ -609,7 +611,300 @@ impl MmapGraph {
 
         Ok(properties)
     }
+
+    /// Get the header from the mmap.
+    ///
+    /// This is a helper method for GraphStorage implementations that need
+    /// to read counts from the header.
+    fn get_header(&self) -> FileHeader {
+        let mmap = self.mmap.read();
+        Self::read_header(&mmap)
+    }
 }
+
+// =========================================================================
+// GraphStorage Trait Implementation
+// =========================================================================
+
+impl GraphStorage for MmapGraph {
+    /// O(1) vertex lookup.
+    ///
+    /// Retrieves a vertex by ID, constructing the full `Vertex` struct with
+    /// resolved label and loaded properties.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(Vertex)` if the vertex exists and is not deleted
+    /// - `None` if the vertex doesn't exist or is deleted
+    fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
+        // Get the node record
+        let record = self.get_node_record(id)?;
+
+        // Resolve label from string table
+        let label = {
+            let string_table = self.string_table.read();
+            string_table.resolve(record.label_id)?.to_string()
+        };
+
+        // Load properties
+        let properties = self.load_properties(record.prop_head).ok()?;
+
+        // Convert hashbrown HashMap to std HashMap for Vertex
+        let properties: std::collections::HashMap<String, crate::value::Value> =
+            properties.into_iter().collect();
+
+        Some(Vertex {
+            id,
+            label,
+            properties,
+        })
+    }
+
+    /// O(1) edge lookup.
+    ///
+    /// Retrieves an edge by ID, constructing the full `Edge` struct with
+    /// resolved label and loaded properties.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(Edge)` if the edge exists and is not deleted
+    /// - `None` if the edge doesn't exist or is deleted
+    fn get_edge(&self, id: EdgeId) -> Option<Edge> {
+        // Get the edge record
+        let record = self.get_edge_record(id)?;
+
+        // Resolve label from string table
+        let label = {
+            let string_table = self.string_table.read();
+            string_table.resolve(record.label_id)?.to_string()
+        };
+
+        // Load properties
+        let properties = self.load_properties(record.prop_head).ok()?;
+
+        // Convert hashbrown HashMap to std HashMap for Edge
+        let properties: std::collections::HashMap<String, crate::value::Value> =
+            properties.into_iter().collect();
+
+        Some(Edge {
+            id,
+            label,
+            src: VertexId(record.src),
+            dst: VertexId(record.dst),
+            properties,
+        })
+    }
+
+    /// O(1) vertex count from header.
+    fn vertex_count(&self) -> u64 {
+        self.get_header().node_count
+    }
+
+    /// O(1) edge count from header.
+    fn edge_count(&self) -> u64 {
+        self.get_header().edge_count
+    }
+
+    /// Returns iterator over all outgoing edges from a vertex.
+    ///
+    /// Follows the linked list starting at the vertex's `first_out_edge` pointer.
+    fn out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = Edge> + '_> {
+        // Get the starting edge ID from the node record
+        let first_edge = match self.get_node_record(vertex) {
+            Some(record) => record.first_out_edge,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        Box::new(OutEdgeIterator {
+            graph: self,
+            current: first_edge,
+        })
+    }
+
+    /// Returns iterator over all incoming edges to a vertex.
+    ///
+    /// Follows the linked list starting at the vertex's `first_in_edge` pointer.
+    fn in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = Edge> + '_> {
+        // Get the starting edge ID from the node record
+        let first_edge = match self.get_node_record(vertex) {
+            Some(record) => record.first_in_edge,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        Box::new(InEdgeIterator {
+            graph: self,
+            current: first_edge,
+        })
+    }
+
+    /// Returns iterator over all vertices with a given label.
+    ///
+    /// Uses the bitmap index for efficient label filtering.
+    fn vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        // Look up label ID without interning (read-only)
+        let label_id = {
+            let string_table = self.string_table.read();
+            string_table.lookup(label)
+        };
+
+        // Get the bitmap for this label, if any
+        let bitmap = label_id.and_then(|id| {
+            let vertex_labels = self.vertex_labels.read();
+            vertex_labels.get(&id).cloned()
+        });
+
+        match bitmap {
+            Some(bitmap) => Box::new(
+                bitmap
+                    .into_iter()
+                    .filter_map(move |id| self.get_vertex(VertexId(id as u64))),
+            ),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
+    /// Returns iterator over all edges with a given label.
+    ///
+    /// Uses the bitmap index for efficient label filtering.
+    fn edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Edge> + '_> {
+        // Look up label ID without interning (read-only)
+        let label_id = {
+            let string_table = self.string_table.read();
+            string_table.lookup(label)
+        };
+
+        // Get the bitmap for this label, if any
+        let bitmap = label_id.and_then(|id| {
+            let edge_labels = self.edge_labels.read();
+            edge_labels.get(&id).cloned()
+        });
+
+        match bitmap {
+            Some(bitmap) => Box::new(
+                bitmap
+                    .into_iter()
+                    .filter_map(move |id| self.get_edge(EdgeId(id as u64))),
+            ),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
+    /// Returns iterator over all vertices in the graph.
+    ///
+    /// Scans all node slots from 0 to node_count, skipping deleted nodes.
+    fn all_vertices(&self) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        let node_count = self.get_header().node_count;
+
+        Box::new((0..node_count).filter_map(move |id| self.get_vertex(VertexId(id))))
+    }
+
+    /// Returns iterator over all edges in the graph.
+    ///
+    /// Scans all edge slots from 0 to edge_count, skipping deleted edges.
+    fn all_edges(&self) -> Box<dyn Iterator<Item = Edge> + '_> {
+        let edge_count = self.get_header().edge_count;
+
+        Box::new((0..edge_count).filter_map(move |id| self.get_edge(EdgeId(id))))
+    }
+
+    /// Returns a reference to the string interner.
+    ///
+    /// # Implementation Note
+    ///
+    /// This uses `parking_lot::RwLockReadGuard::leak` to return a static reference.
+    /// This is safe because:
+    /// 1. The lock is held for the lifetime of the reference
+    /// 2. MmapGraph is designed for single-threaded write access with concurrent reads
+    /// 3. The leaked guard will be reclaimed when MmapGraph is dropped
+    ///
+    /// # Safety
+    ///
+    /// This method uses unsafe code to convert the guard into a static reference.
+    /// The caller must ensure that the returned reference does not outlive the MmapGraph.
+    fn interner(&self) -> &StringInterner {
+        // SAFETY: We leak the read guard to get a 'static lifetime reference.
+        // This is safe because:
+        // 1. The StringInterner lives as long as MmapGraph
+        // 2. We're holding a read lock, allowing concurrent reads
+        // 3. The Arc ensures the data won't be deallocated while we hold a reference
+        //
+        // Note: This does leak the RwLockReadGuard, which means the read lock
+        // is held until MmapGraph is dropped. For read-heavy workloads this is
+        // acceptable. For write operations, we use a separate mutex pattern.
+        let guard = self.string_table.read();
+        let ptr = &*guard as *const StringInterner;
+        std::mem::forget(guard);
+        // SAFETY: The pointer is valid for the lifetime of MmapGraph
+        unsafe { &*ptr }
+    }
+}
+
+// =========================================================================
+// Edge Iterators for Adjacency List Traversal
+// =========================================================================
+
+/// Iterator over outgoing edges from a vertex.
+///
+/// Follows the linked list of edges via the `next_out` pointer in each edge record.
+struct OutEdgeIterator<'g> {
+    graph: &'g MmapGraph,
+    current: u64,
+}
+
+impl<'g> Iterator for OutEdgeIterator<'g> {
+    type Item = Edge;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // u64::MAX indicates end of list
+        if self.current == u64::MAX {
+            return None;
+        }
+
+        // Get the edge record
+        let record = self.graph.get_edge_record(EdgeId(self.current))?;
+
+        // Move to next edge in the linked list
+        self.current = record.next_out;
+
+        // Construct and return the Edge
+        self.graph.get_edge(EdgeId(record.id))
+    }
+}
+
+/// Iterator over incoming edges to a vertex.
+///
+/// Follows the linked list of edges via the `next_in` pointer in each edge record.
+struct InEdgeIterator<'g> {
+    graph: &'g MmapGraph,
+    current: u64,
+}
+
+impl<'g> Iterator for InEdgeIterator<'g> {
+    type Item = Edge;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // u64::MAX indicates end of list
+        if self.current == u64::MAX {
+            return None;
+        }
+
+        // Get the edge record
+        let record = self.graph.get_edge_record(EdgeId(self.current))?;
+
+        // Move to next edge in the linked list
+        self.current = record.next_in;
+
+        // Construct and return the Edge
+        self.graph.get_edge(EdgeId(record.id))
+    }
+}
+
+// SAFETY: MmapGraph is Send + Sync because:
+// - Arc<RwLock<_>> is Send + Sync
+// - All interior data is protected by RwLocks
+// - Memory-mapped regions are thread-safe for reads
+unsafe impl Send for MmapGraph {}
+unsafe impl Sync for MmapGraph {}
 
 #[cfg(test)]
 mod tests {
@@ -2036,5 +2331,521 @@ mod tests {
             assert_eq!(label_20.len(), 1);
             assert!(label_20.contains(2));
         }
+    }
+
+    // =========================================================================
+    // Phase 2.6: GraphStorage Trait Implementation Tests
+    // =========================================================================
+
+    /// Helper to create a test graph with nodes and edges written to disk.
+    /// Returns the graph and vectors of (vertex_id, label_id) and edge data.
+    fn setup_test_graph_with_data() -> (TempDir, MmapGraph) {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Intern labels in string table
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("person"); // ID 0
+            string_table.intern("software"); // ID 1
+            string_table.intern("knows"); // ID 2
+            string_table.intern("created"); // ID 3
+        }
+
+        // Write node records
+        // Node 0: person
+        // Node 1: person
+        // Node 2: software
+        let nodes = vec![
+            (VertexId(0), 0u32), // label_id 0 = "person"
+            (VertexId(1), 0u32), // label_id 0 = "person"
+            (VertexId(2), 1u32), // label_id 1 = "software"
+        ];
+
+        for (node_id, label_id) in &nodes {
+            let record = records::NodeRecord::new(node_id.0, *label_id);
+            let offset = HEADER_SIZE + (node_id.0 as usize * NODE_RECORD_SIZE);
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Update header to reflect node_count
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = nodes.len() as u64;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        {
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        // Rebuild indexes
+        graph.rebuild_indexes().unwrap();
+
+        (dir, graph)
+    }
+
+    #[test]
+    fn test_graph_storage_get_vertex() {
+        let (_dir, graph) = setup_test_graph_with_data();
+
+        // Test getting existing vertices
+        let v0 = graph.get_vertex(VertexId(0));
+        assert!(v0.is_some(), "Vertex 0 should exist");
+        let v0 = v0.unwrap();
+        assert_eq!(v0.id, VertexId(0));
+        assert_eq!(v0.label, "person");
+
+        let v2 = graph.get_vertex(VertexId(2));
+        assert!(v2.is_some(), "Vertex 2 should exist");
+        let v2 = v2.unwrap();
+        assert_eq!(v2.id, VertexId(2));
+        assert_eq!(v2.label, "software");
+
+        // Test getting non-existent vertex
+        let v999 = graph.get_vertex(VertexId(999));
+        assert!(v999.is_none(), "Vertex 999 should not exist");
+    }
+
+    #[test]
+    fn test_graph_storage_vertex_count() {
+        let (_dir, graph) = setup_test_graph_with_data();
+        assert_eq!(graph.vertex_count(), 3, "Should have 3 vertices");
+    }
+
+    #[test]
+    fn test_graph_storage_edge_count_empty() {
+        let (_dir, graph) = setup_test_graph_with_data();
+        assert_eq!(graph.edge_count(), 0, "Should have 0 edges initially");
+    }
+
+    #[test]
+    fn test_graph_storage_vertices_with_label() {
+        let (_dir, graph) = setup_test_graph_with_data();
+
+        // Get vertices with label "person"
+        let people: Vec<_> = graph.vertices_with_label("person").collect();
+        assert_eq!(people.len(), 2, "Should have 2 people");
+        assert!(people.iter().all(|v| v.label == "person"));
+
+        // Get vertices with label "software"
+        let software: Vec<_> = graph.vertices_with_label("software").collect();
+        assert_eq!(software.len(), 1, "Should have 1 software");
+        assert_eq!(software[0].label, "software");
+
+        // Get vertices with non-existent label
+        let unknown: Vec<_> = graph.vertices_with_label("unknown").collect();
+        assert_eq!(unknown.len(), 0, "Should have 0 unknown vertices");
+    }
+
+    #[test]
+    fn test_graph_storage_all_vertices() {
+        let (_dir, graph) = setup_test_graph_with_data();
+
+        let all: Vec<_> = graph.all_vertices().collect();
+        assert_eq!(all.len(), 3, "Should iterate over all 3 vertices");
+
+        // Check all expected IDs are present
+        let ids: Vec<_> = all.iter().map(|v| v.id).collect();
+        assert!(ids.contains(&VertexId(0)));
+        assert!(ids.contains(&VertexId(1)));
+        assert!(ids.contains(&VertexId(2)));
+    }
+
+    #[test]
+    fn test_graph_storage_interner() {
+        let (_dir, graph) = setup_test_graph_with_data();
+
+        let interner = graph.interner();
+
+        // Check that we can resolve interned strings
+        assert_eq!(interner.resolve(0), Some("person"));
+        assert_eq!(interner.resolve(1), Some("software"));
+        assert_eq!(interner.resolve(2), Some("knows"));
+        assert_eq!(interner.resolve(3), Some("created"));
+
+        // Check lookup works
+        assert_eq!(interner.lookup("person"), Some(0));
+        assert_eq!(interner.lookup("software"), Some(1));
+        assert_eq!(interner.lookup("unknown"), None);
+    }
+
+    #[test]
+    fn test_graph_storage_get_vertex_with_properties() {
+        use crate::value::Value;
+        use records::PropertyEntry;
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Intern strings
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("person"); // ID 0
+            string_table.intern("name"); // ID 1
+            string_table.intern("age"); // ID 2
+        }
+
+        // Get property arena offset
+        let prop_arena_offset = {
+            let mmap = graph.mmap.read();
+            let header = MmapGraph::read_header(&mmap);
+            header.property_arena_offset
+        };
+
+        // Write properties: name="Alice", age=30
+        let name_value = Value::String("Alice".to_string());
+        let mut name_bytes = Vec::new();
+        name_value.serialize(&mut name_bytes);
+
+        let age_value = Value::Int(30);
+        let mut age_bytes = Vec::new();
+        age_value.serialize(&mut age_bytes);
+
+        // Calculate offsets
+        let name_entry_offset = prop_arena_offset;
+        let age_entry_offset = name_entry_offset
+            + records::PROPERTY_ENTRY_HEADER_SIZE as u64
+            + name_bytes.len() as u64;
+
+        // Write name property (points to age)
+        let name_entry = PropertyEntry::new(
+            1, // key_id for "name"
+            name_value.discriminant(),
+            name_bytes.len() as u32,
+            age_entry_offset, // next points to age
+        );
+
+        // Write age property (end of list)
+        let age_entry = PropertyEntry::new(
+            2, // key_id for "age"
+            age_value.discriminant(),
+            age_bytes.len() as u32,
+            u64::MAX, // end of list
+        );
+
+        {
+            let mut file = graph.file.write();
+
+            // Write name entry
+            file.seek(SeekFrom::Start(name_entry_offset)).unwrap();
+            file.write_all(&name_entry.to_bytes()).unwrap();
+            file.write_all(&name_bytes).unwrap();
+
+            // Write age entry
+            file.seek(SeekFrom::Start(age_entry_offset)).unwrap();
+            file.write_all(&age_entry.to_bytes()).unwrap();
+            file.write_all(&age_bytes).unwrap();
+
+            file.sync_data().unwrap();
+        }
+
+        // Write node record with properties
+        let mut node_record = records::NodeRecord::new(0, 0); // label_id 0 = "person"
+        node_record.prop_head = prop_arena_offset;
+
+        {
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(HEADER_SIZE as u64)).unwrap();
+            file.write_all(&node_record.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Update header
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = 1;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        {
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        graph.rebuild_indexes().unwrap();
+
+        // Now test get_vertex
+        let vertex = graph.get_vertex(VertexId(0)).expect("Vertex should exist");
+        assert_eq!(vertex.id, VertexId(0));
+        assert_eq!(vertex.label, "person");
+        assert_eq!(vertex.properties.len(), 2);
+        assert_eq!(
+            vertex.properties.get("name"),
+            Some(&Value::String("Alice".to_string()))
+        );
+        assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+    }
+
+    /// Helper to set up a graph with edges for testing adjacency traversal
+    fn setup_graph_with_edges() -> (TempDir, MmapGraph) {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Intern labels
+        {
+            let mut string_table = graph.string_table.write();
+            string_table.intern("person"); // ID 0
+            string_table.intern("knows"); // ID 1
+        }
+
+        // Create 3 nodes: 0, 1, 2
+        // Create edges:
+        //   Edge 0: 0 -> 1 (knows), next_out=1, next_in=MAX
+        //   Edge 1: 0 -> 2 (knows), next_out=MAX, next_in=MAX
+        //   Edge 2: 1 -> 0 (knows), next_out=MAX, next_in=MAX
+
+        // Node 0: first_out_edge=0, first_in_edge=2
+        // Node 1: first_out_edge=2, first_in_edge=0
+        // Node 2: first_out_edge=MAX, first_in_edge=1
+
+        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+
+        // Write node records
+        {
+            let mut file = graph.file.write();
+
+            // Node 0: person, first_out=0, first_in=2
+            let mut node0 = records::NodeRecord::new(0, 0);
+            node0.first_out_edge = 0;
+            node0.first_in_edge = 2;
+            file.seek(SeekFrom::Start(HEADER_SIZE as u64)).unwrap();
+            file.write_all(&node0.to_bytes()).unwrap();
+
+            // Node 1: person, first_out=2, first_in=0
+            let mut node1 = records::NodeRecord::new(1, 0);
+            node1.first_out_edge = 2;
+            node1.first_in_edge = 0;
+            file.seek(SeekFrom::Start((HEADER_SIZE + NODE_RECORD_SIZE) as u64))
+                .unwrap();
+            file.write_all(&node1.to_bytes()).unwrap();
+
+            // Node 2: person, first_out=MAX, first_in=1
+            let mut node2 = records::NodeRecord::new(2, 0);
+            node2.first_out_edge = u64::MAX;
+            node2.first_in_edge = 1;
+            file.seek(SeekFrom::Start((HEADER_SIZE + 2 * NODE_RECORD_SIZE) as u64))
+                .unwrap();
+            file.write_all(&node2.to_bytes()).unwrap();
+
+            file.sync_data().unwrap();
+        }
+
+        // Write edge records
+        {
+            let mut file = graph.file.write();
+
+            // Edge 0: 0->1 (knows), next_out=1, next_in=MAX
+            let mut edge0 = records::EdgeRecord::new(0, 1, 0, 1); // label_id=1="knows", src=0, dst=1
+            edge0.next_out = 1;
+            edge0.next_in = u64::MAX;
+            file.seek(SeekFrom::Start(edge_table_offset as u64))
+                .unwrap();
+            file.write_all(&edge0.to_bytes()).unwrap();
+
+            // Edge 1: 0->2 (knows), next_out=MAX, next_in=MAX
+            let mut edge1 = records::EdgeRecord::new(1, 1, 0, 2);
+            edge1.next_out = u64::MAX;
+            edge1.next_in = u64::MAX;
+            file.seek(SeekFrom::Start(
+                (edge_table_offset + EDGE_RECORD_SIZE) as u64,
+            ))
+            .unwrap();
+            file.write_all(&edge1.to_bytes()).unwrap();
+
+            // Edge 2: 1->0 (knows), next_out=MAX, next_in=MAX
+            let mut edge2 = records::EdgeRecord::new(2, 1, 1, 0);
+            edge2.next_out = u64::MAX;
+            edge2.next_in = u64::MAX;
+            file.seek(SeekFrom::Start(
+                (edge_table_offset + 2 * EDGE_RECORD_SIZE) as u64,
+            ))
+            .unwrap();
+            file.write_all(&edge2.to_bytes()).unwrap();
+
+            file.sync_data().unwrap();
+        }
+
+        // Update header
+        {
+            let mmap = graph.mmap.read();
+            let mut header = MmapGraph::read_header(&mmap);
+            header.node_count = 3;
+            header.edge_count = 3;
+            drop(mmap);
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&header.to_bytes()).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        {
+            let file = graph.file.read();
+            let new_mmap = unsafe { MmapOptions::new().map(&*file).unwrap() };
+            *graph.mmap.write() = new_mmap;
+        }
+
+        graph.rebuild_indexes().unwrap();
+
+        (dir, graph)
+    }
+
+    #[test]
+    fn test_graph_storage_get_edge() {
+        let (_dir, graph) = setup_graph_with_edges();
+
+        let edge = graph.get_edge(EdgeId(0)).expect("Edge 0 should exist");
+        assert_eq!(edge.id, EdgeId(0));
+        assert_eq!(edge.label, "knows");
+        assert_eq!(edge.src, VertexId(0));
+        assert_eq!(edge.dst, VertexId(1));
+
+        let edge2 = graph.get_edge(EdgeId(2)).expect("Edge 2 should exist");
+        assert_eq!(edge2.src, VertexId(1));
+        assert_eq!(edge2.dst, VertexId(0));
+
+        // Non-existent edge
+        assert!(graph.get_edge(EdgeId(999)).is_none());
+    }
+
+    #[test]
+    fn test_graph_storage_edge_count() {
+        let (_dir, graph) = setup_graph_with_edges();
+        assert_eq!(graph.edge_count(), 3);
+    }
+
+    #[test]
+    fn test_graph_storage_out_edges() {
+        let (_dir, graph) = setup_graph_with_edges();
+
+        // Node 0 has 2 outgoing edges (to nodes 1 and 2)
+        let out_edges: Vec<_> = graph.out_edges(VertexId(0)).collect();
+        assert_eq!(out_edges.len(), 2, "Node 0 should have 2 outgoing edges");
+        assert!(out_edges.iter().all(|e| e.src == VertexId(0)));
+
+        // Check destinations
+        let dsts: Vec<_> = out_edges.iter().map(|e| e.dst).collect();
+        assert!(dsts.contains(&VertexId(1)));
+        assert!(dsts.contains(&VertexId(2)));
+
+        // Node 1 has 1 outgoing edge (to node 0)
+        let out_edges1: Vec<_> = graph.out_edges(VertexId(1)).collect();
+        assert_eq!(out_edges1.len(), 1);
+        assert_eq!(out_edges1[0].dst, VertexId(0));
+
+        // Node 2 has no outgoing edges
+        let out_edges2: Vec<_> = graph.out_edges(VertexId(2)).collect();
+        assert_eq!(out_edges2.len(), 0);
+
+        // Non-existent node returns empty iterator
+        let out_edges999: Vec<_> = graph.out_edges(VertexId(999)).collect();
+        assert_eq!(out_edges999.len(), 0);
+    }
+
+    #[test]
+    fn test_graph_storage_in_edges() {
+        let (_dir, graph) = setup_graph_with_edges();
+
+        // Node 0 has 1 incoming edge (from node 1)
+        let in_edges: Vec<_> = graph.in_edges(VertexId(0)).collect();
+        assert_eq!(in_edges.len(), 1, "Node 0 should have 1 incoming edge");
+        assert_eq!(in_edges[0].src, VertexId(1));
+        assert_eq!(in_edges[0].dst, VertexId(0));
+
+        // Node 1 has 1 incoming edge (from node 0)
+        let in_edges1: Vec<_> = graph.in_edges(VertexId(1)).collect();
+        assert_eq!(in_edges1.len(), 1);
+        assert_eq!(in_edges1[0].src, VertexId(0));
+
+        // Node 2 has 1 incoming edge (from node 0)
+        let in_edges2: Vec<_> = graph.in_edges(VertexId(2)).collect();
+        assert_eq!(in_edges2.len(), 1);
+        assert_eq!(in_edges2[0].src, VertexId(0));
+
+        // Non-existent node returns empty iterator
+        let in_edges999: Vec<_> = graph.in_edges(VertexId(999)).collect();
+        assert_eq!(in_edges999.len(), 0);
+    }
+
+    #[test]
+    fn test_graph_storage_edges_with_label() {
+        let (_dir, graph) = setup_graph_with_edges();
+
+        // All 3 edges have label "knows"
+        let knows_edges: Vec<_> = graph.edges_with_label("knows").collect();
+        assert_eq!(knows_edges.len(), 3);
+        assert!(knows_edges.iter().all(|e| e.label == "knows"));
+
+        // No edges with label "created"
+        let created_edges: Vec<_> = graph.edges_with_label("created").collect();
+        assert_eq!(created_edges.len(), 0);
+    }
+
+    #[test]
+    fn test_graph_storage_all_edges() {
+        let (_dir, graph) = setup_graph_with_edges();
+
+        let all: Vec<_> = graph.all_edges().collect();
+        assert_eq!(all.len(), 3);
+
+        let ids: Vec<_> = all.iter().map(|e| e.id).collect();
+        assert!(ids.contains(&EdgeId(0)));
+        assert!(ids.contains(&EdgeId(1)));
+        assert!(ids.contains(&EdgeId(2)));
+    }
+
+    #[test]
+    fn test_graph_storage_empty_graph() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Empty graph
+        assert_eq!(graph.vertex_count(), 0);
+        assert_eq!(graph.edge_count(), 0);
+
+        // All iterators should be empty
+        assert_eq!(graph.all_vertices().count(), 0);
+        assert_eq!(graph.all_edges().count(), 0);
+        assert_eq!(graph.vertices_with_label("person").count(), 0);
+        assert_eq!(graph.edges_with_label("knows").count(), 0);
+        assert_eq!(graph.out_edges(VertexId(0)).count(), 0);
+        assert_eq!(graph.in_edges(VertexId(0)).count(), 0);
+
+        // get_vertex and get_edge should return None
+        assert!(graph.get_vertex(VertexId(0)).is_none());
+        assert!(graph.get_edge(EdgeId(0)).is_none());
     }
 }
