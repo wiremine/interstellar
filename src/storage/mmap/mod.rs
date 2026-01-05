@@ -612,6 +612,227 @@ impl MmapGraph {
         Ok(properties)
     }
 
+    // =========================================================================
+    // Phase 3.6: File Growth and Remapping
+    // =========================================================================
+
+    /// Grow the node table by doubling its capacity.
+    ///
+    /// This method:
+    /// 1. Calculates the new capacity (2x current)
+    /// 2. Expands the file to accommodate the larger node table
+    /// 3. Moves the edge table to its new position (after expanded node table)
+    /// 4. Updates the header with new capacity and offsets
+    /// 5. Remaps the file to reflect the new size
+    ///
+    /// # File Layout Changes
+    ///
+    /// ```text
+    /// Before: [Header][Nodes (N)][Edges (E)][Arena]
+    /// After:  [Header][Nodes (2N)][Edges (E)][Arena]
+    /// ```
+    ///
+    /// The edge table is moved to maintain contiguous layout.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during file operations
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let graph = MmapGraph::open("my_graph.db")?;
+    /// // If we need more node capacity:
+    /// graph.grow_node_table()?;
+    /// ```
+    pub fn grow_node_table(&self) -> Result<(), StorageError> {
+        let file = self.file.write();
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        // Calculate current layout
+        let old_node_capacity = header.node_capacity;
+        let edge_capacity = header.edge_capacity;
+        let new_node_capacity = old_node_capacity * 2;
+
+        let old_node_table_size = old_node_capacity as usize * NODE_RECORD_SIZE;
+        let new_node_table_size = new_node_capacity as usize * NODE_RECORD_SIZE;
+        let edge_table_size = edge_capacity as usize * EDGE_RECORD_SIZE;
+
+        // Calculate old and new edge table offsets
+        let old_edge_table_start = HEADER_SIZE + old_node_table_size;
+        let new_edge_table_start = HEADER_SIZE + new_node_table_size;
+
+        // Read the existing edge table data
+        let mut edge_data = vec![0u8; edge_table_size];
+        if edge_table_size > 0 && old_edge_table_start + edge_table_size <= mmap.len() {
+            edge_data.copy_from_slice(
+                &mmap[old_edge_table_start..old_edge_table_start + edge_table_size],
+            );
+        }
+        drop(mmap);
+
+        // Calculate new file size
+        // Note: We keep the arena size the same, just shift it along with the edge table
+        let old_file_size = file.metadata()?.len() as usize;
+        let size_increase = new_node_table_size - old_node_table_size;
+        let new_file_size = old_file_size + size_increase;
+
+        // Extend the file
+        file.set_len(new_file_size as u64)?;
+
+        // Write edge table at new position
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            if edge_table_size > 0 {
+                file.write_all_at(&edge_data, new_edge_table_start as u64)?;
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            if edge_table_size > 0 {
+                file.seek(SeekFrom::Start(new_edge_table_start as u64))?;
+                file.write_all(&edge_data)?;
+            }
+        }
+
+        // Update header
+        let mut new_header = header;
+        new_header.node_capacity = new_node_capacity;
+        new_header.property_arena_offset += size_increase as u64;
+        new_header.string_table_offset += size_increase as u64;
+        Self::write_header(&file, &new_header)?;
+
+        drop(file);
+
+        // Remap the file
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Grow the edge table by doubling its capacity.
+    ///
+    /// This method:
+    /// 1. Calculates the new capacity (2x current)
+    /// 2. Expands the file to accommodate the larger edge table
+    /// 3. Updates the header with new capacity
+    /// 4. Remaps the file to reflect the new size
+    ///
+    /// # File Layout Changes
+    ///
+    /// ```text
+    /// Before: [Header][Nodes][Edges (E)][Arena]
+    /// After:  [Header][Nodes][Edges (2E)][Arena]
+    /// ```
+    ///
+    /// The arena is shifted to maintain contiguous layout.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during file operations
+    pub fn grow_edge_table(&self) -> Result<(), StorageError> {
+        let file = self.file.write();
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        // Calculate current layout
+        let old_edge_capacity = header.edge_capacity;
+        let new_edge_capacity = old_edge_capacity * 2;
+
+        let old_edge_table_size = old_edge_capacity as usize * EDGE_RECORD_SIZE;
+        let new_edge_table_size = new_edge_capacity as usize * EDGE_RECORD_SIZE;
+
+        drop(mmap);
+
+        // Calculate new file size
+        let old_file_size = file.metadata()?.len() as usize;
+        let size_increase = new_edge_table_size - old_edge_table_size;
+        let new_file_size = old_file_size + size_increase;
+
+        // Extend the file
+        file.set_len(new_file_size as u64)?;
+
+        // Update header
+        let mmap = self.mmap.read();
+        let mut new_header = Self::read_header(&mmap);
+        new_header.edge_capacity = new_edge_capacity;
+        new_header.property_arena_offset += size_increase as u64;
+        new_header.string_table_offset += size_increase as u64;
+        drop(mmap);
+
+        Self::write_header(&file, &new_header)?;
+
+        drop(file);
+
+        // Remap the file
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Ensure the file is at least the specified size.
+    ///
+    /// If the file is already at least `min_size` bytes, this is a no-op.
+    /// Otherwise, the file is extended to `min_size` bytes.
+    ///
+    /// # Arguments
+    ///
+    /// * `min_size` - Minimum required file size in bytes
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during file extension
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Ensure at least 1MB of space
+    /// graph.ensure_file_size(1024 * 1024)?;
+    /// ```
+    pub fn ensure_file_size(&self, min_size: u64) -> Result<(), StorageError> {
+        let file = self.file.write();
+        let current_size = file.metadata()?.len();
+
+        if current_size < min_size {
+            file.set_len(min_size)?;
+            file.sync_data()?;
+            drop(file);
+            self.remap()?;
+        }
+
+        Ok(())
+    }
+
+    /// Recreate the memory map after file changes.
+    ///
+    /// This method must be called after any operation that changes the file size
+    /// (such as `grow_node_table`, `grow_edge_table`, or `ensure_file_size`) to
+    /// ensure the mmap reflects the new file contents.
+    ///
+    /// # Safety
+    ///
+    /// This method is safe but temporarily holds the write lock on the mmap.
+    /// Callers should ensure no other operations are in progress that depend
+    /// on the mmap contents during this call.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during mmap creation
+    pub fn remap(&self) -> Result<(), StorageError> {
+        let file = self.file.read();
+        let new_mmap = unsafe { MmapOptions::new().map(&*file)? };
+        drop(file);
+
+        let mut mmap_write = self.mmap.write();
+        *mmap_write = new_mmap;
+
+        Ok(())
+    }
+
     /// Get the header from the mmap.
     ///
     /// This is a helper method for GraphStorage implementations that need
@@ -2847,5 +3068,430 @@ mod tests {
         // get_vertex and get_edge should return None
         assert!(graph.get_vertex(VertexId(0)).is_none());
         assert!(graph.get_edge(EdgeId(0)).is_none());
+    }
+
+    // =========================================================================
+    // Phase 3.6: File Growth and Remapping Tests
+    // =========================================================================
+
+    #[test]
+    fn test_remap_updates_mmap() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial mmap size
+        let initial_size = {
+            let mmap = graph.mmap.read();
+            mmap.len()
+        };
+
+        // Extend the file
+        {
+            let file = graph.file.write();
+            file.set_len(initial_size as u64 + 10000).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap
+        let result = graph.remap();
+        assert!(result.is_ok(), "Remap should succeed");
+
+        // Verify mmap size is updated
+        let new_size = {
+            let mmap = graph.mmap.read();
+            mmap.len()
+        };
+
+        assert_eq!(
+            new_size,
+            initial_size + 10000,
+            "Mmap should reflect new file size"
+        );
+    }
+
+    #[test]
+    fn test_ensure_file_size_grows_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial file size
+        let initial_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        // Ensure a larger size
+        let new_min_size = initial_size + 50000;
+        let result = graph.ensure_file_size(new_min_size);
+        assert!(result.is_ok(), "ensure_file_size should succeed");
+
+        // Verify file grew
+        let new_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        assert_eq!(new_size, new_min_size, "File should be at least min_size");
+
+        // Verify mmap also reflects new size
+        let mmap_size = {
+            let mmap = graph.mmap.read();
+            mmap.len()
+        };
+        assert_eq!(
+            mmap_size, new_min_size as usize,
+            "Mmap should reflect new size"
+        );
+    }
+
+    #[test]
+    fn test_ensure_file_size_noop_when_already_large_enough() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial file size
+        let initial_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        // Ensure a smaller size (should be a no-op)
+        let result = graph.ensure_file_size(100);
+        assert!(result.is_ok(), "ensure_file_size should succeed");
+
+        // Verify file size unchanged
+        let new_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        assert_eq!(new_size, initial_size, "File size should not change");
+    }
+
+    #[test]
+    fn test_grow_node_table_doubles_capacity() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial capacity
+        let initial_capacity = {
+            let header = graph.get_header();
+            header.node_capacity
+        };
+
+        // Grow node table
+        let result = graph.grow_node_table();
+        assert!(result.is_ok(), "grow_node_table should succeed");
+
+        // Verify capacity doubled
+        let new_capacity = {
+            let header = graph.get_header();
+            header.node_capacity
+        };
+
+        assert_eq!(
+            new_capacity,
+            initial_capacity * 2,
+            "Node capacity should double"
+        );
+    }
+
+    #[test]
+    fn test_grow_node_table_increases_file_size() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial file size
+        let initial_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        let initial_capacity = {
+            let header = graph.get_header();
+            header.node_capacity
+        };
+
+        // Grow node table
+        graph.grow_node_table().unwrap();
+
+        // Verify file size increased
+        let new_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        // Size should increase by (initial_capacity * NODE_RECORD_SIZE)
+        let expected_increase = initial_capacity as usize * NODE_RECORD_SIZE;
+        assert_eq!(
+            new_size,
+            initial_size + expected_increase as u64,
+            "File should grow by the size of new node slots"
+        );
+    }
+
+    #[test]
+    fn test_grow_node_table_updates_offsets() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial offsets
+        let (initial_prop_offset, initial_string_offset, initial_node_capacity) = {
+            let header = graph.get_header();
+            (
+                header.property_arena_offset,
+                header.string_table_offset,
+                header.node_capacity,
+            )
+        };
+
+        // Grow node table
+        graph.grow_node_table().unwrap();
+
+        // Verify offsets updated
+        let (new_prop_offset, new_string_offset) = {
+            let header = graph.get_header();
+            (header.property_arena_offset, header.string_table_offset)
+        };
+
+        let size_increase = initial_node_capacity as u64 * NODE_RECORD_SIZE as u64;
+        assert_eq!(
+            new_prop_offset,
+            initial_prop_offset + size_increase,
+            "Property arena offset should shift"
+        );
+        assert_eq!(
+            new_string_offset,
+            initial_string_offset + size_increase,
+            "String table offset should shift"
+        );
+    }
+
+    #[test]
+    fn test_grow_node_table_preserves_existing_data() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Write some node data
+        {
+            let record = records::NodeRecord::new(0, 42);
+            let offset = HEADER_SIZE;
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap to see the write
+        graph.remap().unwrap();
+
+        // Verify node exists
+        let node_before = graph.get_node_record(VertexId(0));
+        assert!(node_before.is_some(), "Node should exist before grow");
+        let label_before = node_before.unwrap().label_id;
+        assert_eq!(label_before, 42);
+
+        // Grow node table
+        graph.grow_node_table().unwrap();
+
+        // Verify node still exists with same data
+        let node_after = graph.get_node_record(VertexId(0));
+        assert!(node_after.is_some(), "Node should exist after grow");
+        let label_after = node_after.unwrap().label_id;
+        assert_eq!(label_after, 42, "Node data should be preserved");
+    }
+
+    #[test]
+    fn test_grow_edge_table_doubles_capacity() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial capacity
+        let initial_capacity = {
+            let header = graph.get_header();
+            header.edge_capacity
+        };
+
+        // Grow edge table
+        let result = graph.grow_edge_table();
+        assert!(result.is_ok(), "grow_edge_table should succeed");
+
+        // Verify capacity doubled
+        let new_capacity = {
+            let header = graph.get_header();
+            header.edge_capacity
+        };
+
+        assert_eq!(
+            new_capacity,
+            initial_capacity * 2,
+            "Edge capacity should double"
+        );
+    }
+
+    #[test]
+    fn test_grow_edge_table_increases_file_size() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial file size
+        let initial_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        let initial_capacity = {
+            let header = graph.get_header();
+            header.edge_capacity
+        };
+
+        // Grow edge table
+        graph.grow_edge_table().unwrap();
+
+        // Verify file size increased
+        let new_size = {
+            let file = graph.file.read();
+            file.metadata().unwrap().len()
+        };
+
+        // Size should increase by (initial_capacity * EDGE_RECORD_SIZE)
+        let expected_increase = initial_capacity as usize * EDGE_RECORD_SIZE;
+        assert_eq!(
+            new_size,
+            initial_size + expected_increase as u64,
+            "File should grow by the size of new edge slots"
+        );
+    }
+
+    #[test]
+    fn test_grow_edge_table_updates_offsets() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get initial offsets
+        let (initial_prop_offset, initial_string_offset, initial_edge_capacity) = {
+            let header = graph.get_header();
+            (
+                header.property_arena_offset,
+                header.string_table_offset,
+                header.edge_capacity,
+            )
+        };
+
+        // Grow edge table
+        graph.grow_edge_table().unwrap();
+
+        // Verify offsets updated
+        let (new_prop_offset, new_string_offset) = {
+            let header = graph.get_header();
+            (header.property_arena_offset, header.string_table_offset)
+        };
+
+        let size_increase = initial_edge_capacity as u64 * EDGE_RECORD_SIZE as u64;
+        assert_eq!(
+            new_prop_offset,
+            initial_prop_offset + size_increase,
+            "Property arena offset should shift"
+        );
+        assert_eq!(
+            new_string_offset,
+            initial_string_offset + size_increase,
+            "String table offset should shift"
+        );
+    }
+
+    #[test]
+    fn test_grow_node_table_multiple_times() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let initial_capacity = {
+            let header = graph.get_header();
+            header.node_capacity
+        };
+
+        // Grow 3 times
+        graph.grow_node_table().unwrap();
+        graph.grow_node_table().unwrap();
+        graph.grow_node_table().unwrap();
+
+        let final_capacity = {
+            let header = graph.get_header();
+            header.node_capacity
+        };
+
+        // Should be 2^3 = 8x initial
+        assert_eq!(
+            final_capacity,
+            initial_capacity * 8,
+            "Capacity should be 8x after 3 doublings"
+        );
+    }
+
+    #[test]
+    fn test_grow_node_table_preserves_edge_data() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Get edge table offset before growth
+        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+
+        // Write an edge record
+        {
+            let record = records::EdgeRecord::new(0, 99, 1, 2);
+            let bytes = record.to_bytes();
+
+            let mut file = graph.file.write();
+            file.seek(SeekFrom::Start(edge_table_offset as u64))
+                .unwrap();
+            file.write_all(&bytes).unwrap();
+            file.sync_data().unwrap();
+        }
+
+        // Remap to see the write
+        graph.remap().unwrap();
+
+        // Verify edge exists
+        let edge_before = graph.get_edge_record(EdgeId(0));
+        assert!(edge_before.is_some(), "Edge should exist before grow");
+        let (label_before, src_before, dst_before) = {
+            let e = edge_before.unwrap();
+            (e.label_id, e.src, e.dst)
+        };
+        assert_eq!(label_before, 99);
+        assert_eq!(src_before, 1);
+        assert_eq!(dst_before, 2);
+
+        // Grow node table (this moves the edge table)
+        graph.grow_node_table().unwrap();
+
+        // Verify edge still exists with same data (at new offset)
+        let edge_after = graph.get_edge_record(EdgeId(0));
+        assert!(edge_after.is_some(), "Edge should exist after grow");
+        let (label_after, src_after, dst_after) = {
+            let e = edge_after.unwrap();
+            (e.label_id, e.src, e.dst)
+        };
+        assert_eq!(label_after, 99, "Edge label should be preserved");
+        assert_eq!(src_after, 1, "Edge src should be preserved");
+        assert_eq!(dst_after, 2, "Edge dst should be preserved");
     }
 }

@@ -447,11 +447,11 @@ struct WalEntryHeader {
 5. Add error handling for corrupted entries
 
 **Acceptance Criteria**:
-- [ ] Can read entries written to WAL
-- [ ] CRC32 mismatch detected and returns error
-- [ ] `needs_recovery()` correctly identifies incomplete transactions
-- [ ] `truncate()` clears file
-- [ ] Roundtrip test: write entries, read back, verify
+- [x] Can read entries written to WAL
+- [x] CRC32 mismatch detected and returns error
+- [x] `needs_recovery()` correctly identifies incomplete transactions
+- [x] `truncate()` clears file
+- [x] Roundtrip test: write entries, read back, verify
 
 ---
 
@@ -469,11 +469,11 @@ struct WalEntryHeader {
 7. Add `write_node_to_file()` and `write_edge_to_file()` helpers
 
 **Acceptance Criteria**:
-- [ ] Committed transactions are replayed
-- [ ] Uncommitted transactions are discarded
-- [ ] Recovery is idempotent (can run multiple times safely)
-- [ ] Test: Simulate crash (incomplete transaction), verify recovery
-- [ ] Test: Multiple committed transactions recovered in order
+- [x] Committed transactions are replayed
+- [x] Uncommitted transactions are discarded
+- [x] Recovery is idempotent (can run multiple times safely)
+- [x] Test: Simulate crash (incomplete transaction), verify recovery
+- [x] Test: Multiple committed transactions recovered in order
 
 ---
 
@@ -489,11 +489,11 @@ struct WalEntryHeader {
 5. Update header after growth
 
 **Acceptance Criteria**:
-- [ ] File grows correctly when capacity exceeded
-- [ ] Existing data preserved after growth
-- [ ] Remapping works after file extension
-- [ ] Header reflects new capacity
-- [ ] Test: Add nodes until growth triggered, verify data intact
+- [x] File grows correctly when capacity exceeded
+- [x] Existing data preserved after growth
+- [x] Remapping works after file extension
+- [x] Header reflects new capacity
+- [x] Test: Add nodes until growth triggered, verify data intact
 
 ---
 

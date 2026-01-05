@@ -367,8 +367,9 @@ impl From<SerializableEdgeRecord> for EdgeRecord {
 // =============================================================================
 
 use crate::error::StorageError;
+use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -609,6 +610,341 @@ impl WriteAheadLog {
     #[cfg(test)]
     fn current_tx_id(&self) -> u64 {
         self.next_tx_id.load(Ordering::SeqCst)
+    }
+
+    // =========================================================================
+    // Reading Methods (Phase 3.4)
+    // =========================================================================
+
+    /// Read the next WAL entry from the current file position.
+    ///
+    /// This reads a single entry from the WAL file, verifying its CRC32 checksum.
+    /// The file position is advanced past the entry after reading.
+    ///
+    /// # Entry Format
+    ///
+    /// ```text
+    /// ┌──────────────┬──────────────┬───────────────────┐
+    /// │   CRC32      │    Length    │   Entry Data      │
+    /// │   (4 bytes)  │   (4 bytes)  │   (variable)      │
+    /// └──────────────┴──────────────┴───────────────────┘
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// The deserialized `WalEntry`.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] if reading from the file fails (including EOF)
+    /// - [`StorageError::WalCorrupted`] if the CRC32 checksum doesn't match
+    /// - [`StorageError::WalCorrupted`] if deserialization fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Seek to start of WAL
+    /// wal.seek_to_start()?;
+    ///
+    /// // Read entries until EOF
+    /// loop {
+    ///     match wal.read_entry() {
+    ///         Ok(entry) => println!("Read: {:?}", entry),
+    ///         Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+    ///         Err(e) => return Err(e),
+    ///     }
+    /// }
+    /// ```
+    pub fn read_entry(&mut self) -> Result<WalEntry, StorageError> {
+        // Read header bytes
+        let mut header_bytes = [0u8; WAL_ENTRY_HEADER_SIZE];
+        self.file.read_exact(&mut header_bytes)?;
+
+        let header = WalEntryHeader::from_bytes(&header_bytes);
+        let crc32 = header.crc32;
+        let len = header.len;
+
+        // Validate length to prevent excessive allocation
+        if len > 100_000_000 {
+            // 100MB limit
+            return Err(StorageError::WalCorrupted(format!(
+                "entry length {} exceeds maximum",
+                len
+            )));
+        }
+
+        // Read entry data
+        let mut entry_data = vec![0u8; len as usize];
+        self.file.read_exact(&mut entry_data)?;
+
+        // Verify CRC32
+        let computed_crc = crc32fast::hash(&entry_data);
+        if computed_crc != crc32 {
+            return Err(StorageError::WalCorrupted(format!(
+                "CRC32 mismatch: expected {:08x}, got {:08x}",
+                crc32, computed_crc
+            )));
+        }
+
+        // Deserialize entry
+        let entry: WalEntry = bincode::deserialize(&entry_data)
+            .map_err(|e| StorageError::WalCorrupted(format!("deserialization error: {}", e)))?;
+
+        Ok(entry)
+    }
+
+    /// Check if the WAL needs recovery.
+    ///
+    /// Recovery is needed when there are uncommitted transactions in the WAL.
+    /// This scans the entire WAL file looking for `BeginTx` entries without
+    /// matching `CommitTx` or `AbortTx` entries.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Scan all WAL entries from the beginning
+    /// 2. Track transaction IDs that have started but not completed
+    /// 3. Return `true` if any transactions remain open
+    ///
+    /// # Returns
+    ///
+    /// - `true` if there are uncommitted transactions requiring recovery
+    /// - `false` if the WAL is empty or all transactions are complete
+    ///
+    /// # Note
+    ///
+    /// This method seeks to the beginning of the file and reads all entries,
+    /// then seeks back to the end. It does not modify the file.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if wal.needs_recovery() {
+    ///     println!("WAL recovery required");
+    ///     // Perform recovery...
+    /// }
+    /// ```
+    pub fn needs_recovery(&mut self) -> bool {
+        // Remember current position
+        let original_pos = match self.file.seek(SeekFrom::Current(0)) {
+            Ok(pos) => pos,
+            Err(_) => return false,
+        };
+
+        // Seek to start
+        if self.file.seek(SeekFrom::Start(0)).is_err() {
+            return false;
+        }
+
+        // Track active transactions
+        let mut active_transactions: HashSet<u64> = HashSet::new();
+
+        // Read all entries
+        loop {
+            match self.read_entry() {
+                Ok(entry) => match entry {
+                    WalEntry::BeginTx { tx_id, .. } => {
+                        active_transactions.insert(tx_id);
+                    }
+                    WalEntry::CommitTx { tx_id } | WalEntry::AbortTx { tx_id } => {
+                        active_transactions.remove(&tx_id);
+                    }
+                    WalEntry::Checkpoint { .. } => {
+                        // Checkpoint means all prior transactions are complete
+                        active_transactions.clear();
+                    }
+                    _ => {
+                        // Other entries don't affect transaction state
+                    }
+                },
+                Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    // End of file reached
+                    break;
+                }
+                Err(_) => {
+                    // Error reading entry - might indicate incomplete write (needs recovery)
+                    // Restore original position
+                    let _ = self.file.seek(SeekFrom::Start(original_pos));
+                    return true;
+                }
+            }
+        }
+
+        // Restore original position
+        let _ = self.file.seek(SeekFrom::Start(original_pos));
+
+        // Recovery needed if there are uncommitted transactions
+        !active_transactions.is_empty()
+    }
+
+    /// Truncate the WAL file, removing all entries.
+    ///
+    /// This is called after a successful checkpoint or recovery to clear the WAL.
+    /// After truncation, the WAL file will be empty and the file position will
+    /// be at the beginning.
+    ///
+    /// # Safety
+    ///
+    /// This is a destructive operation. Only call this after ensuring all
+    /// committed transactions have been applied to the main data file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] if the truncation or seek fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // After successful recovery or checkpoint
+    /// wal.truncate()?;
+    /// assert_eq!(wal.file_size()?, 0);
+    /// ```
+    pub fn truncate(&mut self) -> Result<(), StorageError> {
+        self.file.set_len(0)?;
+        self.file.seek(SeekFrom::Start(0))?;
+        Ok(())
+    }
+
+    /// Seek to the start of the WAL file.
+    ///
+    /// This positions the file cursor at the beginning, ready to read entries
+    /// from the start.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] if the seek fails.
+    pub fn seek_to_start(&mut self) -> Result<(), StorageError> {
+        self.file.seek(SeekFrom::Start(0))?;
+        Ok(())
+    }
+
+    /// Get the current size of the WAL file in bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] if getting the file metadata fails.
+    pub fn file_size(&self) -> Result<u64, StorageError> {
+        let metadata = self.file.metadata()?;
+        Ok(metadata.len())
+    }
+
+    /// Read all entries from the WAL file.
+    ///
+    /// This seeks to the beginning of the file and reads all entries,
+    /// returning them in order. The file position is left at the end
+    /// after reading.
+    ///
+    /// # Returns
+    ///
+    /// A vector of all WAL entries in the file.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] if reading fails
+    /// - [`StorageError::WalCorrupted`] if any entry is corrupted
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let entries = wal.read_all_entries()?;
+    /// for entry in entries {
+    ///     println!("{:?}", entry);
+    /// }
+    /// ```
+    pub fn read_all_entries(&mut self) -> Result<Vec<WalEntry>, StorageError> {
+        self.seek_to_start()?;
+
+        let mut entries = Vec::new();
+
+        loop {
+            match self.read_entry() {
+                Ok(entry) => entries.push(entry),
+                Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(entries)
+    }
+
+    /// Get committed transaction entries from the WAL.
+    ///
+    /// This reads all entries and returns only those from committed transactions,
+    /// in the order they were logged. Entries from aborted or incomplete
+    /// transactions are excluded.
+    ///
+    /// # Returns
+    ///
+    /// A vector of WAL entries from committed transactions only.
+    /// BeginTx and CommitTx entries are excluded from the result.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] if reading fails
+    /// - [`StorageError::WalCorrupted`] if any entry is corrupted
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let committed = wal.get_committed_entries()?;
+    /// for entry in committed {
+    ///     // Replay this entry
+    /// }
+    /// ```
+    pub fn get_committed_entries(&mut self) -> Result<Vec<WalEntry>, StorageError> {
+        use std::collections::HashMap;
+
+        self.seek_to_start()?;
+
+        // Track entries for each transaction
+        let mut tx_entries: HashMap<u64, Vec<WalEntry>> = HashMap::new();
+        let mut committed_tx_ids: Vec<u64> = Vec::new();
+        let mut current_tx_id: Option<u64> = None;
+
+        loop {
+            match self.read_entry() {
+                Ok(entry) => match &entry {
+                    WalEntry::BeginTx { tx_id, .. } => {
+                        current_tx_id = Some(*tx_id);
+                        tx_entries.insert(*tx_id, Vec::new());
+                    }
+                    WalEntry::CommitTx { tx_id } => {
+                        committed_tx_ids.push(*tx_id);
+                        current_tx_id = None;
+                    }
+                    WalEntry::AbortTx { tx_id } => {
+                        tx_entries.remove(tx_id);
+                        current_tx_id = None;
+                    }
+                    WalEntry::Checkpoint { .. } => {
+                        // Checkpoint doesn't contain data to replay
+                    }
+                    _ => {
+                        // Add operation to current transaction
+                        if let Some(tx_id) = current_tx_id {
+                            if let Some(entries) = tx_entries.get_mut(&tx_id) {
+                                entries.push(entry);
+                            }
+                        }
+                    }
+                },
+                Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Collect entries from committed transactions in order
+        let mut result = Vec::new();
+        for tx_id in committed_tx_ids {
+            if let Some(entries) = tx_entries.remove(&tx_id) {
+                result.extend(entries);
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -1586,5 +1922,800 @@ mod tests {
             timestamp < 4102444800,
             "timestamp should be before 2100-01-01"
         );
+    }
+
+    // =========================================================================
+    // Phase 3.4: Reading and Recovery Tests
+    // =========================================================================
+
+    #[test]
+    fn test_read_entry_single() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write a single entry
+        wal.log(WalEntry::BeginTx {
+            tx_id: 42,
+            timestamp: 1704067200,
+        })
+        .expect("log entry");
+        wal.sync().expect("sync");
+
+        // Read it back
+        wal.seek_to_start().expect("seek");
+        let entry = wal.read_entry().expect("read entry");
+
+        match entry {
+            WalEntry::BeginTx { tx_id, timestamp } => {
+                assert_eq!(tx_id, 42);
+                assert_eq!(timestamp, 1704067200);
+            }
+            _ => panic!("Expected BeginTx entry"),
+        }
+    }
+
+    #[test]
+    fn test_read_entry_multiple() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write multiple entries
+        let entries_to_write = vec![
+            WalEntry::BeginTx {
+                tx_id: 0,
+                timestamp: 1000,
+            },
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                record: SerializableNodeRecord {
+                    id: 0,
+                    label_id: 1,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: u64::MAX,
+                },
+            },
+            WalEntry::CommitTx { tx_id: 0 },
+        ];
+
+        for entry in &entries_to_write {
+            wal.log(entry.clone()).expect("log entry");
+        }
+        wal.sync().expect("sync");
+
+        // Read all entries back
+        wal.seek_to_start().expect("seek");
+        let mut read_entries = Vec::new();
+        loop {
+            match wal.read_entry() {
+                Ok(entry) => read_entries.push(entry),
+                Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => panic!("Unexpected error: {:?}", e),
+            }
+        }
+
+        assert_eq!(read_entries.len(), 3);
+        assert_eq!(read_entries[0], entries_to_write[0]);
+        assert_eq!(read_entries[1], entries_to_write[1]);
+        assert_eq!(read_entries[2], entries_to_write[2]);
+    }
+
+    #[test]
+    fn test_read_entry_crc_mismatch_detected() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+
+        // Write a valid entry
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+            wal.log(WalEntry::BeginTx {
+                tx_id: 0,
+                timestamp: 1000,
+            })
+            .expect("log entry");
+            wal.sync().expect("sync");
+        }
+
+        // Corrupt the entry data (after the header)
+        {
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&wal_path)
+                .expect("open file");
+
+            // Corrupt byte at offset 10 (past header)
+            file.seek(SeekFrom::Start(10)).expect("seek");
+            file.write_all(&[0xFF]).expect("write");
+            file.sync_all().expect("sync");
+        }
+
+        // Try to read - should detect CRC mismatch
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+        wal.seek_to_start().expect("seek");
+
+        let result = wal.read_entry();
+        assert!(result.is_err(), "Should detect CRC mismatch");
+
+        match result {
+            Err(StorageError::WalCorrupted(msg)) => {
+                assert!(
+                    msg.contains("CRC32 mismatch"),
+                    "Error should mention CRC mismatch: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected WalCorrupted error"),
+        }
+    }
+
+    #[test]
+    fn test_read_entry_eof_error() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Don't write anything - file is empty
+        let result = wal.read_entry();
+
+        assert!(result.is_err());
+        match result {
+            Err(StorageError::Io(e)) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof);
+            }
+            _ => panic!("Expected EOF error"),
+        }
+    }
+
+    #[test]
+    fn test_read_all_entries() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write multiple entries
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert");
+        wal.log(WalEntry::CommitTx { tx_id }).expect("log commit");
+        wal.sync().expect("sync");
+
+        // Read all entries
+        let entries = wal.read_all_entries().expect("read all");
+
+        assert_eq!(entries.len(), 3);
+        assert!(matches!(entries[0], WalEntry::BeginTx { .. }));
+        assert!(matches!(entries[1], WalEntry::InsertNode { .. }));
+        assert!(matches!(entries[2], WalEntry::CommitTx { .. }));
+    }
+
+    #[test]
+    fn test_read_all_entries_empty_file() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let entries = wal.read_all_entries().expect("read all");
+        assert!(entries.is_empty(), "Empty WAL should have no entries");
+    }
+
+    #[test]
+    fn test_needs_recovery_empty_wal() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        assert!(!wal.needs_recovery(), "Empty WAL should not need recovery");
+    }
+
+    #[test]
+    fn test_needs_recovery_committed_transaction() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write a committed transaction
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert");
+        wal.log(WalEntry::CommitTx { tx_id }).expect("log commit");
+        wal.sync().expect("sync");
+
+        assert!(
+            !wal.needs_recovery(),
+            "Committed transaction should not need recovery"
+        );
+    }
+
+    #[test]
+    fn test_needs_recovery_uncommitted_transaction() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write an uncommitted transaction
+        let _tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert");
+        // No CommitTx!
+        wal.sync().expect("sync");
+
+        assert!(
+            wal.needs_recovery(),
+            "Uncommitted transaction should need recovery"
+        );
+    }
+
+    #[test]
+    fn test_needs_recovery_aborted_transaction() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write an aborted transaction
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("log insert");
+        wal.log(WalEntry::AbortTx { tx_id }).expect("log abort");
+        wal.sync().expect("sync");
+
+        assert!(
+            !wal.needs_recovery(),
+            "Aborted transaction should not need recovery"
+        );
+    }
+
+    #[test]
+    fn test_needs_recovery_mixed_transactions() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Transaction 1: committed
+        let tx1 = wal.begin_transaction().expect("begin tx1");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id: tx1 })
+            .expect("commit tx1");
+
+        // Transaction 2: uncommitted
+        let _tx2 = wal.begin_transaction().expect("begin tx2");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        // No CommitTx!
+
+        wal.sync().expect("sync");
+
+        assert!(
+            wal.needs_recovery(),
+            "Mixed transactions with one uncommitted should need recovery"
+        );
+    }
+
+    #[test]
+    fn test_needs_recovery_checkpoint_clears_state() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write committed transaction followed by checkpoint
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id }).expect("commit");
+        wal.log(WalEntry::Checkpoint { version: 1 })
+            .expect("checkpoint");
+        wal.sync().expect("sync");
+
+        assert!(
+            !wal.needs_recovery(),
+            "After checkpoint, should not need recovery"
+        );
+    }
+
+    #[test]
+    fn test_truncate_clears_file() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write some entries
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id }).expect("commit");
+        wal.sync().expect("sync");
+
+        // Verify file has content
+        let size_before = wal.file_size().expect("get size");
+        assert!(size_before > 0, "WAL should have content before truncate");
+
+        // Truncate
+        wal.truncate().expect("truncate");
+
+        // Verify file is empty
+        let size_after = wal.file_size().expect("get size");
+        assert_eq!(size_after, 0, "WAL should be empty after truncate");
+    }
+
+    #[test]
+    fn test_truncate_allows_new_writes() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write, truncate, write again
+        let tx1 = wal.begin_transaction().expect("begin tx1");
+        wal.log(WalEntry::CommitTx { tx_id: tx1 })
+            .expect("commit tx1");
+
+        wal.truncate().expect("truncate");
+
+        let tx2 = wal.begin_transaction().expect("begin tx2");
+        wal.log(WalEntry::CommitTx { tx_id: tx2 })
+            .expect("commit tx2");
+        wal.sync().expect("sync");
+
+        // Read back entries - should only see tx2's entries
+        let entries = wal.read_all_entries().expect("read all");
+        assert_eq!(entries.len(), 2, "Should have 2 entries from tx2");
+    }
+
+    #[test]
+    fn test_file_size() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Empty file
+        let size0 = wal.file_size().expect("get size");
+        assert_eq!(size0, 0, "New WAL should be empty");
+
+        // After one entry
+        wal.log(WalEntry::BeginTx {
+            tx_id: 0,
+            timestamp: 1000,
+        })
+        .expect("log");
+        wal.sync().expect("sync");
+
+        let size1 = wal.file_size().expect("get size");
+        assert!(size1 > 0, "WAL should have content after logging");
+    }
+
+    #[test]
+    fn test_seek_to_start() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Write an entry
+        wal.log(WalEntry::BeginTx {
+            tx_id: 42,
+            timestamp: 1000,
+        })
+        .expect("log");
+        wal.sync().expect("sync");
+
+        // Seek to start and read
+        wal.seek_to_start().expect("seek");
+        let entry = wal.read_entry().expect("read");
+
+        match entry {
+            WalEntry::BeginTx { tx_id, .. } => assert_eq!(tx_id, 42),
+            _ => panic!("Expected BeginTx"),
+        }
+
+        // Seek to start again and read again
+        wal.seek_to_start().expect("seek");
+        let entry2 = wal.read_entry().expect("read");
+
+        match entry2 {
+            WalEntry::BeginTx { tx_id, .. } => assert_eq!(tx_id, 42),
+            _ => panic!("Expected BeginTx"),
+        }
+    }
+
+    #[test]
+    fn test_get_committed_entries_single_committed() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let tx_id = wal.begin_transaction().expect("begin tx");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 2,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id }).expect("commit");
+        wal.sync().expect("sync");
+
+        let committed = wal.get_committed_entries().expect("get committed");
+
+        // Should have 2 InsertNode entries (not BeginTx or CommitTx)
+        assert_eq!(committed.len(), 2);
+        assert!(matches!(
+            committed[0],
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                ..
+            }
+        ));
+        assert!(matches!(
+            committed[1],
+            WalEntry::InsertNode {
+                id: VertexId(1),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_get_committed_entries_excludes_aborted() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Transaction 1: committed
+        let tx1 = wal.begin_transaction().expect("begin tx1");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id: tx1 }).expect("commit");
+
+        // Transaction 2: aborted
+        let tx2 = wal.begin_transaction().expect("begin tx2");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 2,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::AbortTx { tx_id: tx2 }).expect("abort");
+
+        wal.sync().expect("sync");
+
+        let committed = wal.get_committed_entries().expect("get committed");
+
+        // Should only have entries from tx1
+        assert_eq!(committed.len(), 1);
+        assert!(matches!(
+            committed[0],
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_get_committed_entries_excludes_uncommitted() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Transaction 1: committed
+        let tx1 = wal.begin_transaction().expect("begin tx1");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id: tx1 }).expect("commit");
+
+        // Transaction 2: uncommitted
+        let _tx2 = wal.begin_transaction().expect("begin tx2");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 2,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        // No commit!
+
+        wal.sync().expect("sync");
+
+        let committed = wal.get_committed_entries().expect("get committed");
+
+        // Should only have entries from tx1
+        assert_eq!(committed.len(), 1);
+        assert!(matches!(
+            committed[0],
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_get_committed_entries_preserves_order() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        // Transaction 1
+        let tx1 = wal.begin_transaction().expect("begin tx1");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(0),
+            record: SerializableNodeRecord {
+                id: 0,
+                label_id: 1,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id: tx1 }).expect("commit");
+
+        // Transaction 2
+        let tx2 = wal.begin_transaction().expect("begin tx2");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(1),
+            record: SerializableNodeRecord {
+                id: 1,
+                label_id: 2,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id: tx2 }).expect("commit");
+
+        // Transaction 3
+        let tx3 = wal.begin_transaction().expect("begin tx3");
+        wal.log(WalEntry::InsertNode {
+            id: VertexId(2),
+            record: SerializableNodeRecord {
+                id: 2,
+                label_id: 3,
+                flags: 0,
+                first_out_edge: u64::MAX,
+                first_in_edge: u64::MAX,
+                prop_head: u64::MAX,
+            },
+        })
+        .expect("insert");
+        wal.log(WalEntry::CommitTx { tx_id: tx3 }).expect("commit");
+
+        wal.sync().expect("sync");
+
+        let committed = wal.get_committed_entries().expect("get committed");
+
+        // Should have entries in order: 0, 1, 2
+        assert_eq!(committed.len(), 3);
+        assert!(matches!(
+            committed[0],
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                ..
+            }
+        ));
+        assert!(matches!(
+            committed[1],
+            WalEntry::InsertNode {
+                id: VertexId(1),
+                ..
+            }
+        ));
+        assert!(matches!(
+            committed[2],
+            WalEntry::InsertNode {
+                id: VertexId(2),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_get_committed_entries_empty_wal() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let committed = wal.get_committed_entries().expect("get committed");
+        assert!(committed.is_empty());
+    }
+
+    #[test]
+    fn test_roundtrip_write_read_all_entry_types() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+        let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+
+        let entries_to_write = vec![
+            WalEntry::BeginTx {
+                tx_id: 0,
+                timestamp: 1000,
+            },
+            WalEntry::InsertNode {
+                id: VertexId(0),
+                record: SerializableNodeRecord {
+                    id: 0,
+                    label_id: 1,
+                    flags: 0,
+                    first_out_edge: u64::MAX,
+                    first_in_edge: u64::MAX,
+                    prop_head: 100,
+                },
+            },
+            WalEntry::InsertEdge {
+                id: EdgeId(0),
+                record: SerializableEdgeRecord {
+                    id: 0,
+                    label_id: 2,
+                    flags: 0,
+                    src: 0,
+                    dst: 1,
+                    next_out: u64::MAX,
+                    next_in: u64::MAX,
+                    prop_head: 200,
+                },
+            },
+            WalEntry::UpdateProperty {
+                is_vertex: true,
+                element_id: 0,
+                key_id: 3,
+                old_value: Value::Null,
+                new_value: Value::String("hello".to_string()),
+            },
+            WalEntry::DeleteNode { id: VertexId(0) },
+            WalEntry::DeleteEdge { id: EdgeId(0) },
+            WalEntry::CommitTx { tx_id: 0 },
+            WalEntry::AbortTx { tx_id: 1 },
+            WalEntry::Checkpoint { version: 42 },
+        ];
+
+        // Write all entries
+        for entry in &entries_to_write {
+            wal.log(entry.clone()).expect("log entry");
+        }
+        wal.sync().expect("sync");
+
+        // Read all entries
+        let entries_read = wal.read_all_entries().expect("read all");
+
+        // Verify they match
+        assert_eq!(entries_read.len(), entries_to_write.len());
+        for (i, (written, read)) in entries_to_write.iter().zip(entries_read.iter()).enumerate() {
+            assert_eq!(written, read, "Entry {} mismatch", i);
+        }
     }
 }
