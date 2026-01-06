@@ -13,7 +13,7 @@
 //! | Backend | Description | Use Case |
 //! |---------|-------------|----------|
 //! | [`InMemoryGraph`] | HashMap-based storage | Development, small graphs |
-//! | [`MmapGraph`] | Memory-mapped persistent storage | Production, large graphs (requires `mmap` feature) |
+//! | `MmapGraph` | Memory-mapped persistent storage | Production, large graphs (requires `mmap` feature) |
 //!
 //! # Architecture
 //!
@@ -174,7 +174,7 @@ pub struct Edge {
 /// # Implementors
 ///
 /// - [`InMemoryGraph`]: HashMap-based in-memory storage
-/// - [`MmapGraph`]: Memory-mapped persistent storage (requires `mmap` feature)
+/// - `MmapGraph`: Memory-mapped persistent storage (requires `mmap` feature)
 ///
 /// # Example
 ///
