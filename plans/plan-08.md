@@ -718,12 +718,12 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 10. Initialize free lists from header
 
 **Acceptance Criteria**:
-- [ ] Can create new database
-- [ ] Can open existing database
-- [ ] Recovery runs automatically if needed
-- [ ] Indexes rebuilt on open
-- [ ] String table loaded
-- [ ] Test: Create, close, reopen, verify data persisted
+- [x] Can create new database
+- [x] Can open existing database
+- [x] Recovery runs automatically if needed
+- [x] Indexes rebuilt on open
+- [x] String table loaded
+- [x] Test: Create, close, reopen, verify data persisted
 
 ---
 
@@ -742,13 +742,13 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 8. Use `tempfile::TempDir` for test isolation
 
 **Acceptance Criteria**:
-- [ ] Can create empty database
-- [ ] Can add vertices with properties
-- [ ] Can add edges with properties
-- [ ] Data persists across reopens
-- [ ] Adjacency list traversal works
-- [ ] Label indexes work
-- [ ] All tests pass
+- [x] Can create empty database
+- [x] Can add vertices with properties
+- [x] Can add edges with properties
+- [x] Data persists across reopens
+- [x] Adjacency list traversal works
+- [x] Label indexes work
+- [x] All tests pass
 
 ---
 
@@ -764,11 +764,11 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 5. Add `test_reopen_and_append()` - add data, reopen, add more
 
 **Acceptance Criteria**:
-- [ ] Can handle 10K+ vertices
-- [ ] Can handle 100K+ edges
-- [ ] File grows correctly when capacity exceeded
-- [ ] Performance acceptable (< 10s for test)
-- [ ] Can append to existing database
+- [x] Can handle 10K+ vertices
+- [x] Can handle 100K+ edges
+- [x] File grows correctly when capacity exceeded
+- [x] Performance acceptable (< 10s for test)
+- [x] Can append to existing database
 
 ---
 
@@ -786,11 +786,11 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 7. Verify uncommitted transactions are discarded
 
 **Acceptance Criteria**:
-- [ ] Uncommitted transactions discarded
-- [ ] Committed transactions recovered
-- [ ] Database consistent after recovery
-- [ ] Multiple transaction recovery works
-- [ ] Tests pass reliably
+- [x] Uncommitted transactions discarded
+- [x] Committed transactions recovered
+- [x] Database consistent after recovery
+- [x] Multiple transaction recovery works
+- [x] Tests pass reliably
 
 ---
 

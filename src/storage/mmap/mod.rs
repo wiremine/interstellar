@@ -330,7 +330,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
 
         Ok(())
     }
@@ -552,53 +552,70 @@ impl MmapGraph {
     /// This is an O(V + E) operation where V is node_capacity and E is edge_capacity.
     /// For large databases, this can take several seconds. The operation is performed
     /// on startup to rebuild the indexes.
+    ///
+    /// After recovery, the header counts may be stale (recovery writes records but
+    /// doesn't update counts). This method uses `next_node_id` and `next_edge_id`
+    /// to scan all potentially allocated slots, and recalculates the actual counts
+    /// by excluding deleted records.
     pub(crate) fn rebuild_indexes(&self) -> Result<(), StorageError> {
         let mmap = self.mmap.read();
         let header = Self::read_header(&mmap);
 
-        // Use node_count/edge_count rather than capacity to avoid scanning
-        // uninitialized slots. Zero-initialized memory at slot 0 would otherwise
-        // appear as a valid record (id=0 matches VertexId(0)/EdgeId(0)).
-        let node_count = header.node_count;
-        let edge_count = header.edge_count;
+        // Use next_*_id rather than *_count to handle recovery scenarios where
+        // the counts may be stale. next_*_id represents the high-water mark of
+        // allocated slots.
+        let max_node_id = header.next_node_id;
+        let max_edge_id = header.next_edge_id;
 
         drop(mmap); // Release mmap lock before taking index locks
 
-        // Rebuild vertex label indexes
-        // Scan slots up to node_count. get_node_record filters out:
-        // - Deleted records
-        // - Records with ID mismatch (shouldn't happen in valid DB)
+        // Rebuild vertex label indexes and count actual non-deleted vertices
+        let mut actual_node_count = 0u64;
         {
             let mut vertex_labels = self.vertex_labels.write();
             vertex_labels.clear();
 
-            for node_id in 0..node_count {
+            for node_id in 0..max_node_id {
                 if let Some(node) = self.get_node_record(VertexId(node_id)) {
                     let label_id = node.label_id;
                     vertex_labels
                         .entry(label_id)
                         .or_insert_with(RoaringBitmap::new)
                         .insert(node_id as u32);
+                    actual_node_count += 1;
                 }
             }
         }
 
-        // Rebuild edge label indexes
-        // Scan slots up to edge_count. get_edge_record filters out:
-        // - Deleted records
-        // - Records with ID mismatch (shouldn't happen in valid DB)
+        // Rebuild edge label indexes and count actual non-deleted edges
+        let mut actual_edge_count = 0u64;
         {
             let mut edge_labels = self.edge_labels.write();
             edge_labels.clear();
 
-            for edge_id in 0..edge_count {
+            for edge_id in 0..max_edge_id {
                 if let Some(edge) = self.get_edge_record(EdgeId(edge_id)) {
                     let label_id = edge.label_id;
                     edge_labels
                         .entry(label_id)
                         .or_insert_with(RoaringBitmap::new)
                         .insert(edge_id as u32);
+                    actual_edge_count += 1;
                 }
+            }
+        }
+
+        // Update header with correct counts (handles recovery case where counts are stale)
+        {
+            let file = self.file.write();
+            let mmap = self.mmap.read();
+            let mut header = Self::read_header(&mmap);
+
+            if header.node_count != actual_node_count || header.edge_count != actual_edge_count {
+                header.node_count = actual_node_count;
+                header.edge_count = actual_edge_count;
+                drop(mmap);
+                Self::write_header(&file, &header)?;
             }
         }
 
@@ -760,10 +777,18 @@ impl MmapGraph {
         let entry_sizes = arena::calculate_entry_sizes(&props);
         let total_size: usize = entry_sizes.iter().sum();
 
-        // Allocate space in the arena
-        let base_offset = {
+        // Allocate space in the arena, growing if necessary
+        let base_offset = loop {
             let arena = self.arena.read();
-            arena.allocate(total_size)?
+            match arena.allocate(total_size) {
+                Ok(offset) => break offset,
+                Err(StorageError::OutOfSpace) => {
+                    drop(arena); // Release read lock before growing
+                    self.grow_arena()?;
+                    // Retry allocation after growth
+                }
+                Err(e) => return Err(e),
+            }
         };
 
         // Serialize properties with key interning
@@ -808,7 +833,7 @@ impl MmapGraph {
             file.write_all(data)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
 
         // Remap to see the new data
@@ -910,7 +935,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
 
         // Remap to see the new data
@@ -1138,7 +1163,7 @@ impl MmapGraph {
                 file_ref.write_all(&buffer)?;
             }
 
-            file.sync_data()?;
+            // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         }
 
         // Update string_table_end in header
@@ -1257,7 +1282,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
 
         // Remap to see the new data
@@ -1318,7 +1343,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
 
         // Remap to see the updated data
@@ -1379,7 +1404,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
 
         // Remap to see the updated data
@@ -1505,6 +1530,15 @@ impl MmapGraph {
     /// ```
     pub fn grow_node_table(&self) -> Result<(), StorageError> {
         let file = self.file.write();
+
+        // Sync all previous writes before reading data to copy
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see all synced writes
+        self.remap()?;
+
+        let file = self.file.write();
         let mmap = self.mmap.read();
         let header = Self::read_header(&mmap);
 
@@ -1528,6 +1562,23 @@ impl MmapGraph {
                 &mmap[old_edge_table_start..old_edge_table_start + edge_table_size],
             );
         }
+
+        // Read arena data (between edge table end and string table start)
+        let old_arena_start = header.property_arena_offset as usize;
+        let old_string_table_start = header.string_table_offset as usize;
+        let arena_size = old_string_table_start - old_arena_start;
+        let mut arena_data = vec![0u8; arena_size];
+        if arena_size > 0 && old_string_table_start <= mmap.len() {
+            arena_data.copy_from_slice(&mmap[old_arena_start..old_string_table_start]);
+        }
+
+        // Read string table data (from string table start to end of file)
+        let string_table_size = mmap.len() - old_string_table_start;
+        let mut string_table_data = vec![0u8; string_table_size];
+        if string_table_size > 0 {
+            string_table_data.copy_from_slice(&mmap[old_string_table_start..]);
+        }
+
         drop(mmap);
 
         // Calculate new file size
@@ -1536,13 +1587,26 @@ impl MmapGraph {
         let size_increase = new_node_table_size - old_node_table_size;
         let new_file_size = old_file_size + size_increase;
 
+        // Calculate new positions
+        let new_arena_start = old_arena_start + size_increase;
+        let new_string_table_start = old_string_table_start + size_increase;
+
         // Extend the file
         file.set_len(new_file_size as u64)?;
 
-        // Write edge table at new position
+        // Write data at new positions (order matters: write from end to start to avoid overwrites)
         #[cfg(unix)]
         {
             use std::os::unix::fs::FileExt;
+            // Write string table first (furthest from start)
+            if string_table_size > 0 {
+                file.write_all_at(&string_table_data, new_string_table_start as u64)?;
+            }
+            // Write arena
+            if arena_size > 0 {
+                file.write_all_at(&arena_data, new_arena_start as u64)?;
+            }
+            // Write edge table
             if edge_table_size > 0 {
                 file.write_all_at(&edge_data, new_edge_table_start as u64)?;
             }
@@ -1551,23 +1615,62 @@ impl MmapGraph {
         #[cfg(not(unix))]
         {
             use std::io::{Seek, SeekFrom, Write};
+            // Write string table first (furthest from start)
+            if string_table_size > 0 {
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(new_string_table_start as u64))?;
+                f.write_all(&string_table_data)?;
+            }
+            // Write arena
+            if arena_size > 0 {
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(new_arena_start as u64))?;
+                f.write_all(&arena_data)?;
+            }
+            // Write edge table
             if edge_table_size > 0 {
-                file.seek(SeekFrom::Start(new_edge_table_start as u64))?;
-                file.write_all(&edge_data)?;
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(new_edge_table_start as u64))?;
+                f.write_all(&edge_data)?;
             }
         }
+
+        // Adjust property offsets in node and edge records
+        let offset_adjustment = size_increase as i64;
+        self.adjust_property_offsets(
+            &file,
+            offset_adjustment,
+            header.next_node_id,
+            header.next_edge_id,
+        )?;
 
         // Update header
         let mut new_header = header;
         new_header.node_capacity = new_node_capacity;
-        new_header.property_arena_offset += size_increase as u64;
-        new_header.string_table_offset += size_increase as u64;
+        new_header.property_arena_offset = new_arena_start as u64;
+        new_header.string_table_offset = new_string_table_start as u64;
         Self::write_header(&file, &new_header)?;
+
+        // Sync to ensure writes are visible to new mmap
+        file.sync_data()?;
 
         drop(file);
 
         // Remap the file
         self.remap()?;
+
+        // Update arena allocator with new bounds
+        {
+            let mut arena = self.arena.write();
+            // Arena shifted by size_increase
+            let old_current = arena.current_offset();
+            let new_current = old_current + offset_adjustment as u64;
+            *arena = arena::ArenaAllocator::new(
+                new_arena_start as u64,
+                new_string_table_start as u64,
+                new_current,
+            );
+        }
 
         Ok(())
     }
@@ -1577,17 +1680,18 @@ impl MmapGraph {
     /// This method:
     /// 1. Calculates the new capacity (2x current)
     /// 2. Expands the file to accommodate the larger edge table
-    /// 3. Updates the header with new capacity
-    /// 4. Remaps the file to reflect the new size
+    /// 3. Moves arena and string table to new positions
+    /// 4. Updates the header with new capacity and offsets
+    /// 5. Remaps the file to reflect the new size
     ///
     /// # File Layout Changes
     ///
     /// ```text
-    /// Before: [Header][Nodes][Edges (E)][Arena]
-    /// After:  [Header][Nodes][Edges (2E)][Arena]
+    /// Before: [Header][Nodes][Edges (E)][Arena][StringTable]
+    /// After:  [Header][Nodes][Edges (2E)][Arena][StringTable]
     /// ```
     ///
-    /// The arena is shifted to maintain contiguous layout.
+    /// The arena and string table are shifted to maintain contiguous layout.
     ///
     /// # Errors
     ///
@@ -1603,32 +1707,314 @@ impl MmapGraph {
 
         let old_edge_table_size = old_edge_capacity as usize * EDGE_RECORD_SIZE;
         let new_edge_table_size = new_edge_capacity as usize * EDGE_RECORD_SIZE;
+        let size_increase = new_edge_table_size - old_edge_table_size;
+
+        // Read arena data (between edge table end and string table start)
+        let old_arena_start = header.property_arena_offset as usize;
+        let old_string_table_start = header.string_table_offset as usize;
+        let arena_size = old_string_table_start - old_arena_start;
+        let mut arena_data = vec![0u8; arena_size];
+        if arena_size > 0 && old_string_table_start <= mmap.len() {
+            arena_data.copy_from_slice(&mmap[old_arena_start..old_string_table_start]);
+        }
+
+        // Read string table data (from string table start to end of file)
+        let string_table_size = mmap.len() - old_string_table_start;
+        let mut string_table_data = vec![0u8; string_table_size];
+        if string_table_size > 0 {
+            string_table_data.copy_from_slice(&mmap[old_string_table_start..]);
+        }
 
         drop(mmap);
 
         // Calculate new file size
         let old_file_size = file.metadata()?.len() as usize;
-        let size_increase = new_edge_table_size - old_edge_table_size;
         let new_file_size = old_file_size + size_increase;
+
+        // Calculate new positions
+        let new_arena_start = old_arena_start + size_increase;
+        let new_string_table_start = old_string_table_start + size_increase;
 
         // Extend the file
         file.set_len(new_file_size as u64)?;
 
-        // Update header
-        let mmap = self.mmap.read();
-        let mut new_header = Self::read_header(&mmap);
-        new_header.edge_capacity = new_edge_capacity;
-        new_header.property_arena_offset += size_increase as u64;
-        new_header.string_table_offset += size_increase as u64;
-        drop(mmap);
+        // Write data at new positions (order matters: write from end to start to avoid overwrites)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            // Write string table first (furthest from start)
+            if string_table_size > 0 {
+                file.write_all_at(&string_table_data, new_string_table_start as u64)?;
+            }
+            // Write arena
+            if arena_size > 0 {
+                file.write_all_at(&arena_data, new_arena_start as u64)?;
+            }
+        }
 
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            // Write string table first (furthest from start)
+            if string_table_size > 0 {
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(new_string_table_start as u64))?;
+                f.write_all(&string_table_data)?;
+            }
+            // Write arena
+            if arena_size > 0 {
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(new_arena_start as u64))?;
+                f.write_all(&arena_data)?;
+            }
+        }
+
+        // Adjust property offsets in node and edge records
+        let offset_adjustment = size_increase as i64;
+        self.adjust_property_offsets(
+            &file,
+            offset_adjustment,
+            header.next_node_id,
+            header.next_edge_id,
+        )?;
+
+        // Update header
+        let mut new_header = header;
+        new_header.edge_capacity = new_edge_capacity;
+        new_header.property_arena_offset = new_arena_start as u64;
+        new_header.string_table_offset = new_string_table_start as u64;
         Self::write_header(&file, &new_header)?;
+
+        // Sync to ensure writes are visible to new mmap
+        file.sync_data()?;
 
         drop(file);
 
         // Remap the file
         self.remap()?;
 
+        // Update arena allocator with new bounds
+        {
+            let mut arena = self.arena.write();
+            let old_current = arena.current_offset();
+            let new_current = old_current + offset_adjustment as u64;
+            *arena = arena::ArenaAllocator::new(
+                new_arena_start as u64,
+                new_string_table_start as u64,
+                new_current,
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Grow the property arena by doubling its size.
+    ///
+    /// This method:
+    /// 1. Calculates the current arena size
+    /// 2. Doubles the arena capacity
+    /// 3. Moves the string table to accommodate the larger arena
+    /// 4. Extends the file
+    /// 5. Updates the arena allocator
+    ///
+    /// # File Layout Changes
+    ///
+    /// ```text
+    /// Before: [Header][Nodes][Edges][Arena (A)][StringTable]
+    /// After:  [Header][Nodes][Edges][Arena (2A)][StringTable]
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during file operations
+    pub fn grow_arena(&self) -> Result<(), StorageError> {
+        let file = self.file.write();
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        // Calculate current arena size
+        let arena_start = header.property_arena_offset;
+        let string_table_start = header.string_table_offset;
+        let old_arena_size = string_table_start - arena_start;
+
+        // Double the arena size (minimum 64KB growth)
+        let growth = old_arena_size.max(64 * 1024);
+        let new_arena_size = old_arena_size + growth;
+
+        // Read existing string table data
+        let string_table_len = mmap.len() as u64 - string_table_start;
+        let mut string_table_data = vec![0u8; string_table_len as usize];
+        if string_table_len > 0 {
+            string_table_data.copy_from_slice(&mmap[string_table_start as usize..]);
+        }
+        drop(mmap);
+
+        // Calculate new file size and string table position
+        let old_file_size = file.metadata()?.len();
+        let new_file_size = old_file_size + growth;
+        let new_string_table_offset = arena_start + new_arena_size;
+
+        // Extend the file
+        file.set_len(new_file_size)?;
+
+        // Write string table at new position
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            if string_table_len > 0 {
+                file.write_all_at(&string_table_data, new_string_table_offset)?;
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            if string_table_len > 0 {
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(new_string_table_offset))?;
+                f.write_all(&string_table_data)?;
+            }
+        }
+
+        // Update header with new string table offset
+        let mut new_header = header;
+        new_header.string_table_offset = new_string_table_offset;
+        Self::write_header(&file, &new_header)?;
+
+        // Sync to ensure writes are visible to new mmap
+        file.sync_data()?;
+
+        drop(file);
+
+        // Remap the file
+        self.remap()?;
+
+        // Update arena allocator with new end
+        {
+            let mut arena = self.arena.write();
+            arena.set_arena_end(new_string_table_offset);
+        }
+
+        Ok(())
+    }
+
+    /// Adjust property offsets in node and edge records after arena relocation.
+    ///
+    /// When the property arena is moved (e.g., during table growth), all `prop_head`
+    /// fields in node and edge records must be updated to point to the new locations.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The file handle (with write lock)
+    /// * `offset_adjustment` - The amount to add to each prop_head (new_offset - old_offset)
+    /// * `next_node_id` - Number of nodes to check
+    /// * `next_edge_id` - Number of edges to check
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during read/write
+    fn adjust_property_offsets(
+        &self,
+        file: &File,
+        offset_adjustment: i64,
+        next_node_id: u64,
+        next_edge_id: u64,
+    ) -> Result<(), StorageError> {
+        use records::{EdgeRecord, NodeRecord, EDGE_RECORD_SIZE, NODE_RECORD_SIZE};
+
+        // Re-read the mmap to get current data
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        // Adjust node records
+        for id in 0..next_node_id {
+            let offset = HEADER_SIZE + (id as usize * NODE_RECORD_SIZE);
+            if offset + NODE_RECORD_SIZE > mmap.len() {
+                break;
+            }
+
+            let record = unsafe {
+                let ptr = mmap.as_ptr().add(offset) as *const NodeRecord;
+                ptr.read_unaligned()
+            };
+
+            // Skip deleted or uninitialized records
+            if record.is_deleted() || record.id != id {
+                continue;
+            }
+
+            // Skip records without properties
+            if record.prop_head == u64::MAX {
+                continue;
+            }
+
+            // Adjust the prop_head offset
+            let new_prop_head = (record.prop_head as i64 + offset_adjustment) as u64;
+            let mut new_record = record;
+            new_record.prop_head = new_prop_head;
+            let bytes = new_record.to_bytes();
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileExt;
+                file.write_all_at(&bytes, offset as u64)?;
+            }
+
+            #[cfg(not(unix))]
+            {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(offset as u64))?;
+                f.write_all(&bytes)?;
+            }
+        }
+
+        // Adjust edge records (they also have prop_head)
+        let edge_table_start = HEADER_SIZE as u64 + header.node_capacity * NODE_RECORD_SIZE as u64;
+
+        for id in 0..next_edge_id {
+            let offset = edge_table_start as usize + (id as usize * EDGE_RECORD_SIZE);
+            if offset + EDGE_RECORD_SIZE > mmap.len() {
+                break;
+            }
+
+            let record = unsafe {
+                let ptr = mmap.as_ptr().add(offset) as *const EdgeRecord;
+                ptr.read_unaligned()
+            };
+
+            // Skip deleted or uninitialized records
+            if record.is_deleted() || record.id != id {
+                continue;
+            }
+
+            // Skip records without properties
+            if record.prop_head == u64::MAX {
+                continue;
+            }
+
+            // Adjust the prop_head offset
+            let new_prop_head = (record.prop_head as i64 + offset_adjustment) as u64;
+            let mut new_record = record;
+            new_record.prop_head = new_prop_head;
+            let bytes = new_record.to_bytes();
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileExt;
+                file.write_all_at(&bytes, offset as u64)?;
+            }
+
+            #[cfg(not(unix))]
+            {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(offset as u64))?;
+                f.write_all(&bytes)?;
+            }
+        }
+
+        drop(mmap);
         Ok(())
     }
 
@@ -2020,7 +2406,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
         self.remap()?;
         Ok(())
@@ -2051,7 +2437,7 @@ impl MmapGraph {
             file.write_all(&bytes)?;
         }
 
-        file.sync_data()?;
+        // Note: No sync here - WAL provides durability. Data file is synced during checkpoint().
         drop(file);
         self.remap()?;
         Ok(())
@@ -3642,11 +4028,12 @@ mod tests {
             drop(file);
         }
 
-        // Update header to reflect node_count
+        // Update header to reflect node_count and next_node_id
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.node_count = nodes.len() as u64;
+            header.next_node_id = nodes.len() as u64;
             drop(mmap);
 
             let mut file = graph.file.write();
@@ -3725,11 +4112,12 @@ mod tests {
             drop(file);
         }
 
-        // Update header to reflect node_count
+        // Update header to reflect node_count and next_node_id
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.node_count = nodes.len() as u64;
+            header.next_node_id = nodes.len() as u64;
             drop(mmap);
 
             let mut file = graph.file.write();
@@ -3801,11 +4189,12 @@ mod tests {
             drop(file);
         }
 
-        // Update header to reflect edge_count
+        // Update header to reflect edge_count and next_edge_id
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.edge_count = edges.len() as u64;
+            header.next_edge_id = edges.len() as u64;
             drop(mmap);
 
             let mut file = graph.file.write();
@@ -3886,11 +4275,12 @@ mod tests {
             drop(file);
         }
 
-        // Update header to reflect edge_count
+        // Update header to reflect edge_count and next_edge_id
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.edge_count = edges.len() as u64;
+            header.next_edge_id = edges.len() as u64;
             drop(mmap);
 
             let mut file = graph.file.write();
@@ -3966,11 +4356,12 @@ mod tests {
                 drop(file);
             }
 
-            // Update header to reflect node_count
+            // Update header to reflect node_count and next_node_id
             {
                 let mmap = graph.mmap.read();
                 let mut header = MmapGraph::read_header(&mmap);
                 header.node_count = nodes.len() as u64;
+                header.next_node_id = nodes.len() as u64;
                 drop(mmap);
 
                 let mut file = graph.file.write();
