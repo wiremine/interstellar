@@ -818,11 +818,11 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 6. Add property-based tests with proptest if time permits
 
 **Acceptance Criteria**:
-- [ ] All Value types roundtrip correctly
-- [ ] Nested structures (List, Map) work
-- [ ] Multiple properties per element work
-- [ ] Empty properties work
-- [ ] Large strings work (> 256 bytes)
+- [x] All Value types roundtrip correctly
+- [x] Nested structures (List, Map) work
+- [x] Multiple properties per element work
+- [x] Empty properties work
+- [x] Large strings work (> 256 bytes)
 
 ---
 

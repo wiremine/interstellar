@@ -1282,3 +1282,747 @@ fn test_batch_mode_read_during_write() {
 
     graph.commit_batch().expect("commit batch");
 }
+
+// =============================================================================
+// Phase 5.7: Property Roundtrip Tests
+// =============================================================================
+
+use rustgremlin::value::{EdgeId, Value, VertexId};
+
+/// Test that Null property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_null() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([("nullprop".to_string(), Value::Null)]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("nullprop"), Some(&Value::Null));
+}
+
+/// Test that Bool property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_bool() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("flag_true".to_string(), Value::Bool(true)),
+                ("flag_false".to_string(), Value::Bool(false)),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("flag_true"), Some(&Value::Bool(true)));
+    assert_eq!(
+        vertex.properties.get("flag_false"),
+        Some(&Value::Bool(false))
+    );
+}
+
+/// Test that Int property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_int() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("positive".to_string(), Value::Int(42)),
+                ("negative".to_string(), Value::Int(-7)),
+                ("zero".to_string(), Value::Int(0)),
+                ("large".to_string(), Value::Int(i64::MAX)),
+                ("small".to_string(), Value::Int(i64::MIN)),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("positive"), Some(&Value::Int(42)));
+    assert_eq!(vertex.properties.get("negative"), Some(&Value::Int(-7)));
+    assert_eq!(vertex.properties.get("zero"), Some(&Value::Int(0)));
+    assert_eq!(vertex.properties.get("large"), Some(&Value::Int(i64::MAX)));
+    assert_eq!(vertex.properties.get("small"), Some(&Value::Int(i64::MIN)));
+}
+
+/// Test that Float property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_float() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("pi".to_string(), Value::Float(3.14159)),
+                ("negative".to_string(), Value::Float(-2.5)),
+                ("zero".to_string(), Value::Float(0.0)),
+                ("infinity".to_string(), Value::Float(f64::INFINITY)),
+                ("neg_infinity".to_string(), Value::Float(f64::NEG_INFINITY)),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("pi"), Some(&Value::Float(3.14159)));
+    assert_eq!(vertex.properties.get("negative"), Some(&Value::Float(-2.5)));
+    assert_eq!(vertex.properties.get("zero"), Some(&Value::Float(0.0)));
+    assert_eq!(
+        vertex.properties.get("infinity"),
+        Some(&Value::Float(f64::INFINITY))
+    );
+    assert_eq!(
+        vertex.properties.get("neg_infinity"),
+        Some(&Value::Float(f64::NEG_INFINITY))
+    );
+}
+
+/// Test that Float NaN property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_float_nan() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([("nan".to_string(), Value::Float(f64::NAN))]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    let nan_val = vertex.properties.get("nan").expect("nan property");
+    match nan_val {
+        Value::Float(f) => assert!(f.is_nan(), "Expected NaN, got {}", f),
+        _ => panic!("Expected Float variant, got {:?}", nan_val),
+    }
+}
+
+/// Test that String property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_string() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("name".to_string(), Value::String("Alice".to_string())),
+                ("empty".to_string(), Value::String("".to_string())),
+                (
+                    "unicode".to_string(),
+                    Value::String("Hello 世界 🌍".to_string()),
+                ),
+                (
+                    "special".to_string(),
+                    Value::String("line\nbreak\ttab".to_string()),
+                ),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+    assert_eq!(
+        vertex.properties.get("empty"),
+        Some(&Value::String("".to_string()))
+    );
+    assert_eq!(
+        vertex.properties.get("unicode"),
+        Some(&Value::String("Hello 世界 🌍".to_string()))
+    );
+    assert_eq!(
+        vertex.properties.get("special"),
+        Some(&Value::String("line\nbreak\ttab".to_string()))
+    );
+}
+
+/// Test that List property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_list() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let mixed_list = Value::List(vec![
+        Value::Int(1),
+        Value::String("two".to_string()),
+        Value::Bool(true),
+        Value::Float(4.0),
+        Value::Null,
+    ]);
+
+    let nested_list = Value::List(vec![
+        Value::List(vec![Value::Int(1), Value::Int(2)]),
+        Value::List(vec![Value::Int(3), Value::Int(4)]),
+    ]);
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("empty_list".to_string(), Value::List(vec![])),
+                (
+                    "int_list".to_string(),
+                    Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+                ),
+                ("mixed".to_string(), mixed_list.clone()),
+                ("nested".to_string(), nested_list.clone()),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("empty_list"),
+        Some(&Value::List(vec![]))
+    );
+    assert_eq!(
+        vertex.properties.get("int_list"),
+        Some(&Value::List(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3)
+        ]))
+    );
+    assert_eq!(vertex.properties.get("mixed"), Some(&mixed_list));
+    assert_eq!(vertex.properties.get("nested"), Some(&nested_list));
+}
+
+/// Test that Map property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_map() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let simple_map = Value::Map(HashMap::from([
+        ("x".to_string(), Value::Int(10)),
+        ("y".to_string(), Value::Int(20)),
+    ]));
+
+    let nested_map = Value::Map(HashMap::from([(
+        "outer".to_string(),
+        Value::Map(HashMap::from([(
+            "inner".to_string(),
+            Value::String("value".to_string()),
+        )])),
+    )]));
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("empty_map".to_string(), Value::Map(HashMap::new())),
+                ("simple".to_string(), simple_map.clone()),
+                ("nested".to_string(), nested_map.clone()),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("empty_map"),
+        Some(&Value::Map(HashMap::new()))
+    );
+    assert_eq!(vertex.properties.get("simple"), Some(&simple_map));
+    assert_eq!(vertex.properties.get("nested"), Some(&nested_map));
+}
+
+/// Test that Vertex ID property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_vertex_id() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a vertex first to get a valid ID
+    let ref_vertex = graph
+        .add_vertex("reference", HashMap::new())
+        .expect("add reference vertex");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("ref".to_string(), Value::Vertex(ref_vertex)),
+                ("external".to_string(), Value::Vertex(VertexId(12345))),
+                ("zero".to_string(), Value::Vertex(VertexId(0))),
+                ("max".to_string(), Value::Vertex(VertexId(u64::MAX))),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("ref"),
+        Some(&Value::Vertex(ref_vertex))
+    );
+    assert_eq!(
+        vertex.properties.get("external"),
+        Some(&Value::Vertex(VertexId(12345)))
+    );
+    assert_eq!(
+        vertex.properties.get("zero"),
+        Some(&Value::Vertex(VertexId(0)))
+    );
+    assert_eq!(
+        vertex.properties.get("max"),
+        Some(&Value::Vertex(VertexId(u64::MAX)))
+    );
+}
+
+/// Test that Edge ID property values roundtrip correctly.
+#[test]
+fn test_property_roundtrip_edge_id() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create vertices and an edge to get valid IDs
+    let v1 = graph
+        .add_vertex("node", HashMap::new())
+        .expect("add vertex 1");
+    let v2 = graph
+        .add_vertex("node", HashMap::new())
+        .expect("add vertex 2");
+    let ref_edge = graph
+        .add_edge(v1, v2, "link", HashMap::new())
+        .expect("add edge");
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("ref".to_string(), Value::Edge(ref_edge)),
+                ("external".to_string(), Value::Edge(EdgeId(67890))),
+                ("zero".to_string(), Value::Edge(EdgeId(0))),
+                ("max".to_string(), Value::Edge(EdgeId(u64::MAX))),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("ref"), Some(&Value::Edge(ref_edge)));
+    assert_eq!(
+        vertex.properties.get("external"),
+        Some(&Value::Edge(EdgeId(67890)))
+    );
+    assert_eq!(vertex.properties.get("zero"), Some(&Value::Edge(EdgeId(0))));
+    assert_eq!(
+        vertex.properties.get("max"),
+        Some(&Value::Edge(EdgeId(u64::MAX)))
+    );
+}
+
+/// Test that edge properties roundtrip correctly with all Value types.
+#[test]
+fn test_edge_property_roundtrip() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v1 = graph.add_vertex("person", HashMap::new()).expect("add v1");
+    let v2 = graph.add_vertex("person", HashMap::new()).expect("add v2");
+
+    let nested = Value::Map(HashMap::from([
+        ("count".to_string(), Value::Int(5)),
+        (
+            "tags".to_string(),
+            Value::List(vec![
+                Value::String("friend".to_string()),
+                Value::String("colleague".to_string()),
+            ]),
+        ),
+    ]));
+
+    let e = graph
+        .add_edge(
+            v1,
+            v2,
+            "knows",
+            HashMap::from([
+                ("weight".to_string(), Value::Float(0.85)),
+                ("since".to_string(), Value::Int(2020)),
+                ("active".to_string(), Value::Bool(true)),
+                (
+                    "note".to_string(),
+                    Value::String("Met at conference".to_string()),
+                ),
+                ("metadata".to_string(), nested.clone()),
+            ]),
+        )
+        .expect("add edge");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let edge = graph.get_edge(e).expect("get edge");
+    assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.85)));
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+    assert_eq!(edge.properties.get("active"), Some(&Value::Bool(true)));
+    assert_eq!(
+        edge.properties.get("note"),
+        Some(&Value::String("Met at conference".to_string()))
+    );
+    assert_eq!(edge.properties.get("metadata"), Some(&nested));
+}
+
+/// Test that multi-property vertices roundtrip correctly.
+#[test]
+fn test_multi_property_vertex() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a vertex with many properties of different types
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::String("Test Entity".to_string()));
+    props.insert("count".to_string(), Value::Int(42));
+    props.insert("ratio".to_string(), Value::Float(0.75));
+    props.insert("enabled".to_string(), Value::Bool(true));
+    props.insert("disabled".to_string(), Value::Bool(false));
+    props.insert("empty".to_string(), Value::Null);
+    props.insert(
+        "tags".to_string(),
+        Value::List(vec![
+            Value::String("a".to_string()),
+            Value::String("b".to_string()),
+        ]),
+    );
+    props.insert(
+        "config".to_string(),
+        Value::Map(HashMap::from([
+            ("key1".to_string(), Value::Int(1)),
+            ("key2".to_string(), Value::Int(2)),
+        ])),
+    );
+    props.insert("vertex_ref".to_string(), Value::Vertex(VertexId(100)));
+    props.insert("edge_ref".to_string(), Value::Edge(EdgeId(200)));
+
+    let v = graph
+        .add_vertex("entity", props.clone())
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.label, "entity");
+    assert_eq!(vertex.properties.len(), props.len());
+
+    for (key, expected_value) in &props {
+        let actual_value = vertex.properties.get(key);
+        assert_eq!(
+            actual_value,
+            Some(expected_value),
+            "Property '{}' mismatch",
+            key
+        );
+    }
+}
+
+/// Test that empty properties roundtrip correctly.
+#[test]
+fn test_empty_properties() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex("empty", HashMap::new())
+        .expect("add vertex");
+
+    let v1 = graph.add_vertex("node", HashMap::new()).expect("add v1");
+    let v2 = graph.add_vertex("node", HashMap::new()).expect("add v2");
+    let e = graph
+        .add_edge(v1, v2, "link", HashMap::new())
+        .expect("add edge");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert!(vertex.properties.is_empty());
+
+    let edge = graph.get_edge(e).expect("get edge");
+    assert!(edge.properties.is_empty());
+}
+
+/// Test that large strings (> 256 bytes) roundtrip correctly.
+#[test]
+fn test_large_string_property() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create strings of various sizes
+    let small = "a".repeat(100);
+    let medium = "b".repeat(500);
+    let large = "c".repeat(1000);
+    let very_large = "d".repeat(10_000);
+
+    let v = graph
+        .add_vertex(
+            "test",
+            HashMap::from([
+                ("small".to_string(), Value::String(small.clone())),
+                ("medium".to_string(), Value::String(medium.clone())),
+                ("large".to_string(), Value::String(large.clone())),
+                ("very_large".to_string(), Value::String(very_large.clone())),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("small"), Some(&Value::String(small)));
+    assert_eq!(
+        vertex.properties.get("medium"),
+        Some(&Value::String(medium))
+    );
+    assert_eq!(vertex.properties.get("large"), Some(&Value::String(large)));
+    assert_eq!(
+        vertex.properties.get("very_large"),
+        Some(&Value::String(very_large))
+    );
+}
+
+/// Test property roundtrip across database close and reopen.
+#[test]
+fn test_property_persistence_across_reopen() {
+    let (dir, db_path) = temp_db();
+
+    let (vertex_id, edge_id) = {
+        let graph = MmapGraph::open(&db_path).expect("open graph");
+
+        let v = graph
+            .add_vertex(
+                "entity",
+                HashMap::from([
+                    ("name".to_string(), Value::String("Persistent".to_string())),
+                    ("count".to_string(), Value::Int(999)),
+                    ("ratio".to_string(), Value::Float(1.5)),
+                    ("active".to_string(), Value::Bool(true)),
+                    (
+                        "list".to_string(),
+                        Value::List(vec![Value::Int(1), Value::Int(2)]),
+                    ),
+                    (
+                        "map".to_string(),
+                        Value::Map(HashMap::from([("nested".to_string(), Value::Null)])),
+                    ),
+                ]),
+            )
+            .expect("add vertex");
+
+        let v2 = graph.add_vertex("other", HashMap::new()).expect("add v2");
+
+        let e = graph
+            .add_edge(
+                v,
+                v2,
+                "relates",
+                HashMap::from([
+                    ("strength".to_string(), Value::Float(0.9)),
+                    ("label".to_string(), Value::String("strong".to_string())),
+                ]),
+            )
+            .expect("add edge");
+
+        graph.checkpoint().expect("checkpoint");
+
+        (v, e)
+    };
+
+    // Reopen and verify
+    {
+        let graph = MmapGraph::open(&db_path).expect("reopen graph");
+
+        let vertex = graph.get_vertex(vertex_id).expect("get vertex");
+        assert_eq!(
+            vertex.properties.get("name"),
+            Some(&Value::String("Persistent".to_string()))
+        );
+        assert_eq!(vertex.properties.get("count"), Some(&Value::Int(999)));
+        assert_eq!(vertex.properties.get("ratio"), Some(&Value::Float(1.5)));
+        assert_eq!(vertex.properties.get("active"), Some(&Value::Bool(true)));
+        assert_eq!(
+            vertex.properties.get("list"),
+            Some(&Value::List(vec![Value::Int(1), Value::Int(2)]))
+        );
+        assert_eq!(
+            vertex.properties.get("map"),
+            Some(&Value::Map(HashMap::from([(
+                "nested".to_string(),
+                Value::Null
+            )])))
+        );
+
+        let edge = graph.get_edge(edge_id).expect("get edge");
+        assert_eq!(edge.properties.get("strength"), Some(&Value::Float(0.9)));
+        assert_eq!(
+            edge.properties.get("label"),
+            Some(&Value::String("strong".to_string()))
+        );
+    }
+
+    drop(dir);
+}
+
+/// Test deeply nested property structures roundtrip correctly.
+#[test]
+fn test_deeply_nested_properties() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a deeply nested structure
+    let level3 = Value::Map(HashMap::from([
+        ("leaf".to_string(), Value::String("deep".to_string())),
+        ("number".to_string(), Value::Int(42)),
+    ]));
+
+    let level2 = Value::Map(HashMap::from([
+        ("nested".to_string(), level3.clone()),
+        (
+            "list".to_string(),
+            Value::List(vec![Value::Int(1), Value::Int(2)]),
+        ),
+    ]));
+
+    let level1 = Value::Map(HashMap::from([
+        ("data".to_string(), level2.clone()),
+        ("name".to_string(), Value::String("level1".to_string())),
+    ]));
+
+    let nested_list = Value::List(vec![
+        Value::List(vec![
+            Value::List(vec![Value::Int(1), Value::Int(2)]),
+            Value::List(vec![Value::Int(3), Value::Int(4)]),
+        ]),
+        Value::List(vec![Value::List(vec![Value::Int(5), Value::Int(6)])]),
+    ]);
+
+    let v = graph
+        .add_vertex(
+            "nested",
+            HashMap::from([
+                ("deep_map".to_string(), level1.clone()),
+                ("deep_list".to_string(), nested_list.clone()),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(vertex.properties.get("deep_map"), Some(&level1));
+    assert_eq!(vertex.properties.get("deep_list"), Some(&nested_list));
+}
+
+/// Test all Value types in a single vertex property map.
+#[test]
+fn test_all_value_types_combined() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex(
+            "comprehensive",
+            HashMap::from([
+                ("null".to_string(), Value::Null),
+                ("bool_true".to_string(), Value::Bool(true)),
+                ("bool_false".to_string(), Value::Bool(false)),
+                ("int_pos".to_string(), Value::Int(123)),
+                ("int_neg".to_string(), Value::Int(-456)),
+                ("float_pos".to_string(), Value::Float(3.14)),
+                ("float_neg".to_string(), Value::Float(-2.71)),
+                ("string".to_string(), Value::String("hello".to_string())),
+                (
+                    "list".to_string(),
+                    Value::List(vec![Value::Int(1), Value::String("a".to_string())]),
+                ),
+                (
+                    "map".to_string(),
+                    Value::Map(HashMap::from([("k".to_string(), Value::Bool(true))])),
+                ),
+                ("vertex".to_string(), Value::Vertex(VertexId(111))),
+                ("edge".to_string(), Value::Edge(EdgeId(222))),
+            ]),
+        )
+        .expect("add vertex");
+
+    graph.checkpoint().expect("checkpoint");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+
+    assert_eq!(vertex.properties.get("null"), Some(&Value::Null));
+    assert_eq!(vertex.properties.get("bool_true"), Some(&Value::Bool(true)));
+    assert_eq!(
+        vertex.properties.get("bool_false"),
+        Some(&Value::Bool(false))
+    );
+    assert_eq!(vertex.properties.get("int_pos"), Some(&Value::Int(123)));
+    assert_eq!(vertex.properties.get("int_neg"), Some(&Value::Int(-456)));
+    assert_eq!(
+        vertex.properties.get("float_pos"),
+        Some(&Value::Float(3.14))
+    );
+    assert_eq!(
+        vertex.properties.get("float_neg"),
+        Some(&Value::Float(-2.71))
+    );
+    assert_eq!(
+        vertex.properties.get("string"),
+        Some(&Value::String("hello".to_string()))
+    );
+    assert_eq!(
+        vertex.properties.get("list"),
+        Some(&Value::List(vec![
+            Value::Int(1),
+            Value::String("a".to_string())
+        ]))
+    );
+    assert_eq!(
+        vertex.properties.get("map"),
+        Some(&Value::Map(HashMap::from([(
+            "k".to_string(),
+            Value::Bool(true)
+        )])))
+    );
+    assert_eq!(
+        vertex.properties.get("vertex"),
+        Some(&Value::Vertex(VertexId(111)))
+    );
+    assert_eq!(
+        vertex.properties.get("edge"),
+        Some(&Value::Edge(EdgeId(222)))
+    );
+}
