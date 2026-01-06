@@ -13,7 +13,7 @@ pub const MAGIC: u32 = 0x47524D4C;
 pub const VERSION: u32 = 1;
 
 /// Size of the file header in bytes
-pub const HEADER_SIZE: usize = 88;
+pub const HEADER_SIZE: usize = 104;
 
 /// Size of a node record in bytes
 pub const NODE_RECORD_SIZE: usize = 48;
@@ -25,7 +25,7 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 // FileHeader
 // =============================================================================
 
-/// File header at offset 0 (88 bytes total)
+/// File header at offset 0 (104 bytes total)
 ///
 /// The header contains metadata about the database file, including counts,
 /// capacities, and offsets to major file sections.
@@ -47,6 +47,8 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 /// 64     | 8    | arena_next_offset
 /// 72     | 8    | free_node_head
 /// 80     | 8    | free_edge_head
+/// 88     | 8    | next_node_id
+/// 96     | 8    | next_edge_id
 /// ```
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
@@ -86,6 +88,12 @@ pub struct FileHeader {
 
     /// First free edge slot ID (u64::MAX if empty)
     pub free_edge_head: u64,
+
+    /// Next node ID to allocate (high-water mark for iteration)
+    pub next_node_id: u64,
+
+    /// Next edge ID to allocate (high-water mark for iteration)
+    pub next_edge_id: u64,
 }
 
 impl FileHeader {
@@ -104,6 +112,8 @@ impl FileHeader {
             arena_next_offset: 0,
             free_node_head: u64::MAX,
             free_edge_head: u64::MAX,
+            next_node_id: 0,
+            next_edge_id: 0,
         }
     }
 
@@ -568,11 +578,11 @@ mod tests {
 
     #[test]
     fn test_file_header_size() {
-        // FileHeader must be exactly 88 bytes
+        // FileHeader must be exactly 104 bytes
         assert_eq!(
             std::mem::size_of::<FileHeader>(),
             HEADER_SIZE,
-            "FileHeader size must be exactly 88 bytes"
+            "FileHeader size must be exactly 104 bytes"
         );
     }
 
@@ -581,13 +591,13 @@ mod tests {
         // Verify the packed struct has expected layout
 
         // magic and version are u32 (4 bytes each) = 8 bytes
-        // 10 u64 fields (10 × 8 bytes) = 80 bytes
-        // Total: 8 + 80 = 88 bytes
+        // 12 u64 fields (12 × 8 bytes) = 96 bytes
+        // Total: 8 + 96 = 104 bytes
 
         assert_eq!(
             std::mem::size_of::<FileHeader>(),
-            4 + 4 + (10 * 8),
-            "FileHeader fields should sum to 88 bytes"
+            4 + 4 + (12 * 8),
+            "FileHeader fields should sum to 104 bytes"
         );
     }
 
@@ -608,6 +618,8 @@ mod tests {
         let arena_next_offset = header.arena_next_offset;
         let free_node_head = header.free_node_head;
         let free_edge_head = header.free_edge_head;
+        let next_node_id = header.next_node_id;
+        let next_edge_id = header.next_edge_id;
 
         assert_eq!(magic, MAGIC);
         assert_eq!(version, VERSION);
@@ -621,6 +633,8 @@ mod tests {
         assert_eq!(arena_next_offset, 0);
         assert_eq!(free_node_head, u64::MAX);
         assert_eq!(free_edge_head, u64::MAX);
+        assert_eq!(next_node_id, 0);
+        assert_eq!(next_edge_id, 0);
     }
 
     #[test]
@@ -637,6 +651,8 @@ mod tests {
         header.arena_next_offset = 800000;
         header.free_node_head = 42;
         header.free_edge_head = 99;
+        header.next_node_id = 150;
+        header.next_edge_id = 600;
 
         // Copy original values
         let orig_magic = header.magic;
@@ -651,6 +667,8 @@ mod tests {
         let orig_arena_next_offset = header.arena_next_offset;
         let orig_free_node_head = header.free_node_head;
         let orig_free_edge_head = header.free_edge_head;
+        let orig_next_node_id = header.next_node_id;
+        let orig_next_edge_id = header.next_edge_id;
 
         // Convert to bytes
         let bytes = header.to_bytes();
@@ -674,6 +692,8 @@ mod tests {
         let rec_arena_next_offset = recovered.arena_next_offset;
         let rec_free_node_head = recovered.free_node_head;
         let rec_free_edge_head = recovered.free_edge_head;
+        let rec_next_node_id = recovered.next_node_id;
+        let rec_next_edge_id = recovered.next_edge_id;
 
         // Verify all fields match
         assert_eq!(rec_magic, orig_magic);
@@ -688,6 +708,8 @@ mod tests {
         assert_eq!(rec_arena_next_offset, orig_arena_next_offset);
         assert_eq!(rec_free_node_head, orig_free_node_head);
         assert_eq!(rec_free_edge_head, orig_free_edge_head);
+        assert_eq!(rec_next_node_id, orig_next_node_id);
+        assert_eq!(rec_next_edge_id, orig_next_edge_id);
     }
 
     #[test]
@@ -732,7 +754,7 @@ mod tests {
     fn test_constants() {
         assert_eq!(MAGIC, 0x47524D4C); // "GRML"
         assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 88);
+        assert_eq!(HEADER_SIZE, 104);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
     }
@@ -1345,7 +1367,7 @@ mod tests {
         // Verify all constant values are as specified
         assert_eq!(MAGIC, 0x47524D4C);
         assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 88);
+        assert_eq!(HEADER_SIZE, 104);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
         assert_eq!(PROPERTY_ENTRY_HEADER_SIZE, 17);

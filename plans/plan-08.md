@@ -673,11 +673,11 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `out_edges()` returns all outgoing edges
-- [ ] `in_edges()` returns all incoming edges
-- [ ] Iteration follows linked list correctly
-- [ ] Empty adjacency lists work (no edges)
-- [ ] Test: Create graph with multiple edges, verify iteration
+- [x] `out_edges()` returns all outgoing edges
+- [x] `in_edges()` returns all incoming edges
+- [x] Iteration follows linked list correctly
+- [x] Empty adjacency lists work (no edges)
+- [x] Test: Create graph with multiple edges, verify iteration
 
 ---
 
@@ -693,11 +693,11 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 5. Use `filter_map` to convert IDs to elements
 
 **Acceptance Criteria**:
-- [ ] `all_vertices()` returns all non-deleted vertices
-- [ ] `all_edges()` returns all non-deleted edges
-- [ ] Deleted elements excluded
-- [ ] Works with empty graph
-- [ ] Test: Add/delete elements, verify iteration correct
+- [x] `all_vertices()` returns all non-deleted vertices
+- [x] `all_edges()` returns all non-deleted edges
+- [x] Deleted elements excluded
+- [x] Works with empty graph
+- [x] Test: Add/delete elements, verify iteration correct
 
 ---
 

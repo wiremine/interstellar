@@ -844,18 +844,23 @@ impl MmapGraph {
     /// ```
     pub fn allocate_node_slot(&self) -> Result<VertexId, StorageError> {
         let header = self.get_header();
-        let current_count = header.node_count;
+        let next_node_id = header.next_node_id;
         let current_capacity = header.node_capacity;
 
         // Try to allocate from free list first
         let slot_id = {
             let mut free_nodes = self.free_nodes.write();
-            free_nodes.allocate(current_count)
+            free_nodes.allocate(next_node_id)
         };
 
         // If we're extending beyond capacity, grow the table
         if slot_id >= current_capacity {
             self.grow_node_table()?;
+        }
+
+        // If this is a new slot (not from free list), update next_node_id
+        if slot_id == next_node_id {
+            self.increment_next_node_id()?;
         }
 
         Ok(VertexId(slot_id))
@@ -934,6 +939,31 @@ impl MmapGraph {
         drop(mmap);
 
         header.node_count += 1;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Increment the next_node_id (high-water mark) in the file header.
+    ///
+    /// This tracks the highest slot ID that has been allocated, used for
+    /// iterating over all slots (including deleted ones).
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    pub fn increment_next_node_id(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.next_node_id += 1;
 
         let file = self.file.write();
         Self::write_header(&file, &header)?;
@@ -1156,18 +1186,23 @@ impl MmapGraph {
     /// ```
     pub fn allocate_edge_slot(&self) -> Result<EdgeId, StorageError> {
         let header = self.get_header();
-        let current_count = header.edge_count;
+        let next_edge_id = header.next_edge_id;
         let current_capacity = header.edge_capacity;
 
         // Try to allocate from free list first
         let slot_id = {
             let mut free_edges = self.free_edges.write();
-            free_edges.allocate(current_count)
+            free_edges.allocate(next_edge_id)
         };
 
         // If we're extending beyond capacity, grow the table
         if slot_id >= current_capacity {
             self.grow_edge_table()?;
+        }
+
+        // If this is a new slot (not from free list), update next_edge_id
+        if slot_id == next_edge_id {
+            self.increment_next_edge_id()?;
         }
 
         Ok(EdgeId(slot_id))
@@ -1373,6 +1408,31 @@ impl MmapGraph {
         drop(mmap);
 
         header.edge_count += 1;
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        // Remap to see the updated header
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Increment the next_edge_id (high-water mark) in the file header.
+    ///
+    /// This tracks the highest slot ID that has been allocated, used for
+    /// iterating over all slots (including deleted ones).
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error during header update
+    pub fn increment_next_edge_id(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.next_edge_id += 1;
 
         let file = self.file.write();
         Self::write_header(&file, &header)?;
@@ -1898,6 +1958,346 @@ impl MmapGraph {
 
         Ok(slot_id)
     }
+
+    // =========================================================================
+    // Remove Operations
+    // =========================================================================
+
+    /// Decrement the node count in the file header.
+    fn decrement_node_count(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.node_count = header.node_count.saturating_sub(1);
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        self.remap()?;
+        Ok(())
+    }
+
+    /// Decrement the edge count in the file header.
+    fn decrement_edge_count(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.edge_count = header.edge_count.saturating_sub(1);
+
+        let file = self.file.write();
+        Self::write_header(&file, &header)?;
+        drop(file);
+
+        self.remap()?;
+        Ok(())
+    }
+
+    /// Update an edge's next_out pointer.
+    fn update_edge_next_out(&self, edge_id: EdgeId, next_out: u64) -> Result<(), StorageError> {
+        let header = self.get_header();
+        let edge_table_offset =
+            HEADER_SIZE as u64 + (header.node_capacity * NODE_RECORD_SIZE as u64);
+        let edge_offset = edge_table_offset + (edge_id.0 * EDGE_RECORD_SIZE as u64);
+        let next_out_offset = edge_offset + 32;
+
+        let bytes = next_out.to_le_bytes();
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&bytes, next_out_offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(next_out_offset))?;
+            file.write_all(&bytes)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+        self.remap()?;
+        Ok(())
+    }
+
+    /// Update an edge's next_in pointer.
+    fn update_edge_next_in(&self, edge_id: EdgeId, next_in: u64) -> Result<(), StorageError> {
+        let header = self.get_header();
+        let edge_table_offset =
+            HEADER_SIZE as u64 + (header.node_capacity * NODE_RECORD_SIZE as u64);
+        let edge_offset = edge_table_offset + (edge_id.0 * EDGE_RECORD_SIZE as u64);
+        let next_in_offset = edge_offset + 40;
+
+        let bytes = next_in.to_le_bytes();
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&bytes, next_in_offset)?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = &*file;
+            file.seek(SeekFrom::Start(next_in_offset))?;
+            file.write_all(&bytes)?;
+        }
+
+        file.sync_data()?;
+        drop(file);
+        self.remap()?;
+        Ok(())
+    }
+
+    /// Removes an edge from the graph.
+    pub fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError> {
+        let record = self
+            .get_edge_record(id)
+            .ok_or(StorageError::EdgeNotFound(id))?;
+
+        let tx_id = {
+            let mut wal = self.wal.write();
+            wal.begin_transaction()?
+        };
+
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::DeleteEdge { id })?;
+        }
+
+        let mut deleted_record = record;
+        deleted_record.mark_deleted();
+        self.write_edge_record(id, &deleted_record)?;
+
+        let src_vertex = VertexId(record.src);
+        if let Some(src_node) = self.get_node_record(src_vertex) {
+            if src_node.first_out_edge == id.0 {
+                self.update_node_first_out_edge(src_vertex, record.next_out)?;
+            } else {
+                let mut current_id = src_node.first_out_edge;
+                while current_id != u64::MAX {
+                    if let Some(current_edge) = self.get_edge_record(EdgeId(current_id)) {
+                        if current_edge.next_out == id.0 {
+                            self.update_edge_next_out(EdgeId(current_id), record.next_out)?;
+                            break;
+                        }
+                        current_id = current_edge.next_out;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let dst_vertex = VertexId(record.dst);
+        if let Some(dst_node) = self.get_node_record(dst_vertex) {
+            if dst_node.first_in_edge == id.0 {
+                self.update_node_first_in_edge(dst_vertex, record.next_in)?;
+            } else {
+                let mut current_id = dst_node.first_in_edge;
+                while current_id != u64::MAX {
+                    if let Some(current_edge) = self.get_edge_record(EdgeId(current_id)) {
+                        if current_edge.next_in == id.0 {
+                            self.update_edge_next_in(EdgeId(current_id), record.next_in)?;
+                            break;
+                        }
+                        current_id = current_edge.next_in;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        {
+            let label_id = record.label_id;
+            let mut edge_labels = self.edge_labels.write();
+            if let Some(bitmap) = edge_labels.get_mut(&label_id) {
+                bitmap.remove(id.0 as u32);
+            }
+        }
+
+        {
+            let mut free_edges = self.free_edges.write();
+            free_edges.free(id.0);
+        }
+        self.update_free_edge_head()?;
+
+        self.decrement_edge_count()?;
+
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::CommitTx { tx_id })?;
+            wal.sync()?;
+        }
+
+        Ok(())
+    }
+
+    /// Internal helper to remove an edge, optionally skipping vertex updates.
+    fn remove_edge_internal(
+        &self,
+        id: EdgeId,
+        skip_vertex: Option<VertexId>,
+    ) -> Result<(), StorageError> {
+        let record = match self.get_edge_record(id) {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::DeleteEdge { id })?;
+        }
+
+        let mut deleted_record = record;
+        deleted_record.mark_deleted();
+        self.write_edge_record(id, &deleted_record)?;
+
+        let src_vertex = VertexId(record.src);
+        if skip_vertex != Some(src_vertex) {
+            if let Some(src_node) = self.get_node_record(src_vertex) {
+                if src_node.first_out_edge == id.0 {
+                    self.update_node_first_out_edge(src_vertex, record.next_out)?;
+                } else {
+                    let mut current_id = src_node.first_out_edge;
+                    while current_id != u64::MAX {
+                        if let Some(current_edge) = self.get_edge_record(EdgeId(current_id)) {
+                            if current_edge.next_out == id.0 {
+                                self.update_edge_next_out(EdgeId(current_id), record.next_out)?;
+                                break;
+                            }
+                            current_id = current_edge.next_out;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let dst_vertex = VertexId(record.dst);
+        if skip_vertex != Some(dst_vertex) {
+            if let Some(dst_node) = self.get_node_record(dst_vertex) {
+                if dst_node.first_in_edge == id.0 {
+                    self.update_node_first_in_edge(dst_vertex, record.next_in)?;
+                } else {
+                    let mut current_id = dst_node.first_in_edge;
+                    while current_id != u64::MAX {
+                        if let Some(current_edge) = self.get_edge_record(EdgeId(current_id)) {
+                            if current_edge.next_in == id.0 {
+                                self.update_edge_next_in(EdgeId(current_id), record.next_in)?;
+                                break;
+                            }
+                            current_id = current_edge.next_in;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        {
+            let label_id = record.label_id;
+            let mut edge_labels = self.edge_labels.write();
+            if let Some(bitmap) = edge_labels.get_mut(&label_id) {
+                bitmap.remove(id.0 as u32);
+            }
+        }
+
+        {
+            let mut free_edges = self.free_edges.write();
+            free_edges.free(id.0);
+        }
+        self.update_free_edge_head()?;
+
+        self.decrement_edge_count()?;
+
+        Ok(())
+    }
+
+    /// Removes a vertex and all its incident edges from the graph.
+    pub fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError> {
+        let record = self
+            .get_node_record(id)
+            .ok_or(StorageError::VertexNotFound(id))?;
+
+        let tx_id = {
+            let mut wal = self.wal.write();
+            wal.begin_transaction()?
+        };
+
+        let mut edges_to_remove = Vec::new();
+
+        let mut current = record.first_out_edge;
+        while current != u64::MAX {
+            edges_to_remove.push(EdgeId(current));
+            if let Some(edge) = self.get_edge_record(EdgeId(current)) {
+                current = edge.next_out;
+            } else {
+                break;
+            }
+        }
+
+        let mut current = record.first_in_edge;
+        while current != u64::MAX {
+            let edge_id = EdgeId(current);
+            if !edges_to_remove.contains(&edge_id) {
+                edges_to_remove.push(edge_id);
+            }
+            if let Some(edge) = self.get_edge_record(edge_id) {
+                current = edge.next_in;
+            } else {
+                break;
+            }
+        }
+
+        for edge_id in edges_to_remove {
+            let _ = self.remove_edge_internal(edge_id, Some(id));
+        }
+
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::DeleteNode { id })?;
+        }
+
+        let mut deleted_record = record;
+        deleted_record.mark_deleted();
+        self.write_node_record(id, &deleted_record)?;
+
+        {
+            let label_id = record.label_id;
+            let mut vertex_labels = self.vertex_labels.write();
+            if let Some(bitmap) = vertex_labels.get_mut(&label_id) {
+                bitmap.remove(id.0 as u32);
+            }
+        }
+
+        {
+            let mut free_nodes = self.free_nodes.write();
+            free_nodes.free(id.0);
+        }
+        self.update_free_node_head()?;
+
+        self.decrement_node_count()?;
+
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::CommitTx { tx_id })?;
+            wal.sync()?;
+        }
+
+        Ok(())
+    }
 }
 
 // =========================================================================
@@ -2069,20 +2469,20 @@ impl GraphStorage for MmapGraph {
 
     /// Returns iterator over all vertices in the graph.
     ///
-    /// Scans all node slots from 0 to node_count, skipping deleted nodes.
+    /// Scans all node slots from 0 to next_node_id (high-water mark), skipping deleted nodes.
     fn all_vertices(&self) -> Box<dyn Iterator<Item = Vertex> + '_> {
-        let node_count = self.get_header().node_count;
+        let next_node_id = self.get_header().next_node_id;
 
-        Box::new((0..node_count).filter_map(move |id| self.get_vertex(VertexId(id))))
+        Box::new((0..next_node_id).filter_map(move |id| self.get_vertex(VertexId(id))))
     }
 
     /// Returns iterator over all edges in the graph.
     ///
-    /// Scans all edge slots from 0 to edge_count, skipping deleted edges.
+    /// Scans all edge slots from 0 to next_edge_id (high-water mark), skipping deleted edges.
     fn all_edges(&self) -> Box<dyn Iterator<Item = Edge> + '_> {
-        let edge_count = self.get_header().edge_count;
+        let next_edge_id = self.get_header().next_edge_id;
 
-        Box::new((0..edge_count).filter_map(move |id| self.get_edge(EdgeId(id))))
+        Box::new((0..next_edge_id).filter_map(move |id| self.get_edge(EdgeId(id))))
     }
 
     /// Returns a reference to the string interner.
@@ -3654,11 +4054,12 @@ mod tests {
             file.sync_data().unwrap();
         }
 
-        // Update header to reflect node_count
+        // Update header to reflect node_count and next_node_id
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.node_count = nodes.len() as u64;
+            header.next_node_id = nodes.len() as u64;
             drop(mmap);
 
             let mut file = graph.file.write();
@@ -3980,6 +4381,8 @@ mod tests {
             let mut header = MmapGraph::read_header(&mmap);
             header.node_count = 3;
             header.edge_count = 3;
+            header.next_node_id = 3;
+            header.next_edge_id = 3;
             drop(mmap);
 
             let mut file = graph.file.write();
@@ -5007,11 +5410,12 @@ mod tests {
         let initial_capacity = graph.get_header().node_capacity;
         assert_eq!(initial_capacity, 1000, "Initial capacity should be 1000");
 
-        // Manually set node_count to capacity to force growth on next allocate
+        // Manually set node_count and next_node_id to capacity to force growth on next allocate
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.node_count = 1000;
+            header.next_node_id = 1000;
             drop(mmap);
 
             let file = graph.file.write();
@@ -5367,11 +5771,12 @@ mod tests {
             "Initial edge capacity should be 10000"
         );
 
-        // Manually set edge_count to capacity to force growth on next allocate
+        // Manually set edge_count and next_edge_id to capacity to force growth on next allocate
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.edge_count = 10000;
+            header.next_edge_id = 10000;
             drop(mmap);
 
             let file = graph.file.write();
@@ -5828,11 +6233,12 @@ mod tests {
         let initial_capacity = graph.get_header().node_capacity;
         assert_eq!(initial_capacity, 1000);
 
-        // Manually set node_count to capacity - 1 to force growth on second add
+        // Manually set node_count and next_node_id to capacity - 1 to force growth on second add
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
             header.node_count = 999;
+            header.next_node_id = 999;
             drop(mmap);
 
             let file = graph.file.write();
@@ -6867,5 +7273,340 @@ mod tests {
             // Note: We can't easily verify this without proper label resolution,
             // but we can check that the file exists and no panic occurred
         }
+    }
+
+    // =========================================================================
+    // Remove Operations Tests
+    // =========================================================================
+
+    fn empty_props() -> std::collections::HashMap<String, crate::value::Value> {
+        std::collections::HashMap::new()
+    }
+
+    #[test]
+    fn test_remove_edge_basic() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+        let edge_id = graph.add_edge(v1, v2, "knows", empty_props()).unwrap();
+
+        assert_eq!(graph.edge_count(), 1);
+        assert!(graph.get_edge(edge_id).is_some());
+
+        graph.remove_edge(edge_id).unwrap();
+
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.get_edge(edge_id).is_none());
+        assert!(graph.get_vertex(v1).is_some());
+        assert!(graph.get_vertex(v2).is_some());
+    }
+
+    #[test]
+    fn test_remove_edge_updates_adjacency_lists() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let a = graph.add_vertex("person", empty_props()).unwrap();
+        let b = graph.add_vertex("person", empty_props()).unwrap();
+        let c = graph.add_vertex("person", empty_props()).unwrap();
+
+        let e1 = graph.add_edge(a, b, "knows", empty_props()).unwrap();
+        let e2 = graph.add_edge(b, c, "knows", empty_props()).unwrap();
+
+        assert_eq!(graph.out_edges(a).count(), 1);
+        assert_eq!(graph.out_edges(b).count(), 1);
+        assert_eq!(graph.in_edges(b).count(), 1);
+        assert_eq!(graph.in_edges(c).count(), 1);
+
+        graph.remove_edge(e1).unwrap();
+
+        assert_eq!(graph.out_edges(a).count(), 0);
+        assert_eq!(graph.in_edges(b).count(), 0);
+        assert!(graph.get_edge(e2).is_some());
+        assert_eq!(graph.out_edges(b).count(), 1);
+    }
+
+    #[test]
+    fn test_remove_edge_from_label_index() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+        let edge_id = graph.add_edge(v1, v2, "knows", empty_props()).unwrap();
+
+        assert_eq!(graph.edges_with_label("knows").count(), 1);
+
+        graph.remove_edge(edge_id).unwrap();
+
+        assert_eq!(graph.edges_with_label("knows").count(), 0);
+    }
+
+    #[test]
+    fn test_remove_edge_slot_reused() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+
+        let e1 = graph.add_edge(v1, v2, "knows", empty_props()).unwrap();
+        graph.remove_edge(e1).unwrap();
+
+        let e2 = graph.add_edge(v1, v2, "likes", empty_props()).unwrap();
+        assert_eq!(e2.0, 0, "Slot should be reused");
+
+        let edge = graph.get_edge(e2).unwrap();
+        assert_eq!(edge.label, "likes");
+    }
+
+    #[test]
+    fn test_remove_edge_not_found() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let result = graph.remove_edge(EdgeId(999));
+        assert!(matches!(result, Err(StorageError::EdgeNotFound(_))));
+    }
+
+    #[test]
+    fn test_remove_vertex_basic() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        assert_eq!(graph.vertex_count(), 1);
+        assert!(graph.get_vertex(v1).is_some());
+
+        graph.remove_vertex(v1).unwrap();
+
+        assert_eq!(graph.vertex_count(), 0);
+        assert!(graph.get_vertex(v1).is_none());
+    }
+
+    #[test]
+    fn test_remove_vertex_removes_incident_edges() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let a = graph.add_vertex("person", empty_props()).unwrap();
+        let b = graph.add_vertex("person", empty_props()).unwrap();
+        let c = graph.add_vertex("person", empty_props()).unwrap();
+
+        graph.add_edge(a, b, "knows", empty_props()).unwrap();
+        graph.add_edge(b, c, "knows", empty_props()).unwrap();
+
+        assert_eq!(graph.vertex_count(), 3);
+        assert_eq!(graph.edge_count(), 2);
+
+        graph.remove_vertex(b).unwrap();
+
+        assert_eq!(graph.vertex_count(), 2);
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.get_vertex(b).is_none());
+        assert!(graph.get_vertex(a).is_some());
+        assert!(graph.get_vertex(c).is_some());
+        assert_eq!(graph.out_edges(a).count(), 0);
+        assert_eq!(graph.in_edges(c).count(), 0);
+    }
+
+    #[test]
+    fn test_remove_vertex_with_self_loop() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v = graph.add_vertex("person", empty_props()).unwrap();
+        graph.add_edge(v, v, "self", empty_props()).unwrap();
+
+        assert_eq!(graph.vertex_count(), 1);
+        assert_eq!(graph.edge_count(), 1);
+
+        graph.remove_vertex(v).unwrap();
+
+        assert_eq!(graph.vertex_count(), 0);
+        assert_eq!(graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_remove_vertex_from_label_index() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        graph.add_vertex("software", empty_props()).unwrap();
+
+        assert_eq!(graph.vertices_with_label("person").count(), 1);
+
+        graph.remove_vertex(v1).unwrap();
+
+        assert_eq!(graph.vertices_with_label("person").count(), 0);
+        assert_eq!(graph.vertices_with_label("software").count(), 1);
+    }
+
+    #[test]
+    fn test_remove_vertex_slot_reused() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        graph.remove_vertex(v1).unwrap();
+
+        let v2 = graph.add_vertex("software", empty_props()).unwrap();
+        assert_eq!(v2.0, 0, "Slot should be reused");
+
+        let vertex = graph.get_vertex(v2).unwrap();
+        assert_eq!(vertex.label, "software");
+    }
+
+    #[test]
+    fn test_remove_vertex_not_found() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let result = graph.remove_vertex(VertexId(999));
+        assert!(matches!(result, Err(StorageError::VertexNotFound(_))));
+    }
+
+    // =========================================================================
+    // Phase 5.2: Deleted Elements Excluded from Iteration Tests
+    // =========================================================================
+
+    #[test]
+    fn test_all_vertices_excludes_deleted() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+        let v3 = graph.add_vertex("person", empty_props()).unwrap();
+
+        assert_eq!(graph.all_vertices().count(), 3);
+
+        graph.remove_vertex(v2).unwrap();
+
+        let vertices: Vec<_> = graph.all_vertices().collect();
+        assert_eq!(vertices.len(), 2);
+
+        let ids: Vec<_> = vertices.iter().map(|v| v.id).collect();
+        assert!(ids.contains(&v1));
+        assert!(!ids.contains(&v2));
+        assert!(ids.contains(&v3));
+    }
+
+    #[test]
+    fn test_all_edges_excludes_deleted() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+        let v3 = graph.add_vertex("person", empty_props()).unwrap();
+
+        let e1 = graph.add_edge(v1, v2, "knows", empty_props()).unwrap();
+        let e2 = graph.add_edge(v2, v3, "knows", empty_props()).unwrap();
+        let e3 = graph.add_edge(v1, v3, "knows", empty_props()).unwrap();
+
+        assert_eq!(graph.all_edges().count(), 3);
+
+        graph.remove_edge(e2).unwrap();
+
+        let edges: Vec<_> = graph.all_edges().collect();
+        assert_eq!(edges.len(), 2);
+
+        let ids: Vec<_> = edges.iter().map(|e| e.id).collect();
+        assert!(ids.contains(&e1));
+        assert!(!ids.contains(&e2));
+        assert!(ids.contains(&e3));
+    }
+
+    #[test]
+    fn test_vertices_with_label_excludes_deleted() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+        graph.add_vertex("software", empty_props()).unwrap();
+
+        assert_eq!(graph.vertices_with_label("person").count(), 2);
+
+        graph.remove_vertex(v1).unwrap();
+
+        let people: Vec<_> = graph.vertices_with_label("person").collect();
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0].id, v2);
+    }
+
+    #[test]
+    fn test_edges_with_label_excludes_deleted() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("person", empty_props()).unwrap();
+        let v2 = graph.add_vertex("person", empty_props()).unwrap();
+
+        let e1 = graph.add_edge(v1, v2, "knows", empty_props()).unwrap();
+        let e2 = graph.add_edge(v2, v1, "knows", empty_props()).unwrap();
+
+        assert_eq!(graph.edges_with_label("knows").count(), 2);
+
+        graph.remove_edge(e1).unwrap();
+
+        let knows_edges: Vec<_> = graph.edges_with_label("knows").collect();
+        assert_eq!(knows_edges.len(), 1);
+        assert_eq!(knows_edges[0].id, e2);
+    }
+
+    #[test]
+    fn test_add_delete_iteration_cycle() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let v1 = graph.add_vertex("a", empty_props()).unwrap();
+        let v2 = graph.add_vertex("b", empty_props()).unwrap();
+        let v3 = graph.add_vertex("c", empty_props()).unwrap();
+
+        graph.add_edge(v1, v2, "x", empty_props()).unwrap();
+        graph.add_edge(v2, v3, "y", empty_props()).unwrap();
+
+        assert_eq!(graph.all_vertices().count(), 3);
+        assert_eq!(graph.all_edges().count(), 2);
+
+        graph.remove_vertex(v2).unwrap();
+
+        assert_eq!(graph.all_vertices().count(), 2);
+        assert_eq!(graph.all_edges().count(), 0);
+
+        let v4 = graph.add_vertex("d", empty_props()).unwrap();
+        let e3 = graph.add_edge(v1, v3, "z", empty_props()).unwrap();
+
+        assert_eq!(graph.all_vertices().count(), 3);
+        assert_eq!(graph.all_edges().count(), 1);
+
+        let vertex_ids: Vec<_> = graph.all_vertices().map(|v| v.id).collect();
+        assert!(vertex_ids.contains(&v1));
+        assert!(vertex_ids.contains(&v3));
+        assert!(vertex_ids.contains(&v4));
+
+        let edge_ids: Vec<_> = graph.all_edges().map(|e| e.id).collect();
+        assert!(edge_ids.contains(&e3));
     }
 }
