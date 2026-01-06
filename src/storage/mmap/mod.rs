@@ -1689,27 +1689,42 @@ impl MmapGraph {
         label: &str,
         properties: std::collections::HashMap<String, crate::value::Value>,
     ) -> Result<VertexId, StorageError> {
-        // Step 1: Allocate node slot
+        // Step 1: Begin WAL transaction
+        let tx_id = {
+            let mut wal = self.wal.write();
+            wal.begin_transaction()?
+        };
+
+        // Step 2: Allocate node slot
         let slot_id = self.allocate_node_slot()?;
 
-        // Step 2: Intern label
+        // Step 3: Intern label
         let label_id = {
             let mut string_table = self.string_table.write();
             string_table.intern(label)
         };
 
-        // Step 3: Allocate properties in arena (returns u64::MAX if empty)
+        // Step 4: Allocate properties in arena (returns u64::MAX if empty)
         let prop_head = self.allocate_properties(&properties)?;
 
-        // Step 4: Create node record
+        // Step 5: Create node record
         let mut record = NodeRecord::new(slot_id.0, label_id);
         record.prop_head = prop_head;
         // first_out_edge and first_in_edge default to u64::MAX (no edges)
 
-        // Step 5: Write node record to disk
+        // Step 6: Log InsertNode to WAL (before writing to disk for durability)
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::InsertNode {
+                id: slot_id,
+                record: record.into(),
+            })?;
+        }
+
+        // Step 7: Write node record to disk
         self.write_node_record(slot_id, &record)?;
 
-        // Step 6: Update label index
+        // Step 8: Update label index
         {
             let mut vertex_labels = self.vertex_labels.write();
             vertex_labels
@@ -1718,14 +1733,21 @@ impl MmapGraph {
                 .insert(slot_id.0 as u32);
         }
 
-        // Step 7: Increment node count in header
+        // Step 9: Increment node count in header
         self.increment_node_count()?;
 
-        // Step 8: Persist string table (for label and property key names)
+        // Step 10: Persist string table (for label and property key names)
         self.persist_string_table()?;
 
-        // Step 9: Update arena offset in header (for property data)
+        // Step 11: Update arena offset in header (for property data)
         self.update_arena_offset()?;
+
+        // Step 12: Commit WAL transaction and sync
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::CommitTx { tx_id })?;
+            wal.sync()?;
+        }
 
         Ok(slot_id)
     }
@@ -1733,17 +1755,20 @@ impl MmapGraph {
     /// Add a new edge to the graph between two existing vertices.
     ///
     /// This method:
-    /// 1. Verifies source and destination vertices exist
-    /// 2. Allocates an edge slot (from free list or by extending the table)
-    /// 3. Interns the label string
-    /// 4. Allocates properties in the arena (if any)
-    /// 5. Gets current first_out_edge from source and first_in_edge from destination
-    /// 6. Creates edge record with next_out/next_in pointing to old heads
-    /// 7. Writes the edge record to disk
-    /// 8. Updates source's first_out_edge to point to new edge
-    /// 9. Updates destination's first_in_edge to point to new edge
-    /// 10. Updates edge label index
-    /// 11. Increments edge count
+    /// 1. Begins a WAL transaction for crash recovery
+    /// 2. Verifies source and destination vertices exist
+    /// 3. Allocates an edge slot (from free list or by extending the table)
+    /// 4. Interns the label string
+    /// 5. Allocates properties in the arena (if any)
+    /// 6. Gets current first_out_edge from source and first_in_edge from destination
+    /// 7. Creates edge record with next_out/next_in pointing to old heads
+    /// 8. Logs InsertEdge to WAL (before writing to disk)
+    /// 9. Writes the edge record to disk
+    /// 10. Updates source's first_out_edge to point to new edge
+    /// 11. Updates destination's first_in_edge to point to new edge
+    /// 12. Updates edge label index
+    /// 13. Increments edge count
+    /// 14. Commits WAL transaction and syncs
     ///
     /// # Arguments
     ///
@@ -1789,49 +1814,64 @@ impl MmapGraph {
         label: &str,
         properties: std::collections::HashMap<String, crate::value::Value>,
     ) -> Result<EdgeId, StorageError> {
-        // Step 1: Verify source vertex exists
+        // Step 1: Begin WAL transaction
+        let tx_id = {
+            let mut wal = self.wal.write();
+            wal.begin_transaction()?
+        };
+
+        // Step 2: Verify source vertex exists
         let src_record = self
             .get_node_record(src)
             .ok_or(StorageError::VertexNotFound(src))?;
 
-        // Step 2: Verify destination vertex exists
+        // Step 3: Verify destination vertex exists
         let dst_record = self
             .get_node_record(dst)
             .ok_or(StorageError::VertexNotFound(dst))?;
 
-        // Step 3: Allocate edge slot
+        // Step 4: Allocate edge slot
         let slot_id = self.allocate_edge_slot()?;
 
-        // Step 4: Intern label
+        // Step 5: Intern label
         let label_id = {
             let mut string_table = self.string_table.write();
             string_table.intern(label)
         };
 
-        // Step 5: Allocate properties in arena (returns u64::MAX if empty)
+        // Step 6: Allocate properties in arena (returns u64::MAX if empty)
         let prop_head = self.allocate_properties(&properties)?;
 
-        // Step 6: Get current first_out_edge and first_in_edge from the node records
+        // Step 7: Get current first_out_edge and first_in_edge from the node records
         // These will become the next_out and next_in pointers for the new edge
         let old_first_out = src_record.first_out_edge;
         let old_first_in = dst_record.first_in_edge;
 
-        // Step 7: Create edge record
+        // Step 8: Create edge record
         let mut record = EdgeRecord::new(slot_id.0, label_id, src.0, dst.0);
         record.prop_head = prop_head;
         record.next_out = old_first_out; // Link to previous head of outgoing list
         record.next_in = old_first_in; // Link to previous head of incoming list
 
-        // Step 8: Write edge record to disk
+        // Step 9: Log InsertEdge to WAL (before writing to disk for durability)
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::InsertEdge {
+                id: slot_id,
+                record: record.into(),
+            })?;
+        }
+
+        // Step 10: Write edge record to disk
         self.write_edge_record(slot_id, &record)?;
 
-        // Step 9: Update source node's first_out_edge to point to new edge
+        // Step 11: Update source node's first_out_edge to point to new edge
         self.update_node_first_out_edge(src, slot_id.0)?;
 
-        // Step 10: Update destination node's first_in_edge to point to new edge
+        // Step 12: Update destination node's first_in_edge to point to new edge
         self.update_node_first_in_edge(dst, slot_id.0)?;
 
-        // Step 11: Update edge label index
+        // Step 13: Update edge label index
         {
             let mut edge_labels = self.edge_labels.write();
             edge_labels
@@ -1840,14 +1880,21 @@ impl MmapGraph {
                 .insert(slot_id.0 as u32);
         }
 
-        // Step 12: Increment edge count in header
+        // Step 14: Increment edge count in header
         self.increment_edge_count()?;
 
-        // Step 13: Persist string table (for label and property key names)
+        // Step 15: Persist string table (for label and property key names)
         self.persist_string_table()?;
 
-        // Step 14: Update arena offset in header (for property data)
+        // Step 16: Update arena offset in header (for property data)
         self.update_arena_offset()?;
+
+        // Step 17: Commit WAL transaction and sync
+        {
+            let mut wal = self.wal.write();
+            wal.log(WalEntry::CommitTx { tx_id })?;
+            wal.sync()?;
+        }
 
         Ok(slot_id)
     }

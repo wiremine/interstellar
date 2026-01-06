@@ -630,10 +630,10 @@ struct WalEntryHeader {
 5. Truncate WAL (all committed transactions now in data file)
 
 **Acceptance Criteria**:
-- [ ] Checkpoint flushes all pending writes
-- [ ] WAL truncated after checkpoint
-- [ ] Database consistent after checkpoint
-- [ ] Test: Add data, checkpoint, verify WAL empty
+- [x] Checkpoint flushes all pending writes
+- [x] WAL truncated after checkpoint
+- [x] Database consistent after checkpoint
+- [x] Test: Add data, checkpoint, verify WAL empty
 
 ---
 
