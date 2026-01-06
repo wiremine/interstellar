@@ -348,9 +348,67 @@ criterion_group!(
 
 criterion_group!(cold_benches, bench_get_vertex_cold_start,);
 
+// =============================================================================
+// Multi-Page Access Pattern Benchmark
+// =============================================================================
+
+/// Benchmark: Multi-page random access patterns.
+///
+/// This benchmark tests access patterns that span multiple OS pages to measure
+/// more realistic cache behavior. With NodeRecord at 48 bytes and 4KB pages,
+/// ~85 vertices fit per page. By striding by 100, we guarantee each access
+/// hits a different page.
+///
+/// Compares:
+/// - Same-page access (stride=1): all accesses within ~12 pages
+/// - Cross-page access (stride=100): each access hits a different page
+fn bench_multi_page_access(c: &mut Criterion) {
+    // 50K vertices = ~588 pages of vertex data
+    // This should exceed L1/L2 cache but fit in RAM
+    let (_dir, graph) = create_benchmark_db(50_000, 0);
+
+    let mut group = c.benchmark_group("mmap: page_access_patterns");
+
+    // Same-page: 100 sequential reads (all within ~2 pages)
+    group.bench_function("same_page_100_reads", |b| {
+        b.iter(|| {
+            for i in 0..100u64 {
+                black_box(graph.get_vertex(VertexId(i)));
+            }
+        })
+    });
+
+    // Cross-page: 100 reads striding by 100 (each hits different page)
+    // Accesses vertices 0, 100, 200, ... 9900 (100 different pages)
+    group.bench_function("cross_page_100_reads", |b| {
+        b.iter(|| {
+            for i in 0..100u64 {
+                black_box(graph.get_vertex(VertexId(i * 100)));
+            }
+        })
+    });
+
+    // Worst-case: 100 reads with large prime stride to defeat prefetching
+    // Uses stride of 997 (prime) to create unpredictable access pattern
+    group.bench_function("random_page_100_reads", |b| {
+        // Pre-compute indices to avoid math in hot loop
+        let indices: Vec<VertexId> = (0..100u64).map(|i| VertexId((i * 997) % 50_000)).collect();
+        b.iter(|| {
+            for &id in &indices {
+                black_box(graph.get_vertex(id));
+            }
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(page_benches, bench_multi_page_access,);
+
 criterion_main!(
     vertex_benches,
     edge_benches,
     traversal_benches,
-    cold_benches
+    cold_benches,
+    page_benches
 );
