@@ -32,6 +32,11 @@ serde_json = "1.0"
 name = "traversal"
 harness = false
 
+[[bench]]
+name = "mmap"
+harness = false
+required-features = ["mmap"]
+
 [[example]]
 name = "bench_writes"
 required-features = ["mmap"]
