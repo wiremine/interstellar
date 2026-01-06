@@ -10,12 +10,15 @@
 //! This example showcases:
 //! - Data loading from JSON fixtures
 //! - Basic traversal with filtering (Phase 3)
-//! - Navigation steps: out(), in_(), both() (Phase 3)
+//! - Navigation steps: out(), in_(), both(), other_v() (Phase 3 & 7)
 //! - Predicate system: p::eq, p::gt, p::within, p::containing (Phase 4)
+//! - Filter steps: has_not(), is_(), is_eq() (Phase 7)
 //! - Anonymous traversals: __::out(), __::has_label() (Phase 4)
 //! - Branch steps: union(), coalesce(), choose(), optional() (Phase 5)
 //! - Repeat steps for ancestry/descendant queries (Phase 5)
 //! - Path tracking with as_() and select() (Phase 3)
+//! - Transform steps: value_map(), element_map(), unfold(), order() (Phase 7)
+//! - Aggregation steps: group(), group_count() (Phase 7)
 //!
 //! Run with: `cargo run --example british_royals`
 
@@ -232,6 +235,30 @@ fn display_with_prop(storage: &Arc<InMemoryGraph>, results: &[Value], prop: &str
         .join(", ")
 }
 
+/// Format a Value for display
+fn format_value(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => format!("{:.1}", f),
+        Value::Bool(b) => b.to_string(),
+        Value::List(items) => {
+            let formatted: Vec<String> = items.iter().map(format_value).collect();
+            format!("[{}]", formatted.join(", "))
+        }
+        Value::Map(map) => {
+            let pairs: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k, format_value(v)))
+                .collect();
+            format!("{{{}}}", pairs.join(", "))
+        }
+        Value::Null => "null".to_string(),
+        Value::Vertex(vid) => format!("v[{:?}]", vid),
+        Value::Edge(eid) => format!("e[{:?}]", eid),
+    }
+}
+
 fn print_section(title: &str) {
     println!("\n{}", "=".repeat(70));
     println!("{}", title);
@@ -279,12 +306,12 @@ fn main() {
         display_names(&storage, &monarchs)
     );
 
-    // Query 2: Find living royals (no death_date)
-    print_query("Find living royals (those without a death_date)");
+    // Query 2: Find living royals using has_not() (Phase 7)
+    print_query("Find living royals using has_not()");
     let living = g
         .v()
         .has_label("person")
-        .not(__::has("death_date"))
+        .has_not("death_date") // Phase 7: cleaner than not(__::has("death_date"))
         .to_list();
     println!(
         "Living royals ({}): {}",
@@ -360,6 +387,19 @@ fn main() {
         display_names(&storage, &grandchildren)
     );
 
+    // Query 7b: Navigate using other_v() from marriage edges (Phase 7)
+    print_query("Find Charles III's spouses via edge navigation using other_v()");
+    let charles_spouses_via_edge = g
+        .v()
+        .has_value("name", "Charles III")
+        .out_e_labels(&["married_to"]) // Get marriage edges
+        .other_v() // Navigate to the other vertex (spouse)
+        .to_list();
+    println!(
+        "Charles III's spouses (via other_v): {}",
+        display_names(&storage, &charles_spouses_via_edge)
+    );
+
     // =========================================================================
     // SECTION 3: Predicate Queries
     // =========================================================================
@@ -415,6 +455,29 @@ fn main() {
         not_english_born.len(),
         display_with_prop(&storage, &not_english_born, "birth_country")
     );
+
+    // Query 11b: Using is_() to filter extracted values (Phase 7)
+    print_query("Filter house values using is_eq()");
+    let windsor_count = g
+        .v()
+        .has_label("person")
+        .values("house")
+        .is_eq("Windsor") // Filter to exact value
+        .count();
+    println!(
+        "Count of Windsor house members (via is_eq): {}",
+        windsor_count
+    );
+
+    // Query 11c: Using is_() with predicate on extracted dates (Phase 7)
+    print_query("Filter birth dates using is_() with predicate");
+    let early_births = g
+        .v()
+        .has_label("person")
+        .values("birth_date")
+        .is_(p::lt("1900-01-01")) // Filter dates before 1900
+        .count();
+    println!("Royals born before 1900 (via is_): {}", early_births);
 
     // =========================================================================
     // SECTION 4: Anonymous Traversal Queries
@@ -699,24 +762,290 @@ fn main() {
     }
 
     // =========================================================================
-    // Summary Statistics
+    // SECTION 9: Transform Steps (Phase 7)
     // =========================================================================
-    print_section("SUMMARY STATISTICS");
+    print_section("9. TRANSFORM STEPS (Phase 7: value_map, element_map, order, unfold)");
 
-    let total_monarchs = g.v().has_value("is_monarch", true).count();
-    let total_marriages = g.e().has_label("married_to").count() / 2; // Bidirectional edges
-    let total_parent_child = g.e().has_label("parent_of").count();
-    let houses: Vec<Value> = g.v().has_label("person").values("house").dedup().to_list();
+    // Query 28: Get person details using value_map()
+    print_query("Get Elizabeth II's details using value_map()");
+    let elizabeth_details = g
+        .v()
+        .has_value("name", "Elizabeth II")
+        .value_map_keys(["name", "house", "reign_start", "reign_end"])
+        .to_list();
+    println!("Elizabeth II value_map:");
+    for detail in &elizabeth_details {
+        println!("  {:?}", detail);
+    }
+
+    // Query 29: Get complete element representation using element_map()
+    print_query("Get Victoria's complete element_map()");
+    let victoria_element = g
+        .v()
+        .has_value("name", "Victoria")
+        .element_map_keys(["name", "house", "birth_date", "reign_start"])
+        .to_list();
+    println!("Victoria element_map:");
+    for elem in &victoria_element {
+        println!("  {:?}", elem);
+    }
+
+    // Query 30: Get marriage edge details using element_map()
+    print_query("Get marriage edge details for Elizabeth II");
+    let elizabeth_marriages = g
+        .v()
+        .has_value("name", "Elizabeth II")
+        .out_e_labels(&["married_to"])
+        .element_map()
+        .to_list();
+    println!("Elizabeth II's marriage edges (element_map):");
+    for edge in &elizabeth_marriages {
+        println!("  {:?}", edge);
+    }
+
+    // Query 31: Order monarchs by reign start date
+    print_query("Monarchs ordered by reign start date (ascending)");
+    let monarchs_by_reign = g
+        .v()
+        .has_label("person")
+        .has_value("is_monarch", true)
+        .has("reign_start") // Only those with reign_start
+        .order()
+        .by_key_asc("reign_start")
+        .build()
+        .to_list();
+    println!("Monarchs by reign start:");
+    for monarch in &monarchs_by_reign {
+        if let Some(vid) = monarch.as_vertex_id() {
+            if let Some(vertex) = storage.get_vertex(vid) {
+                let name = vertex
+                    .properties
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let reign = vertex
+                    .properties
+                    .get("reign_start")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                println!("  {} (reign started: {})", name, reign);
+            }
+        }
+    }
+
+    // Query 32: Order living royals alphabetically
+    print_query("Living royals ordered alphabetically");
+    let living_ordered = g
+        .v()
+        .has_label("person")
+        .has_not("death_date")
+        .order()
+        .by_key_asc("name")
+        .build()
+        .limit(10)
+        .to_list();
+    println!("Living royals (first 10 alphabetically):");
+    for person in &living_ordered {
+        println!("  {}", get_name(&storage, person));
+    }
+
+    // Query 33: Unfold value_map entries
+    print_query("Unfold Charles III's value_map into individual entries");
+    let charles_props = g
+        .v()
+        .has_value("name", "Charles III")
+        .value_map_keys(["name", "house", "reign_start"])
+        .unfold()
+        .to_list();
+    println!("Charles III's properties (unfolded):");
+    for prop in &charles_props {
+        println!("  {:?}", prop);
+    }
+
+    // Query 34: Unfold titles list
+    print_query("Get all titles held by Victoria (unfold list)");
+    let victoria_titles = g
+        .v()
+        .has_value("name", "Victoria")
+        .values("titles")
+        .unfold()
+        .to_list();
+    println!("Victoria's titles:");
+    for title in &victoria_titles {
+        if let Value::String(t) = title {
+            println!("  - {}", t);
+        }
+    }
+
+    // =========================================================================
+    // SECTION 10: Aggregation Steps (Phase 7)
+    // =========================================================================
+    print_section("10. AGGREGATION STEPS (Phase 7: group, group_count)");
+
+    // Query 35: Group royals by house
+    print_query("Group royals by house using group()");
+    let by_house = g
+        .v()
+        .has_label("person")
+        .group()
+        .by_key("house")
+        .by_value_key("name")
+        .build()
+        .to_list();
+    println!("Royals grouped by house:");
+    if let Some(Value::Map(map)) = by_house.first() {
+        for (house, members) in map {
+            if let Value::List(names) = members {
+                println!("  {} ({} members): {:?}", house, names.len(), names);
+            }
+        }
+    }
+
+    // Query 36: Count royals by house using group_count()
+    print_query("Count royals by house using group_count()");
+    let house_counts = g
+        .v()
+        .has_label("person")
+        .group_count()
+        .by_key("house")
+        .build()
+        .to_list();
+    println!("House counts:");
+    if let Some(Value::Map(map)) = house_counts.first() {
+        for (house, count) in map {
+            println!("  {}: {}", house, format_value(count));
+        }
+    }
+
+    // Query 37: Count royals by birth country
+    print_query("Count royals by birth country using group_count()");
+    let country_counts = g
+        .v()
+        .has_label("person")
+        .has("birth_country") // Only those with birth_country
+        .group_count()
+        .by_key("birth_country")
+        .build()
+        .to_list();
+    println!("Birth country counts:");
+    if let Some(Value::Map(map)) = country_counts.first() {
+        for (country, count) in map {
+            println!("  {}: {}", country, format_value(count));
+        }
+    }
+
+    // Query 38: Count edge types using group_count by label
+    print_query("Count edge types using group_count().by_label()");
+    let edge_counts = g.e().group_count().by_label().build().to_list();
+    println!("Edge type counts:");
+    if let Some(Value::Map(map)) = edge_counts.first() {
+        for (label, count) in map {
+            println!("  {}: {}", label, format_value(count));
+        }
+    }
+
+    // Query 39: Group monarchs by whether they abdicated
+    print_query("Group monarchs by abdication status");
+    let monarchs_by_abdication = g
+        .v()
+        .has_label("person")
+        .has_value("is_monarch", true)
+        .group()
+        .by_key("abdicated")
+        .by_value_key("name")
+        .build()
+        .to_list();
+    println!("Monarchs by abdication status:");
+    if let Some(Value::Map(map)) = monarchs_by_abdication.first() {
+        for (status, names) in map {
+            println!("  abdicated={}: {:?}", status, names);
+        }
+    }
+
+    // =========================================================================
+    // Summary Statistics (Refactored with Phase 7 APIs)
+    // =========================================================================
+    print_section("SUMMARY STATISTICS (Using Phase 7 APIs)");
 
     println!("Total people: {}", vertex_count);
+
+    // Monarchs count
+    let total_monarchs = g.v().has_value("is_monarch", true).count();
     println!("Total monarchs: {}", total_monarchs);
-    println!("Total marriages: {}", total_marriages);
-    println!("Total parent-child relationships: {}", total_parent_child);
-    println!("Royal houses represented: {}", houses.len());
-    println!(
-        "Houses: {:?}",
-        houses.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
-    );
+
+    // Edge counts using group_count by label
+    println!("\nRelationship counts (using group_count by label):");
+    let edge_type_counts = g.e().group_count().by_label().build().to_list();
+    if let Some(Value::Map(map)) = edge_type_counts.first() {
+        for (label, count) in map {
+            let count_val = match count {
+                Value::Int(n) => *n,
+                _ => 0,
+            };
+            // Marriages are bidirectional, so divide by 2
+            if label == "married_to" {
+                println!("  marriages: {}", count_val / 2);
+            } else {
+                println!("  {}: {}", label, count_val);
+            }
+        }
+    }
+
+    // House distribution using group_count
+    println!("\nRoyals by house (using group_count):");
+    let house_distribution = g
+        .v()
+        .has_label("person")
+        .group_count()
+        .by_key("house")
+        .build()
+        .to_list();
+    if let Some(Value::Map(map)) = house_distribution.first() {
+        // Sort for consistent output
+        let mut houses: Vec<_> = map.iter().collect();
+        houses.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (house, count) in houses {
+            println!("  {}: {}", house, format_value(count));
+        }
+    }
+
+    // Monarchs ordered by reign using order()
+    println!("\nMonarchs in chronological order (using order().by_key_asc()):");
+    let monarchs_chronological = g
+        .v()
+        .has_label("person")
+        .has_value("is_monarch", true)
+        .has("reign_start")
+        .order()
+        .by_key_asc("reign_start")
+        .build()
+        .to_list();
+    for monarch in &monarchs_chronological {
+        if let Some(vid) = monarch.as_vertex_id() {
+            if let Some(vertex) = storage.get_vertex(vid) {
+                let name = vertex
+                    .properties
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let reign_start = vertex
+                    .properties
+                    .get("reign_start")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let reign_end = vertex
+                    .properties
+                    .get("reign_end")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("present");
+                println!("  {} ({} - {})", name, reign_start, reign_end);
+            }
+        }
+    }
+
+    // Living royals count
+    let living_count = g.v().has_label("person").has_not("death_date").count();
+    println!("\nLiving royals: {}", living_count);
 
     println!("\n=== Example Complete ===");
 }
