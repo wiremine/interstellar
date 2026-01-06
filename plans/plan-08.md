@@ -840,10 +840,10 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 3. Verify no panics on error conditions
 
 **Acceptance Criteria**:
-- [ ] Bad magic returns `InvalidFormat` error
-- [ ] Bad version returns `UnsupportedVersion` error
-- [ ] Non-existent vertex returns `VertexNotFound`
-- [ ] No panics in error paths
+- [x] Bad magic returns `InvalidFormat` error
+- [x] Bad version returns `UnsupportedVersion` error
+- [x] Non-existent vertex returns `VertexNotFound`
+- [x] No panics in error paths
 
 ---
 

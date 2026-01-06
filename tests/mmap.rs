@@ -2026,3 +2026,241 @@ fn test_all_value_types_combined() {
         Some(&Value::Edge(EdgeId(222)))
     );
 }
+
+// =============================================================================
+// Phase 5.8: Error Handling Tests
+// =============================================================================
+
+use rustgremlin::error::StorageError;
+
+/// Test that opening a file with invalid magic number returns InvalidFormat error.
+///
+/// This test creates a file with a wrong magic number (0xDEADBEEF) and verifies
+/// that MmapGraph::open() returns StorageError::InvalidFormat.
+#[test]
+fn test_error_corrupted_file_bad_magic() {
+    let (_dir, db_path) = temp_db();
+
+    // Create a file with invalid magic number
+    // The header format is: magic (4 bytes) | version (4 bytes) | ...
+    // We write a wrong magic but correct version to test magic validation
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&db_path).expect("create file");
+
+        // Write invalid magic (0xDEADBEEF instead of 0x47524D4C "GRML")
+        let bad_magic: u32 = 0xDEADBEEF;
+        file.write_all(&bad_magic.to_ne_bytes())
+            .expect("write magic");
+
+        // Write correct version
+        let version: u32 = 1;
+        file.write_all(&version.to_ne_bytes())
+            .expect("write version");
+
+        // Pad to at least HEADER_SIZE (104 bytes) so it passes size check
+        let padding = vec![0u8; 104 - 8];
+        file.write_all(&padding).expect("write padding");
+    }
+
+    // Try to open - should fail with InvalidFormat
+    let result = MmapGraph::open(&db_path);
+    assert!(result.is_err(), "Expected error for bad magic");
+    match result {
+        Err(StorageError::InvalidFormat) => {} // Expected
+        Err(e) => panic!("Expected InvalidFormat, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
+
+/// Test that opening a file with unsupported version returns InvalidFormat error.
+///
+/// This test creates a file with correct magic but wrong version (999) and verifies
+/// that MmapGraph::open() returns StorageError::InvalidFormat.
+#[test]
+fn test_error_corrupted_file_bad_version() {
+    let (_dir, db_path) = temp_db();
+
+    // Create a file with correct magic but invalid version
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&db_path).expect("create file");
+
+        // Write correct magic (0x47524D4C "GRML")
+        let magic: u32 = 0x47524D4C;
+        file.write_all(&magic.to_ne_bytes()).expect("write magic");
+
+        // Write invalid version (999 instead of 1)
+        let bad_version: u32 = 999;
+        file.write_all(&bad_version.to_ne_bytes())
+            .expect("write version");
+
+        // Pad to at least HEADER_SIZE (104 bytes) so it passes size check
+        let padding = vec![0u8; 104 - 8];
+        file.write_all(&padding).expect("write padding");
+    }
+
+    // Try to open - should fail with InvalidFormat
+    let result = MmapGraph::open(&db_path);
+    assert!(result.is_err(), "Expected error for bad version");
+    match result {
+        Err(StorageError::InvalidFormat) => {} // Expected
+        Err(e) => panic!("Expected InvalidFormat, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
+
+/// Test that adding an edge with non-existent source vertex returns VertexNotFound.
+#[test]
+fn test_error_add_edge_nonexistent_source() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Add one valid vertex
+    let valid_vertex = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+
+    // Try to add edge with non-existent source
+    let result = graph.add_edge(VertexId(999), valid_vertex, "knows", HashMap::new());
+
+    assert!(result.is_err(), "Expected error for non-existent source");
+    match result {
+        Err(StorageError::VertexNotFound(id)) => {
+            assert_eq!(id, VertexId(999), "Expected VertexId(999)");
+        }
+        Err(e) => panic!("Expected VertexNotFound, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
+
+/// Test that adding an edge with non-existent destination vertex returns VertexNotFound.
+#[test]
+fn test_error_add_edge_nonexistent_destination() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Add one valid vertex
+    let valid_vertex = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+
+    // Try to add edge with non-existent destination
+    let result = graph.add_edge(valid_vertex, VertexId(999), "knows", HashMap::new());
+
+    assert!(
+        result.is_err(),
+        "Expected error for non-existent destination"
+    );
+    match result {
+        Err(StorageError::VertexNotFound(id)) => {
+            assert_eq!(id, VertexId(999), "Expected VertexId(999)");
+        }
+        Err(e) => panic!("Expected VertexNotFound, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
+
+/// Test that get_vertex and get_edge with invalid IDs return None without panicking.
+///
+/// This test verifies that the storage gracefully handles lookups for non-existent
+/// elements by returning None rather than panicking.
+#[test]
+fn test_error_operations_no_panic() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Add some data so the graph isn't empty
+    let v1 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let v2 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let e1 = graph
+        .add_edge(v1, v2, "knows", HashMap::new())
+        .expect("add edge");
+
+    // Test get_vertex with non-existent IDs - should return None, not panic
+    assert!(graph.get_vertex(VertexId(999)).is_none());
+    assert!(graph.get_vertex(VertexId(u64::MAX)).is_none());
+    // Note: VertexId(0) is the first valid ID, so it exists (v1)
+
+    // Test get_edge with non-existent IDs - should return None, not panic
+    assert!(graph.get_edge(EdgeId(999)).is_none());
+    assert!(graph.get_edge(EdgeId(u64::MAX)).is_none());
+    // Note: EdgeId(0) is the first valid ID, so it exists (e1)
+
+    // Verify valid IDs still work
+    assert!(graph.get_vertex(v1).is_some());
+    assert!(graph.get_vertex(v2).is_some());
+    assert!(graph.get_edge(e1).is_some());
+
+    // Test out_edges/in_edges with non-existent vertex - should return empty iterator
+    assert_eq!(graph.out_edges(VertexId(999)).count(), 0);
+    assert_eq!(graph.in_edges(VertexId(999)).count(), 0);
+}
+
+/// Test that opening a file that is too small returns InvalidFormat error.
+///
+/// The header requires 104 bytes minimum. A smaller file should be rejected.
+#[test]
+fn test_error_file_too_small() {
+    let (_dir, db_path) = temp_db();
+
+    // Create a file smaller than HEADER_SIZE (104 bytes)
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&db_path).expect("create file");
+        // Write only 50 bytes - less than header size
+        let data = vec![0u8; 50];
+        file.write_all(&data).expect("write data");
+    }
+
+    // Try to open - should fail with InvalidFormat
+    let result = MmapGraph::open(&db_path);
+    assert!(result.is_err(), "Expected error for small file");
+    match result {
+        Err(StorageError::InvalidFormat) => {} // Expected
+        Err(e) => panic!("Expected InvalidFormat, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
+
+/// Test that remove_vertex on non-existent vertex returns appropriate error.
+#[test]
+fn test_error_remove_nonexistent_vertex() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Try to remove a vertex that doesn't exist
+    let result = graph.remove_vertex(VertexId(999));
+
+    assert!(result.is_err(), "Expected error for non-existent vertex");
+    match result {
+        Err(StorageError::VertexNotFound(id)) => {
+            assert_eq!(id, VertexId(999));
+        }
+        Err(e) => panic!("Expected VertexNotFound, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
+
+/// Test that remove_edge on non-existent edge returns appropriate error.
+#[test]
+fn test_error_remove_nonexistent_edge() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Try to remove an edge that doesn't exist
+    let result = graph.remove_edge(EdgeId(999));
+
+    assert!(result.is_err(), "Expected error for non-existent edge");
+    match result {
+        Err(StorageError::EdgeNotFound(id)) => {
+            assert_eq!(id, EdgeId(999));
+        }
+        Err(e) => panic!("Expected EdgeNotFound, got {:?}", e),
+        Ok(_) => panic!("Expected error, got success"),
+    }
+}
