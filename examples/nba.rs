@@ -13,12 +13,15 @@
 //! This example showcases:
 //! - Data loading from JSON fixtures
 //! - Basic traversal with filtering (Phase 3)
-//! - Navigation steps: out(), in_(), both() (Phase 3)
+//! - Navigation steps: out(), in_(), both(), other_v() (Phase 3 & 7)
 //! - Predicate system: p::eq, p::gt, p::gte, p::within, p::containing (Phase 4)
+//! - Filter steps: has_not(), is_(), is_eq() (Phase 7)
 //! - Anonymous traversals: __::out(), __::has_label() (Phase 4)
 //! - Branch steps: union(), coalesce(), choose(), optional() (Phase 5)
 //! - Repeat steps for multi-hop queries (Phase 5)
 //! - Path tracking with as_() and select() (Phase 3)
+//! - Transform steps: value_map(), element_map(), unfold(), order(), mean() (Phase 7)
+//! - Aggregation steps: group(), group_count() (Phase 7)
 //!
 //! Run with: `cargo run --example nba`
 
@@ -530,6 +533,19 @@ fn main() {
         display_names(&storage, &lakers_champs)
     );
 
+    // Query 12b: Using other_v() to navigate from edges to opposite vertex (Phase 7)
+    print_query("Navigate from player through edges using other_v()");
+    let kobe_teams_via_edge = g
+        .v()
+        .has_value("name", "Kobe Bryant")
+        .out_e_labels(&["played_for"]) // Get edges
+        .other_v() // Navigate to the other vertex (teams)
+        .to_list();
+    println!(
+        "Kobe's teams via other_v(): {}",
+        display_names(&storage, &kobe_teams_via_edge)
+    );
+
     // =========================================================================
     // SECTION 3: Predicate Queries
     // =========================================================================
@@ -646,6 +662,32 @@ fn main() {
         display_with_prop(&storage, &tall_players, "height_inches")
     );
 
+    // Query 21b: Using is_() to filter extracted values (Phase 7)
+    print_query("Filter PPG values using is_() with predicate");
+    let elite_ppg = g
+        .v()
+        .has_label("player")
+        .values("points_per_game")
+        .is_(p::gte(27.0)) // Filter values >= 27.0
+        .to_list();
+    println!(
+        "Elite PPG values (>= 27.0): {:?}",
+        elite_ppg
+            .iter()
+            .filter_map(|v| v.as_f64())
+            .collect::<Vec<_>>()
+    );
+
+    // Query 21c: Using is_eq() to filter to exact values (Phase 7)
+    print_query("Filter to exact position using is_eq()");
+    let center_positions = g
+        .v()
+        .has_label("player")
+        .values("position")
+        .is_eq("Center") // Filter to exact value
+        .count();
+    println!("Number of Centers (via is_eq): {}", center_positions);
+
     // =========================================================================
     // SECTION 4: Anonymous Traversal Queries
     // =========================================================================
@@ -688,17 +730,31 @@ fn main() {
         .to_list();
     println!("MVP + Finals MVP: {}", display_names(&storage, &both_mvps));
 
-    // Query 26: Find active franchises (teams that are not defunct)
-    print_query("Find active franchises");
+    // Query 25: Find active franchises using has_not() (Phase 7)
+    // has_not() filters elements WITHOUT a specific property
+    print_query("Find active franchises using has_not()");
     let active_teams = g
         .v()
         .has_label("team")
-        .not(__::has_value("defunct", true))
+        .has_not("defunct") // Teams without "defunct" property are active
         .to_list();
     println!(
         "Active teams ({}): {}",
         active_teams.len(),
         display_names(&storage, &active_teams)
+    );
+
+    // Query 26: Find defunct franchises (teams WITH defunct property)
+    print_query("Find defunct franchises");
+    let defunct_teams = g
+        .v()
+        .has_label("team")
+        .has("defunct") // Teams with "defunct" property
+        .to_list();
+    println!(
+        "Defunct teams ({}): {}",
+        defunct_teams.len(),
+        display_names(&storage, &defunct_teams)
     );
 
     // Query 27: Find players who played for championship teams
@@ -1062,50 +1118,355 @@ fn main() {
     }
 
     // =========================================================================
-    // Summary Statistics
+    // SECTION 9: Transform Steps (Phase 7)
     // =========================================================================
-    print_section("SUMMARY STATISTICS");
+    print_section("9. TRANSFORM STEPS (Phase 7: value_map, element_map, order, mean, unfold)");
 
-    // Position distribution
-    println!("Players by position:");
-    for position in &[
-        "Point Guard",
-        "Shooting Guard",
-        "Small Forward",
-        "Power Forward",
-        "Center",
-    ] {
-        let count = g
-            .v()
-            .has_label("player")
-            .has_value("position", *position)
-            .count();
-        println!("  {}: {}", position, count);
+    // Query 46: Get player stats using value_map()
+    print_query("Get Michael Jordan's stats using value_map()");
+    let mj_stats = g
+        .v()
+        .has_value("name", "Michael Jordan")
+        .value_map_keys(["name", "points_per_game", "mvp_count", "position"])
+        .to_list();
+    println!("MJ value_map:");
+    for stat in &mj_stats {
+        println!("  {:?}", stat);
     }
 
-    // Conference distribution
-    println!("\nTeams by conference:");
-    let east_count = g
+    // Query 47: Get complete element representation using element_map()
+    print_query("Get Bulls complete element_map()");
+    let bulls_element = g
+        .v()
+        .has_value("name", "Chicago Bulls")
+        .element_map_keys(["name", "city", "championship_count", "conference"])
+        .to_list();
+    println!("Bulls element_map:");
+    for elem in &bulls_element {
+        println!("  {:?}", elem);
+    }
+
+    // Query 48: Get edge element_map (includes IN/OUT vertex references)
+    print_query("Get edge element_map for MJ's played_for edges");
+    let mj_edges = g
+        .v()
+        .has_value("name", "Michael Jordan")
+        .out_e_labels(&["played_for"])
+        .element_map()
+        .to_list();
+    println!("MJ's played_for edges (element_map):");
+    for edge in &mj_edges {
+        println!("  {:?}", edge);
+    }
+
+    // Query 49: Order players by PPG descending
+    print_query("Top 5 scorers by PPG using order()");
+    let top_scorers = g
+        .v()
+        .has_label("player")
+        .order()
+        .by_key_desc("points_per_game")
+        .build()
+        .limit(5)
+        .to_list();
+    println!("Top 5 scorers:");
+    for (i, player) in top_scorers.iter().enumerate() {
+        let name = get_name(&storage, player);
+        let ppg = get_property(&storage, player, "points_per_game").unwrap_or_default();
+        println!("  {}. {} ({} PPG)", i + 1, name, ppg);
+    }
+
+    // Query 50: Order teams by championship count ascending
+    print_query("Teams ordered by championships (ascending)");
+    let teams_by_chips = g
         .v()
         .has_label("team")
-        .has_value("conference", "Eastern")
-        .count();
-    let west_count = g
+        .has("championship_count") // Only teams with championships
+        .order()
+        .by_key_asc("championship_count")
+        .build()
+        .to_list();
+    println!("Teams by championships (asc):");
+    for team in &teams_by_chips {
+        let name = get_name(&storage, team);
+        let chips = get_property(&storage, team, "championship_count").unwrap_or_default();
+        println!("  {} ({})", name, chips);
+    }
+
+    // Query 51: Calculate average PPG using mean()
+    print_query("Calculate average PPG across all players");
+    let avg_ppg = g
+        .v()
+        .has_label("player")
+        .values("points_per_game")
+        .mean()
+        .to_list();
+    println!(
+        "Average PPG: {:.2}",
+        avg_ppg.first().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    );
+
+    // Query 52: Calculate average rebounds for Centers
+    print_query("Average rebounds per game for Centers");
+    let avg_center_rpg = g
+        .v()
+        .has_label("player")
+        .has_value("position", "Center")
+        .values("rebounds_per_game")
+        .mean()
+        .to_list();
+    println!(
+        "Average Center RPG: {:.2}",
+        avg_center_rpg
+            .first()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    );
+
+    // Query 53: Unfold value_map entries
+    print_query("Unfold LeBron's value_map into individual entries");
+    let lebron_props = g
+        .v()
+        .has_value("name", "LeBron James")
+        .value_map_keys(["name", "position", "mvp_count"])
+        .unfold()
+        .to_list();
+    println!("LeBron's properties (unfolded):");
+    for prop in &lebron_props {
+        println!("  {:?}", prop);
+    }
+
+    // Query 54: Order + limit for "Top N" queries
+    print_query("Top 3 players by MVP count");
+    let mvp_leaders = g
+        .v()
+        .has_label("player")
+        .has("mvp_count")
+        .order()
+        .by_key_desc("mvp_count")
+        .build()
+        .limit(3)
+        .to_list();
+    println!("MVP Leaders:");
+    for player in &mvp_leaders {
+        let name = get_name(&storage, player);
+        let mvps = get_property(&storage, player, "mvp_count").unwrap_or_default();
+        println!("  {} ({} MVPs)", name, mvps);
+    }
+
+    // =========================================================================
+    // SECTION 10: Aggregation Steps (Phase 7)
+    // =========================================================================
+    print_section("10. AGGREGATION STEPS (Phase 7: group, group_count)");
+
+    // Query 55: Group players by position
+    print_query("Group players by position using group()");
+    let by_position = g
+        .v()
+        .has_label("player")
+        .group()
+        .by_key("position")
+        .by_value_key("name")
+        .build()
+        .to_list();
+    println!("Players grouped by position:");
+    if let Some(Value::Map(map)) = by_position.first() {
+        for (pos, players) in map {
+            println!("  {}: {:?}", pos, players);
+        }
+    }
+
+    // Query 56: Count players by position using group_count()
+    print_query("Count players by position using group_count()");
+    let position_counts = g
+        .v()
+        .has_label("player")
+        .group_count()
+        .by_key("position")
+        .build()
+        .to_list();
+    println!("Position counts:");
+    if let Some(Value::Map(map)) = position_counts.first() {
+        for (pos, count) in map {
+            println!("  {}: {}", pos, format_value(count));
+        }
+    }
+
+    // Query 57: Count teams by conference
+    print_query("Count teams by conference using group_count()");
+    let conference_counts = g
         .v()
         .has_label("team")
-        .has_value("conference", "Western")
-        .count();
-    println!("  Eastern: {}", east_count);
-    println!("  Western: {}", west_count);
+        .group_count()
+        .by_key("conference")
+        .build()
+        .to_list();
+    println!("Conference counts:");
+    if let Some(Value::Map(map)) = conference_counts.first() {
+        for (conf, count) in map {
+            println!("  {}: {}", conf, format_value(count));
+        }
+    }
 
-    // Edge counts
-    println!("\nRelationship counts:");
-    let played_for_count = g.e().has_label("played_for").count();
-    let champ_count = g.e().has_label("won_championship_with").count();
-    println!("  played_for edges: {}", played_for_count);
-    println!("  won_championship_with edges: {}", champ_count);
+    // Query 58: Group teams by conference, collect names
+    print_query("Group teams by conference");
+    let teams_by_conf = g
+        .v()
+        .has_label("team")
+        .group()
+        .by_key("conference")
+        .by_value_key("name")
+        .build()
+        .to_list();
+    println!("Teams by conference:");
+    if let Some(Value::Map(map)) = teams_by_conf.first() {
+        for (conf, teams) in map {
+            println!("  {}: {:?}", conf, teams);
+        }
+    }
 
-    // MVP stats
+    // Query 59: Group players by position, count using group_count
+    print_query("Group edges by label using group_count()");
+    let edge_label_counts = g.e().group_count().by_label().build().to_list();
+    println!("Edge counts by label:");
+    if let Some(Value::Map(map)) = edge_label_counts.first() {
+        for (label, count) in map {
+            println!("  {}: {}", label, format_value(count));
+        }
+    }
+
+    // Query 60: Group championship teams by dynasty era
+    print_query("Count championship-winning teams by conference");
+    let champ_by_conf = g
+        .v()
+        .has_label("team")
+        .has_where("championship_count", p::gte(1))
+        .group_count()
+        .by_key("conference")
+        .build()
+        .to_list();
+    println!("Championship teams by conference:");
+    if let Some(Value::Map(map)) = champ_by_conf.first() {
+        for (conf, count) in map {
+            println!("  {}: {}", conf, format_value(count));
+        }
+    }
+
+    // =========================================================================
+    // Summary Statistics (Refactored with Phase 7 APIs)
+    // =========================================================================
+    print_section("SUMMARY STATISTICS (Using Phase 7 APIs)");
+
+    // Position distribution using group_count() instead of manual loop
+    println!("Players by position (using group_count):");
+    let position_dist = g
+        .v()
+        .has_label("player")
+        .group_count()
+        .by_key("position")
+        .build()
+        .to_list();
+    if let Some(Value::Map(map)) = position_dist.first() {
+        // Sort for consistent output
+        let mut positions: Vec<_> = map.iter().collect();
+        positions.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (pos, count) in positions {
+            println!("  {}: {}", pos, format_value(count));
+        }
+    }
+
+    // Conference distribution using group_count()
+    println!("\nTeams by conference (using group_count):");
+    let conf_dist = g
+        .v()
+        .has_label("team")
+        .group_count()
+        .by_key("conference")
+        .build()
+        .to_list();
+    if let Some(Value::Map(map)) = conf_dist.first() {
+        for (conf, count) in map {
+            println!("  {}: {}", conf, format_value(count));
+        }
+    }
+
+    // Edge counts using group_count() by label
+    println!("\nRelationship counts (using group_count by label):");
+    let edge_dist = g.e().group_count().by_label().build().to_list();
+    if let Some(Value::Map(map)) = edge_dist.first() {
+        for (label, count) in map {
+            println!("  {}: {}", label, format_value(count));
+        }
+    }
+
+    // Average stats using mean()
+    println!("\nAverage stats (using mean()):");
+    let avg_ppg = g
+        .v()
+        .has_label("player")
+        .values("points_per_game")
+        .mean()
+        .to_list();
+    println!(
+        "  Average PPG: {:.2}",
+        avg_ppg.first().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    );
+
+    let avg_rpg = g
+        .v()
+        .has_label("player")
+        .values("rebounds_per_game")
+        .mean()
+        .to_list();
+    println!(
+        "  Average RPG: {:.2}",
+        avg_rpg.first().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    );
+
+    let avg_apg = g
+        .v()
+        .has_label("player")
+        .values("assists_per_game")
+        .mean()
+        .to_list();
+    println!(
+        "  Average APG: {:.2}",
+        avg_apg.first().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    );
+
+    // Championship leaders using order()
+    println!("\nChampionship leaders (using order().by_key_desc()):");
+    let champ_leaders = g
+        .v()
+        .has_label("team")
+        .has_where("championship_count", p::gte(5))
+        .order()
+        .by_key_desc("championship_count")
+        .build()
+        .to_list();
+    for team in &champ_leaders {
+        let name = get_name(&storage, team);
+        let count = get_property(&storage, team, "championship_count").unwrap_or_default();
+        println!("  {}: {} championships", name, count);
+    }
+
+    // All-Star leaders using order()
+    println!("\nAll-Star leaders (15+ selections, using order().by_key_desc()):");
+    let allstar_leaders = g
+        .v()
+        .has_label("player")
+        .has_where("all_star_selections", p::gte(15))
+        .order()
+        .by_key_desc("all_star_selections")
+        .build()
+        .to_list();
+    for player in &allstar_leaders {
+        let name = get_name(&storage, player);
+        let selections = get_property(&storage, player, "all_star_selections").unwrap_or_default();
+        println!("  {}: {} All-Star selections", name, selections);
+    }
+
+    // Total MVP awards using values() + sum (still needed since sum() isn't a step)
     println!("\nMVP statistics:");
     let total_mvps: i64 = g
         .v()
@@ -1116,32 +1477,6 @@ fn main() {
         .filter_map(|v| v.as_i64())
         .sum();
     println!("  Total MVP awards represented: {}", total_mvps);
-
-    // Championship stats
-    println!("\nChampionship leaders:");
-    let champ_leaders = g
-        .v()
-        .has_label("team")
-        .has_where("championship_count", p::gte(5))
-        .to_list();
-    for team in &champ_leaders {
-        let name = get_name(&storage, team);
-        let count = get_property(&storage, team, "championship_count").unwrap_or_default();
-        println!("  {}: {} championships", name, count);
-    }
-
-    // All-Star selections
-    println!("\nAll-Star leaders (15+ selections):");
-    let allstar_leaders = g
-        .v()
-        .has_label("player")
-        .has_where("all_star_selections", p::gte(15))
-        .to_list();
-    for player in &allstar_leaders {
-        let name = get_name(&storage, player);
-        let selections = get_property(&storage, player, "all_star_selections").unwrap_or_default();
-        println!("  {}: {} All-Star selections", name, selections);
-    }
 
     println!("\n=== Example Complete ===");
 }
