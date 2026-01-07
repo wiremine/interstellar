@@ -1005,6 +1005,14 @@ impl<'g, In> RepeatTraversal<'g, In> {
     pub fn local(self, sub: Traversal<Value, Value>) -> BoundTraversal<'g, In, Value> {
         self.finalize().local(sub)
     }
+
+    /// Convert to BoundTraversal without adding any additional step.
+    ///
+    /// This is useful when you need to continue the traversal chain but
+    /// don't want to add any filter or transformation step.
+    pub fn identity(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize()
+    }
 }
 
 impl<'g, In> std::fmt::Debug for RepeatTraversal<'g, In> {

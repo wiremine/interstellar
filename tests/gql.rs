@@ -5843,3 +5843,760 @@ fn test_gql_group_by_single_return_count_only() {
     counts.sort();
     assert_eq!(counts, vec![1, 2, 3], "Should have counts 1, 2, 3");
 }
+
+// =============================================================================
+// MULTI-VARIABLE PATTERN TESTS (Plan 10, Phase 3)
+// =============================================================================
+
+/// Helper function to create a graph for multi-variable tests
+fn create_multi_var_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create people
+    let alice = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Alice"));
+        props.insert("age".to_string(), Value::Int(30));
+        props
+    });
+
+    let bob = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bob"));
+        props.insert("age".to_string(), Value::Int(28));
+        props
+    });
+
+    let carol = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Carol"));
+        props.insert("age".to_string(), Value::Int(35));
+        props
+    });
+
+    let dave = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Dave"));
+        props.insert("age".to_string(), Value::Int(25));
+        props
+    });
+
+    // Create companies
+    let tech_corp = storage.add_vertex("Company", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("TechCorp"));
+        props.insert("size".to_string(), Value::Int(1000));
+        props
+    });
+
+    let startup_inc = storage.add_vertex("Company", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("StartupInc"));
+        props.insert("size".to_string(), Value::Int(50));
+        props
+    });
+
+    // Create KNOWS relationships
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(carol, dave, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, carol, "KNOWS", HashMap::new())
+        .unwrap();
+
+    // Create WORKS_AT relationships
+    storage
+        .add_edge(alice, tech_corp, "WORKS_AT", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, tech_corp, "WORKS_AT", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(carol, startup_inc, "WORKS_AT", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(dave, startup_inc, "WORKS_AT", HashMap::new())
+        .unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test: Basic multi-variable pattern - return properties from two variables
+#[test]
+fn test_gql_multi_var_basic_two_variables() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Return properties from both ends of a relationship
+    let query = r#"
+        MATCH (a:Person)-[:KNOWS]->(b:Person)
+        RETURN a.name AS person1, b.name AS person2
+        ORDER BY person1, person2
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Should have 4 KNOWS relationships
+    assert_eq!(results.len(), 4, "Should have 4 KNOWS relationships");
+
+    // Verify each result has both person1 and person2
+    for result in &results {
+        if let Value::Map(map) = result {
+            assert!(map.contains_key("person1"), "Result should contain person1");
+            assert!(map.contains_key("person2"), "Result should contain person2");
+        } else {
+            panic!("Expected Map result");
+        }
+    }
+
+    // Check first result (Alice -> Bob comes first alphabetically)
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("person1"), Some(&Value::from("Alice")));
+        assert_eq!(map.get("person2"), Some(&Value::from("Bob")));
+    }
+}
+
+/// Test: Multi-variable pattern with three nodes
+#[test]
+fn test_gql_multi_var_three_nodes() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Three-node pattern: person -> company <- person (coworkers)
+    let query = r#"
+        MATCH (p1:Person)-[:WORKS_AT]->(c:Company)<-[:WORKS_AT]-(p2:Person)
+        WHERE p1.name <> p2.name
+        RETURN p1.name AS person1, c.name AS company, p2.name AS person2
+        ORDER BY company, person1, person2
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Should find coworker pairs:
+    // StartupInc: Carol-Dave, Dave-Carol
+    // TechCorp: Alice-Bob, Bob-Alice
+    assert_eq!(results.len(), 4, "Should have 4 coworker pairs");
+
+    // Verify structure
+    for result in &results {
+        if let Value::Map(map) = result {
+            assert!(map.contains_key("person1"));
+            assert!(map.contains_key("company"));
+            assert!(map.contains_key("person2"));
+        }
+    }
+}
+
+/// Test: Multi-variable pattern with WHERE filtering on both variables
+#[test]
+fn test_gql_multi_var_where_both_variables() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter based on properties from both variables
+    let query = r#"
+        MATCH (a:Person)-[:KNOWS]->(b:Person)
+        WHERE a.age > 25 AND b.age < 35
+        RETURN a.name AS older, b.name AS younger
+        ORDER BY older
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Alice(30) knows Bob(28) and Carol(35)
+    // Bob(28) knows Carol(35)
+    // Carol(35) knows Dave(25)
+    // With filters: a.age > 25 AND b.age < 35
+    // Alice(30) -> Bob(28) ✓
+    // Alice(30) -> Carol(35) ✗ (Carol is 35, not < 35)
+    // Bob(28) -> Carol(35) ✗
+    // Carol(35) -> Dave(25) ✓
+    assert_eq!(results.len(), 2, "Should have 2 matching pairs");
+}
+
+/// Test: Multi-variable pattern with COUNT aggregation
+#[test]
+fn test_gql_multi_var_with_count() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Count relationships
+    let query = r#"
+        MATCH (p:Person)-[:WORKS_AT]->(c:Company)
+        RETURN c.name AS company, COUNT(*) AS employee_count
+        GROUP BY c.name
+        ORDER BY company
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // TechCorp: 2 employees (Alice, Bob)
+    // StartupInc: 2 employees (Carol, Dave)
+    assert_eq!(results.len(), 2);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("company"), Some(&Value::from("StartupInc")));
+        assert_eq!(map.get("employee_count"), Some(&Value::Int(2)));
+    }
+}
+
+/// Test: Multi-variable pattern returning only one variable's property
+#[test]
+fn test_gql_multi_var_return_one_property() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Pattern has two variables but only return one
+    let query = r#"
+        MATCH (p:Person)-[:WORKS_AT]->(c:Company)
+        WHERE c.name = 'TechCorp'
+        RETURN p.name
+        ORDER BY p.name
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Should find Alice and Bob who work at TechCorp
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0], Value::from("Alice"));
+    assert_eq!(results[1], Value::from("Bob"));
+}
+
+/// Test: Multi-variable pattern with DISTINCT
+#[test]
+fn test_gql_multi_var_distinct() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find distinct companies where people who know each other work
+    // (may produce duplicates without DISTINCT)
+    let query = r#"
+        MATCH (p1:Person)-[:KNOWS]->(p2:Person)-[:WORKS_AT]->(c:Company)
+        RETURN DISTINCT c.name AS company
+        ORDER BY company
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Should find companies where "known" people work
+    assert!(!results.is_empty());
+    // Results should be unique company names
+}
+
+/// Test: Multi-variable pattern with LIMIT
+#[test]
+fn test_gql_multi_var_with_limit() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    let query = r#"
+        MATCH (a:Person)-[:KNOWS]->(b:Person)
+        RETURN a.name AS from, b.name AS to
+        ORDER BY from, to
+        LIMIT 2
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    assert_eq!(results.len(), 2, "Should return only 2 results");
+}
+
+/// Test: Multi-variable pattern - verify variable binding correctness
+#[test]
+fn test_gql_multi_var_binding_correctness() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // This test ensures that variable a gets the source node
+    // and variable b gets the target node correctly
+    let query = r#"
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person)
+        RETURN a.name AS source, b.name AS target
+        ORDER BY target
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Alice KNOWS Bob and Carol
+    assert_eq!(results.len(), 2);
+
+    // First result should be Alice -> Bob
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("source"),
+            Some(&Value::from("Alice")),
+            "Source should always be Alice"
+        );
+        assert_eq!(map.get("target"), Some(&Value::from("Bob")));
+    }
+
+    // Second result should be Alice -> Carol
+    if let Value::Map(map) = &results[1] {
+        assert_eq!(
+            map.get("source"),
+            Some(&Value::from("Alice")),
+            "Source should always be Alice"
+        );
+        assert_eq!(map.get("target"), Some(&Value::from("Carol")));
+    }
+}
+
+/// Test: Multi-variable with expression in WHERE
+#[test]
+fn test_gql_multi_var_expression_in_where() {
+    let graph = create_multi_var_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Compare ages between the two people in the relationship
+    let query = r#"
+        MATCH (older:Person)-[:KNOWS]->(younger:Person)
+        WHERE older.age > younger.age
+        RETURN older.name AS older_person, younger.name AS younger_person
+        ORDER BY older_person
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Alice(30) -> Bob(28) ✓ (30 > 28)
+    // Alice(30) -> Carol(35) ✗ (30 < 35)
+    // Bob(28) -> Carol(35) ✗ (28 < 35)
+    // Carol(35) -> Dave(25) ✓ (35 > 25)
+    assert_eq!(results.len(), 2);
+}
+
+// =============================================================================
+// EDGE VARIABLE AND PROPERTY TESTS (Plan 10, Phase 3.2/3.3)
+// =============================================================================
+
+/// Helper function to create a graph with edge properties for testing
+fn create_edge_property_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create people
+    let alice = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Alice"));
+        props
+    });
+
+    let bob = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bob"));
+        props
+    });
+
+    let carol = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Carol"));
+        props
+    });
+
+    // Create teams
+    let bulls = storage.add_vertex("Team", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bulls"));
+        props
+    });
+
+    let lakers = storage.add_vertex("Team", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Lakers"));
+        props
+    });
+
+    // Create PLAYED_FOR edges with properties (years, championships)
+    storage
+        .add_edge(alice, bulls, "PLAYED_FOR", {
+            let mut props = HashMap::new();
+            props.insert("start_year".to_string(), Value::Int(2015));
+            props.insert("end_year".to_string(), Value::Int(2020));
+            props.insert("championships".to_string(), Value::Int(2));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(alice, lakers, "PLAYED_FOR", {
+            let mut props = HashMap::new();
+            props.insert("start_year".to_string(), Value::Int(2020));
+            props.insert("end_year".to_string(), Value::Int(2023));
+            props.insert("championships".to_string(), Value::Int(1));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(bob, bulls, "PLAYED_FOR", {
+            let mut props = HashMap::new();
+            props.insert("start_year".to_string(), Value::Int(2010));
+            props.insert("end_year".to_string(), Value::Int(2018));
+            props.insert("championships".to_string(), Value::Int(3));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(carol, lakers, "PLAYED_FOR", {
+            let mut props = HashMap::new();
+            props.insert("start_year".to_string(), Value::Int(2018));
+            props.insert("end_year".to_string(), Value::Int(2022));
+            props.insert("championships".to_string(), Value::Int(0));
+            props
+        })
+        .unwrap();
+
+    // Create KNOWS edges with properties
+    storage
+        .add_edge(alice, bob, "KNOWS", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2015));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(bob, carol, "KNOWS", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2018));
+            props
+        })
+        .unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test: Edge variable binding - basic case
+#[test]
+fn test_gql_edge_variable_basic() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Bind edge variable and return properties from nodes
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR]->(t:Team)
+        RETURN p.name AS player, t.name AS team
+        ORDER BY player, team
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Should have 4 PLAYED_FOR relationships
+    assert_eq!(results.len(), 4, "Should have 4 PLAYED_FOR relationships");
+
+    // Verify first result
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("player"), Some(&Value::from("Alice")));
+        assert_eq!(map.get("team"), Some(&Value::from("Bulls")));
+    }
+}
+
+/// Test: Edge property access in RETURN
+#[test]
+fn test_gql_edge_property_in_return() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Return edge property values
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR]->(t:Team)
+        RETURN p.name AS player, t.name AS team, e.championships AS rings
+        ORDER BY rings DESC, player
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    assert_eq!(results.len(), 4);
+
+    // Bob has most championships (3)
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("player"), Some(&Value::from("Bob")));
+        assert_eq!(map.get("team"), Some(&Value::from("Bulls")));
+        assert_eq!(map.get("rings"), Some(&Value::Int(3)));
+    }
+}
+
+/// Test: Edge property access in WHERE
+#[test]
+fn test_gql_edge_property_in_where() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter by edge property
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR]->(t:Team)
+        WHERE e.championships >= 2
+        RETURN p.name AS player, e.championships AS rings
+        ORDER BY rings DESC
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Bob(3) and Alice(2) have 2+ championships
+    assert_eq!(results.len(), 2, "Should have 2 players with 2+ rings");
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("player"), Some(&Value::from("Bob")));
+        assert_eq!(map.get("rings"), Some(&Value::Int(3)));
+    }
+}
+
+/// Test: Edge property filter in pattern (inline property filter)
+#[test]
+fn test_gql_edge_property_inline_filter() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use inline edge property filter
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR {championships: 3}]->(t:Team)
+        RETURN p.name AS player, t.name AS team
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Only Bob has exactly 3 championships
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("player"), Some(&Value::from("Bob")));
+        assert_eq!(map.get("team"), Some(&Value::from("Bulls")));
+    }
+}
+
+/// Test: Edge property comparison
+#[test]
+fn test_gql_edge_property_comparison() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find long tenures (5+ years)
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR]->(t:Team)
+        WHERE e.end_year - e.start_year >= 5
+        RETURN p.name AS player, t.name AS team, e.start_year, e.end_year
+        ORDER BY player
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Alice at Bulls: 2015-2020 = 5 years ✓
+    // Alice at Lakers: 2020-2023 = 3 years ✗
+    // Bob at Bulls: 2010-2018 = 8 years ✓
+    // Carol at Lakers: 2018-2022 = 4 years ✗
+    assert_eq!(results.len(), 2, "Should have 2 long tenure stints");
+}
+
+/// Test: Edge variable without returning edge properties (just filtering)
+#[test]
+fn test_gql_edge_variable_filter_only() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use edge variable for filtering but don't return edge properties
+    let query = r#"
+        MATCH (p:Person)-[e:KNOWS]->(friend:Person)
+        WHERE e.since < 2017
+        RETURN p.name AS person, friend.name AS knows
+        ORDER BY person
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Alice knows Bob since 2015 (< 2017) ✓
+    // Bob knows Carol since 2018 (>= 2017) ✗
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("person"), Some(&Value::from("Alice")));
+        assert_eq!(map.get("knows"), Some(&Value::from("Bob")));
+    }
+}
+
+/// Test: Multiple edge properties in WHERE
+#[test]
+fn test_gql_multiple_edge_properties_where() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter by multiple edge properties
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR]->(t:Team)
+        WHERE e.start_year >= 2015 AND e.championships >= 1
+        RETURN p.name AS player, t.name AS team, e.championships AS rings
+        ORDER BY rings DESC
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Alice at Bulls: 2015+, 2 rings ✓
+    // Alice at Lakers: 2020+, 1 ring ✓
+    // Bob at Bulls: 2010 (< 2015) ✗
+    // Carol at Lakers: 2018+, 0 rings ✗
+    assert_eq!(results.len(), 2);
+}
+
+/// Test: Edge property with aggregation
+#[test]
+fn test_gql_edge_property_aggregation() {
+    let graph = create_edge_property_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Sum championships by team
+    let query = r#"
+        MATCH (p:Person)-[e:PLAYED_FOR]->(t:Team)
+        RETURN t.name AS team, SUM(e.championships) AS total_rings
+        GROUP BY t.name
+        ORDER BY total_rings DESC
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+
+    // Bulls: 2 (Alice) + 3 (Bob) = 5
+    // Lakers: 1 (Alice) + 0 (Carol) = 1
+    assert_eq!(results.len(), 2);
+
+    // Collect team -> total_rings mapping
+    let mut team_rings: HashMap<String, i64> = HashMap::new();
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let (Some(Value::String(team)), Some(Value::Int(rings))) =
+                (map.get("team"), map.get("total_rings"))
+            {
+                team_rings.insert(team.clone(), *rings);
+            }
+        }
+    }
+
+    assert_eq!(
+        team_rings.get("Bulls"),
+        Some(&5i64),
+        "Bulls should have 5 rings"
+    );
+    assert_eq!(
+        team_rings.get("Lakers"),
+        Some(&1i64),
+        "Lakers should have 1 ring"
+    );
+}
+
+/// Debug test to understand variable-length path with WHERE clause
+#[test]
+fn test_gql_debug_var_path_where() {
+    let graph = create_social_network_graph();
+    let snapshot = graph.snapshot();
+
+    // First, test without multi-var (inline filter)
+    let query1 = r#"
+        MATCH (p:Person {name: 'Alice'})-[:KNOWS*2..3]->(target:Person)
+        RETURN DISTINCT target.name
+        ORDER BY target.name
+    "#;
+    let results1: Vec<_> = snapshot.gql(query1).unwrap();
+    println!("With inline filter: {:?}", results1);
+    
+    // Now test with WHERE clause (triggers multi-var path)
+    let query2 = r#"
+        MATCH (p:Person)-[:KNOWS*2..3]->(target:Person)
+        WHERE p.name = 'Alice'
+        RETURN DISTINCT target.name
+        ORDER BY target.name
+    "#;
+    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    println!("With WHERE clause: {:?}", results2);
+    
+    // The results should be the same
+    assert!(!results1.is_empty(), "Inline filter results should not be empty");
+    assert!(!results2.is_empty(), "WHERE clause results should not be empty");
+}
+
+/// Debug test to see traverser path contents
+#[test]
+fn test_gql_debug_path_contents() {
+    use rustgremlin::gql::{compile, parse};
+    
+    let graph = create_social_network_graph();
+    let snapshot = graph.snapshot();
+
+    // Simpler test: just one hop to see path behavior
+    let query = r#"
+        MATCH (p:Person)-[:KNOWS]->(target:Person)
+        WHERE p.name = 'Alice'
+        RETURN p.name AS source, target.name AS dest
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+    println!("1-hop results:");
+    for r in &results {
+        println!("  {:?}", r);
+    }
+    
+    // Should find Alice's direct friends: Bob, Charlie, Diana
+    assert_eq!(results.len(), 3, "Alice KNOWS 3 people directly");
+}
+
+/// Debug test for 2-hop path
+#[test]
+fn test_gql_debug_2hop_path() {
+    let graph = create_social_network_graph();
+    let snapshot = graph.snapshot();
+
+    // Exact 2 hops from Alice
+    let query = r#"
+        MATCH (p:Person)-[:KNOWS*2]->(target:Person)
+        WHERE p.name = 'Alice'
+        RETURN p.name AS source, target.name AS dest
+        ORDER BY dest
+    "#;
+    let results: Vec<_> = snapshot.gql(query).unwrap();
+    println!("2-hop results:");
+    for r in &results {
+        println!("  {:?}", r);
+    }
+    
+    // Alice's 1-hop: Bob, Charlie, Diana
+    // Alice's 2-hop (deduped): Eve (via Bob or Diana), Frank (via Bob), Grace (via Charlie), Henry (via Eve via Diana)
+    assert!(!results.is_empty(), "Should find 2-hop targets");
+}
+
+/// Debug test to check traverser execution directly
+#[test]
+fn test_gql_debug_traverser_path() {
+    let graph = create_social_network_graph();
+    let snapshot = graph.snapshot();
+    
+    // Use the traversal API directly to see what's happening
+    let g = snapshot.traversal();
+    
+    // First find Alice
+    let alice_results: Vec<_> = g.v()
+        .has_label("Person")
+        .has_value("name", rustgremlin::value::Value::from("Alice"))
+        .to_list();
+    println!("Alice found: {:?}", alice_results);
+    
+    // Now do 2-hop with path tracking
+    let g2 = snapshot.traversal();
+    let path_results: Vec<_> = g2.v()
+        .with_path()
+        .has_label("Person")
+        .has_value("name", rustgremlin::value::Value::from("Alice"))
+        .as_("p")
+        .out_labels(&["KNOWS"])
+        .out_labels(&["KNOWS"])
+        .as_("target")
+        .select(&["p", "target"])
+        .to_list();
+    
+    println!("2-hop path results with select: {:?}", path_results);
+    assert!(!path_results.is_empty(), "Should have path results");
+}
+
+/// Debug test to check traverser execution with repeat
+#[test]
+fn test_gql_debug_traverser_repeat_path() {
+    use rustgremlin::traversal::__;
+    
+    let graph = create_social_network_graph();
+    let snapshot = graph.snapshot();
+    
+    let g = snapshot.traversal();
+    let path_results: Vec<_> = g.v()
+        .with_path()
+        .has_label("Person")
+        .has_value("name", rustgremlin::value::Value::from("Alice"))
+        .as_("p")
+        .repeat(__::out_labels(&["KNOWS"]))
+        .times(2)
+        .as_("target")
+        .select(&["p", "target"])
+        .to_list();
+    
+    println!("2-hop with repeat + select: {:?}", path_results);
+    assert!(!path_results.is_empty(), "Should have repeat path results");
+}

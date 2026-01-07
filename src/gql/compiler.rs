@@ -174,6 +174,8 @@ pub fn compile<'g>(
 struct Compiler<'a, 'g> {
     snapshot: &'a GraphSnapshot<'g>,
     bindings: HashMap<String, BindingInfo>,
+    /// Whether the current query has multiple bound variables (requires path tracking)
+    has_multi_vars: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -191,7 +193,28 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         Self {
             snapshot,
             bindings: HashMap::new(),
+            has_multi_vars: false,
         }
+    }
+
+    /// Count the number of variables in a pattern.
+    fn count_pattern_variables(pattern: &Pattern) -> usize {
+        pattern
+            .elements
+            .iter()
+            .filter(|e| match e {
+                PatternElement::Node(n) => n.variable.is_some(),
+                PatternElement::Edge(e) => e.variable.is_some(),
+            })
+            .count()
+    }
+
+    /// Check if a pattern has any edge variables.
+    fn has_edge_variable(pattern: &Pattern) -> bool {
+        pattern
+            .elements
+            .iter()
+            .any(|e| matches!(e, PatternElement::Edge(edge) if edge.variable.is_some()))
     }
 
     fn compile(&mut self, query: &Query) -> Result<Vec<Value>, CompileError> {
@@ -204,9 +227,24 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             return Err(CompileError::EmptyPattern);
         }
 
+        // Check if we need multi-variable support (requires path tracking)
+        // This is needed when:
+        // 1. Multiple variables are bound (nodes or edges)
+        // 2. Any edge variable is bound (needs path to access edge properties)
+        let var_count = Self::count_pattern_variables(pattern);
+        let has_edge_var = Self::has_edge_variable(pattern);
+        self.has_multi_vars = var_count > 1 || has_edge_var;
+
         // Build traversal starting from v()
         let g = self.snapshot.traversal();
         let traversal = g.v();
+
+        // Enable path tracking for multi-variable patterns or edge variable access
+        let traversal = if self.has_multi_vars {
+            traversal.with_path()
+        } else {
+            traversal
+        };
 
         // Compile the full pattern (nodes and edges)
         let traversal = self.compile_pattern(pattern, traversal)?;
@@ -302,7 +340,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             traversal = traversal.has_value(key.as_str(), val);
         }
 
-        // Register binding
+        // Register binding and add as_() step for multi-variable patterns
         if let Some(var) = &node.variable {
             if self.bindings.contains_key(var) {
                 return Err(CompileError::duplicate_variable(var));
@@ -314,6 +352,12 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     is_node: true,
                 },
             );
+
+            // Add as_() step to label this position in the path
+            // This enables later retrieval via select() or path lookup
+            if self.has_multi_vars {
+                traversal = traversal.as_(var);
+            }
         }
 
         Ok(traversal)
@@ -323,6 +367,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     ///
     /// Translates edge direction and labels into out()/in_()/both() calls.
     /// Handles variable-length paths when a quantifier is present.
+    /// Handles edge variable binding and edge property filters.
     fn compile_edge(
         &mut self,
         edge: &EdgePattern,
@@ -333,7 +378,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             return self.compile_edge_with_quantifier(edge, quantifier, traversal);
         }
 
-        // Simple single-hop edge traversal
+        // Check if we need edge-level access (variable or properties)
+        let needs_edge_access = edge.variable.is_some() || !edge.properties.is_empty();
+
+        if needs_edge_access {
+            return self.compile_edge_with_variable(edge, traversal);
+        }
+
+        // Simple single-hop edge traversal (no variable, no properties)
         let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
 
         // Navigate based on direction
@@ -361,8 +413,79 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
         };
 
-        // TODO: Handle edge variable binding (requires outE/inE approach)
-        // TODO: Handle property filters on edges
+        Ok(traversal)
+    }
+
+    /// Compile an edge pattern that needs variable binding or property filtering.
+    ///
+    /// When an edge has a variable or properties, we need to:
+    /// 1. Navigate to the edge (out_e/in_e/both_e)
+    /// 2. Apply edge property filters
+    /// 3. Bind the edge variable with as_() if present
+    /// 4. Navigate to the target vertex (in_v/out_v/other_v)
+    fn compile_edge_with_variable(
+        &mut self,
+        edge: &EdgePattern,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
+
+        // Step 1: Navigate to edge
+        let mut traversal = match edge.direction {
+            EdgeDirection::Outgoing => {
+                if labels.is_empty() {
+                    traversal.out_e()
+                } else {
+                    traversal.out_e_labels(&labels)
+                }
+            }
+            EdgeDirection::Incoming => {
+                if labels.is_empty() {
+                    traversal.in_e()
+                } else {
+                    traversal.in_e_labels(&labels)
+                }
+            }
+            EdgeDirection::Both => {
+                if labels.is_empty() {
+                    traversal.both_e()
+                } else {
+                    traversal.both_e_labels(&labels)
+                }
+            }
+        };
+
+        // Step 2: Apply edge property filters
+        for (key, value) in &edge.properties {
+            let val: Value = value.clone().into();
+            traversal = traversal.has_value(key.as_str(), val);
+        }
+
+        // Step 3: Register and bind edge variable
+        if let Some(var) = &edge.variable {
+            if self.bindings.contains_key(var) {
+                return Err(CompileError::duplicate_variable(var));
+            }
+            self.bindings.insert(
+                var.clone(),
+                BindingInfo {
+                    pattern_index: 0, // Edge index not tracked precisely
+                    is_node: false,
+                },
+            );
+
+            // Add as_() step to label this edge position in the path
+            if self.has_multi_vars {
+                traversal = traversal.as_(var);
+            }
+        }
+
+        // Step 4: Navigate to target vertex
+        let traversal = match edge.direction {
+            EdgeDirection::Outgoing => traversal.in_v(),
+            EdgeDirection::Incoming => traversal.out_v(),
+            EdgeDirection::Both => traversal.other_v(),
+        };
 
         Ok(traversal)
     }
@@ -410,6 +533,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     /// - `*m..n` (range) → repeat up to n times with emit, filter for min
     /// - `*..n` (max only) → repeat up to n times with emit and emit_first (min=0)
     /// - `*m..` (min only) → repeat with default max and emit, filter for min
+    ///
+    /// Note: When `has_multi_vars` is true, we skip the dedup() step because
+    /// deduplicating by target value would lose different source->target paths.
+    /// RETURN DISTINCT can handle deduplication at the result level if needed.
     fn compile_edge_with_quantifier(
         &mut self,
         edge: &EdgePattern,
@@ -425,60 +552,89 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let min = quantifier.min.map(|v| v as usize);
         let max = quantifier.max.map(|v| v as usize);
 
+        // For multi-var patterns, skip dedup() to preserve (source, target) pairs.
+        // Deduplication can be done at the RETURN level with DISTINCT.
+        let skip_dedup = self.has_multi_vars;
+
         // Determine the traversal configuration based on quantifier
         let traversal = match (min, max) {
             // Exact count: *n (where min == max)
             (Some(m), Some(n)) if m == n => {
                 // Execute exactly n iterations, no emit needed
-                traversal.repeat(sub).times(n).dedup()
+                let t = traversal.repeat(sub).times(n);
+                if skip_dedup {
+                    t.identity()
+                } else {
+                    t.dedup()
+                }
             }
 
             // Range with both bounds: *m..n
             (Some(m), Some(n)) => {
                 if m == 0 {
                     // *0..n means 0 to n hops, include starting vertex
-                    traversal.repeat(sub).times(n).emit().emit_first().dedup()
+                    let t = traversal.repeat(sub).times(n).emit().emit_first();
+                    if skip_dedup {
+                        t.identity()
+                    } else {
+                        t.dedup()
+                    }
                 } else {
                     // *m..n where m > 0: emit all depths 1..n, filter later
                     // Since we emit after each hop, min is achieved by filtering
                     // The repeat().emit() gives us all intermediate results
                     // We'd need to filter by path depth, but currently we emit all
                     // For now, emit all depths 1..n (best effort)
-                    traversal.repeat(sub).times(n).emit().dedup()
+                    let t = traversal.repeat(sub).times(n).emit();
+                    if skip_dedup {
+                        t.identity()
+                    } else {
+                        t.dedup()
+                    }
                 }
             }
 
             // Max only: *..n (implicitly *0..n)
             (None, Some(n)) => {
                 // 0 to n hops, include starting vertex
-                traversal.repeat(sub).times(n).emit().emit_first().dedup()
+                let t = traversal.repeat(sub).times(n).emit().emit_first();
+                if skip_dedup {
+                    t.identity()
+                } else {
+                    t.dedup()
+                }
             }
 
             // Min only: *m.. (unbounded max)
             (Some(m), None) => {
                 if m == 0 {
                     // *0.. means all reachable vertices including start
-                    traversal
-                        .repeat(sub)
-                        .times(DEFAULT_MAX)
-                        .emit()
-                        .emit_first()
-                        .dedup()
+                    let t = traversal.repeat(sub).times(DEFAULT_MAX).emit().emit_first();
+                    if skip_dedup {
+                        t.identity()
+                    } else {
+                        t.dedup()
+                    }
                 } else {
                     // *m.. where m > 0: all reachable from depth m
-                    traversal.repeat(sub).times(DEFAULT_MAX).emit().dedup()
+                    let t = traversal.repeat(sub).times(DEFAULT_MAX).emit();
+                    if skip_dedup {
+                        t.identity()
+                    } else {
+                        t.dedup()
+                    }
                 }
             }
 
             // Unbounded: * (no min or max)
             (None, None) => {
                 // All reachable vertices including start
-                traversal
-                    .repeat(sub)
-                    .times(DEFAULT_MAX)
-                    .emit()
-                    .emit_first()
-                    .dedup()
+                let t = traversal.repeat(sub).times(DEFAULT_MAX).emit().emit_first();
+                if skip_dedup {
+                    t.identity()
+                } else {
+                    t.dedup()
+                }
             }
         };
 
@@ -506,7 +662,12 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             return self.execute_aggregated_return(return_clause, where_clause, traversal);
         }
 
-        // Non-aggregated path: process each element individually
+        // For multi-variable patterns, we need to work with traversers to access the path
+        if self.has_multi_vars {
+            return self.execute_multi_var_return(return_clause, where_clause, traversal);
+        }
+
+        // Non-aggregated, single-variable path: process each element individually
 
         // Collect the matched elements first
         let matched_elements: Vec<Value> = traversal.to_list();
@@ -535,6 +696,263 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         Ok(results)
+    }
+
+    /// Execute RETURN for multi-variable patterns using traverser paths.
+    fn execute_multi_var_return(
+        &self,
+        return_clause: &ReturnClause,
+        where_clause: &Option<WhereClause>,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Execute and collect traversers (not just values) to access paths
+        let traversers: Vec<Traverser> = traversal.execute().collect();
+
+        // Apply WHERE filter if present
+        let filtered_traversers: Vec<Traverser> = if let Some(where_cl) = where_clause {
+            traversers
+                .into_iter()
+                .filter(|t| self.evaluate_predicate_from_path(&where_cl.expression, t))
+                .collect()
+        } else {
+            traversers
+        };
+
+        // Process each traverser according to the RETURN clause
+        let results: Vec<Value> = filtered_traversers
+            .into_iter()
+            .filter_map(|t| self.evaluate_return_for_traverser(&return_clause.items, &t))
+            .collect();
+
+        // Apply DISTINCT if requested
+        let results = if return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        Ok(results)
+    }
+
+    /// Evaluate a predicate expression using the traverser's path for variable lookup.
+    fn evaluate_predicate_from_path(
+        &self,
+        expr: &Expression,
+        traverser: &crate::traversal::Traverser,
+    ) -> bool {
+        match expr {
+            Expression::BinaryOp { left, op, right } => {
+                match op {
+                    // Logical operators
+                    BinaryOperator::And => {
+                        self.evaluate_predicate_from_path(left, traverser)
+                            && self.evaluate_predicate_from_path(right, traverser)
+                    }
+                    BinaryOperator::Or => {
+                        self.evaluate_predicate_from_path(left, traverser)
+                            || self.evaluate_predicate_from_path(right, traverser)
+                    }
+                    // Comparison and other operators
+                    _ => {
+                        let left_val = self.evaluate_value_from_path(left, traverser);
+                        let right_val = self.evaluate_value_from_path(right, traverser);
+                        apply_comparison(*op, &left_val, &right_val)
+                    }
+                }
+            }
+            Expression::UnaryOp { op, expr } => match op {
+                UnaryOperator::Not => !self.evaluate_predicate_from_path(expr, traverser),
+                UnaryOperator::Neg => match self.evaluate_value_from_path(expr, traverser) {
+                    Value::Int(n) => n == 0,
+                    Value::Float(f) => f == 0.0,
+                    Value::Bool(b) => !b,
+                    Value::Null => true,
+                    _ => false,
+                },
+            },
+            Expression::IsNull { expr, negated } => {
+                let val = self.evaluate_value_from_path(expr, traverser);
+                let is_null = matches!(val, Value::Null);
+                if *negated {
+                    !is_null
+                } else {
+                    is_null
+                }
+            }
+            Expression::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let val = self.evaluate_value_from_path(expr, traverser);
+                let in_list = list.iter().any(|item| {
+                    let item_val = self.evaluate_value_from_path(item, traverser);
+                    val == item_val
+                });
+                if *negated {
+                    !in_list
+                } else {
+                    in_list
+                }
+            }
+            Expression::Exists { pattern, negated } => {
+                // For EXISTS in multi-var context, use the current element
+                let exists = self.evaluate_exists_pattern(pattern, &traverser.value);
+                if *negated {
+                    !exists
+                } else {
+                    exists
+                }
+            }
+            _ => {
+                let val = self.evaluate_value_from_path(expr, traverser);
+                match val {
+                    Value::Bool(b) => b,
+                    Value::Null => false,
+                    Value::Int(n) => n != 0,
+                    Value::Float(f) => f != 0.0,
+                    Value::String(s) => !s.is_empty(),
+                    _ => true,
+                }
+            }
+        }
+    }
+
+    /// Evaluate an expression to a Value using the traverser's path for variable lookup.
+    fn evaluate_value_from_path(
+        &self,
+        expr: &Expression,
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        match expr {
+            Expression::Literal(lit) => lit.clone().into(),
+            Expression::Variable(var) => {
+                // Look up variable in the path
+                self.get_variable_value_from_path(var, traverser)
+            }
+            Expression::Property { variable, property } => {
+                // Get the element for this variable from the path, then extract property
+                let element = self.get_variable_value_from_path(variable, traverser);
+                self.extract_property(&element, property)
+                    .unwrap_or(Value::Null)
+            }
+            Expression::BinaryOp { left, op, right } => {
+                let left_val = self.evaluate_value_from_path(left, traverser);
+                let right_val = self.evaluate_value_from_path(right, traverser);
+                apply_binary_op(*op, left_val, right_val)
+            }
+            Expression::UnaryOp { op, expr } => match op {
+                UnaryOperator::Not => {
+                    let val = self.evaluate_value_from_path(expr, traverser);
+                    match val {
+                        Value::Bool(b) => Value::Bool(!b),
+                        _ => Value::Null,
+                    }
+                }
+                UnaryOperator::Neg => {
+                    let val = self.evaluate_value_from_path(expr, traverser);
+                    match val {
+                        Value::Int(n) => Value::Int(-n),
+                        Value::Float(f) => Value::Float(-f),
+                        _ => Value::Null,
+                    }
+                }
+            },
+            Expression::IsNull { expr, negated } => {
+                let val = self.evaluate_value_from_path(expr, traverser);
+                let is_null = matches!(val, Value::Null);
+                Value::Bool(if *negated { !is_null } else { is_null })
+            }
+            Expression::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let val = self.evaluate_value_from_path(expr, traverser);
+                let in_list = list.iter().any(|item| {
+                    let item_val = self.evaluate_value_from_path(item, traverser);
+                    val == item_val
+                });
+                Value::Bool(if *negated { !in_list } else { in_list })
+            }
+            Expression::List(items) => {
+                let values: Vec<Value> = items
+                    .iter()
+                    .map(|item| self.evaluate_value_from_path(item, traverser))
+                    .collect();
+                Value::List(values)
+            }
+            Expression::Exists { pattern, negated } => {
+                let exists = self.evaluate_exists_pattern(pattern, &traverser.value);
+                Value::Bool(if *negated { !exists } else { exists })
+            }
+            _ => Value::Null,
+        }
+    }
+
+    /// Get the value for a variable from the traverser's path.
+    fn get_variable_value_from_path(
+        &self,
+        variable: &str,
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        // Look up the variable in the path labels
+        if let Some(values) = traverser.path.get(variable) {
+            // Return the last value for this label (most recent)
+            if let Some(path_value) = values.last() {
+                return path_value.to_value();
+            }
+        }
+        // Fallback to current element if variable is the "current" one
+        // (this handles single-variable edge case)
+        traverser.value.clone()
+    }
+
+    /// Evaluate the RETURN clause for a traverser with path-based variable lookup.
+    fn evaluate_return_for_traverser(
+        &self,
+        items: &[ReturnItem],
+        traverser: &crate::traversal::Traverser,
+    ) -> Option<Value> {
+        if items.len() == 1 {
+            // Single return item - return the value directly
+            self.evaluate_expression_from_path(&items[0].expression, traverser)
+        } else {
+            // Multiple return items - return a map
+            let mut map = std::collections::HashMap::new();
+            for item in items {
+                let key = self.get_return_item_key(item);
+                let value = self.evaluate_expression_from_path(&item.expression, traverser)?;
+                map.insert(key, value);
+            }
+            Some(Value::Map(map))
+        }
+    }
+
+    /// Evaluate a single expression using the traverser's path.
+    fn evaluate_expression_from_path(
+        &self,
+        expr: &Expression,
+        traverser: &crate::traversal::Traverser,
+    ) -> Option<Value> {
+        match expr {
+            Expression::Variable(var) => {
+                // Look up variable in path
+                Some(self.get_variable_value_from_path(var, traverser))
+            }
+            Expression::Property { variable, property } => {
+                // Look up variable in path, then extract property
+                let element = self.get_variable_value_from_path(variable, traverser);
+                self.extract_property(&element, property)
+            }
+            Expression::Literal(lit) => Some(lit.clone().into()),
+            _ => {
+                // For other expressions, use the value-based evaluation
+                Some(self.evaluate_value_from_path(expr, traverser))
+            }
+        }
     }
 
     /// Deduplicate results using ComparableValue for equality checking.
@@ -1050,6 +1468,16 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         group_by: &GroupByClause,
         traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
+        // For multi-variable patterns, we need to work with traversers to access paths
+        if self.has_multi_vars {
+            return self.execute_group_by_query_multi_var(
+                return_clause,
+                where_clause,
+                group_by,
+                traversal,
+            );
+        }
+
         // Collect the matched elements first
         let matched_elements: Vec<Value> = traversal.to_list();
 
@@ -1107,6 +1535,265 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         Ok(results)
+    }
+
+    /// Execute a GROUP BY query with multi-variable path support.
+    ///
+    /// This version uses traversers to access path-based variable lookups,
+    /// which is needed for edge property access in aggregations.
+    fn execute_group_by_query_multi_var(
+        &self,
+        return_clause: &ReturnClause,
+        where_clause: &Option<WhereClause>,
+        group_by: &GroupByClause,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Collect traversers to access paths
+        let traversers: Vec<Traverser> = traversal.execute().collect();
+
+        // Apply WHERE filter if present
+        let filtered_traversers: Vec<Traverser> = if let Some(where_cl) = where_clause {
+            traversers
+                .into_iter()
+                .filter(|t| self.evaluate_predicate_from_path(&where_cl.expression, t))
+                .collect()
+        } else {
+            traversers
+        };
+
+        // Validate: non-aggregate expressions in RETURN must appear in GROUP BY
+        for item in &return_clause.items {
+            if !Self::expr_has_aggregate(&item.expression) {
+                if !self.expression_in_group_by(&item.expression, group_by) {
+                    let expr_str = self.expression_to_string(&item.expression);
+                    return Err(CompileError::expression_not_in_group_by(expr_str));
+                }
+            }
+        }
+
+        // Group traversers by GROUP BY expressions
+        let mut groups: HashMap<Vec<ComparableValue>, Vec<Traverser>> = HashMap::new();
+
+        for t in filtered_traversers {
+            let group_key: Vec<ComparableValue> = group_by
+                .expressions
+                .iter()
+                .map(|expr| {
+                    let val = self.evaluate_value_from_path(expr, &t);
+                    ComparableValue::from(val)
+                })
+                .collect();
+
+            groups.entry(group_key).or_default().push(t);
+        }
+
+        // For each group, compute the RETURN clause
+        let mut results = Vec::new();
+
+        for (group_key, group_traversers) in groups {
+            let result = self.compute_group_result_multi_var(
+                return_clause,
+                group_by,
+                &group_key,
+                &group_traversers,
+            )?;
+            results.push(result);
+        }
+
+        // Apply DISTINCT if requested
+        let results = if return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        Ok(results)
+    }
+
+    /// Compute the result for a single group with multi-variable path support.
+    fn compute_group_result_multi_var(
+        &self,
+        return_clause: &ReturnClause,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_traversers: &[crate::traversal::Traverser],
+    ) -> Result<Value, CompileError> {
+        if return_clause.items.len() == 1 {
+            // Single return item
+            let item = &return_clause.items[0];
+            let value = self.evaluate_group_expression_multi_var(
+                &item.expression,
+                group_by,
+                group_key,
+                group_traversers,
+            )?;
+
+            if item.alias.is_some() {
+                let mut map = HashMap::new();
+                map.insert(self.get_return_item_key(item), value);
+                Ok(Value::Map(map))
+            } else {
+                Ok(value)
+            }
+        } else {
+            // Multiple return items - return a map
+            let mut map = HashMap::new();
+
+            for item in &return_clause.items {
+                let key = self.get_return_item_key(item);
+                let value = self.evaluate_group_expression_multi_var(
+                    &item.expression,
+                    group_by,
+                    group_key,
+                    group_traversers,
+                )?;
+                map.insert(key, value);
+            }
+
+            Ok(Value::Map(map))
+        }
+    }
+
+    /// Evaluate an expression in the context of a group with multi-var support.
+    fn evaluate_group_expression_multi_var(
+        &self,
+        expr: &Expression,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_traversers: &[crate::traversal::Traverser],
+    ) -> Result<Value, CompileError> {
+        if let Expression::Aggregate {
+            func,
+            distinct,
+            expr: inner,
+        } = expr
+        {
+            // Compute aggregate over group using path-based evaluation
+            self.compute_aggregate_multi_var(*func, *distinct, inner, group_traversers)
+        } else {
+            // Non-aggregate: should be a GROUP BY expression
+            for (i, group_expr) in group_by.expressions.iter().enumerate() {
+                if self.expressions_match(expr, group_expr) {
+                    return Ok(group_key[i].clone().into());
+                }
+            }
+
+            // If not found in GROUP BY, try to evaluate using the first traverser
+            group_traversers
+                .first()
+                .map(|t| self.evaluate_value_from_path(expr, t))
+                .ok_or(CompileError::EmptyPattern)
+        }
+    }
+
+    /// Compute an aggregate function over group traversers with path support.
+    fn compute_aggregate_multi_var(
+        &self,
+        func: AggregateFunc,
+        distinct: bool,
+        expr: &Expression,
+        traversers: &[crate::traversal::Traverser],
+    ) -> Result<Value, CompileError> {
+        // Handle COUNT(*) specially
+        let is_count_star = matches!(func, AggregateFunc::Count)
+            && matches!(expr, Expression::Variable(v) if v == "*");
+
+        if is_count_star {
+            return Ok(Value::Int(traversers.len() as i64));
+        }
+
+        // Extract values to aggregate using path-based evaluation
+        let mut values: Vec<Value> = traversers
+            .iter()
+            .filter_map(|t| {
+                let val = self.evaluate_value_from_path(expr, t);
+                if matches!(val, Value::Null) {
+                    None
+                } else {
+                    Some(val)
+                }
+            })
+            .collect();
+
+        // Apply DISTINCT if requested
+        if distinct {
+            let mut seen: Vec<ComparableValue> = Vec::new();
+            values.retain(|v| {
+                let comparable = ComparableValue::from(v.clone());
+                if seen.contains(&comparable) {
+                    false
+                } else {
+                    seen.push(comparable);
+                    true
+                }
+            });
+        }
+
+        // Compute the aggregate
+        match func {
+            AggregateFunc::Count => Ok(Value::Int(values.len() as i64)),
+            AggregateFunc::Sum => {
+                let mut int_sum: i64 = 0;
+                let mut float_sum: f64 = 0.0;
+                let mut has_float = false;
+
+                for v in &values {
+                    match v {
+                        Value::Int(n) => int_sum += n,
+                        Value::Float(f) => {
+                            has_float = true;
+                            float_sum += f;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if has_float {
+                    Ok(Value::Float(int_sum as f64 + float_sum))
+                } else {
+                    Ok(Value::Int(int_sum))
+                }
+            }
+            AggregateFunc::Avg => {
+                let mut sum: f64 = 0.0;
+                let mut count: usize = 0;
+
+                for v in &values {
+                    match v {
+                        Value::Int(n) => {
+                            sum += *n as f64;
+                            count += 1;
+                        }
+                        Value::Float(f) => {
+                            sum += f;
+                            count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if count > 0 {
+                    Ok(Value::Float(sum / count as f64))
+                } else {
+                    Ok(Value::Null)
+                }
+            }
+            AggregateFunc::Min => values
+                .into_iter()
+                .filter(|v| !matches!(v, Value::Null))
+                .min_by(compare_values)
+                .map(Ok)
+                .unwrap_or(Ok(Value::Null)),
+            AggregateFunc::Max => values
+                .into_iter()
+                .filter(|v| !matches!(v, Value::Null))
+                .max_by(compare_values)
+                .map(Ok)
+                .unwrap_or(Ok(Value::Null)),
+            AggregateFunc::Collect => Ok(Value::List(values)),
+        }
     }
 
     /// Check if an expression matches any expression in the GROUP BY clause.
