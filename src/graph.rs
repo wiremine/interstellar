@@ -244,6 +244,43 @@ impl<'g> GraphSnapshot<'g> {
     pub fn interner(&self) -> &StringInterner {
         self.graph.storage.interner()
     }
+
+    /// Execute a GQL query against this snapshot.
+    ///
+    /// Parses and executes the GQL query, returning matching results as a
+    /// vector of [`Value`](crate::value::Value)s.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::prelude::*;
+    /// use rustgremlin::storage::InMemoryGraph;
+    /// use std::sync::Arc;
+    ///
+    /// // Create storage with data
+    /// let mut storage = InMemoryGraph::new();
+    /// let mut props = std::collections::HashMap::new();
+    /// props.insert("name".to_string(), Value::from("Alice"));
+    /// storage.add_vertex("Person", props);
+    ///
+    /// // Wrap in Graph for querying
+    /// let graph = Graph::new(Arc::new(storage));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+    /// assert_eq!(results.len(), 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GqlError`](crate::gql::GqlError) if:
+    /// - The query has a syntax error ([`ParseError`](crate::gql::ParseError))
+    /// - The query references undefined variables ([`CompileError`](crate::gql::CompileError))
+    pub fn gql(&self, query: &str) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
+        let ast = crate::gql::parse(query)?;
+        let results = crate::gql::compile(&ast, self)?;
+        Ok(results)
+    }
 }
 
 /// An exclusive mutable handle to a graph.

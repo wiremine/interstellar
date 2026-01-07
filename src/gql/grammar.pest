@@ -1,0 +1,27 @@
+// GQL Grammar - Minimal Spike Version
+// Supports: MATCH (n:Label) RETURN n
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+// Keywords (case-insensitive)
+MATCH  = { ^"match" }
+RETURN = { ^"return" }
+
+// Entry point - minimal query
+query = { SOI ~ match_clause ~ return_clause ~ EOI }
+
+// MATCH clause - single pattern only
+match_clause = { MATCH ~ pattern }
+
+pattern = { node_pattern }
+
+node_pattern = { "(" ~ variable? ~ label_filter? ~ ")" }
+
+variable = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+label_filter = { ":" ~ identifier }
+
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// RETURN clause - single variable only
+return_clause = { RETURN ~ variable }
