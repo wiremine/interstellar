@@ -658,6 +658,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     in_list
                 }
             }
+            Expression::Exists { pattern, negated } => {
+                let exists = self.evaluate_exists_pattern(pattern, element);
+                if *negated {
+                    !exists
+                } else {
+                    exists
+                }
+            }
             // For other expressions, evaluate and check truthiness
             _ => {
                 let val = self.evaluate_value(expr, element);
@@ -732,7 +740,115 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     .collect();
                 Value::List(values)
             }
+            Expression::Exists { pattern, negated } => {
+                let exists = self.evaluate_exists_pattern(pattern, element);
+                Value::Bool(if *negated { !exists } else { exists })
+            }
             _ => Value::Null, // Unsupported expressions
+        }
+    }
+
+    // =========================================================================
+    // EXISTS Expression Evaluation
+    // =========================================================================
+
+    /// Evaluate an EXISTS expression against an element.
+    ///
+    /// EXISTS { (p)-[:KNOWS]->(friend) } checks if there's at least one
+    /// path matching the pattern starting from the current element.
+    ///
+    /// The first node in the pattern is the "anchor" - it should match the
+    /// current element. Subsequent edges and nodes form the pattern to check.
+    fn evaluate_exists_pattern(&self, pattern: &Pattern, element: &Value) -> bool {
+        // Get vertex ID from element - EXISTS only makes sense for vertices
+        let vid = match element {
+            Value::Vertex(id) => *id,
+            _ => return false,
+        };
+
+        // Start traversal from this specific vertex
+        let g = self.snapshot.traversal();
+        let mut traversal = g.v_ids([vid]);
+
+        // Process the pattern elements
+        // The first node is the anchor (current element) - apply its filters
+        // Subsequent edges navigate, and subsequent nodes filter
+        let mut is_first_node = true;
+
+        for element in &pattern.elements {
+            match element {
+                PatternElement::Node(node) => {
+                    if is_first_node {
+                        // First node - apply label and property filters to current vertex
+                        is_first_node = false;
+                        traversal = self.apply_node_filters(node, traversal);
+                    } else {
+                        // Subsequent node after an edge - apply filters
+                        traversal = self.apply_node_filters(node, traversal);
+                    }
+                }
+                PatternElement::Edge(edge) => {
+                    // Navigate along the edge
+                    traversal = self.apply_edge_navigation(edge, traversal);
+                }
+            }
+        }
+
+        // Check if any results exist
+        !traversal.to_list().is_empty()
+    }
+
+    /// Apply node filters (labels and properties) to a traversal.
+    fn apply_node_filters(
+        &self,
+        node: &NodePattern,
+        mut traversal: BoundTraversal<'g, (), Value>,
+    ) -> BoundTraversal<'g, (), Value> {
+        // Apply label filter
+        if !node.labels.is_empty() {
+            let labels: Vec<&str> = node.labels.iter().map(|s| s.as_str()).collect();
+            traversal = traversal.has_label_any(labels);
+        }
+
+        // Apply property filters
+        for (key, value) in &node.properties {
+            let val: Value = value.clone().into();
+            traversal = traversal.has_value(key.as_str(), val);
+        }
+
+        traversal
+    }
+
+    /// Apply edge navigation based on direction and labels.
+    fn apply_edge_navigation(
+        &self,
+        edge: &EdgePattern,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> BoundTraversal<'g, (), Value> {
+        let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
+
+        match edge.direction {
+            EdgeDirection::Outgoing => {
+                if labels.is_empty() {
+                    traversal.out()
+                } else {
+                    traversal.out_labels(&labels)
+                }
+            }
+            EdgeDirection::Incoming => {
+                if labels.is_empty() {
+                    traversal.in_()
+                } else {
+                    traversal.in_labels(&labels)
+                }
+            }
+            EdgeDirection::Both => {
+                if labels.is_empty() {
+                    traversal.both()
+                } else {
+                    traversal.both_labels(&labels)
+                }
+            }
         }
     }
 
@@ -777,6 +893,20 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
             Expression::Aggregate { expr, .. } => {
                 self.validate_expression_variables(expr)?;
+            }
+            Expression::Exists { pattern, .. } => {
+                // Validate variables referenced in the EXISTS pattern.
+                // The first node variable (if present) should reference a bound variable
+                // from the outer scope - it's the "anchor" for the sub-pattern.
+                if let Some(PatternElement::Node(node)) = pattern.elements.first() {
+                    if let Some(var) = &node.variable {
+                        if !self.bindings.contains_key(var) {
+                            return Err(CompileError::undefined_variable(var));
+                        }
+                    }
+                }
+                // Other variables in the EXISTS pattern are local to the sub-pattern
+                // and don't need validation against outer scope bindings
             }
             Expression::Literal(_) => {
                 // Literals don't reference variables

@@ -37,6 +37,7 @@ STARTS   = @{ ^"starts" ~ !ASCII_ALPHANUMERIC }
 ENDS     = @{ ^"ends" ~ !ASCII_ALPHANUMERIC }
 WITH     = @{ ^"with" ~ !ASCII_ALPHANUMERIC }
 DISTINCT = @{ ^"distinct" ~ !ASCII_ALPHANUMERIC }
+EXISTS   = @{ ^"exists" ~ !ASCII_ALPHANUMERIC }
 
 // Entry point - query with optional WHERE clause
 query = { SOI ~ match_clause ~ where_clause? ~ return_clause ~ order_clause? ~ limit_clause? ~ EOI }
@@ -140,13 +141,18 @@ neg_op = { "-" }
 
 // Primary expressions (highest precedence)
 primary = { 
-    literal
+    exists_expr
+    | literal
     | function_call
     | property_access
     | variable
     | paren_expr
     | list_expr
 }
+
+// EXISTS expression: EXISTS { pattern } or NOT EXISTS { pattern }
+// Used to check if a subpattern matches from the current element
+exists_expr = { NOT? ~ EXISTS ~ "{" ~ pattern ~ "}" }
 
 // Parenthesized expression
 paren_expr = { "(" ~ expression ~ ")" }
@@ -171,7 +177,7 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 keyword = {
     MATCH | RETURN | WHERE | ORDER | BY | LIMIT | OFFSET |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
-    IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT
+    IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS
 }
 
 // ============================================================

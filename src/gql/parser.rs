@@ -785,6 +785,7 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
 
     let span = span_from_pair(&inner);
     match inner.as_rule() {
+        Rule::exists_expr => build_exists_expr(inner),
         Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
         Rule::function_call => build_function_call(inner),
         Rule::property_access => {
@@ -814,9 +815,32 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, or function call",
+            "literal, variable, property access, function call, or EXISTS expression",
         )),
     }
+}
+
+/// Build an EXISTS expression from a pest pair.
+///
+/// EXISTS { pattern } or NOT EXISTS { pattern }
+fn build_exists_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut negated = false;
+    let mut pattern = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::NOT => negated = true,
+            Rule::pattern => pattern = Some(build_pattern(inner)?),
+            _ => {}
+        }
+    }
+
+    Ok(Expression::Exists {
+        pattern: pattern
+            .ok_or_else(|| ParseError::missing_clause("pattern in EXISTS", pair_span))?,
+        negated,
+    })
 }
 
 fn build_expression_from_inner(
@@ -2214,5 +2238,181 @@ mod tests {
         // Verify that queries without DISTINCT have distinct = false
         let query = parse("MATCH (p:Person) RETURN p.city").unwrap();
         assert!(!query.return_clause.distinct);
+    }
+
+    // ============================================
+    // EXISTS Expression Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_exists_basic() {
+        let query = parse("MATCH (p:player) WHERE EXISTS { (p)-[:KNOWS]->() } RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::Exists { negated, pattern } = where_clause.expression {
+            assert!(!negated);
+            // Pattern should have 3 elements: node, edge, node
+            assert_eq!(pattern.elements.len(), 3);
+        } else {
+            panic!("Expected EXISTS expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_not_exists() {
+        let query = parse(
+            "MATCH (p:player) WHERE NOT EXISTS { (p)-[:won_championship_with]->() } RETURN p.name",
+        )
+        .unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        // NOT EXISTS is parsed as NOT applied to EXISTS (which has negated=false)
+        // So we get UnaryOp(Not, Exists { negated: false, ... })
+        if let Expression::UnaryOp { op, expr } = where_clause.expression {
+            assert!(matches!(op, UnaryOperator::Not));
+            if let Expression::Exists { negated, pattern } = expr.as_ref() {
+                assert!(!negated); // The inner EXISTS is not negated
+                assert!(!pattern.elements.is_empty());
+            } else {
+                panic!("Expected EXISTS expression inside NOT");
+            }
+        } else if let Expression::Exists { negated, pattern } = where_clause.expression {
+            // If the grammar is changed to support NOT directly in exists_expr
+            assert!(negated);
+            assert!(!pattern.elements.is_empty());
+        } else {
+            panic!("Expected NOT(EXISTS) or EXISTS(negated=true) expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_exists_with_labels() {
+        let query = parse("MATCH (p:player) WHERE EXISTS { (p)-[:played_for]->(t:team) } RETURN p")
+            .unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::Exists { pattern, .. } = where_clause.expression {
+            // Check the edge has the correct label
+            if let PatternElement::Edge(edge) = &pattern.elements[1] {
+                assert_eq!(edge.labels, vec!["played_for".to_string()]);
+            } else {
+                panic!("Expected edge pattern");
+            }
+            // Check the target node has the correct label
+            if let PatternElement::Node(node) = &pattern.elements[2] {
+                assert_eq!(node.labels, vec!["team".to_string()]);
+            } else {
+                panic!("Expected node pattern");
+            }
+        } else {
+            panic!("Expected EXISTS expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_exists_with_properties() {
+        let query = parse(
+            "MATCH (p:player) WHERE EXISTS { (p)-[:played_for]->(t:team {name: 'Lakers'}) } RETURN p",
+        )
+        .unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::Exists { pattern, .. } = where_clause.expression {
+            // Check the target node has properties
+            if let PatternElement::Node(node) = &pattern.elements[2] {
+                assert_eq!(node.properties.len(), 1);
+                assert_eq!(node.properties[0].0, "name");
+                assert_eq!(node.properties[0].1, Literal::String("Lakers".to_string()));
+            } else {
+                panic!("Expected node pattern");
+            }
+        } else {
+            panic!("Expected EXISTS expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_exists_combined_with_and() {
+        let query = parse(
+            "MATCH (p:player) WHERE p.age > 30 AND EXISTS { (p)-[:won_championship]->() } RETURN p",
+        )
+        .unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        // Top level should be AND
+        if let Expression::BinaryOp { op, right, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::And));
+            // Right side should be EXISTS
+            if let Expression::Exists { .. } = *right {
+                // Good
+            } else {
+                panic!("Expected EXISTS on right side of AND");
+            }
+        } else {
+            panic!("Expected AND expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_exists_case_insensitive() {
+        // EXISTS keyword is case insensitive
+        let queries = vec![
+            "MATCH (p:player) WHERE EXISTS { (p)-[:KNOWS]->() } RETURN p",
+            "MATCH (p:player) WHERE exists { (p)-[:KNOWS]->() } RETURN p",
+            "MATCH (p:player) WHERE Exists { (p)-[:KNOWS]->() } RETURN p",
+        ];
+
+        for query_str in queries {
+            let query = parse(query_str).unwrap();
+            assert!(query.where_clause.is_some());
+            let where_clause = query.where_clause.unwrap();
+            assert!(
+                matches!(where_clause.expression, Expression::Exists { .. }),
+                "Expected EXISTS expression for: {}",
+                query_str
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_exists_incoming_edge() {
+        let query =
+            parse("MATCH (t:team) WHERE EXISTS { (t)<-[:played_for]-() } RETURN t").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::Exists { pattern, .. } = where_clause.expression {
+            // Check the edge direction
+            if let PatternElement::Edge(edge) = &pattern.elements[1] {
+                assert_eq!(edge.direction, EdgeDirection::Incoming);
+            } else {
+                panic!("Expected edge pattern");
+            }
+        } else {
+            panic!("Expected EXISTS expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_exists_bidirectional_edge() {
+        let query = parse("MATCH (n) WHERE EXISTS { (n)-[:KNOWS]-() } RETURN n").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::Exists { pattern, .. } = where_clause.expression {
+            // Check the edge direction
+            if let PatternElement::Edge(edge) = &pattern.elements[1] {
+                assert_eq!(edge.direction, EdgeDirection::Both);
+            } else {
+                panic!("Expected edge pattern");
+            }
+        } else {
+            panic!("Expected EXISTS expression");
+        }
     }
 }

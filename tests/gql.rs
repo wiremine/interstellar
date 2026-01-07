@@ -4734,3 +4734,671 @@ fn test_gql_stress_complex_where() {
         }
     }
 }
+
+// =============================================================================
+// EXISTS Expression Tests
+// =============================================================================
+
+/// Helper to create a graph with relationships for EXISTS testing
+fn create_exists_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create players
+    let mut mj_props = HashMap::new();
+    mj_props.insert("name".to_string(), Value::from("Michael Jordan"));
+    mj_props.insert("position".to_string(), Value::from("Shooting Guard"));
+    let mj_id = storage.add_vertex("player", mj_props);
+
+    let mut kobe_props = HashMap::new();
+    kobe_props.insert("name".to_string(), Value::from("Kobe Bryant"));
+    kobe_props.insert("position".to_string(), Value::from("Shooting Guard"));
+    let kobe_id = storage.add_vertex("player", kobe_props);
+
+    let mut barkley_props = HashMap::new();
+    barkley_props.insert("name".to_string(), Value::from("Charles Barkley"));
+    barkley_props.insert("position".to_string(), Value::from("Power Forward"));
+    let barkley_id = storage.add_vertex("player", barkley_props);
+
+    let mut nash_props = HashMap::new();
+    nash_props.insert("name".to_string(), Value::from("Steve Nash"));
+    nash_props.insert("position".to_string(), Value::from("Point Guard"));
+    let nash_id = storage.add_vertex("player", nash_props);
+
+    // Create teams
+    let mut bulls_props = HashMap::new();
+    bulls_props.insert("name".to_string(), Value::from("Chicago Bulls"));
+    bulls_props.insert("championships".to_string(), Value::Int(6));
+    let bulls_id = storage.add_vertex("team", bulls_props);
+
+    let mut lakers_props = HashMap::new();
+    lakers_props.insert("name".to_string(), Value::from("Los Angeles Lakers"));
+    lakers_props.insert("championships".to_string(), Value::Int(17));
+    let lakers_id = storage.add_vertex("team", lakers_props);
+
+    let mut suns_props = HashMap::new();
+    suns_props.insert("name".to_string(), Value::from("Phoenix Suns"));
+    suns_props.insert("championships".to_string(), Value::Int(0));
+    let suns_id = storage.add_vertex("team", suns_props);
+
+    // Add championship relationships (only MJ and Kobe have won)
+    let mut ring_props = HashMap::new();
+    ring_props.insert("years".to_string(), Value::from("1991-1993,1996-1998"));
+    let _ = storage.add_edge(mj_id, bulls_id, "won_championship_with", ring_props.clone());
+
+    ring_props.insert("years".to_string(), Value::from("2000-2002,2009-2010"));
+    let _ = storage.add_edge(kobe_id, lakers_id, "won_championship_with", ring_props);
+
+    // Add played_for relationships
+    let played_props = HashMap::new();
+    let _ = storage.add_edge(mj_id, bulls_id, "played_for", played_props.clone());
+    let _ = storage.add_edge(kobe_id, lakers_id, "played_for", played_props.clone());
+    let _ = storage.add_edge(barkley_id, suns_id, "played_for", played_props.clone());
+    let _ = storage.add_edge(nash_id, suns_id, "played_for", played_props);
+
+    Graph::new(Arc::new(storage))
+}
+
+#[test]
+fn test_gql_exists_basic() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who have won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // Should find MJ and Kobe
+    assert_eq!(results.len(), 2);
+
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Michael Jordan".to_string()));
+    assert!(names.contains(&"Kobe Bryant".to_string()));
+}
+
+#[test]
+fn test_gql_not_exists() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who have NOT won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE NOT EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // Should find Barkley and Nash
+    assert_eq!(results.len(), 2);
+
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Charles Barkley".to_string()));
+    assert!(names.contains(&"Steve Nash".to_string()));
+}
+
+#[test]
+fn test_gql_exists_with_target_label() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who played for a team (all players should match)
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:played_for]->(t:team) }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // All 4 players have played for a team
+    assert_eq!(results.len(), 4);
+}
+
+#[test]
+fn test_gql_exists_combined_with_and() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find shooting guards who have won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE p.position = 'Shooting Guard' AND EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // MJ and Kobe are both shooting guards with championships
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_gql_exists_combined_with_or() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find point guards OR players who have won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE p.position = 'Point Guard' OR EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // Should find: MJ, Kobe (champions), Nash (point guard)
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn test_gql_exists_no_match() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who have an edge type that doesn't exist
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:nonexistent_relationship]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // No players have this relationship type
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_exists_with_count() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Count players who have won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN count(*)
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(2));
+}
+
+#[test]
+fn test_gql_parse_exists_expression() {
+    // Test that EXISTS expressions parse correctly
+    let ast = parse(
+        r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+    )
+    .unwrap();
+
+    assert!(ast.where_clause.is_some());
+
+    // The where clause should contain an EXISTS expression
+    let where_clause = ast.where_clause.unwrap();
+    match where_clause.expression {
+        rustgremlin::gql::Expression::Exists { negated, pattern } => {
+            assert!(!negated);
+            assert!(!pattern.elements.is_empty());
+        }
+        _ => panic!("Expected EXISTS expression"),
+    }
+}
+
+#[test]
+fn test_gql_parse_not_exists_expression() {
+    // Test that NOT EXISTS expressions parse correctly
+    // NOT EXISTS is parsed as UnaryOp(Not, Exists { negated: false, ... })
+    let ast = parse(
+        r#"
+        MATCH (p:player)
+        WHERE NOT EXISTS { (p)-[:knows]->() }
+        RETURN p.name
+    "#,
+    )
+    .unwrap();
+
+    assert!(ast.where_clause.is_some());
+
+    let where_clause = ast.where_clause.unwrap();
+    match where_clause.expression {
+        rustgremlin::gql::Expression::UnaryOp { op, expr } => {
+            assert!(matches!(op, rustgremlin::gql::UnaryOperator::Not));
+            match *expr {
+                rustgremlin::gql::Expression::Exists { negated, pattern } => {
+                    assert!(!negated);
+                    assert!(!pattern.elements.is_empty());
+                }
+                _ => panic!("Expected EXISTS expression inside NOT"),
+            }
+        }
+        rustgremlin::gql::Expression::Exists { negated, pattern } => {
+            // Alternative: if grammar is changed to support NOT directly
+            assert!(negated);
+            assert!(!pattern.elements.is_empty());
+        }
+        _ => panic!("Expected NOT(EXISTS) or EXISTS(negated=true) expression"),
+    }
+}
+
+#[test]
+fn test_gql_exists_incoming_edge() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find teams that have players who played for them
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (t:team)
+        WHERE EXISTS { (t)<-[:played_for]-() }
+        RETURN t.name
+    "#,
+        )
+        .unwrap();
+
+    // All teams have at least one player
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn test_gql_exists_bidirectional() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find vertices with any played_for relationship (bidirectional)
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (n)
+        WHERE EXISTS { (n)-[:played_for]-() }
+        RETURN n
+    "#,
+        )
+        .unwrap();
+
+    // Should find all players and teams (7 total: 4 players + 3 teams)
+    assert_eq!(results.len(), 7);
+}
+
+#[test]
+fn test_gql_exists_with_property_filter() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who played for a team with 6+ championships
+    // Only Bulls have exactly 6 championships, Lakers have 17
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:played_for]->(t:team {championships: 6}) }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // Only MJ played for the Bulls (6 championships)
+    assert_eq!(results.len(), 1);
+
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Michael Jordan".to_string()));
+}
+
+#[test]
+fn test_gql_exists_with_target_property_filter_multiple_results() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who played for a team with 0 championships
+    // Only Suns have 0 championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:played_for]->(t:team {championships: 0}) }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // Barkley and Nash played for the Suns (0 championships)
+    assert_eq!(results.len(), 2);
+
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Charles Barkley".to_string()));
+    assert!(names.contains(&"Steve Nash".to_string()));
+}
+
+#[test]
+fn test_gql_exists_multiple_conditions_complex() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find shooting guards who have NOT won championships
+    // This combines property filter with NOT EXISTS
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE p.position = 'Shooting Guard' AND NOT EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // No shooting guards without championships (MJ and Kobe both won)
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_exists_with_order_by() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find players who have won championships, ordered by name
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+        ORDER BY p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    // Should be alphabetically ordered: Kobe Bryant, Michael Jordan
+    assert_eq!(results[0], Value::String("Kobe Bryant".to_string()));
+    assert_eq!(results[1], Value::String("Michael Jordan".to_string()));
+}
+
+#[test]
+fn test_gql_exists_with_limit() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Find first player who has NOT won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE NOT EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+        LIMIT 1
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // Should be either Barkley or Nash
+    let name = match &results[0] {
+        Value::String(s) => s.clone(),
+        _ => panic!("Expected string"),
+    };
+    assert!(name == "Charles Barkley" || name == "Steve Nash");
+}
+
+#[test]
+fn test_gql_exists_nested_not() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Double negation: NOT NOT EXISTS should equal EXISTS
+    // Find players where it's NOT true that they have NOT won championships
+    // (i.e., players who HAVE won championships)
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE NOT NOT EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // Same as EXISTS - should find MJ and Kobe
+    assert_eq!(results.len(), 2);
+
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Michael Jordan".to_string()));
+    assert!(names.contains(&"Kobe Bryant".to_string()));
+}
+
+#[test]
+fn test_gql_exists_with_distinct() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Get distinct positions of players who have won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN DISTINCT p.position
+    "#,
+        )
+        .unwrap();
+
+    // Both MJ and Kobe are Shooting Guards, so we should get only 1 distinct position
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Shooting Guard".to_string()));
+}
+
+#[test]
+fn test_gql_exists_return_multiple_properties() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Return multiple properties for players who have won championships
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name AS name, p.position AS pos
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+
+    // Each result should be a map with name and pos
+    for result in &results {
+        if let Value::Map(map) = result {
+            assert!(map.contains_key("name"));
+            assert!(map.contains_key("pos"));
+            assert_eq!(
+                map.get("pos"),
+                Some(&Value::String("Shooting Guard".to_string()))
+            );
+        } else {
+            panic!("Expected map result");
+        }
+    }
+}
+
+#[test]
+fn test_gql_exists_empty_graph() {
+    let graph = Graph::in_memory();
+    let snapshot = graph.snapshot();
+
+    // EXISTS on empty graph should return no results
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_exists_no_edges() {
+    // Create a graph with vertices but no edges
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Lonely Player"));
+    storage.add_vertex("player", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // EXISTS should return false for a player with no outgoing edges
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:any_relationship]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 0);
+
+    // NOT EXISTS should return true for a player with no outgoing edges
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE NOT EXISTS { (p)-[:any_relationship]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Lonely Player".to_string()));
+}
+
+#[test]
+fn test_gql_exists_self_loop() {
+    // Create a graph with a self-loop
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Narcissist"));
+    let id = storage.add_vertex("player", props);
+
+    let _ = storage.add_edge(id, id, "admires", HashMap::new());
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // EXISTS should work with self-loops
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:admires]->(p) }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // The player admires themselves
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Narcissist".to_string()));
+}
+
+#[test]
+fn test_gql_exists_aggregate_over_filtered() {
+    let graph = create_exists_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Count and collect names of championship winners
+    let results: Vec<_> = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { (p)-[:won_championship_with]->() }
+        RETURN count(*) AS total, collect(p.name) AS winners
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("total"), Some(&Value::Int(2)));
+
+        if let Some(Value::List(winners)) = map.get("winners") {
+            assert_eq!(winners.len(), 2);
+            assert!(winners.contains(&Value::String("Michael Jordan".to_string())));
+            assert!(winners.contains(&Value::String("Kobe Bryant".to_string())));
+        } else {
+            panic!("Expected list for winners");
+        }
+    } else {
+        panic!("Expected map result");
+    }
+}

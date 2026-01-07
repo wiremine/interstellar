@@ -600,6 +600,32 @@ pub enum Expression {
         /// The expression to aggregate.
         expr: Box<Expression>,
     },
+
+    /// EXISTS subquery: `EXISTS { (a)-[:KNOWS]->(b) }`
+    ///
+    /// Evaluates to true if the embedded pattern matches at least one path
+    /// starting from the current element. The pattern can reference variables
+    /// bound in the outer MATCH clause.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Find players who have won championships
+    /// MATCH (p:player)
+    /// WHERE EXISTS { (p)-[:won_championship_with]->() }
+    /// RETURN p.name
+    ///
+    /// -- Find players who have NOT won championships
+    /// MATCH (p:player)
+    /// WHERE NOT EXISTS { (p)-[:won_championship_with]->() }
+    /// RETURN p.name
+    /// ```
+    Exists {
+        /// The pattern to check for existence.
+        pattern: Pattern,
+        /// True for `NOT EXISTS`, false for `EXISTS`.
+        negated: bool,
+    },
 }
 
 // =============================================================================
