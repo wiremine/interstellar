@@ -44,5 +44,6 @@ return_clause:
     - expression:
         Variable: c
       alias: ~
+group_by_clause: ~
 order_clause: ~
 limit_clause: ~

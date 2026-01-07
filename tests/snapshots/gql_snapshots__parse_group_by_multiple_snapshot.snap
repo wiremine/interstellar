@@ -1,0 +1,43 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Property:
+          variable: p
+          property: position
+      alias: ~
+    - expression:
+        Property:
+          variable: p
+          property: team
+      alias: ~
+    - expression:
+        Aggregate:
+          func: Count
+          distinct: false
+          expr:
+            Variable: "*"
+      alias: ~
+group_by_clause:
+  expressions:
+    - Property:
+        variable: p
+        property: position
+    - Property:
+        variable: p
+        property: team
+order_clause: ~
+limit_clause: ~

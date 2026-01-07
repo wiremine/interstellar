@@ -211,6 +211,38 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // Compile the full pattern (nodes and edges)
         let traversal = self.compile_pattern(pattern, traversal)?;
 
+        // Verify all referenced variables are bound before proceeding
+        for item in &query.return_clause.items {
+            self.validate_expression_variables(&item.expression)?;
+        }
+        if let Some(where_cl) = &query.where_clause {
+            self.validate_expression_variables(&where_cl.expression)?;
+        }
+        if let Some(group_by) = &query.group_by_clause {
+            for expr in &group_by.expressions {
+                self.validate_expression_variables(expr)?;
+            }
+        }
+
+        // Check if this is a GROUP BY query
+        if let Some(group_by) = &query.group_by_clause {
+            let results = self.execute_group_by_query(
+                &query.return_clause,
+                &query.where_clause,
+                group_by,
+                traversal,
+            )?;
+
+            // Apply ORDER BY if present
+            let results =
+                self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+
+            // Apply LIMIT/OFFSET if present
+            let results = self.apply_limit(&query.limit_clause, results);
+
+            return Ok(results);
+        }
+
         // Execute and collect results based on RETURN clause
         // Apply WHERE filter if present
         let results = self.execute_return(&query.return_clause, &query.where_clause, traversal)?;
@@ -998,6 +1030,222 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         }
     }
 
+    /// Execute a query with an explicit GROUP BY clause.
+    ///
+    /// This is used when the query has a GROUP BY clause, which explicitly specifies
+    /// which expressions to group by. Non-aggregate expressions in RETURN must appear
+    /// in the GROUP BY clause.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// MATCH (p:player)
+    /// RETURN p.position, count(*), avg(p.points_per_game)
+    /// GROUP BY p.position
+    /// ```
+    fn execute_group_by_query(
+        &self,
+        return_clause: &ReturnClause,
+        where_clause: &Option<WhereClause>,
+        group_by: &GroupByClause,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        // Collect the matched elements first
+        let matched_elements: Vec<Value> = traversal.to_list();
+
+        // Apply WHERE filter if present
+        let filtered_elements: Vec<Value> = if let Some(where_cl) = where_clause {
+            matched_elements
+                .into_iter()
+                .filter(|element| self.evaluate_predicate(&where_cl.expression, element))
+                .collect()
+        } else {
+            matched_elements
+        };
+
+        // Validate: non-aggregate expressions in RETURN must appear in GROUP BY
+        for item in &return_clause.items {
+            if !Self::expr_has_aggregate(&item.expression) {
+                // This non-aggregate expression must match a GROUP BY expression
+                if !self.expression_in_group_by(&item.expression, group_by) {
+                    let expr_str = self.expression_to_string(&item.expression);
+                    return Err(CompileError::expression_not_in_group_by(expr_str));
+                }
+            }
+        }
+
+        // Group elements by GROUP BY expressions
+        let mut groups: HashMap<Vec<ComparableValue>, Vec<Value>> = HashMap::new();
+
+        for element in filtered_elements {
+            let group_key: Vec<ComparableValue> = group_by
+                .expressions
+                .iter()
+                .map(|expr| {
+                    let val = self.evaluate_value(expr, &element);
+                    ComparableValue::from(val)
+                })
+                .collect();
+
+            groups.entry(group_key).or_default().push(element);
+        }
+
+        // For each group, compute the RETURN clause
+        let mut results = Vec::new();
+
+        for (group_key, group_elements) in groups {
+            let result =
+                self.compute_group_result(return_clause, group_by, &group_key, &group_elements)?;
+            results.push(result);
+        }
+
+        // Apply DISTINCT if requested
+        let results = if return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        Ok(results)
+    }
+
+    /// Check if an expression matches any expression in the GROUP BY clause.
+    fn expression_in_group_by(&self, expr: &Expression, group_by: &GroupByClause) -> bool {
+        group_by
+            .expressions
+            .iter()
+            .any(|group_expr| self.expressions_match(expr, group_expr))
+    }
+
+    /// Check if two expressions are structurally equivalent.
+    ///
+    /// This is a simple structural comparison for common cases.
+    fn expressions_match(&self, a: &Expression, b: &Expression) -> bool {
+        match (a, b) {
+            (Expression::Variable(va), Expression::Variable(vb)) => va == vb,
+            (
+                Expression::Property {
+                    variable: va,
+                    property: pa,
+                },
+                Expression::Property {
+                    variable: vb,
+                    property: pb,
+                },
+            ) => va == vb && pa == pb,
+            (Expression::Literal(la), Expression::Literal(lb)) => la == lb,
+            _ => false,
+        }
+    }
+
+    /// Convert an expression to a string for error messages.
+    fn expression_to_string(&self, expr: &Expression) -> String {
+        match expr {
+            Expression::Variable(v) => v.clone(),
+            Expression::Property { variable, property } => format!("{}.{}", variable, property),
+            Expression::Literal(lit) => match lit {
+                Literal::Null => "null".to_string(),
+                Literal::Bool(b) => b.to_string(),
+                Literal::Int(n) => n.to_string(),
+                Literal::Float(f) => f.to_string(),
+                Literal::String(s) => format!("'{}'", s),
+            },
+            Expression::Aggregate { func, .. } => {
+                let func_name = match func {
+                    AggregateFunc::Count => "count",
+                    AggregateFunc::Sum => "sum",
+                    AggregateFunc::Avg => "avg",
+                    AggregateFunc::Min => "min",
+                    AggregateFunc::Max => "max",
+                    AggregateFunc::Collect => "collect",
+                };
+                format!("{}(...)", func_name)
+            }
+            _ => "<expression>".to_string(),
+        }
+    }
+
+    /// Compute the result for a single group.
+    fn compute_group_result(
+        &self,
+        return_clause: &ReturnClause,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_elements: &[Value],
+    ) -> Result<Value, CompileError> {
+        if return_clause.items.len() == 1 {
+            // Single return item
+            let item = &return_clause.items[0];
+            let value = self.evaluate_group_expression(
+                &item.expression,
+                group_by,
+                group_key,
+                group_elements,
+            )?;
+
+            if item.alias.is_some() {
+                let mut map = HashMap::new();
+                map.insert(self.get_return_item_key(item), value);
+                Ok(Value::Map(map))
+            } else {
+                Ok(value)
+            }
+        } else {
+            // Multiple return items - return a map
+            let mut map = HashMap::new();
+
+            for item in &return_clause.items {
+                let key = self.get_return_item_key(item);
+                let value = self.evaluate_group_expression(
+                    &item.expression,
+                    group_by,
+                    group_key,
+                    group_elements,
+                )?;
+                map.insert(key, value);
+            }
+
+            Ok(Value::Map(map))
+        }
+    }
+
+    /// Evaluate an expression in the context of a group.
+    ///
+    /// If the expression is an aggregate, compute it over the group elements.
+    /// If it's a GROUP BY expression, return the corresponding key value.
+    fn evaluate_group_expression(
+        &self,
+        expr: &Expression,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_elements: &[Value],
+    ) -> Result<Value, CompileError> {
+        if let Expression::Aggregate {
+            func,
+            distinct,
+            expr: inner,
+        } = expr
+        {
+            // Compute aggregate over group
+            self.compute_aggregate(*func, *distinct, inner, group_elements)
+        } else {
+            // Non-aggregate: should be a GROUP BY expression
+            // Find which group_by expression matches and return the corresponding key value
+            for (i, group_expr) in group_by.expressions.iter().enumerate() {
+                if self.expressions_match(expr, group_expr) {
+                    return Ok(group_key[i].clone().into());
+                }
+            }
+
+            // If not found in GROUP BY, try to evaluate using the first element
+            // This handles edge cases like literals
+            group_elements
+                .first()
+                .map(|e| self.evaluate_value(expr, e))
+                .ok_or_else(|| CompileError::EmptyPattern)
+        }
+    }
+
     /// Execute global aggregates (no GROUP BY).
     ///
     /// Aggregates over all matched elements and returns a single result.
@@ -1317,8 +1565,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     _ => result.clone(),
                 }
             }
-            Expression::Variable(_) => {
-                // Use the result directly
+            Expression::Variable(var) => {
+                // Check if result is a Map and the variable is a key in it (e.g., an alias)
+                if let Value::Map(map) = result {
+                    if let Some(val) = map.get(var) {
+                        return val.clone();
+                    }
+                }
+                // Otherwise, use the result directly
                 result.clone()
             }
             Expression::Literal(lit) => lit.clone().into(),

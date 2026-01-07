@@ -29,5 +29,6 @@ return_clause:
     - expression:
         Variable: b
       alias: ~
+group_by_clause: ~
 order_clause: ~
 limit_clause: ~

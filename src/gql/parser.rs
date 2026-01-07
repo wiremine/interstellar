@@ -110,6 +110,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut match_clause = None;
     let mut where_clause = None;
     let mut return_clause = None;
+    let mut group_by_clause = None;
     let mut order_clause = None;
     let mut limit_clause = None;
 
@@ -118,6 +119,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::match_clause => match_clause = Some(build_match_clause(inner)?),
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
+            Rule::group_by_clause => group_by_clause = Some(build_group_by_clause(inner)?),
             Rule::order_clause => order_clause = Some(build_order_clause(inner)?),
             Rule::limit_clause => limit_clause = Some(build_limit_clause(inner)?),
             Rule::EOI => {}
@@ -130,6 +132,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
         where_clause,
         return_clause: return_clause
             .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
+        group_by_clause,
         order_clause,
         limit_clause,
     })
@@ -145,6 +148,23 @@ fn build_where_clause(pair: pest::iterators::Pair<Rule>) -> Result<WhereClause, 
     Ok(WhereClause {
         expression: build_expression(expr_pair)?,
     })
+}
+
+fn build_group_by_clause(pair: pest::iterators::Pair<Rule>) -> Result<GroupByClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut expressions = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::expression {
+            expressions.push(build_expression(inner)?);
+        }
+    }
+
+    if expressions.is_empty() {
+        return Err(ParseError::missing_clause("GROUP BY expression", pair_span));
+    }
+
+    Ok(GroupByClause { expressions })
 }
 
 fn build_order_clause(pair: pest::iterators::Pair<Rule>) -> Result<OrderClause, ParseError> {
@@ -2414,5 +2434,159 @@ mod tests {
         } else {
             panic!("Expected EXISTS expression");
         }
+    }
+
+    // ============================================
+    // GROUP BY Clause Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_group_by_single() {
+        let query =
+            parse("MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position").unwrap();
+        assert!(query.group_by_clause.is_some());
+
+        let group_by = query.group_by_clause.unwrap();
+        assert_eq!(group_by.expressions.len(), 1);
+
+        if let Expression::Property { variable, property } = &group_by.expressions[0] {
+            assert_eq!(variable, "p");
+            assert_eq!(property, "position");
+        } else {
+            panic!("Expected property expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_group_by_multiple() {
+        let query = parse(
+            "MATCH (p:player) RETURN p.position, p.team, count(*) GROUP BY p.position, p.team",
+        )
+        .unwrap();
+        assert!(query.group_by_clause.is_some());
+
+        let group_by = query.group_by_clause.unwrap();
+        assert_eq!(group_by.expressions.len(), 2);
+
+        if let Expression::Property { property, .. } = &group_by.expressions[0] {
+            assert_eq!(property, "position");
+        }
+        if let Expression::Property { property, .. } = &group_by.expressions[1] {
+            assert_eq!(property, "team");
+        }
+    }
+
+    #[test]
+    fn test_parse_group_by_with_avg() {
+        let query =
+            parse("MATCH (p:player) RETURN p.position, avg(p.points_per_game) GROUP BY p.position")
+                .unwrap();
+        assert!(query.group_by_clause.is_some());
+
+        // Verify RETURN clause has both items
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        // First item should be property access
+        if let Expression::Property { property, .. } = &query.return_clause.items[0].expression {
+            assert_eq!(property, "position");
+        } else {
+            panic!("Expected property expression");
+        }
+
+        // Second item should be AVG aggregate
+        if let Expression::Aggregate { func, .. } = &query.return_clause.items[1].expression {
+            assert!(matches!(func, AggregateFunc::Avg));
+        } else {
+            panic!("Expected AVG aggregate");
+        }
+    }
+
+    #[test]
+    fn test_parse_group_by_with_alias() {
+        let query =
+            parse("MATCH (p:player) RETURN p.position AS pos, count(*) AS cnt GROUP BY p.position")
+                .unwrap();
+        assert!(query.group_by_clause.is_some());
+
+        // Verify aliases
+        assert_eq!(query.return_clause.items[0].alias, Some("pos".to_string()));
+        assert_eq!(query.return_clause.items[1].alias, Some("cnt".to_string()));
+    }
+
+    #[test]
+    fn test_parse_group_by_case_insensitive() {
+        // GROUP BY keywords are case insensitive
+        let queries = vec![
+            "MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position",
+            "MATCH (p:player) RETURN p.position, count(*) group by p.position",
+            "MATCH (p:player) RETURN p.position, count(*) Group By p.position",
+        ];
+
+        for query_str in queries {
+            let query = parse(query_str).unwrap();
+            assert!(
+                query.group_by_clause.is_some(),
+                "Expected GROUP BY clause for: {}",
+                query_str
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_group_by_with_order_by() {
+        let query = parse(
+            "MATCH (p:player) RETURN p.position, count(*) AS cnt GROUP BY p.position ORDER BY cnt DESC",
+        )
+        .unwrap();
+        assert!(query.group_by_clause.is_some());
+        assert!(query.order_clause.is_some());
+
+        let order = query.order_clause.unwrap();
+        assert!(order.items[0].descending);
+    }
+
+    #[test]
+    fn test_parse_group_by_with_limit() {
+        let query =
+            parse("MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position LIMIT 5")
+                .unwrap();
+        assert!(query.group_by_clause.is_some());
+        assert!(query.limit_clause.is_some());
+
+        let limit = query.limit_clause.unwrap();
+        assert_eq!(limit.limit, 5);
+    }
+
+    #[test]
+    fn test_parse_group_by_full_query() {
+        let query = parse(
+            "MATCH (p:player) WHERE p.active = true RETURN p.position, count(*) AS cnt GROUP BY p.position ORDER BY cnt DESC LIMIT 10",
+        )
+        .unwrap();
+        assert!(query.where_clause.is_some());
+        assert!(query.group_by_clause.is_some());
+        assert!(query.order_clause.is_some());
+        assert!(query.limit_clause.is_some());
+    }
+
+    #[test]
+    fn test_parse_group_by_variable() {
+        // GROUP BY a variable instead of a property
+        let query = parse("MATCH (p:player) RETURN p, count(*) GROUP BY p").unwrap();
+        assert!(query.group_by_clause.is_some());
+
+        let group_by = query.group_by_clause.unwrap();
+        if let Expression::Variable(v) = &group_by.expressions[0] {
+            assert_eq!(v, "p");
+        } else {
+            panic!("Expected variable expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_without_group_by() {
+        // Verify that queries without GROUP BY have group_by_clause = None
+        let query = parse("MATCH (p:player) RETURN p.name").unwrap();
+        assert!(query.group_by_clause.is_none());
     }
 }

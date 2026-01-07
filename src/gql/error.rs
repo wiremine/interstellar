@@ -261,6 +261,12 @@ pub enum CompileError {
     /// Type mismatch in expression
     #[error("Type mismatch: {message}")]
     TypeMismatch { message: String },
+
+    /// Non-aggregated expression not in GROUP BY
+    #[error(
+        "Expression '{expr}' must appear in GROUP BY clause or be used in an aggregate function"
+    )]
+    ExpressionNotInGroupBy { expr: String },
 }
 
 impl CompileError {
@@ -301,6 +307,11 @@ impl CompileError {
         CompileError::TypeMismatch {
             message: message.into(),
         }
+    }
+
+    /// Create an expression not in GROUP BY error
+    pub fn expression_not_in_group_by(expr: impl Into<String>) -> Self {
+        CompileError::ExpressionNotInGroupBy { expr: expr.into() }
     }
 }
 

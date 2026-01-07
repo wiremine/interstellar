@@ -21,5 +21,6 @@ return_clause:
           expr:
             Variable: "*"
       alias: ~
+group_by_clause: ~
 order_clause: ~
 limit_clause: ~

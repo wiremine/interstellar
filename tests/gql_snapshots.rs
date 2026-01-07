@@ -447,6 +447,48 @@ fn test_parse_error_invalid_literal_snapshot() {
 }
 
 // =============================================================================
+// GROUP BY Clause Snapshots
+// =============================================================================
+
+#[test]
+fn test_parse_group_by_single_snapshot() {
+    let ast = parse("MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position").unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_group_by_multiple_snapshot() {
+    let ast =
+        parse("MATCH (p:player) RETURN p.position, p.team, count(*) GROUP BY p.position, p.team")
+            .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_group_by_with_avg_snapshot() {
+    let ast =
+        parse("MATCH (p:player) RETURN p.position, avg(p.ppg) AS avg_ppg GROUP BY p.position")
+            .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_group_by_full_query_snapshot() {
+    let ast = parse(
+        r#"
+        MATCH (p:player)
+        WHERE p.active = true
+        RETURN p.position, count(*) AS cnt, avg(p.ppg) AS avg_ppg
+        GROUP BY p.position
+        ORDER BY cnt DESC
+        LIMIT 10
+    "#,
+    )
+    .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+// =============================================================================
 // Case Insensitivity Snapshots
 // =============================================================================
 

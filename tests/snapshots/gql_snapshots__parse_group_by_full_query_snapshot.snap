@@ -6,40 +6,28 @@ match_clause:
   patterns:
     - elements:
         - Node:
-            variable: o
-            labels:
-              - Order
-            properties: []
-        - Edge:
-            variable: ~
-            labels:
-              - CONTAINS
-            direction: Outgoing
-            quantifier: ~
-            properties: []
-        - Node:
             variable: p
             labels:
-              - Product
+              - player
             properties: []
 where_clause:
   expression:
     BinaryOp:
       left:
         Property:
-          variable: o
-          property: date
-      op: Gt
+          variable: p
+          property: active
+      op: Eq
       right:
         Literal:
-          String: 2024-01-01
+          Bool: true
 return_clause:
   distinct: false
   items:
     - expression:
         Property:
           variable: p
-          property: category
+          property: position
       alias: ~
     - expression:
         Aggregate:
@@ -47,21 +35,25 @@ return_clause:
           distinct: false
           expr:
             Variable: "*"
-      alias: orderCount
+      alias: cnt
     - expression:
         Aggregate:
-          func: Sum
+          func: Avg
           distinct: false
           expr:
             Property:
-              variable: o
-              property: total
-      alias: revenue
-group_by_clause: ~
+              variable: p
+              property: ppg
+      alias: avg_ppg
+group_by_clause:
+  expressions:
+    - Property:
+        variable: p
+        property: position
 order_clause:
   items:
     - expression:
-        Variable: revenue
+        Variable: cnt
       descending: true
 limit_clause:
   limit: 10

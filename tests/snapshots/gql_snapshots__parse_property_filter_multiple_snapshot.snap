@@ -23,5 +23,6 @@ return_clause:
     - expression:
         Variable: n
       alias: ~
+group_by_clause: ~
 order_clause: ~
 limit_clause: ~

@@ -6,23 +6,32 @@ match_clause:
   patterns:
     - elements:
         - Node:
-            variable: n
+            variable: p
             labels:
-              - Order
+              - player
             properties: []
 where_clause: ~
 return_clause:
   distinct: false
   items:
     - expression:
+        Property:
+          variable: p
+          property: position
+      alias: ~
+    - expression:
         Aggregate:
-          func: Sum
+          func: Avg
           distinct: false
           expr:
             Property:
-              variable: n
-              property: total
-      alias: ~
-group_by_clause: ~
+              variable: p
+              property: ppg
+      alias: avg_ppg
+group_by_clause:
+  expressions:
+    - Property:
+        variable: p
+        property: position
 order_clause: ~
 limit_clause: ~

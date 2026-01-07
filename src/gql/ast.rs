@@ -61,6 +61,7 @@ use serde::Serialize;
 /// # Optional Clauses
 ///
 /// - `where_clause` - Filters matched patterns
+/// - `group_by_clause` - Groups results for aggregation
 /// - `order_clause` - Sorts results
 /// - `limit_clause` - Limits and offsets results
 ///
@@ -88,6 +89,8 @@ pub struct Query {
     pub where_clause: Option<WhereClause>,
     /// The RETURN clause specifying what values to output.
     pub return_clause: ReturnClause,
+    /// Optional GROUP BY clause for grouping aggregation results.
+    pub group_by_clause: Option<GroupByClause>,
     /// Optional ORDER BY clause for sorting results.
     pub order_clause: Option<OrderClause>,
     /// Optional LIMIT/OFFSET clause for pagination.
@@ -434,6 +437,31 @@ pub struct OrderItem {
     pub expression: Expression,
     /// Whether to sort in descending order (default: false = ascending).
     pub descending: bool,
+}
+
+// =============================================================================
+// GROUP BY Clause
+// =============================================================================
+
+/// The GROUP BY clause for grouping aggregation results.
+///
+/// Specifies which expressions to group by when using aggregate functions.
+/// Non-aggregated expressions in RETURN should appear in GROUP BY.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+///
+/// // Count players by position
+/// let query = parse("MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position").unwrap();
+/// let group_by = query.group_by_clause.unwrap();
+/// assert_eq!(group_by.expressions.len(), 1);
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct GroupByClause {
+    /// Expressions to group by.
+    pub expressions: Vec<Expression>,
 }
 
 // =============================================================================

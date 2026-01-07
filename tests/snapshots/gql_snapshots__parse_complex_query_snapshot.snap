@@ -61,6 +61,7 @@ return_clause:
           variable: friend
           property: age
       alias: ~
+group_by_clause: ~
 order_clause:
   items:
     - expression:

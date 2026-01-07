@@ -5402,3 +5402,444 @@ fn test_gql_exists_aggregate_over_filtered() {
         panic!("Expected map result");
     }
 }
+
+// =============================================================================
+// GROUP BY Tests
+// =============================================================================
+
+/// Helper to create a test graph for GROUP BY tests
+fn create_group_by_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices with various cities and ages
+    let people = vec![
+        ("Alice", 30i64, "New York"),
+        ("Bob", 25i64, "Boston"),
+        ("Carol", 35i64, "New York"),
+        ("Dave", 28i64, "Boston"),
+        ("Eve", 22i64, "Chicago"),
+        ("Frank", 40i64, "New York"),
+    ];
+
+    for (name, age, city) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("age".to_string(), Value::from(age));
+        props.insert("city".to_string(), Value::from(city));
+        storage.add_vertex("Person", props);
+    }
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test GROUP BY with single expression and COUNT(*)
+#[test]
+fn test_gql_group_by_count() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city")
+        .unwrap();
+
+    // Should have 3 groups: New York (3), Boston (2), Chicago (1)
+    assert_eq!(results.len(), 3, "Should have 3 city groups");
+
+    // Collect results into a map for easier verification
+    let mut city_counts: HashMap<String, i64> = HashMap::new();
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let (Some(Value::String(city)), Some(Value::Int(count))) =
+                (map.get("city"), map.get("cnt"))
+            {
+                city_counts.insert(city.clone(), *count);
+            }
+        }
+    }
+
+    assert_eq!(city_counts.get("New York"), Some(&3));
+    assert_eq!(city_counts.get("Boston"), Some(&2));
+    assert_eq!(city_counts.get("Chicago"), Some(&1));
+}
+
+/// Test GROUP BY with AVG aggregation
+#[test]
+fn test_gql_group_by_avg() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, avg(p.age) AS avg_age GROUP BY p.city")
+        .unwrap();
+
+    assert_eq!(results.len(), 3, "Should have 3 city groups");
+
+    // Collect results
+    let mut city_avgs: HashMap<String, f64> = HashMap::new();
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::String(city)) = map.get("city") {
+                let avg = match map.get("avg_age") {
+                    Some(Value::Float(f)) => *f,
+                    Some(Value::Int(i)) => *i as f64,
+                    _ => panic!("Expected numeric avg_age"),
+                };
+                city_avgs.insert(city.clone(), avg);
+            }
+        }
+    }
+
+    // New York: (30 + 35 + 40) / 3 = 35.0
+    // Boston: (25 + 28) / 2 = 26.5
+    // Chicago: 22 / 1 = 22.0
+    assert!((city_avgs.get("New York").unwrap() - 35.0).abs() < 0.001);
+    assert!((city_avgs.get("Boston").unwrap() - 26.5).abs() < 0.001);
+    assert!((city_avgs.get("Chicago").unwrap() - 22.0).abs() < 0.001);
+}
+
+/// Test GROUP BY with SUM aggregation
+#[test]
+fn test_gql_group_by_sum() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, sum(p.age) AS total_age GROUP BY p.city")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    let mut city_sums: HashMap<String, i64> = HashMap::new();
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let (Some(Value::String(city)), Some(Value::Int(sum))) =
+                (map.get("city"), map.get("total_age"))
+            {
+                city_sums.insert(city.clone(), *sum);
+            }
+        }
+    }
+
+    // New York: 30 + 35 + 40 = 105
+    // Boston: 25 + 28 = 53
+    // Chicago: 22
+    assert_eq!(city_sums.get("New York"), Some(&105));
+    assert_eq!(city_sums.get("Boston"), Some(&53));
+    assert_eq!(city_sums.get("Chicago"), Some(&22));
+}
+
+/// Test GROUP BY with MIN/MAX aggregations
+#[test]
+fn test_gql_group_by_min_max() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, min(p.age) AS min_age, max(p.age) AS max_age GROUP BY p.city")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::String(city)) = map.get("city") {
+                let min = map.get("min_age").and_then(|v| {
+                    if let Value::Int(i) = v {
+                        Some(*i)
+                    } else {
+                        None
+                    }
+                });
+                let max = map.get("max_age").and_then(|v| {
+                    if let Value::Int(i) = v {
+                        Some(*i)
+                    } else {
+                        None
+                    }
+                });
+
+                match city.as_str() {
+                    "New York" => {
+                        assert_eq!(min, Some(30), "New York min should be 30");
+                        assert_eq!(max, Some(40), "New York max should be 40");
+                    }
+                    "Boston" => {
+                        assert_eq!(min, Some(25), "Boston min should be 25");
+                        assert_eq!(max, Some(28), "Boston max should be 28");
+                    }
+                    "Chicago" => {
+                        assert_eq!(min, Some(22), "Chicago min should be 22");
+                        assert_eq!(max, Some(22), "Chicago max should be 22");
+                    }
+                    _ => panic!("Unexpected city: {}", city),
+                }
+            }
+        }
+    }
+}
+
+/// Test GROUP BY with COLLECT aggregation
+#[test]
+fn test_gql_group_by_collect() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, collect(p.name) AS names GROUP BY p.city")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let (Some(Value::String(city)), Some(Value::List(names))) =
+                (map.get("city"), map.get("names"))
+            {
+                match city.as_str() {
+                    "New York" => {
+                        assert_eq!(names.len(), 3);
+                        assert!(names.contains(&Value::String("Alice".to_string())));
+                        assert!(names.contains(&Value::String("Carol".to_string())));
+                        assert!(names.contains(&Value::String("Frank".to_string())));
+                    }
+                    "Boston" => {
+                        assert_eq!(names.len(), 2);
+                        assert!(names.contains(&Value::String("Bob".to_string())));
+                        assert!(names.contains(&Value::String("Dave".to_string())));
+                    }
+                    "Chicago" => {
+                        assert_eq!(names.len(), 1);
+                        assert!(names.contains(&Value::String("Eve".to_string())));
+                    }
+                    _ => panic!("Unexpected city: {}", city),
+                }
+            }
+        }
+    }
+}
+
+/// Test GROUP BY with WHERE clause
+#[test]
+fn test_gql_group_by_with_where() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only include people age >= 25
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age >= 25 RETURN p.city AS city, count(*) AS cnt GROUP BY p.city")
+        .unwrap();
+
+    // Eve (22) should be excluded, so Chicago has 0 people
+    // This should result in only 2 groups (New York: 3, Boston: 2)
+    // Note: Chicago group won't exist since no elements pass the filter
+    assert_eq!(
+        results.len(),
+        2,
+        "Should have 2 groups (Chicago filtered out)"
+    );
+
+    let mut city_counts: HashMap<String, i64> = HashMap::new();
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let (Some(Value::String(city)), Some(Value::Int(count))) =
+                (map.get("city"), map.get("cnt"))
+            {
+                city_counts.insert(city.clone(), *count);
+            }
+        }
+    }
+
+    assert_eq!(city_counts.get("New York"), Some(&3));
+    assert_eq!(city_counts.get("Boston"), Some(&2));
+    assert_eq!(city_counts.get("Chicago"), None); // Eve filtered out
+}
+
+/// Test GROUP BY validation error - expression not in GROUP BY
+#[test]
+fn test_gql_group_by_validation_error() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // p.name is not in GROUP BY and not an aggregate - should error
+    let result = snapshot.gql("MATCH (p:Person) RETURN p.city, p.name, count(*) GROUP BY p.city");
+
+    assert!(
+        result.is_err(),
+        "Should fail when expression not in GROUP BY"
+    );
+
+    let err = result.unwrap_err();
+    let err_msg = format!("{}", err);
+    assert!(
+        err_msg.contains("p.name") || err_msg.contains("GROUP BY"),
+        "Error should mention the problematic expression or GROUP BY: {}",
+        err_msg
+    );
+}
+
+/// Test GROUP BY with ORDER BY
+#[test]
+fn test_gql_group_by_with_order_by() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city ORDER BY cnt DESC")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // Results should be ordered by count descending: New York (3), Boston (2), Chicago (1)
+    let counts: Vec<i64> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::Int(cnt)) = map.get("cnt") {
+                    return Some(*cnt);
+                }
+            }
+            None
+        })
+        .collect();
+
+    assert_eq!(
+        counts,
+        vec![3, 2, 1],
+        "Should be ordered by count descending"
+    );
+}
+
+/// Test GROUP BY with LIMIT
+#[test]
+fn test_gql_group_by_with_limit() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city ORDER BY cnt DESC LIMIT 2")
+        .unwrap();
+
+    // Should only return top 2 groups
+    assert_eq!(results.len(), 2, "Should have only 2 results due to LIMIT");
+
+    let counts: Vec<i64> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::Int(cnt)) = map.get("cnt") {
+                    return Some(*cnt);
+                }
+            }
+            None
+        })
+        .collect();
+
+    // Top 2 by count: New York (3), Boston (2)
+    assert_eq!(counts, vec![3, 2]);
+}
+
+/// Test GROUP BY without alias (property access in RETURN)
+#[test]
+fn test_gql_group_by_no_alias() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // No alias on p.city - the key should default to "p.city" (variable.property format)
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city, count(*) GROUP BY p.city")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // Verify we can access the city by the full "p.city" key
+    for result in &results {
+        if let Value::Map(map) = result {
+            assert!(
+                map.contains_key("p.city"),
+                "Map should have 'p.city' key: {:?}",
+                map
+            );
+        }
+    }
+}
+
+/// Test GROUP BY with multiple aggregates
+#[test]
+fn test_gql_group_by_multiple_aggregates() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            "MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt, sum(p.age) AS total, avg(p.age) AS avg_age GROUP BY p.city",
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::String(city)) = map.get("city") {
+                let cnt = map.get("cnt");
+                let total = map.get("total");
+                let avg = map.get("avg_age");
+
+                match city.as_str() {
+                    "New York" => {
+                        assert_eq!(cnt, Some(&Value::Int(3)));
+                        assert_eq!(total, Some(&Value::Int(105))); // 30+35+40
+                        if let Some(Value::Float(f)) = avg {
+                            assert!((f - 35.0).abs() < 0.001);
+                        }
+                    }
+                    "Boston" => {
+                        assert_eq!(cnt, Some(&Value::Int(2)));
+                        assert_eq!(total, Some(&Value::Int(53))); // 25+28
+                        if let Some(Value::Float(f)) = avg {
+                            assert!((f - 26.5).abs() < 0.001);
+                        }
+                    }
+                    "Chicago" => {
+                        assert_eq!(cnt, Some(&Value::Int(1)));
+                        assert_eq!(total, Some(&Value::Int(22)));
+                        if let Some(Value::Float(f)) = avg {
+                            assert!((f - 22.0).abs() < 0.001);
+                        }
+                    }
+                    _ => panic!("Unexpected city: {}", city),
+                }
+            }
+        }
+    }
+}
+
+/// Test GROUP BY single return item without alias
+#[test]
+fn test_gql_group_by_single_return_count_only() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // This is a bit unusual - GROUP BY city but only return the count
+    // The city value is computed but not returned
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(*) AS cnt GROUP BY p.city")
+        .unwrap();
+
+    // Should have 3 groups, each with a count
+    assert_eq!(results.len(), 3);
+
+    let mut counts: Vec<i64> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::Int(cnt)) = map.get("cnt") {
+                    return Some(*cnt);
+                }
+            }
+            None
+        })
+        .collect();
+
+    counts.sort();
+    assert_eq!(counts, vec![1, 2, 3], "Should have counts 1, 2, 3");
+}

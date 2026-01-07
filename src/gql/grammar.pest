@@ -19,6 +19,7 @@ RETURN   = @{ ^"return" ~ !ASCII_ALPHANUMERIC }
 WHERE    = @{ ^"where" ~ !ASCII_ALPHANUMERIC }
 ORDER    = @{ ^"order" ~ !ASCII_ALPHANUMERIC }
 BY       = @{ ^"by" ~ !ASCII_ALPHANUMERIC }
+GROUP    = @{ ^"group" ~ !ASCII_ALPHANUMERIC }
 LIMIT    = @{ ^"limit" ~ !ASCII_ALPHANUMERIC }
 OFFSET   = @{ ^"offset" ~ !ASCII_ALPHANUMERIC }
 AS       = @{ ^"as" ~ !ASCII_ALPHANUMERIC }
@@ -39,8 +40,9 @@ WITH     = @{ ^"with" ~ !ASCII_ALPHANUMERIC }
 DISTINCT = @{ ^"distinct" ~ !ASCII_ALPHANUMERIC }
 EXISTS   = @{ ^"exists" ~ !ASCII_ALPHANUMERIC }
 
-// Entry point - query with optional WHERE clause
-query = { SOI ~ match_clause ~ where_clause? ~ return_clause ~ order_clause? ~ limit_clause? ~ EOI }
+// Entry point - query with optional WHERE, GROUP BY, ORDER BY, and LIMIT clauses
+// GROUP BY comes after RETURN (GQL/SQL style)
+query = { SOI ~ match_clause ~ where_clause? ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? ~ EOI }
 
 // MATCH clause - multiple patterns separated by commas
 match_clause = { MATCH ~ pattern ~ ("," ~ pattern)* }
@@ -175,7 +177,7 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // All keywords - used to exclude them from variable names
 keyword = {
-    MATCH | RETURN | WHERE | ORDER | BY | LIMIT | OFFSET |
+    MATCH | RETURN | WHERE | ORDER | BY | GROUP | LIMIT | OFFSET |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS
 }
@@ -187,6 +189,14 @@ keyword = {
 // e.g., RETURN DISTINCT n.city
 return_clause = { RETURN ~ DISTINCT? ~ return_item ~ ("," ~ return_item)* }
 return_item = { expression ~ (AS ~ identifier)? }
+
+// ============================================================
+// GROUP BY clause
+// ============================================================
+// Specifies which expressions to group by when using aggregate functions.
+// Non-aggregated expressions in RETURN should appear in GROUP BY.
+// e.g., MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position
+group_by_clause = { GROUP ~ BY ~ expression ~ ("," ~ expression)* }
 
 // ============================================================
 // ORDER BY clause

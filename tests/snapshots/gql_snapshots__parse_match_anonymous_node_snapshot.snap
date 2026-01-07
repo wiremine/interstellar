@@ -18,5 +18,6 @@ return_clause:
         Literal:
           String: found
       alias: ~
+group_by_clause: ~
 order_clause: ~
 limit_clause: ~
