@@ -689,6 +689,596 @@ fn main() {
         }
     }
 
+    // =========================================================================
+    // SECTION 11: EXISTS Subqueries (Plan 10)
+    // =========================================================================
+    print_section("11. EXISTS SUBQUERIES (Plan 10)");
+
+    // Query 38: Find championship winners using EXISTS
+    print_query("Find players who have won championships (EXISTS)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.name
+            ORDER BY p.name
+        "#,
+        )
+        .unwrap();
+    println!("Championship winners: {}", format_names(&results));
+
+    // Query 39: Find players WITHOUT championships using NOT EXISTS
+    print_query("Find players without championships (NOT EXISTS)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE NOT EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.name
+            ORDER BY p.name
+        "#,
+        )
+        .unwrap();
+    println!("No rings: {}", format_names(&results));
+
+    // Query 40: EXISTS with additional filters
+    print_query("Find MVP winners who also won championships");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.mvp_count >= 1 AND EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.name, p.mvp_count
+            ORDER BY p.mvp_count DESC
+        "#,
+        )
+        .unwrap();
+    println!("MVP + Championship winners:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({} MVPs)",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("p.mvp_count").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 41: Find players who played for dynasty teams
+    print_query("Find players who played for teams with 10+ championships");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE EXISTS { (p)-[:played_for]->(t:team) WHERE t.championship_count >= 10 }
+            RETURN DISTINCT p.name
+            ORDER BY p.name
+        "#,
+        )
+        .unwrap();
+    println!("Players on historic franchises: {}", format_names(&results));
+
+    // =========================================================================
+    // SECTION 12: GROUP BY Aggregation (Plan 10)
+    // =========================================================================
+    print_section("12. GROUP BY AGGREGATION (Plan 10)");
+
+    // Query 42: Count players by position
+    print_query("Count players by position");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN p.position, count(*) AS player_count
+            GROUP BY p.position
+        "#,
+        )
+        .unwrap();
+    println!("Players by position:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {}",
+                format_value(map.get("p.position").unwrap_or(&Value::Null)),
+                format_value(map.get("player_count").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 43: Average PPG by position
+    print_query("Average PPG by position");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN p.position, avg(p.points_per_game) AS avg_ppg
+            GROUP BY p.position
+        "#,
+        )
+        .unwrap();
+    println!("Average PPG by position:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {:.1} PPG",
+                format_value(map.get("p.position").unwrap_or(&Value::Null)),
+                map.get("avg_ppg").and_then(|v| v.as_f64()).unwrap_or(0.0)
+            );
+        }
+    }
+
+    // Query 44: Count teams by conference
+    print_query("Count teams by conference");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            RETURN t.conference, count(*) AS team_count
+            GROUP BY t.conference
+        "#,
+        )
+        .unwrap();
+    println!("Teams by conference:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {}",
+                format_value(map.get("t.conference").unwrap_or(&Value::Null)),
+                format_value(map.get("team_count").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 45: Total championships by conference
+    print_query("Total championships by conference");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            RETURN t.conference, sum(t.championship_count) AS total_titles
+            GROUP BY t.conference
+        "#,
+        )
+        .unwrap();
+    println!("Championships by conference:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {} titles",
+                format_value(map.get("t.conference").unwrap_or(&Value::Null)),
+                format_value(map.get("total_titles").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 13: CASE Expressions (Plan 10)
+    // =========================================================================
+    print_section("13. CASE EXPRESSIONS (Plan 10)");
+
+    // Query 46: Categorize players by scoring
+    print_query("Categorize players by scoring level");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN p.name,
+                   p.points_per_game,
+                   CASE
+                       WHEN p.points_per_game >= 27.0 THEN 'Elite'
+                       WHEN p.points_per_game >= 20.0 THEN 'Star'
+                       WHEN p.points_per_game >= 15.0 THEN 'Starter'
+                       ELSE 'Role Player'
+                   END AS scoring_tier
+            ORDER BY p.points_per_game DESC
+            LIMIT 10
+        "#,
+        )
+        .unwrap();
+    println!("Scoring tiers:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({:.1} PPG) - {}",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                map.get("p.points_per_game")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0),
+                format_value(map.get("scoring_tier").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 47: Categorize teams by era
+    print_query("Categorize teams by founding era");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            RETURN t.name,
+                   t.founded,
+                   CASE
+                       WHEN t.founded < 1950 THEN 'Original'
+                       WHEN t.founded < 1970 THEN 'Expansion Era'
+                       WHEN t.founded < 1990 THEN 'Modern Era'
+                       ELSE 'Recent'
+                   END AS era
+            ORDER BY t.founded
+        "#,
+        )
+        .unwrap();
+    println!("Teams by era:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({}) - {}",
+                format_value(map.get("t.name").unwrap_or(&Value::Null)),
+                format_value(map.get("t.founded").unwrap_or(&Value::Null)),
+                format_value(map.get("era").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 48: Dynasty status using CASE
+    print_query("Dynasty status based on championships");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            RETURN t.name,
+                   t.championship_count,
+                   CASE
+                       WHEN t.championship_count >= 10 THEN 'Legendary Dynasty'
+                       WHEN t.championship_count >= 5 THEN 'Dynasty'
+                       WHEN t.championship_count >= 1 THEN 'Champion'
+                       ELSE 'No Titles'
+                   END AS status
+            ORDER BY t.championship_count DESC
+            LIMIT 10
+        "#,
+        )
+        .unwrap();
+    println!("Dynasty status:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({} titles) - {}",
+                format_value(map.get("t.name").unwrap_or(&Value::Null)),
+                format_value(map.get("t.championship_count").unwrap_or(&Value::Null)),
+                format_value(map.get("status").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 14: COALESCE and Functions (Plan 10)
+    // =========================================================================
+    print_section("14. COALESCE AND FUNCTIONS (Plan 10)");
+
+    // Query 49: COALESCE for null handling
+    print_query("Use COALESCE for default values");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN p.name,
+                   COALESCE(p.mvp_count, 0) AS mvps,
+                   COALESCE(p.finals_mvp_count, 0) AS finals_mvps
+            ORDER BY p.name
+            LIMIT 5
+        "#,
+        )
+        .unwrap();
+    println!("MVP counts (with COALESCE defaults):");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {} MVPs, {} Finals MVPs",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("mvps").unwrap_or(&Value::Null)),
+                format_value(map.get("finals_mvps").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 50: String functions - UPPER
+    print_query("String functions: UPPER");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            RETURN upper(t.name) AS team_upper, t.city
+            LIMIT 5
+        "#,
+        )
+        .unwrap();
+    println!("Uppercase team names:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({})",
+                format_value(map.get("team_upper").unwrap_or(&Value::Null)),
+                format_value(map.get("t.city").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 51: Numeric functions - ABS, ROUND
+    print_query("Numeric functions: ROUND");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN p.name,
+                   p.points_per_game,
+                   round(p.points_per_game) AS ppg_rounded
+            ORDER BY p.points_per_game DESC
+            LIMIT 5
+        "#,
+        )
+        .unwrap();
+    println!("Rounded PPG:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {:.1} -> {}",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                map.get("p.points_per_game")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0),
+                format_value(map.get("ppg_rounded").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 52: Type conversion - toString
+    print_query("Type conversion: toString");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.mvp_count >= 3
+            RETURN p.name,
+                   toString(p.mvp_count) AS mvp_string
+        "#,
+        )
+        .unwrap();
+    println!("MVP count as string:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: '{}' MVPs",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("mvp_string").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 15: Multi-Variable Patterns (Plan 10)
+    // =========================================================================
+    print_section("15. MULTI-VARIABLE PATTERNS (Plan 10)");
+
+    // Query 53: Return multiple variables from pattern
+    print_query("Player-Team relationships with both variables");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[:played_for]->(t:team)
+            RETURN p.name AS player, t.name AS team, t.conference
+            ORDER BY p.name
+            LIMIT 10
+        "#,
+        )
+        .unwrap();
+    println!("Player-Team pairs:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} -> {} ({})",
+                format_value(map.get("player").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null)),
+                format_value(map.get("t.conference").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 54: Three-node pattern (teammates)
+    print_query("Find teammates via shared team (3-node pattern)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p1:player)-[:played_for]->(t:team)<-[:played_for]-(p2:player)
+            WHERE p1.name = 'Kobe Bryant' AND p1.name <> p2.name
+            RETURN p1.name AS player1, t.name AS team, p2.name AS player2
+            LIMIT 10
+        "#,
+        )
+        .unwrap();
+    println!("Kobe's teammates:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} and {} (both on {})",
+                format_value(map.get("player1").unwrap_or(&Value::Null)),
+                format_value(map.get("player2").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 16: Edge Variables and Properties (Plan 10)
+    // =========================================================================
+    print_section("16. EDGE VARIABLES AND PROPERTIES (Plan 10)");
+
+    // Query 55: Bind edge variable and access properties
+    print_query("Access edge properties via edge variable");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[e:won_championship_with]->(t:team)
+            RETURN p.name AS player, t.name AS team, e.ring_count AS rings
+            ORDER BY e.ring_count DESC
+            LIMIT 10
+        "#,
+        )
+        .unwrap();
+    println!("Championship details (with ring count from edge):");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} won {} ring(s) with {}",
+                format_value(map.get("player").unwrap_or(&Value::Null)),
+                format_value(map.get("rings").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 56: Filter by edge property
+    print_query("Filter by edge property (3+ rings with one team)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[e:won_championship_with]->(t:team)
+            WHERE e.ring_count >= 3
+            RETURN p.name AS player, t.name AS team, e.ring_count AS rings
+            ORDER BY e.ring_count DESC
+        "#,
+        )
+        .unwrap();
+    println!("Players with 3+ rings with single team:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} - {} rings with {}",
+                format_value(map.get("player").unwrap_or(&Value::Null)),
+                format_value(map.get("rings").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 17: Combined Plan 10 Features
+    // =========================================================================
+    print_section("17. COMBINED PLAN 10 FEATURES");
+
+    // Query 57: EXISTS + GROUP BY
+    print_query("Count championship winners by position (EXISTS + GROUP BY)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.position, count(*) AS champions
+            GROUP BY p.position
+        "#,
+        )
+        .unwrap();
+    println!("Champions by position:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {}",
+                format_value(map.get("p.position").unwrap_or(&Value::Null)),
+                format_value(map.get("champions").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 58: CASE + GROUP BY
+    print_query("Count players by scoring tier (CASE + GROUP BY)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN CASE
+                       WHEN p.points_per_game >= 25.0 THEN 'Elite'
+                       WHEN p.points_per_game >= 18.0 THEN 'Star'
+                       ELSE 'Other'
+                   END AS tier,
+                   count(*) AS player_count
+            GROUP BY CASE
+                       WHEN p.points_per_game >= 25.0 THEN 'Elite'
+                       WHEN p.points_per_game >= 18.0 THEN 'Star'
+                       ELSE 'Other'
+                   END
+        "#,
+        )
+        .unwrap();
+    println!("Players by scoring tier:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {}",
+                format_value(map.get("tier").unwrap_or(&Value::Null)),
+                format_value(map.get("player_count").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 59: Multi-variable + EXISTS + aggregation
+    print_query("Players and their championship team count");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[:won_championship_with]->(t:team)
+            RETURN p.name AS player, count(DISTINCT t) AS team_count
+            GROUP BY p.name
+            ORDER BY team_count DESC
+            LIMIT 5
+        "#,
+        )
+        .unwrap();
+    println!("Players by number of championship teams:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {} team(s)",
+                format_value(map.get("player").unwrap_or(&Value::Null)),
+                format_value(map.get("team_count").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 60: Full combined query
+    print_query("Elite guards who won championships (all features)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.position IN ['Point Guard', 'Shooting Guard']
+              AND p.points_per_game >= 20.0
+              AND EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.name,
+                   p.position,
+                   p.points_per_game,
+                   CASE
+                       WHEN p.mvp_count >= 1 THEN 'MVP Winner'
+                       ELSE 'No MVP'
+                   END AS mvp_status
+            ORDER BY p.points_per_game DESC
+        "#,
+        )
+        .unwrap();
+    println!("Elite championship guards:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({}, {:.1} PPG) - {}",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("p.position").unwrap_or(&Value::Null)),
+                map.get("p.points_per_game")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0),
+                format_value(map.get("mvp_status").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
     println!("\n=== GQL Query Example Complete ===");
     println!("\nThis example demonstrated:");
     println!("  - Basic node matching with labels");
@@ -703,6 +1293,16 @@ fn main() {
     println!("  - DISTINCT for deduplication");
     println!("  - ORDER BY for sorting");
     println!("  - LIMIT for result pagination");
+    println!("\n  Plan 10 Features:");
+    println!("  - EXISTS / NOT EXISTS subqueries");
+    println!("  - GROUP BY for grouped aggregation");
+    println!("  - CASE expressions for conditional logic");
+    println!("  - COALESCE for null handling");
+    println!("  - String functions (UPPER, LOWER, etc.)");
+    println!("  - Numeric functions (ROUND, ABS, etc.)");
+    println!("  - Type conversion (toString, toInteger, etc.)");
+    println!("  - Multi-variable pattern binding");
+    println!("  - Edge variable binding and property access");
 }
 
 // =============================================================================
