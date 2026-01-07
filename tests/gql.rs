@@ -8422,3 +8422,549 @@ fn test_gql_unwind_with_where() {
     assert!(scores.contains(&92));
     assert!(scores.contains(&95));
 }
+
+// =============================================================================
+// Introspection Function Tests (Plan 11 - Week 4)
+// =============================================================================
+
+/// Helper to create a graph with edges for introspection tests
+fn create_introspection_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("age".to_string(), Value::from(30i64));
+    alice_props.insert("city".to_string(), Value::from("New York"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    bob_props.insert("age".to_string(), Value::from(25i64));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    // Create Company vertex
+    let mut acme_props = HashMap::new();
+    acme_props.insert("name".to_string(), Value::from("Acme Corp"));
+    acme_props.insert("founded".to_string(), Value::from(1990i64));
+    let acme = storage.add_vertex("Company", acme_props);
+
+    // Create edges with properties
+    let mut works_at_props = HashMap::new();
+    works_at_props.insert("since".to_string(), Value::from(2020i64));
+    works_at_props.insert("role".to_string(), Value::from("Engineer"));
+    storage
+        .add_edge(alice, acme, "works_at", works_at_props)
+        .unwrap();
+
+    let mut knows_props = HashMap::new();
+    knows_props.insert("years".to_string(), Value::from(5i64));
+    storage.add_edge(alice, bob, "knows", knows_props).unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+// =============================================================================
+// id() function tests
+// =============================================================================
+
+#[test]
+fn test_gql_id_function_vertex() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN id(p)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // ID should be an integer
+    assert!(matches!(results[0], Value::Int(_)));
+}
+
+#[test]
+fn test_gql_id_function_edge() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person)-[e:knows]->(q:Person) RETURN id(e)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert!(matches!(results[0], Value::Int(_)));
+}
+
+#[test]
+fn test_gql_id_function_with_alias() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN id(p) AS vertex_id, p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2); // Alice and Bob
+
+    for r in &results {
+        if let Value::Map(map) = r {
+            assert!(map.contains_key("vertex_id"));
+            assert!(matches!(map.get("vertex_id"), Some(Value::Int(_))));
+        } else {
+            panic!("Expected Map result");
+        }
+    }
+}
+
+#[test]
+fn test_gql_id_function_in_order_by() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name, id(p) AS vid ORDER BY vid")
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+
+    // Verify ordering by ID
+    let mut prev_id = i64::MIN;
+    for r in &results {
+        if let Value::Map(map) = r {
+            if let Some(Value::Int(id)) = map.get("vid") {
+                assert!(*id > prev_id, "Results should be ordered by ID");
+                prev_id = *id;
+            }
+        }
+    }
+}
+
+// =============================================================================
+// labels() function tests
+// =============================================================================
+
+#[test]
+fn test_gql_labels_function_basic() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN labels(p)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // labels() returns a list
+    if let Value::List(labels) = &results[0] {
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0], Value::String("Person".to_string()));
+    } else {
+        panic!("Expected List result for labels()");
+    }
+}
+
+#[test]
+fn test_gql_labels_function_company() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (c:Company) RETURN labels(c) AS vertex_labels")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        if let Some(Value::List(labels)) = map.get("vertex_labels") {
+            assert_eq!(labels.len(), 1);
+            assert_eq!(labels[0], Value::String("Company".to_string()));
+        } else {
+            panic!("Expected List in vertex_labels");
+        }
+    }
+}
+
+#[test]
+fn test_gql_labels_function_on_edge_returns_null() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    // labels() on an edge should return null (labels is for vertices only)
+    let results = snapshot
+        .gql("MATCH (p:Person)-[e:knows]->(q:Person) RETURN labels(e) AS edge_labels")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        // labels() on edge should return Null
+        assert_eq!(map.get("edge_labels"), Some(&Value::Null));
+    }
+}
+
+// =============================================================================
+// type() function tests
+// =============================================================================
+
+#[test]
+fn test_gql_type_function_basic() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person)-[e:knows]->(q:Person) RETURN type(e)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("knows".to_string()));
+}
+
+#[test]
+fn test_gql_type_function_different_edges() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person)-[e]->(target)
+            WHERE p.name = 'Alice'
+            RETURN type(e) AS rel_type, target.name AS target_name
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2); // knows and works_at
+
+    let types: HashSet<String> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::String(t)) = map.get("rel_type") {
+                    return Some(t.clone());
+                }
+            }
+            None
+        })
+        .collect();
+
+    assert!(types.contains("knows"));
+    assert!(types.contains("works_at"));
+}
+
+#[test]
+fn test_gql_type_function_with_alias() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH ()-[e:works_at]->() RETURN type(e) AS edge_type")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("edge_type"),
+            Some(&Value::String("works_at".to_string()))
+        );
+    }
+}
+
+#[test]
+fn test_gql_type_function_on_vertex_returns_null() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    // type() on a vertex should return null (type is for edges only)
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN type(p) AS vertex_type")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("vertex_type"), Some(&Value::Null));
+    }
+}
+
+// =============================================================================
+// properties() function tests
+// =============================================================================
+
+#[test]
+fn test_gql_properties_function_vertex() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN properties(p)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(props) = &results[0] {
+        assert_eq!(props.get("name"), Some(&Value::String("Alice".to_string())));
+        assert_eq!(props.get("age"), Some(&Value::Int(30)));
+        assert_eq!(
+            props.get("city"),
+            Some(&Value::String("New York".to_string()))
+        );
+    } else {
+        panic!("Expected Map result for properties()");
+    }
+}
+
+#[test]
+fn test_gql_properties_function_edge() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person)-[e:works_at]->(c:Company) RETURN properties(e)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(props) = &results[0] {
+        assert_eq!(props.get("since"), Some(&Value::Int(2020)));
+        assert_eq!(
+            props.get("role"),
+            Some(&Value::String("Engineer".to_string()))
+        );
+    } else {
+        panic!("Expected Map result for edge properties()");
+    }
+}
+
+#[test]
+fn test_gql_properties_function_with_alias() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (c:Company) RETURN properties(c) AS all_props, c.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(result_map) = &results[0] {
+        // Check the all_props field contains the company properties
+        if let Some(Value::Map(props)) = result_map.get("all_props") {
+            assert_eq!(
+                props.get("name"),
+                Some(&Value::String("Acme Corp".to_string()))
+            );
+            assert_eq!(props.get("founded"), Some(&Value::Int(1990)));
+        } else {
+            panic!("Expected Map in all_props");
+        }
+    }
+}
+
+#[test]
+fn test_gql_properties_function_empty_properties() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create vertex with no properties
+    storage.add_vertex("EmptyNode", HashMap::new());
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:EmptyNode) RETURN properties(n)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // Should return an empty map
+    if let Value::Map(props) = &results[0] {
+        assert!(props.is_empty());
+    } else {
+        panic!("Expected Map result for properties()");
+    }
+}
+
+// =============================================================================
+// Combined introspection function tests
+// =============================================================================
+
+#[test]
+fn test_gql_introspection_combined() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person)
+            WHERE p.name = 'Alice'
+            RETURN id(p) AS vertex_id, labels(p) AS vertex_labels, properties(p) AS props
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        // id() returns Int
+        assert!(matches!(map.get("vertex_id"), Some(Value::Int(_))));
+
+        // labels() returns List
+        if let Some(Value::List(labels)) = map.get("vertex_labels") {
+            assert_eq!(labels.len(), 1);
+            assert_eq!(labels[0], Value::String("Person".to_string()));
+        } else {
+            panic!("Expected List for vertex_labels");
+        }
+
+        // properties() returns Map
+        if let Some(Value::Map(props)) = map.get("props") {
+            assert_eq!(props.get("name"), Some(&Value::String("Alice".to_string())));
+        } else {
+            panic!("Expected Map for props");
+        }
+    }
+}
+
+#[test]
+fn test_gql_introspection_edge_combined() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person)-[e:knows]->(q:Person)
+            RETURN id(e) AS edge_id, type(e) AS edge_type, properties(e) AS edge_props
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        // id() returns Int
+        assert!(matches!(map.get("edge_id"), Some(Value::Int(_))));
+
+        // type() returns String
+        assert_eq!(
+            map.get("edge_type"),
+            Some(&Value::String("knows".to_string()))
+        );
+
+        // properties() returns Map
+        if let Some(Value::Map(props)) = map.get("edge_props") {
+            assert_eq!(props.get("years"), Some(&Value::Int(5)));
+        } else {
+            panic!("Expected Map for edge_props");
+        }
+    }
+}
+
+#[test]
+fn test_gql_introspection_with_aggregation() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use id() and properties() in combination with aggregation
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person)
+            RETURN count(*) AS person_count, collect(id(p)) AS person_ids
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        // Should count 2 persons
+        assert_eq!(map.get("person_count"), Some(&Value::Int(2)));
+
+        // Should collect their IDs
+        if let Some(Value::List(ids)) = map.get("person_ids") {
+            assert_eq!(ids.len(), 2);
+            // All IDs should be integers
+            for id in ids {
+                assert!(matches!(id, Value::Int(_)));
+            }
+        } else {
+            panic!("Expected List for person_ids");
+        }
+    }
+}
+
+#[test]
+fn test_gql_introspection_with_where() {
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter by ID - get all vertices with ID > 0 (all should match)
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (n:Person)
+            WHERE id(n) >= 0
+            RETURN n.name, id(n) AS vid
+        "#,
+        )
+        .unwrap();
+
+    // Both Alice and Bob should be returned
+    assert_eq!(results.len(), 2);
+}
+
+// =============================================================================
+// IS predicate equivalence documentation tests
+// (Plan 11 Phase 4.1 - showing that is_() in traversal API = WHERE in GQL)
+// =============================================================================
+
+#[test]
+fn test_gql_is_predicate_equivalent_greater_than() {
+    // In traversal API: g.v().values("age").is_(p::gt(25))
+    // In GQL: WHERE p.age > 25
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 25 RETURN p.name")
+        .unwrap();
+
+    // Only Alice (age 30) should match
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}
+
+#[test]
+fn test_gql_is_predicate_equivalent_range() {
+    // In traversal API: g.v().values("age").is_(p::between(20, 28))
+    // In GQL: WHERE p.age >= 20 AND p.age < 28
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age >= 20 AND p.age < 28 RETURN p.name")
+        .unwrap();
+
+    // Only Bob (age 25) should match
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Bob".to_string()));
+}
+
+#[test]
+fn test_gql_is_predicate_equivalent_equality() {
+    // In traversal API: g.v().values("age").is_(p::eq(30))
+    // In GQL: WHERE p.age = 30
+    let graph = create_introspection_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age = 30 RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}

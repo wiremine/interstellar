@@ -695,6 +695,61 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
             // Path function - returns the full traversal path stored in row
             "PATH" => row.get("__path__").cloned().unwrap_or(Value::List(vec![])),
+
+            // Introspection functions
+            "PROPERTIES" => {
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_expression_from_row(arg, row);
+                    match element_val {
+                        Value::Vertex(vid) => {
+                            if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
+                                return Value::Map(vertex.properties);
+                            }
+                        }
+                        Value::Edge(eid) => {
+                            if let Some(edge) = self.snapshot.storage().get_edge(eid) {
+                                return Value::Map(edge.properties);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Value::Null
+            }
+            "LABELS" => {
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_expression_from_row(arg, row);
+                    if let Value::Vertex(vid) = element_val {
+                        if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
+                            return Value::List(vec![Value::String(vertex.label)]);
+                        }
+                    }
+                }
+                Value::Null
+            }
+            "TYPE" => {
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_expression_from_row(arg, row);
+                    if let Value::Edge(eid) = element_val {
+                        if let Some(edge) = self.snapshot.storage().get_edge(eid) {
+                            return Value::String(edge.label);
+                        }
+                    }
+                }
+                Value::Null
+            }
+            "ID" => {
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_expression_from_row(arg, row);
+                    match element_val {
+                        Value::Vertex(vid) => return Value::Int(vid.0 as i64),
+                        Value::Edge(eid) => return Value::Int(eid.0 as i64),
+                        _ => {}
+                    }
+                }
+                Value::Null
+            }
+
             _ => Value::Null,
         }
     }
@@ -1939,6 +1994,64 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 Value::List(path_values)
             }
 
+            // Introspection functions
+            "PROPERTIES" => {
+                // Return all properties of a vertex or edge as a map
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value_from_path(arg, traverser);
+                    match element_val {
+                        Value::Vertex(vid) => {
+                            if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
+                                return Value::Map(vertex.properties);
+                            }
+                        }
+                        Value::Edge(eid) => {
+                            if let Some(edge) = self.snapshot.storage().get_edge(eid) {
+                                return Value::Map(edge.properties);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Value::Null
+            }
+            "LABELS" => {
+                // Return vertex label(s) as a list
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value_from_path(arg, traverser);
+                    if let Value::Vertex(vid) = element_val {
+                        if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
+                            return Value::List(vec![Value::String(vertex.label)]);
+                        }
+                    }
+                }
+                Value::Null
+            }
+            "TYPE" => {
+                // Return edge type/label as a string
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value_from_path(arg, traverser);
+                    if let Value::Edge(eid) = element_val {
+                        if let Some(edge) = self.snapshot.storage().get_edge(eid) {
+                            return Value::String(edge.label);
+                        }
+                    }
+                }
+                Value::Null
+            }
+            "ID" => {
+                // Return internal ID of a vertex or edge
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value_from_path(arg, traverser);
+                    match element_val {
+                        Value::Vertex(vid) => return Value::Int(vid.0 as i64),
+                        Value::Edge(eid) => return Value::Int(eid.0 as i64),
+                        _ => {}
+                    }
+                }
+                Value::Null
+            }
+
             // Unknown function
             _ => Value::Null,
         }
@@ -2290,6 +2403,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     /// - `TOINTEGER(val)` / `TOINT(val)` - converts value to integer
     /// - `TOFLOAT(val)` - converts value to float
     /// - `TOBOOLEAN(val)` / `TOBOOL(val)` - converts value to boolean
+    /// - `PROPERTIES(node|edge)` - returns all properties as a map
+    /// - `LABELS(node)` - returns vertex label(s) as a list
+    /// - `TYPE(edge)` - returns edge type/label as a string
+    /// - `ID(node|edge)` - returns internal element ID
     fn evaluate_function_call(&self, name: &str, args: &[Expression], element: &Value) -> Value {
         match name.to_uppercase().as_str() {
             // COALESCE: return first non-null argument
@@ -2522,6 +2639,65 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 } else {
                     Value::Null
                 }
+            }
+
+            // Introspection functions
+            "PROPERTIES" => {
+                // Return all properties of a vertex or edge as a map
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value(arg, element);
+                    match element_val {
+                        Value::Vertex(vid) => {
+                            if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
+                                return Value::Map(vertex.properties);
+                            }
+                        }
+                        Value::Edge(eid) => {
+                            if let Some(edge) = self.snapshot.storage().get_edge(eid) {
+                                return Value::Map(edge.properties);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Value::Null
+            }
+            "LABELS" => {
+                // Return vertex label(s) as a list
+                // Note: In this implementation vertices have a single label
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value(arg, element);
+                    if let Value::Vertex(vid) = element_val {
+                        if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
+                            return Value::List(vec![Value::String(vertex.label)]);
+                        }
+                    }
+                }
+                Value::Null
+            }
+            "TYPE" => {
+                // Return edge type/label as a string
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value(arg, element);
+                    if let Value::Edge(eid) = element_val {
+                        if let Some(edge) = self.snapshot.storage().get_edge(eid) {
+                            return Value::String(edge.label);
+                        }
+                    }
+                }
+                Value::Null
+            }
+            "ID" => {
+                // Return internal ID of a vertex or edge
+                if let Some(arg) = args.first() {
+                    let element_val = self.evaluate_value(arg, element);
+                    match element_val {
+                        Value::Vertex(vid) => return Value::Int(vid.0 as i64),
+                        Value::Edge(eid) => return Value::Int(eid.0 as i64),
+                        _ => {}
+                    }
+                }
+                Value::Null
             }
 
             // Unknown function

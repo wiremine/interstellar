@@ -648,3 +648,40 @@ fn test_parse_length_function_snapshot() {
     let ast = parse(r#"MATCH (p:player) RETURN length(p.name)"#).unwrap();
     assert_yaml_snapshot!(ast);
 }
+
+// =============================================================================
+// Introspection Function Snapshots (Plan 11)
+// =============================================================================
+
+#[test]
+fn test_parse_id_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN id(p)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_labels_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN labels(p)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_type_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player)-[e:played_for]->(t:team) RETURN type(e)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_properties_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN properties(p)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_introspection_combined_snapshot() {
+    let ast = parse(
+        r#"MATCH (p:player) RETURN id(p) AS vid, labels(p) AS vlabels, properties(p) AS vprops"#,
+    )
+    .unwrap();
+    assert_yaml_snapshot!(ast);
+}

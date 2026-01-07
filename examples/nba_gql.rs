@@ -746,12 +746,13 @@ fn main() {
     }
 
     // Query 41: Find players who played for dynasty teams
+    // Note: EXISTS with inner WHERE not yet supported, so we use a multi-hop pattern
     print_query("Find players who played for teams with 10+ championships");
     let results = snapshot
         .gql(
             r#"
-            MATCH (p:player)
-            WHERE EXISTS { (p)-[:played_for]->(t:team) WHERE t.championship_count >= 10 }
+            MATCH (p:player)-[:played_for]->(t:team)
+            WHERE t.championship_count >= 10
             RETURN DISTINCT p.name
             ORDER BY p.name
         "#,
@@ -1189,23 +1190,21 @@ fn main() {
         }
     }
 
-    // Query 58: CASE + GROUP BY
-    print_query("Count players by scoring tier (CASE + GROUP BY)");
+    // Query 58: CASE expressions with player categorization
+    // Note: CASE in GROUP BY not yet supported, so we show individual categorizations
+    print_query("Categorize players by scoring tier (CASE expression)");
     let results = snapshot
         .gql(
             r#"
             MATCH (p:player)
-            RETURN CASE
+            RETURN p.name,
+                   CASE
                        WHEN p.points_per_game >= 25.0 THEN 'Elite'
                        WHEN p.points_per_game >= 18.0 THEN 'Star'
                        ELSE 'Other'
-                   END AS tier,
-                   count(*) AS player_count
-            GROUP BY CASE
-                       WHEN p.points_per_game >= 25.0 THEN 'Elite'
-                       WHEN p.points_per_game >= 18.0 THEN 'Star'
-                       ELSE 'Other'
-                   END
+                   END AS tier
+            ORDER BY p.points_per_game DESC
+            LIMIT 8
         "#,
         )
         .unwrap();
@@ -1214,8 +1213,8 @@ fn main() {
         if let Value::Map(map) = r {
             println!(
                 "  {}: {}",
-                format_value(map.get("tier").unwrap_or(&Value::Null)),
-                format_value(map.get("player_count").unwrap_or(&Value::Null))
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("tier").unwrap_or(&Value::Null))
             );
         }
     }
@@ -1279,6 +1278,557 @@ fn main() {
         }
     }
 
+    // =========================================================================
+    // SECTION 18: Introspection Functions (Plan 11)
+    // =========================================================================
+    print_section("18. INTROSPECTION FUNCTIONS (Plan 11)");
+
+    // Query 61: Get element metadata with id() and labels()
+    print_query("Element introspection - id() and labels()");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.name = 'Michael Jordan'
+            RETURN id(p) AS vertex_id, labels(p) AS vertex_labels, p.name
+        "#,
+        )
+        .unwrap();
+    println!("Michael Jordan vertex info:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  ID: {}, Labels: {}, Name: {}",
+                format_value(map.get("vertex_id").unwrap_or(&Value::Null)),
+                format_value(map.get("vertex_labels").unwrap_or(&Value::Null)),
+                format_value(map.get("p.name").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 62: Get all properties of a vertex with properties()
+    print_query("Get all properties of a player with properties()");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.name = 'LeBron James'
+            RETURN properties(p) AS all_props
+        "#,
+        )
+        .unwrap();
+    println!("LeBron James properties:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}",
+                format_value(map.get("all_props").unwrap_or(&Value::Null))
+            );
+        } else {
+            println!("  {}", format_value(r));
+        }
+    }
+
+    // Query 63: Get edge type with type()
+    print_query("Edge type introspection with type()");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player {name: 'Michael Jordan'})-[e]->(t:team)
+            RETURN p.name AS player, type(e) AS relationship, t.name AS team
+        "#,
+        )
+        .unwrap();
+    println!("Michael Jordan's relationships:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} --[{}]--> {}",
+                format_value(map.get("player").unwrap_or(&Value::Null)),
+                format_value(map.get("relationship").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 64: Get edge properties
+    print_query("Edge properties with properties()");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[e:played_for]->(t:team)
+            WHERE p.name = 'LeBron James'
+            RETURN t.name AS team, properties(e) AS edge_props
+        "#,
+        )
+        .unwrap();
+    println!("LeBron's career history with edge properties:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} - {}",
+                format_value(map.get("team").unwrap_or(&Value::Null)),
+                format_value(map.get("edge_props").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 65: Combine id() with aggregation
+    print_query("Vertex IDs with aggregation");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            WHERE t.conference = 'Eastern'
+            RETURN id(t) AS team_id, t.name AS team_name
+            ORDER BY team_id
+            LIMIT 5
+        "#,
+        )
+        .unwrap();
+    println!("First 5 Eastern Conference teams by ID:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  ID {}: {}",
+                format_value(map.get("team_id").unwrap_or(&Value::Null)),
+                format_value(map.get("team_name").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 66: Show relationship types using type()
+    print_query("Shaq's relationships with type()");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player {name: 'Shaquille O''Neal'})-[e]->(t:team)
+            RETURN type(e) AS rel_type, t.name AS team
+            ORDER BY rel_type, t.name
+        "#,
+        )
+        .unwrap();
+    println!("Shaq's relationships:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} -> {} ({})",
+                format_value(map.get("rel_type").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null)),
+                "Shaq"
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 19: Additional Predicate Queries (Parity with traversal API)
+    // =========================================================================
+    print_section("19. ADDITIONAL PREDICATE QUERIES");
+
+    // Query 67: Teams founded before 1970 (equivalent to traversal Query 17)
+    print_query("Teams founded before 1970");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            WHERE t.founded < 1970
+            RETURN t.name, t.founded
+            ORDER BY t.founded ASC
+        "#,
+        )
+        .unwrap();
+    println!("Pre-1970 teams:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} (founded {})",
+                format_value(map.get("t.name").unwrap_or(&Value::Null)),
+                format_value(map.get("t.founded").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 68: Teams founded between 1980 and 2000 (equivalent to traversal Query 18)
+    print_query("Teams founded between 1980 and 2000");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (t:team)
+            WHERE t.founded >= 1980 AND t.founded <= 2000
+            RETURN t.name, t.founded
+            ORDER BY t.founded ASC
+        "#,
+        )
+        .unwrap();
+    println!("Expansion era teams (1980-2000):");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} (founded {})",
+                format_value(map.get("t.name").unwrap_or(&Value::Null)),
+                format_value(map.get("t.founded").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 69: Passing big men - Centers with 3+ APG (equivalent to traversal Query 43)
+    print_query("Passing big men (Centers with 3+ APG)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.position = 'Center' AND p.assists_per_game >= 3.0
+            RETURN p.name, p.assists_per_game
+            ORDER BY p.assists_per_game DESC
+        "#,
+        )
+        .unwrap();
+    println!("Passing Centers:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({} APG)",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("p.assists_per_game").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 70: Most decorated players - MVP, Finals MVP, AND championships
+    // (equivalent to traversal Query 40)
+    print_query("Most decorated players (MVP + Finals MVP + Championships)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.mvp_count >= 1 
+              AND p.finals_mvp_count >= 1 
+              AND EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.name, p.mvp_count, p.finals_mvp_count
+            ORDER BY p.mvp_count DESC
+        "#,
+        )
+        .unwrap();
+    println!("Triple-crown players (MVP + Finals MVP + Ring):");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({} MVPs, {} Finals MVPs)",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("p.mvp_count").unwrap_or(&Value::Null)),
+                format_value(map.get("p.finals_mvp_count").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 71: Championship drought - ringless players on winning franchises
+    // (equivalent to traversal Query 44)
+    // Note: In our dataset, Charles Barkley is the only ringless player, but he
+    // has no played_for edges in the fixture data, so the result should be "(none)".
+    // We use a two-step approach to demonstrate the query pattern.
+    print_query("Ringless players on championship franchises");
+
+    // First find ringless players
+    let ringless = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE NOT EXISTS { (p)-[:won_championship_with]->() }
+            RETURN p.name
+        "#,
+        )
+        .unwrap();
+    println!("  Players without rings: {}", format_names(&ringless));
+
+    // Then check if they played for championship teams
+    // Note: Charles Barkley has no played_for edges in our fixture
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player {name: 'Charles Barkley'})-[:played_for]->(t:team)
+            RETURN t.name
+        "#,
+        )
+        .unwrap();
+    println!(
+        "  Charles Barkley's teams: {}",
+        if results.is_empty() {
+            "(no played_for edges in fixture)".to_string()
+        } else {
+            format_names(&results)
+        }
+    );
+
+    // Query 72: GOAT candidates with detailed stats (equivalent to traversal Query 45)
+    print_query("GOAT candidates (2+ MVPs AND 2+ Finals MVPs) with ring count");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[e:won_championship_with]->(t:team)
+            WHERE p.mvp_count >= 2 AND p.finals_mvp_count >= 2
+            RETURN p.name, 
+                   p.mvp_count, 
+                   p.finals_mvp_count, 
+                   sum(e.ring_count) AS total_rings
+            GROUP BY p.name, p.mvp_count, p.finals_mvp_count
+            ORDER BY total_rings DESC
+        "#,
+        )
+        .unwrap();
+    println!("GOAT candidates:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {} MVPs, {} Finals MVPs, {} rings",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("p.mvp_count").unwrap_or(&Value::Null)),
+                format_value(map.get("p.finals_mvp_count").unwrap_or(&Value::Null)),
+                format_value(map.get("total_rings").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 20: Union-Style Queries
+    // =========================================================================
+    print_section("20. UNION-STYLE QUERIES");
+
+    // Query 73: Shaq's all team connections (played_for + won_championship_with)
+    // GQL doesn't have UNION yet, so we use two queries
+    // This demonstrates how to achieve similar results to traversal API's union()
+    print_query("Shaq's teams - played for");
+    let played_for = snapshot
+        .gql(
+            r#"
+            MATCH (p:player {name: 'Shaquille O''Neal'})-[:played_for]->(t:team)
+            RETURN t.name AS team
+        "#,
+        )
+        .unwrap();
+    println!("Teams Shaq played for: {}", format_names(&played_for));
+
+    print_query("Shaq's teams - won championships with");
+    let won_with = snapshot
+        .gql(
+            r#"
+            MATCH (p:player {name: 'Shaquille O''Neal'})-[:won_championship_with]->(t:team)
+            RETURN t.name AS team
+        "#,
+        )
+        .unwrap();
+    println!(
+        "Teams Shaq won championships with: {}",
+        format_names(&won_with)
+    );
+
+    // Combine programmatically (simulating UNION)
+    let mut all_shaq_teams: Vec<String> = played_for
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                map.get("team").map(format_value)
+            } else if let Value::String(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for v in &won_with {
+        if let Value::Map(map) = v {
+            if let Some(team) = map.get("team").map(format_value) {
+                if !all_shaq_teams.contains(&team) {
+                    all_shaq_teams.push(team);
+                }
+            }
+        } else if let Value::String(s) = v {
+            if !all_shaq_teams.contains(s) {
+                all_shaq_teams.push(s.clone());
+            }
+        }
+    }
+    println!(
+        "All Shaq's team connections (union): {}",
+        all_shaq_teams.join(", ")
+    );
+
+    // =========================================================================
+    // SECTION 21: Complex Multi-Hop Patterns
+    // =========================================================================
+    print_section("21. COMPLEX MULTI-HOP PATTERNS");
+
+    // Query 74: Extended teammate network (teammates of teammates)
+    // Equivalent to traversal Query 33
+    print_query("Kobe's extended network (teammates of teammates)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p1:player {name: 'Kobe Bryant'})-[:played_for]->(t1:team)<-[:played_for]-(teammate:player)-[:played_for]->(t2:team)<-[:played_for]-(extended:player)
+            RETURN DISTINCT extended.name
+            ORDER BY extended.name
+        "#,
+        )
+        .unwrap();
+    println!(
+        "Kobe's extended network ({} players): {}",
+        results.len(),
+        if results.len() > 10 {
+            format!(
+                "{} ...",
+                results
+                    .iter()
+                    .take(10)
+                    .map(format_value)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            format_names(&results)
+        }
+    );
+
+    // Query 75: Multi-team championship winners
+    // Players who won championships with more than one team
+    print_query("Multi-team championship winners");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)-[:won_championship_with]->(t:team)
+            RETURN p.name, count(DISTINCT t) AS team_count, collect(t.name) AS teams
+            GROUP BY p.name
+            ORDER BY team_count DESC
+        "#,
+        )
+        .unwrap();
+    println!("Players by championship teams:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            let count = map.get("team_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            if count > 1 {
+                println!(
+                    "  {} ({} teams): {}",
+                    format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                    count,
+                    format_value(map.get("teams").unwrap_or(&Value::Null))
+                );
+            }
+        }
+    }
+
+    // Query 76: Find championship teammates (Shaq's championship co-winners)
+    // Equivalent to traversal Query 24
+    print_query("Shaq's championship teammates");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player {name: 'Shaquille O''Neal'})-[:won_championship_with]->(t:team)<-[:won_championship_with]-(teammate:player)
+            WHERE teammate.name <> 'Shaquille O''Neal'
+            RETURN DISTINCT teammate.name, t.name AS team
+            ORDER BY teammate.name
+        "#,
+        )
+        .unwrap();
+    println!("Shaq's championship teammates:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {} ({})",
+                format_value(map.get("teammate.name").unwrap_or(&Value::Null)),
+                format_value(map.get("team").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // =========================================================================
+    // SECTION 22: Summary Statistics (GQL equivalents)
+    // =========================================================================
+    print_section("22. SUMMARY STATISTICS");
+
+    // Query 77: Total MVP awards in dataset
+    print_query("Total MVP awards represented");
+    let results = snapshot
+        .gql("MATCH (p:player) RETURN sum(p.mvp_count) AS total_mvps")
+        .unwrap();
+    if let Some(Value::Map(map)) = results.first() {
+        println!(
+            "Total MVP awards: {}",
+            format_value(map.get("total_mvps").unwrap_or(&Value::Null))
+        );
+    }
+
+    // Query 78: Average stats across all players
+    print_query("Average player stats");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            RETURN avg(p.points_per_game) AS avg_ppg,
+                   avg(p.rebounds_per_game) AS avg_rpg,
+                   avg(p.assists_per_game) AS avg_apg
+        "#,
+        )
+        .unwrap();
+    if let Some(Value::Map(map)) = results.first() {
+        println!(
+            "  Average PPG: {:.2}",
+            map.get("avg_ppg").and_then(|v| v.as_f64()).unwrap_or(0.0)
+        );
+        println!(
+            "  Average RPG: {:.2}",
+            map.get("avg_rpg").and_then(|v| v.as_f64()).unwrap_or(0.0)
+        );
+        println!(
+            "  Average APG: {:.2}",
+            map.get("avg_apg").and_then(|v| v.as_f64()).unwrap_or(0.0)
+        );
+    }
+
+    // Query 79: All-Star leaders (15+ selections)
+    // Equivalent to summary in traversal example
+    print_query("All-Star leaders (15+ selections)");
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:player)
+            WHERE p.all_star_selections >= 15
+            RETURN p.name, p.all_star_selections
+            ORDER BY p.all_star_selections DESC
+        "#,
+        )
+        .unwrap();
+    println!("All-Star leaders:");
+    for r in &results {
+        if let Value::Map(map) = r {
+            println!(
+                "  {}: {} All-Star selections",
+                format_value(map.get("p.name").unwrap_or(&Value::Null)),
+                format_value(map.get("p.all_star_selections").unwrap_or(&Value::Null))
+            );
+        }
+    }
+
+    // Query 80: Edge counts by relationship type
+    print_query("Relationship counts by type");
+    let played_for_count = snapshot
+        .gql("MATCH ()-[e:played_for]->() RETURN count(e) AS count")
+        .unwrap();
+    let champ_count = snapshot
+        .gql("MATCH ()-[e:won_championship_with]->() RETURN count(e) AS count")
+        .unwrap();
+    println!("Edge counts:");
+    if let Some(Value::Map(map)) = played_for_count.first() {
+        println!(
+            "  played_for: {}",
+            format_value(map.get("count").unwrap_or(&Value::Null))
+        );
+    }
+    if let Some(Value::Map(map)) = champ_count.first() {
+        println!(
+            "  won_championship_with: {}",
+            format_value(map.get("count").unwrap_or(&Value::Null))
+        );
+    }
+
     println!("\n=== GQL Query Example Complete ===");
     println!("\nThis example demonstrated:");
     println!("  - Basic node matching with labels");
@@ -1303,6 +1853,19 @@ fn main() {
     println!("  - Type conversion (toString, toInteger, etc.)");
     println!("  - Multi-variable pattern binding");
     println!("  - Edge variable binding and property access");
+    println!("\n  Plan 11 Features:");
+    println!("  - id() for internal element IDs");
+    println!("  - labels() for vertex labels");
+    println!("  - type() for edge types");
+    println!("  - properties() for all properties as map");
+    println!("\n  Additional Features (Parity with Traversal API):");
+    println!("  - Complex predicate queries (founded before/between dates)");
+    println!("  - Passing big men (position + stats filter)");
+    println!("  - Most decorated players (multiple criteria + EXISTS)");
+    println!("  - GOAT candidates with ring count aggregation");
+    println!("  - Union-style queries (combining relationship types)");
+    println!("  - Multi-hop patterns (extended networks, teammates of teammates)");
+    println!("  - Summary statistics (totals, averages, counts)");
 }
 
 // =============================================================================

@@ -1,0 +1,40 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        FunctionCall:
+          name: id
+          args:
+            - Variable: p
+      alias: vid
+    - expression:
+        FunctionCall:
+          name: labels
+          args:
+            - Variable: p
+      alias: vlabels
+    - expression:
+        FunctionCall:
+          name: properties
+          args:
+            - Variable: p
+      alias: vprops
+group_by_clause: ~
+order_clause: ~
+limit_clause: ~
