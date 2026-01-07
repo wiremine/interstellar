@@ -82,9 +82,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         pattern: &Pattern,
         mut traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
-        let mut element_index = 0;
-
-        for element in &pattern.elements {
+        for (element_index, element) in pattern.elements.iter().enumerate() {
             match element {
                 PatternElement::Node(node) => {
                     traversal = self.compile_node(node, traversal, element_index)?;
@@ -93,7 +91,6 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     traversal = self.compile_edge(edge, traversal)?;
                 }
             }
-            element_index += 1;
         }
 
         Ok(traversal)
@@ -189,10 +186,89 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             self.validate_expression_variables(&item.expression)?;
         }
 
-        // Collect results - the traversal yields Value::Vertex for each match
-        let results: Vec<Value> = traversal.to_list();
+        // Collect the matched elements first
+        let matched_elements: Vec<Value> = traversal.to_list();
+
+        // Process each matched element according to the RETURN clause
+        let results: Vec<Value> = matched_elements
+            .into_iter()
+            .filter_map(|element| self.evaluate_return_for_element(&return_clause.items, &element))
+            .collect();
 
         Ok(results)
+    }
+
+    /// Evaluate the RETURN clause for a single matched element.
+    ///
+    /// Returns None if a required property is missing.
+    fn evaluate_return_for_element(&self, items: &[ReturnItem], element: &Value) -> Option<Value> {
+        if items.len() == 1 {
+            // Single return item - return the value directly
+            self.evaluate_expression(&items[0].expression, element)
+        } else {
+            // Multiple return items - return a map
+            let mut map = std::collections::HashMap::new();
+            for item in items {
+                let key = self.get_return_item_key(item);
+                let value = self.evaluate_expression(&item.expression, element)?;
+                map.insert(key, value);
+            }
+            Some(Value::Map(map))
+        }
+    }
+
+    /// Get the key name for a return item (alias or derived name).
+    fn get_return_item_key(&self, item: &ReturnItem) -> String {
+        if let Some(alias) = &item.alias {
+            alias.clone()
+        } else {
+            match &item.expression {
+                Expression::Variable(var) => var.clone(),
+                Expression::Property { variable, property } => {
+                    format!("{}.{}", variable, property)
+                }
+                _ => "value".to_string(),
+            }
+        }
+    }
+
+    /// Evaluate a single expression against an element.
+    ///
+    /// Returns None if the expression cannot be evaluated (e.g., missing property).
+    fn evaluate_expression(&self, expr: &Expression, element: &Value) -> Option<Value> {
+        match expr {
+            Expression::Variable(_) => {
+                // Return the element itself
+                Some(element.clone())
+            }
+            Expression::Property { property, .. } => {
+                // Extract property value from the element
+                self.extract_property(element, property)
+            }
+            Expression::Literal(lit) => {
+                // Convert literal to value
+                Some(lit.clone().into())
+            }
+            _ => {
+                // Other expressions not yet implemented
+                Some(element.clone())
+            }
+        }
+    }
+
+    /// Extract a property value from a vertex or edge.
+    fn extract_property(&self, element: &Value, property: &str) -> Option<Value> {
+        match element {
+            Value::Vertex(id) => {
+                let vertex = self.snapshot.storage().get_vertex(*id)?;
+                vertex.properties.get(property).cloned()
+            }
+            Value::Edge(id) => {
+                let edge = self.snapshot.storage().get_edge(*id)?;
+                edge.properties.get(property).cloned()
+            }
+            _ => None,
+        }
     }
 
     /// Validate that all variables referenced in an expression are bound.

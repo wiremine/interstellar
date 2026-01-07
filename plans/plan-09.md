@@ -1408,10 +1408,10 @@ fn validate_expression_variables(&self, expr: &Expression) -> Result<(), Compile
 ```
 
 **Acceptance Criteria**:
-- [ ] `RETURN n.name` returns property values
-- [ ] `RETURN n.name, n.age` returns maps with both properties
-- [ ] `RETURN n.name AS personName` uses alias in result
-- [ ] Undefined variable in property access produces error
+- [x] `RETURN n.name` returns property values
+- [x] `RETURN n.name, n.age` returns maps with both properties
+- [x] `RETURN n.name AS personName` uses alias in result
+- [x] Undefined variable in property access produces error
 
 ---
 

@@ -419,3 +419,211 @@ fn test_gql_chain_of_three_hops() {
     // Carol has no outgoing KNOWS edges, so this should return empty
     assert_eq!(results.len(), 0, "No three-hop KNOWS path from Alice");
 }
+
+// =============================================================================
+// Property Access in RETURN Clause Tests (Phase 2.5)
+// =============================================================================
+
+#[test]
+fn test_gql_return_single_property() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // RETURN n.name should return property values, not vertices
+    let results = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
+
+    assert_eq!(results.len(), 3, "Should find 3 Person vertices");
+
+    // All results should be strings (property values)
+    for result in &results {
+        assert!(
+            matches!(result, Value::String(_)),
+            "Expected String, got {:?}",
+            result
+        );
+    }
+
+    // Check that the names are correct
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(names.contains(&"Alice"));
+    assert!(names.contains(&"Bob"));
+    assert!(names.contains(&"Charlie"));
+}
+
+#[test]
+fn test_gql_return_numeric_property() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // RETURN n.age should return integer values
+    let results = snapshot.gql("MATCH (n:Person) RETURN n.age").unwrap();
+
+    assert_eq!(results.len(), 3, "Should find 3 Person vertices with age");
+
+    // All results should be integers
+    for result in &results {
+        assert!(
+            matches!(result, Value::Int(_)),
+            "Expected Int, got {:?}",
+            result
+        );
+    }
+
+    // Check that the ages are correct
+    let ages: Vec<i64> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert!(ages.contains(&30)); // Alice
+    assert!(ages.contains(&25)); // Bob
+    assert!(ages.contains(&35)); // Charlie
+}
+
+#[test]
+fn test_gql_return_multiple_properties() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // RETURN n.name, n.age should return maps with both properties
+    let results = snapshot
+        .gql("MATCH (n:Person {name: 'Alice'}) RETURN n.name, n.age")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find 1 Alice vertex");
+
+    // Result should be a map
+    match &results[0] {
+        Value::Map(map) => {
+            assert!(map.contains_key("n.name"), "Map should contain n.name key");
+            assert!(map.contains_key("n.age"), "Map should contain n.age key");
+            assert_eq!(map.get("n.name"), Some(&Value::String("Alice".to_string())));
+            assert_eq!(map.get("n.age"), Some(&Value::Int(30)));
+        }
+        other => panic!("Expected Map, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_return_property_with_alias() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // RETURN n.name AS personName should use the alias as the key
+    let results = snapshot
+        .gql("MATCH (n:Person {name: 'Alice'}) RETURN n.name AS personName")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find 1 Alice vertex");
+
+    // Single item with alias still returns the value directly
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}
+
+#[test]
+fn test_gql_return_multiple_properties_with_aliases() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // RETURN n.name AS name, n.age AS years should use aliases as keys
+    let results = snapshot
+        .gql("MATCH (n:Person {name: 'Bob'}) RETURN n.name AS name, n.age AS years")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find 1 Bob vertex");
+
+    match &results[0] {
+        Value::Map(map) => {
+            assert!(map.contains_key("name"), "Map should contain 'name' key");
+            assert!(map.contains_key("years"), "Map should contain 'years' key");
+            assert_eq!(map.get("name"), Some(&Value::String("Bob".to_string())));
+            assert_eq!(map.get("years"), Some(&Value::Int(25)));
+        }
+        other => panic!("Expected Map, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_return_missing_property() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Company vertices don't have 'age' property
+    let results = snapshot.gql("MATCH (c:Company) RETURN c.age").unwrap();
+
+    // Missing properties should filter out the result
+    assert_eq!(results.len(), 0, "No Company has age property");
+}
+
+#[test]
+fn test_gql_return_property_from_traversal() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Get names of people Alice knows
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Alice knows 2 people");
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(names.contains(&"Bob"));
+    assert!(names.contains(&"Carol"));
+}
+
+#[test]
+fn test_gql_return_undefined_variable_in_property() {
+    let graph = Graph::in_memory();
+    let snapshot = graph.snapshot();
+
+    // Variable 'x' is not defined in MATCH clause
+    let result = snapshot.gql("MATCH (n:Person) RETURN x.name");
+
+    assert!(result.is_err());
+    assert!(matches!(result, Err(GqlError::Compile(_))));
+}
+
+#[test]
+fn test_gql_return_mixed_variable_and_property() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Return both the vertex and a property
+    let results = snapshot
+        .gql("MATCH (n:Person {name: 'Alice'}) RETURN n, n.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find 1 Alice vertex");
+
+    match &results[0] {
+        Value::Map(map) => {
+            assert!(map.contains_key("n"), "Map should contain 'n' key");
+            assert!(
+                map.contains_key("n.name"),
+                "Map should contain 'n.name' key"
+            );
+
+            // 'n' should be a vertex
+            assert!(matches!(map.get("n"), Some(Value::Vertex(_))));
+
+            // 'n.name' should be the name string
+            assert_eq!(map.get("n.name"), Some(&Value::String("Alice".to_string())));
+        }
+        other => panic!("Expected Map, got {:?}", other),
+    }
+}
