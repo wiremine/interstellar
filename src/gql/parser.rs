@@ -259,15 +259,57 @@ fn build_return_clause(pair: pest::iterators::Pair<Rule>) -> Result<ReturnClause
     let mut items = Vec::new();
 
     for inner in pair.into_inner() {
-        if inner.as_rule() == Rule::variable {
-            items.push(ReturnItem {
-                expression: Expression::Variable(inner.as_str().to_string()),
-                alias: None,
-            });
+        if inner.as_rule() == Rule::return_item {
+            items.push(build_return_item(inner)?);
         }
     }
 
     Ok(ReturnClause { items })
+}
+
+fn build_return_item(pair: pest::iterators::Pair<Rule>) -> Result<ReturnItem, ParseError> {
+    let mut expression = None;
+    let mut alias = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::expression => expression = Some(build_expression(inner)?),
+            Rule::identifier => alias = Some(inner.as_str().to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(ReturnItem {
+        expression: expression.ok_or(ParseError::MissingClause("expression"))?,
+        alias,
+    })
+}
+
+fn build_expression(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or(ParseError::MissingClause("expression"))?;
+
+    match inner.as_rule() {
+        Rule::property_access => {
+            let mut parts = inner.into_inner();
+            let variable = parts
+                .next()
+                .ok_or(ParseError::MissingClause("variable"))?
+                .as_str()
+                .to_string();
+            let property = parts
+                .next()
+                .ok_or(ParseError::MissingClause("property"))?
+                .as_str()
+                .to_string();
+            Ok(Expression::Property { variable, property })
+        }
+        Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
+        Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
+        _ => Err(ParseError::InvalidLiteral(inner.as_str().to_string())),
+    }
 }
 
 #[cfg(test)]
@@ -567,9 +609,9 @@ mod tests {
         }
 
         // Float literal
-        let query = parse("MATCH (n {score: 3.14}) RETURN n").unwrap();
+        let query = parse("MATCH (n {score: 3.15}) RETURN n").unwrap();
         if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
-            assert_eq!(node.properties[0].1, Literal::Float(3.14));
+            assert_eq!(node.properties[0].1, Literal::Float(3.15));
         }
 
         // Boolean true
@@ -677,6 +719,243 @@ mod tests {
                 node.labels,
                 vec!["Person".to_string(), "Employee".to_string()]
             );
+        }
+    }
+
+    // ============================================
+    // Phase 2.3: RETURN Clause Extensions Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_return_property_access() {
+        let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "name");
+        } else {
+            panic!("Expected property access expression");
+        }
+        assert!(query.return_clause.items[0].alias.is_none());
+    }
+
+    #[test]
+    fn test_parse_return_with_alias() {
+        let query = parse("MATCH (n:Person) RETURN n.name AS personName").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "name");
+        } else {
+            panic!("Expected property access expression");
+        }
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("personName".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_return_multiple_items() {
+        let query = parse("MATCH (n:Person) RETURN n.name, n.age").unwrap();
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        // First item: n.name
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "name");
+        } else {
+            panic!("Expected property access expression for first item");
+        }
+
+        // Second item: n.age
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[1].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "age");
+        } else {
+            panic!("Expected property access expression for second item");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_multiple_items_with_aliases() {
+        let query = parse("MATCH (n:Person) RETURN n.name AS name, n.age AS years").unwrap();
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        // First item: n.name AS name
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "name");
+        }
+        assert_eq!(query.return_clause.items[0].alias, Some("name".to_string()));
+
+        // Second item: n.age AS years
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[1].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "age");
+        }
+        assert_eq!(
+            query.return_clause.items[1].alias,
+            Some("years".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_return_variable_still_works() {
+        // Ensure returning just a variable still works
+        let query = parse("MATCH (n:Person) RETURN n").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Variable(v) = &query.return_clause.items[0].expression {
+            assert_eq!(v, "n");
+        } else {
+            panic!("Expected variable expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_variable_with_alias() {
+        let query = parse("MATCH (n:Person) RETURN n AS person").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Variable(v) = &query.return_clause.items[0].expression {
+            assert_eq!(v, "n");
+        } else {
+            panic!("Expected variable expression");
+        }
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("person".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_return_literal() {
+        // Return a literal value
+        let query = parse("MATCH (n:Person) RETURN 'hello'").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Literal(lit) = &query.return_clause.items[0].expression {
+            assert_eq!(*lit, Literal::String("hello".to_string()));
+        } else {
+            panic!("Expected literal expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_literal_integer() {
+        let query = parse("MATCH (n:Person) RETURN 42").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Literal(lit) = &query.return_clause.items[0].expression {
+            assert_eq!(*lit, Literal::Int(42));
+        } else {
+            panic!("Expected literal expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_literal_with_alias() {
+        let query = parse("MATCH (n:Person) RETURN 100 AS count").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Literal(lit) = &query.return_clause.items[0].expression {
+            assert_eq!(*lit, Literal::Int(100));
+        } else {
+            panic!("Expected literal expression");
+        }
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("count".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_return_mixed_expressions() {
+        // Mix of variable, property access, and literal
+        let query = parse("MATCH (n:Person) RETURN n, n.name, 'constant' AS c").unwrap();
+        assert_eq!(query.return_clause.items.len(), 3);
+
+        // First: variable n
+        if let Expression::Variable(v) = &query.return_clause.items[0].expression {
+            assert_eq!(v, "n");
+        } else {
+            panic!("Expected variable expression");
+        }
+
+        // Second: property access n.name
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[1].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "name");
+        } else {
+            panic!("Expected property access expression");
+        }
+
+        // Third: literal 'constant' AS c
+        if let Expression::Literal(lit) = &query.return_clause.items[2].expression {
+            assert_eq!(*lit, Literal::String("constant".to_string()));
+        } else {
+            panic!("Expected literal expression");
+        }
+        assert_eq!(query.return_clause.items[2].alias, Some("c".to_string()));
+    }
+
+    #[test]
+    fn test_parse_return_case_insensitive_as() {
+        // AS keyword is case insensitive
+        let query = parse("MATCH (n:Person) RETURN n.name as personName").unwrap();
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("personName".to_string())
+        );
+
+        let query = parse("MATCH (n:Person) RETURN n.name As personName").unwrap();
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("personName".to_string())
+        );
+
+        let query = parse("MATCH (n:Person) RETURN n.name AS personName").unwrap();
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("personName".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_return_different_variables() {
+        // Return properties from different pattern variables
+        let query = parse("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.name, b.name").unwrap();
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "a");
+            assert_eq!(property, "name");
+        }
+
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[1].expression
+        {
+            assert_eq!(variable, "b");
+            assert_eq!(property, "name");
         }
     }
 }

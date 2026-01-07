@@ -1172,9 +1172,9 @@ fn build_expression(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Par
 ```
 
 **Acceptance Criteria**:
-- [ ] `RETURN n.name` parses to `Expression::Property`
-- [ ] `RETURN n.name AS personName` includes alias
-- [ ] `RETURN a.name, b.age` parses multiple items
+- [x] `RETURN n.name` parses to `Expression::Property`
+- [x] `RETURN n.name AS personName` includes alias
+- [x] `RETURN a.name, b.age` parses multiple items
 
 ---
 

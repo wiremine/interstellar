@@ -1,15 +1,17 @@
-// GQL Grammar - Extended with Edge Patterns (Phase 2.1)
+// GQL Grammar - Extended with Edge Patterns and RETURN Clause Extensions
 // Supports:
 // - Node patterns: (n:Label {prop: value})
 // - Edge patterns: -[e:TYPE]->, <-[e:TYPE]-, -[e:TYPE]-
 // - Multiple patterns: (a), (b)
 // - Path quantifiers: *1..3
+// - Extended RETURN: n.name, n.age AS personAge
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 // Keywords (case-insensitive)
 MATCH  = { ^"match" }
 RETURN = { ^"return" }
+AS     = { ^"as" }
 TRUE   = { ^"true" }
 FALSE  = { ^"false" }
 NULL   = { ^"null" }
@@ -61,5 +63,11 @@ float = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 variable = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
-// RETURN clause - single variable only (extended in Phase 2.3)
-return_clause = { RETURN ~ variable }
+// RETURN clause - multiple items with optional aliases
+// e.g., RETURN n, n.name, n.age AS personAge
+return_clause = { RETURN ~ return_item ~ ("," ~ return_item)* }
+return_item = { expression ~ (AS ~ identifier)? }
+
+// Expression - property access, variable, or literal
+expression = { property_access | variable | literal }
+property_access = { variable ~ "." ~ identifier }
