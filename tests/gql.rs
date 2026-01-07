@@ -3172,3 +3172,180 @@ fn test_gql_return_distinct_vertex() {
     );
     assert_eq!(results_distinct.len(), 7);
 }
+
+// =============================================================================
+// Phase 5.4: Improved Error Messages Tests
+// =============================================================================
+
+/// Test that parse errors include position information
+#[test]
+fn test_gql_parse_error_includes_position() {
+    // Invalid syntax - error should include position
+    let result = parse("MATCH (n:Person RETURN n");
+    assert!(result.is_err());
+
+    if let Err(e) = result {
+        let error_msg = format!("{}", e);
+        // The pest error includes position info with line/column format like "1:17"
+        assert!(
+            error_msg.contains("position")
+                || error_msg.contains("line")
+                || error_msg.contains("-->"),
+            "Error message should contain position info: {}",
+            error_msg
+        );
+    }
+}
+
+/// Test that parse errors for missing clauses include position information
+#[test]
+fn test_gql_parse_error_missing_clause_position() {
+    // Missing RETURN clause
+    let result = parse("MATCH (n:Person)");
+    assert!(result.is_err());
+
+    if let Err(e) = result {
+        let error_msg = format!("{}", e);
+        // Should mention either RETURN or position
+        assert!(
+            error_msg.contains("RETURN")
+                || error_msg.contains("position")
+                || error_msg.contains("-->"),
+            "Error message should be helpful: {}",
+            error_msg
+        );
+    }
+}
+
+/// Test that compile errors include helpful suggestions
+#[test]
+fn test_gql_compile_error_helpful_message() {
+    let graph = Graph::in_memory();
+    let snapshot = graph.snapshot();
+
+    // Undefined variable - error should have suggestion
+    let result = snapshot.gql("MATCH (n:Person) RETURN x");
+    assert!(result.is_err());
+
+    if let Err(e) = result {
+        let error_msg = format!("{}", e);
+        // Should mention the undefined variable and suggest binding it
+        assert!(
+            error_msg.contains("x"),
+            "Error message should mention the undefined variable: {}",
+            error_msg
+        );
+        assert!(
+            error_msg.contains("MATCH")
+                || error_msg.contains("bind")
+                || error_msg.contains("forget"),
+            "Error message should suggest binding in MATCH: {}",
+            error_msg
+        );
+    }
+}
+
+/// Test that compile error for duplicate variable is helpful
+#[test]
+fn test_gql_compile_error_duplicate_variable_message() {
+    use rustgremlin::gql::CompileError;
+
+    // Test the error message directly since the compiler detects duplicates
+    let err = CompileError::duplicate_variable("n");
+    let error_msg = format!("{}", err);
+
+    // Should mention the duplicate variable
+    assert!(
+        error_msg.contains("n"),
+        "Error message should mention the duplicate variable: {}",
+        error_msg
+    );
+    assert!(
+        error_msg.contains("already defined") || error_msg.contains("duplicate"),
+        "Error message should indicate it's a duplicate: {}",
+        error_msg
+    );
+}
+
+/// Test that ParseError span extraction works
+#[test]
+fn test_gql_parse_error_span_extraction() {
+    use rustgremlin::gql::{ParseError, Span};
+
+    // Create an error with a known span
+    let err = ParseError::invalid_literal("abc", Span::new(5, 8), "expected integer");
+
+    // Verify we can extract the span
+    let span = err.span();
+    assert!(span.is_some());
+    let span = span.unwrap();
+    assert_eq!(span.start, 5);
+    assert_eq!(span.end, 8);
+
+    // Verify the message is helpful
+    let msg = format!("{}", err);
+    assert!(msg.contains("abc"));
+    assert!(msg.contains("5"));
+    assert!(msg.contains("expected integer"));
+}
+
+/// Test that CompileError messages include suggestions
+#[test]
+fn test_gql_compile_error_suggestions() {
+    use rustgremlin::gql::CompileError;
+
+    // Test undefined variable suggestion
+    let err = CompileError::undefined_variable("myVar");
+    let msg = format!("{}", err);
+    assert!(msg.contains("myVar"));
+    assert!(msg.contains("Did you forget") || msg.contains("MATCH"));
+
+    // Test duplicate variable message
+    let err = CompileError::duplicate_variable("n");
+    let msg = format!("{}", err);
+    assert!(msg.contains("n"));
+    assert!(msg.contains("already defined"));
+
+    // Test aggregate in WHERE error
+    let err = CompileError::aggregate_in_where("COUNT");
+    let msg = format!("{}", err);
+    assert!(msg.contains("COUNT"));
+    assert!(msg.contains("WHERE"));
+}
+
+/// Test error message for empty pattern
+#[test]
+fn test_gql_compile_error_empty_pattern_message() {
+    use rustgremlin::gql::CompileError;
+
+    let err = CompileError::EmptyPattern;
+    let msg = format!("{}", err);
+
+    // Should explain what's wrong and how to fix it
+    assert!(
+        msg.contains("empty") || msg.contains("Empty"),
+        "Error should mention empty pattern: {}",
+        msg
+    );
+    assert!(
+        msg.contains("MATCH") || msg.contains("node"),
+        "Error should suggest how to fix: {}",
+        msg
+    );
+}
+
+/// Test error message for pattern must start with node
+#[test]
+fn test_gql_compile_error_pattern_start_message() {
+    use rustgremlin::gql::CompileError;
+
+    let err = CompileError::PatternMustStartWithNode;
+    let msg = format!("{}", err);
+
+    // Should explain the issue and solution
+    assert!(
+        msg.contains("start") || msg.contains("node"),
+        "Error should explain pattern structure: {}",
+        msg
+    );
+}

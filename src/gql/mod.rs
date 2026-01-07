@@ -48,5 +48,5 @@ mod parser;
 
 pub use ast::*;
 pub use compiler::compile;
-pub use error::{CompileError, GqlError, ParseError};
+pub use error::{CompileError, GqlError, ParseError, Span};
 pub use parser::parse;

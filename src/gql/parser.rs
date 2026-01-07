@@ -6,11 +6,17 @@ use pest::Parser;
 use pest_derive::Parser;
 
 use crate::gql::ast::*;
-use crate::gql::error::ParseError;
+use crate::gql::error::{ParseError, Span};
 
 #[derive(Parser)]
 #[grammar = "gql/grammar.pest"]
 struct GqlParser;
+
+/// Helper to extract a Span from a pest Pair
+fn span_from_pair(pair: &pest::iterators::Pair<Rule>) -> Span {
+    let span = pair.as_span();
+    Span::new(span.start(), span.end())
+}
 
 /// Parse a GQL query string into an AST.
 pub fn parse(input: &str) -> Result<Query, ParseError> {
@@ -23,6 +29,7 @@ pub fn parse(input: &str) -> Result<Query, ParseError> {
 }
 
 fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut match_clause = None;
     let mut where_clause = None;
     let mut return_clause = None;
@@ -42,19 +49,21 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     }
 
     Ok(Query {
-        match_clause: match_clause.ok_or(ParseError::MissingClause("MATCH"))?,
+        match_clause: match_clause.ok_or_else(|| ParseError::missing_clause("MATCH", pair_span))?,
         where_clause,
-        return_clause: return_clause.ok_or(ParseError::MissingClause("RETURN"))?,
+        return_clause: return_clause
+            .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
         order_clause,
         limit_clause,
     })
 }
 
 fn build_where_clause(pair: pest::iterators::Pair<Rule>) -> Result<WhereClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let expr_pair = pair
         .into_inner()
         .find(|p| p.as_rule() == Rule::expression)
-        .ok_or(ParseError::MissingClause("expression"))?;
+        .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
 
     Ok(WhereClause {
         expression: build_expression(expr_pair)?,
@@ -74,6 +83,7 @@ fn build_order_clause(pair: pest::iterators::Pair<Rule>) -> Result<OrderClause, 
 }
 
 fn build_order_item(pair: pest::iterators::Pair<Rule>) -> Result<OrderItem, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut expression = None;
     let mut descending = false;
 
@@ -87,7 +97,8 @@ fn build_order_item(pair: pest::iterators::Pair<Rule>) -> Result<OrderItem, Pars
     }
 
     Ok(OrderItem {
-        expression: expression.ok_or(ParseError::MissingClause("expression"))?,
+        expression: expression
+            .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?,
         descending,
     })
 }
@@ -99,10 +110,10 @@ fn build_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, 
 
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::integer {
-            let n: u64 = inner
-                .as_str()
-                .parse()
-                .map_err(|_| ParseError::InvalidLiteral(inner.as_str().to_string()))?;
+            let span = span_from_pair(&inner);
+            let n: u64 = inner.as_str().parse().map_err(|_| {
+                ParseError::invalid_literal(inner.as_str(), span, "expected unsigned integer")
+            })?;
             if !seen_limit {
                 limit = n;
                 seen_limit = true;
@@ -224,28 +235,25 @@ fn build_quantifier(pair: pest::iterators::Pair<Rule>) -> Result<PathQuantifier,
 
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::range {
+            let span = span_from_pair(&inner);
             let range_str = inner.as_str();
             if range_str.contains("..") {
                 let parts: Vec<&str> = range_str.split("..").collect();
                 if !parts[0].is_empty() {
-                    min = Some(
-                        parts[0]
-                            .parse()
-                            .map_err(|_| ParseError::InvalidLiteral(parts[0].to_string()))?,
-                    );
+                    min = Some(parts[0].parse().map_err(|_| {
+                        ParseError::invalid_range(range_str, span, "invalid minimum value")
+                    })?);
                 }
                 if parts.len() > 1 && !parts[1].is_empty() {
-                    max = Some(
-                        parts[1]
-                            .parse()
-                            .map_err(|_| ParseError::InvalidLiteral(parts[1].to_string()))?,
-                    );
+                    max = Some(parts[1].parse().map_err(|_| {
+                        ParseError::invalid_range(range_str, span, "invalid maximum value")
+                    })?);
                 }
             } else {
                 // Single integer: *2 means exactly 2 hops
                 let n: u32 = range_str
                     .parse()
-                    .map_err(|_| ParseError::InvalidLiteral(range_str.to_string()))?;
+                    .map_err(|_| ParseError::invalid_range(range_str, span, "expected integer"))?;
                 min = Some(n);
                 max = Some(n);
             }
@@ -283,11 +291,13 @@ fn build_properties(
 }
 
 fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Literal, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let inner = pair
         .into_inner()
         .next()
-        .ok_or_else(|| ParseError::InvalidLiteral("empty".to_string()))?;
+        .ok_or_else(|| ParseError::invalid_literal("empty", pair_span, "expected literal value"))?;
 
+    let span = span_from_pair(&inner);
     match inner.as_rule() {
         Rule::string => {
             let s = inner.as_str();
@@ -297,17 +307,16 @@ fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Literal, ParseErro
             Ok(Literal::String(unescaped))
         }
         Rule::integer => {
-            let n: i64 = inner
-                .as_str()
-                .parse()
-                .map_err(|_| ParseError::InvalidLiteral(inner.as_str().to_string()))?;
+            let n: i64 = inner.as_str().parse().map_err(|_| {
+                ParseError::invalid_literal(inner.as_str(), span, "expected integer")
+            })?;
             Ok(Literal::Int(n))
         }
         Rule::float => {
             let f: f64 = inner
                 .as_str()
                 .parse()
-                .map_err(|_| ParseError::InvalidLiteral(inner.as_str().to_string()))?;
+                .map_err(|_| ParseError::invalid_literal(inner.as_str(), span, "expected float"))?;
             Ok(Literal::Float(f))
         }
         Rule::boolean => {
@@ -322,7 +331,11 @@ fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Literal, ParseErro
         Rule::TRUE => Ok(Literal::Bool(true)),
         Rule::FALSE => Ok(Literal::Bool(false)),
         Rule::NULL => Ok(Literal::Null),
-        _ => Err(ParseError::InvalidLiteral(inner.as_str().to_string())),
+        _ => Err(ParseError::invalid_literal(
+            inner.as_str(),
+            span,
+            "unexpected literal type",
+        )),
     }
 }
 
@@ -342,6 +355,7 @@ fn build_return_clause(pair: pest::iterators::Pair<Rule>) -> Result<ReturnClause
 }
 
 fn build_return_item(pair: pest::iterators::Pair<Rule>) -> Result<ReturnItem, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut expression = None;
     let mut alias = None;
 
@@ -354,27 +368,30 @@ fn build_return_item(pair: pest::iterators::Pair<Rule>) -> Result<ReturnItem, Pa
     }
 
     Ok(ReturnItem {
-        expression: expression.ok_or(ParseError::MissingClause("expression"))?,
+        expression: expression
+            .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?,
         alias,
     })
 }
 
 fn build_expression(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let inner = pair
         .into_inner()
         .next()
-        .ok_or(ParseError::MissingClause("expression"))?;
+        .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
 
     // Expression always starts with or_expr in the grammar
     build_or_expr(inner)
 }
 
 fn build_or_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut children: Vec<_> = pair.into_inner().collect();
 
     // First child must be and_expr
     if children.is_empty() {
-        return Err(ParseError::MissingClause("expression"));
+        return Err(ParseError::missing_clause("expression", pair_span));
     }
 
     let first = children.remove(0);
@@ -399,11 +416,12 @@ fn build_or_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
 }
 
 fn build_and_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut children: Vec<_> = pair.into_inner().collect();
 
     // First child must be not_expr
     if children.is_empty() {
-        return Err(ParseError::MissingClause("expression"));
+        return Err(ParseError::missing_clause("expression", pair_span));
     }
 
     let first = children.remove(0);
@@ -428,6 +446,7 @@ fn build_and_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
 }
 
 fn build_not_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut not_count = 0;
     let mut comparison_pair = None;
 
@@ -439,8 +458,9 @@ fn build_not_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
         }
     }
 
-    let mut expr =
-        build_comparison(comparison_pair.ok_or(ParseError::MissingClause("comparison"))?)?;
+    let mut expr = build_comparison(
+        comparison_pair.ok_or_else(|| ParseError::missing_clause("comparison", pair_span))?,
+    )?;
 
     // Apply NOT operators (odd number = negated)
     if not_count % 2 == 1 {
@@ -454,25 +474,31 @@ fn build_not_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
 }
 
 fn build_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let inner = pair
         .into_inner()
         .next()
-        .ok_or(ParseError::MissingClause("comparison"))?;
+        .ok_or_else(|| ParseError::missing_clause("comparison", pair_span))?;
 
+    let span = span_from_pair(&inner);
     match inner.as_rule() {
         Rule::is_null_expr => build_is_null_expr(inner),
         Rule::in_expr => build_in_expr(inner),
         Rule::comparison_expr => build_comparison_expr(inner),
-        _ => Err(ParseError::InvalidLiteral(format!(
-            "unexpected rule in comparison: {:?}",
-            inner.as_rule()
-        ))),
+        _ => Err(ParseError::unexpected_token(
+            span,
+            inner.as_str(),
+            "comparison expression",
+        )),
     }
 }
 
 fn build_is_null_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner();
-    let additive_pair = iter.next().ok_or(ParseError::MissingClause("expression"))?;
+    let additive_pair = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
     let expr = build_additive(additive_pair)?;
 
     // Check for NOT keyword
@@ -485,8 +511,11 @@ fn build_is_null_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, P
 }
 
 fn build_in_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner().peekable();
-    let additive_pair = iter.next().ok_or(ParseError::MissingClause("expression"))?;
+    let additive_pair = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
     let expr = build_additive(additive_pair)?;
 
     // Check for NOT keyword
@@ -509,16 +538,20 @@ fn build_in_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
 }
 
 fn build_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner();
-    let first = iter.next().ok_or(ParseError::MissingClause("expression"))?;
+    let first = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
     let left = build_additive(first)?;
 
     // Check if there's a comparison operator
     if let Some(op_pair) = iter.next() {
+        let op_span = span_from_pair(&op_pair);
         let op = parse_comp_op(&op_pair)?;
         let right_pair = iter
             .next()
-            .ok_or(ParseError::MissingClause("right operand"))?;
+            .ok_or_else(|| ParseError::missing_clause("right operand", op_span))?;
         let right = build_additive(right_pair)?;
         Ok(Expression::BinaryOp {
             left: Box::new(left),
@@ -532,11 +565,11 @@ fn build_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression
 
 fn parse_comp_op(pair: &pest::iterators::Pair<Rule>) -> Result<BinaryOperator, ParseError> {
     // The comp_op rule contains one of the operator rules
-    let inner = pair
-        .clone()
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseError::InvalidLiteral(pair.as_str().to_string()))?;
+    let span = span_from_pair(pair);
+    let inner =
+        pair.clone().into_inner().next().ok_or_else(|| {
+            ParseError::unexpected_token(span, pair.as_str(), "comparison operator")
+        })?;
 
     match inner.as_rule() {
         Rule::eq => Ok(BinaryOperator::Eq),
@@ -548,15 +581,20 @@ fn parse_comp_op(pair: &pest::iterators::Pair<Rule>) -> Result<BinaryOperator, P
         Rule::CONTAINS => Ok(BinaryOperator::Contains),
         Rule::starts_with => Ok(BinaryOperator::StartsWith),
         Rule::ends_with => Ok(BinaryOperator::EndsWith),
-        _ => Err(ParseError::InvalidLiteral(pair.as_str().to_string())),
+        _ => Err(ParseError::unexpected_token(
+            span,
+            pair.as_str(),
+            "comparison operator",
+        )),
     }
 }
 
 fn build_additive(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut children: Vec<_> = pair.into_inner().collect();
 
     if children.is_empty() {
-        return Err(ParseError::MissingClause("expression"));
+        return Err(ParseError::missing_clause("expression", pair_span));
     }
 
     let first = children.remove(0);
@@ -566,10 +604,17 @@ fn build_additive(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
     let mut iter = children.into_iter();
     while let Some(op_pair) = iter.next() {
         if op_pair.as_rule() == Rule::add_op {
+            let op_span = span_from_pair(&op_pair);
             let op = match op_pair.as_str() {
                 "+" => BinaryOperator::Add,
                 "-" => BinaryOperator::Sub,
-                _ => return Err(ParseError::InvalidLiteral(op_pair.as_str().to_string())),
+                _ => {
+                    return Err(ParseError::unexpected_token(
+                        op_span,
+                        op_pair.as_str(),
+                        "+ or -",
+                    ))
+                }
             };
             if let Some(right_pair) = iter.next() {
                 let right = build_multiplicative(right_pair)?;
@@ -586,10 +631,11 @@ fn build_additive(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
 }
 
 fn build_multiplicative(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut children: Vec<_> = pair.into_inner().collect();
 
     if children.is_empty() {
-        return Err(ParseError::MissingClause("expression"));
+        return Err(ParseError::missing_clause("expression", pair_span));
     }
 
     let first = children.remove(0);
@@ -599,11 +645,18 @@ fn build_multiplicative(pair: pest::iterators::Pair<Rule>) -> Result<Expression,
     let mut iter = children.into_iter();
     while let Some(op_pair) = iter.next() {
         if op_pair.as_rule() == Rule::mul_op {
+            let op_span = span_from_pair(&op_pair);
             let op = match op_pair.as_str() {
                 "*" => BinaryOperator::Mul,
                 "/" => BinaryOperator::Div,
                 "%" => BinaryOperator::Mod,
-                _ => return Err(ParseError::InvalidLiteral(op_pair.as_str().to_string())),
+                _ => {
+                    return Err(ParseError::unexpected_token(
+                        op_span,
+                        op_pair.as_str(),
+                        "*, /, or %",
+                    ))
+                }
             };
             if let Some(right_pair) = iter.next() {
                 let right = build_unary(right_pair)?;
@@ -620,6 +673,7 @@ fn build_multiplicative(pair: pest::iterators::Pair<Rule>) -> Result<Expression,
 }
 
 fn build_unary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut negated = false;
     let mut primary_pair = None;
 
@@ -631,7 +685,9 @@ fn build_unary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseErr
         }
     }
 
-    let expr = build_primary(primary_pair.ok_or(ParseError::MissingClause("primary expression"))?)?;
+    let expr = build_primary(
+        primary_pair.ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?,
+    )?;
 
     if negated {
         Ok(Expression::UnaryOp {
@@ -644,11 +700,13 @@ fn build_unary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseErr
 }
 
 fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let inner = pair
         .into_inner()
         .next()
-        .ok_or(ParseError::MissingClause("primary expression"))?;
+        .ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?;
 
+    let span = span_from_pair(&inner);
     match inner.as_rule() {
         Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
         Rule::function_call => build_function_call(inner),
@@ -656,12 +714,12 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
             let mut parts = inner.into_inner();
             let variable = parts
                 .next()
-                .ok_or(ParseError::MissingClause("variable"))?
+                .ok_or_else(|| ParseError::missing_clause("variable", span))?
                 .as_str()
                 .to_string();
             let property = parts
                 .next()
-                .ok_or(ParseError::MissingClause("property"))?
+                .ok_or_else(|| ParseError::missing_clause("property", span))?
                 .as_str()
                 .to_string();
             Ok(Expression::Property { variable, property })
@@ -672,14 +730,15 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
             let inner_expr = inner
                 .into_inner()
                 .next()
-                .ok_or(ParseError::MissingClause("expression"))?;
+                .ok_or_else(|| ParseError::missing_clause("expression", span))?;
             build_expression_from_inner(inner_expr)
         }
         Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
-        _ => Err(ParseError::InvalidLiteral(format!(
-            "unexpected rule in primary: {:?}",
-            inner.as_rule()
-        ))),
+        _ => Err(ParseError::unexpected_token(
+            span,
+            inner.as_str(),
+            "literal, variable, property access, or function call",
+        )),
     }
 }
 
@@ -687,18 +746,20 @@ fn build_expression_from_inner(
     pair: pest::iterators::Pair<Rule>,
 ) -> Result<Expression, ParseError> {
     // Handle the expression rule directly (which contains or_expr)
+    let pair_span = span_from_pair(&pair);
     let inner = pair
         .into_inner()
         .next()
-        .ok_or(ParseError::MissingClause("expression"))?;
+        .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
     build_or_expr(inner)
 }
 
 fn build_function_call(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner();
     let name = iter
         .next()
-        .ok_or(ParseError::MissingClause("function name"))?
+        .ok_or_else(|| ParseError::missing_clause("function name", pair_span))?
         .as_str()
         .to_string();
 

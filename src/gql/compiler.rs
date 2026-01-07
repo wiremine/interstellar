@@ -129,7 +129,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // Register binding
         if let Some(var) = &node.variable {
             if self.bindings.contains_key(var) {
-                return Err(CompileError::DuplicateVariable(var.clone()));
+                return Err(CompileError::duplicate_variable(var));
             }
             self.bindings.insert(
                 var.clone(),
@@ -597,12 +597,12 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         match expr {
             Expression::Variable(var) => {
                 if !self.bindings.contains_key(var) && var != "*" {
-                    return Err(CompileError::UndefinedVariable(var.clone()));
+                    return Err(CompileError::undefined_variable(var));
                 }
             }
             Expression::Property { variable, .. } => {
                 if !self.bindings.contains_key(variable) {
-                    return Err(CompileError::UndefinedVariable(variable.clone()));
+                    return Err(CompileError::undefined_variable(variable));
                 }
             }
             Expression::BinaryOp { left, right, .. } => {
@@ -1333,6 +1333,9 @@ mod tests {
         let query = parse("MATCH (n:Person) RETURN x").unwrap();
         let result = compile(&query, &snapshot);
 
-        assert!(matches!(result, Err(CompileError::UndefinedVariable(_))));
+        assert!(matches!(
+            result,
+            Err(CompileError::UndefinedVariable { .. })
+        ));
     }
 }
