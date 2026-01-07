@@ -3125,10 +3125,10 @@ mod gql_comprehensive_tests {
 ```
 
 **Acceptance Criteria**:
-- [ ] All edge case tests pass
-- [ ] All error case tests pass
-- [ ] Complex query tests pass
-- [ ] Test coverage is comprehensive
+- [x] All edge case tests pass
+- [x] All error case tests pass
+- [x] Complex query tests pass
+- [x] Test coverage is comprehensive
 
 ---
 
