@@ -1084,10 +1084,10 @@ fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Literal, ParseErro
 ```
 
 **Acceptance Criteria**:
-- [ ] Edge patterns parse with correct direction
-- [ ] Properties parse to `Vec<(String, Literal)>`
-- [ ] String literals handle escaping (`''` → `'`)
-- [ ] Quantifiers parse min/max bounds correctly
+- [x] Edge patterns parse with correct direction
+- [x] Properties parse to `Vec<(String, Literal)>`
+- [x] String literals handle escaping (`''` → `'`)
+- [x] Quantifiers parse min/max bounds correctly
 
 ---
 
@@ -1587,11 +1587,11 @@ list_expr = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
 ```
 
 **Acceptance Criteria**:
-- [ ] `WHERE p.age > 30` parses
-- [ ] `WHERE p.age > 30 AND p.name = 'Alice'` parses with correct precedence
-- [ ] `WHERE NOT p.active` parses
-- [ ] `WHERE p.name IS NULL` parses
-- [ ] `WHERE p.status IN ['active', 'pending']` parses
+- [x] `WHERE p.age > 30` parses
+- [x] `WHERE p.age > 30 AND p.name = 'Alice'` parses with correct precedence
+- [x] `WHERE NOT p.active` parses
+- [x] `WHERE p.name IS NULL` parses
+- [x] `WHERE p.status IN ['active', 'pending']` parses
 
 ---
 
@@ -1752,10 +1752,10 @@ fn build_additive(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
 ```
 
 **Acceptance Criteria**:
-- [ ] Complex expressions parse correctly
-- [ ] Operator precedence is correct (NOT > AND > OR)
-- [ ] Arithmetic expressions work
-- [ ] All expression tests pass
+- [x] Complex expressions parse correctly
+- [x] Operator precedence is correct (NOT > AND > OR)
+- [x] Arithmetic expressions work
+- [x] All expression tests pass
 
 ---
 
@@ -1807,8 +1807,8 @@ pub enum UnaryOperator {
 ```
 
 **Acceptance Criteria**:
-- [ ] All expression variants defined
-- [ ] AST can represent all supported expressions
+- [x] All expression variants defined
+- [x] AST can represent all supported expressions
 
 ---
 
@@ -2215,9 +2215,9 @@ fn build_order_item(pair: pest::iterators::Pair<Rule>) -> Result<OrderItem, Pars
 ```
 
 **Acceptance Criteria**:
-- [ ] `ORDER BY p.age` parses (default ASC)
-- [ ] `ORDER BY p.age DESC` parses
-- [ ] `ORDER BY p.age DESC, p.name ASC` parses multiple
+- [x] `ORDER BY p.age` parses (default ASC)
+- [x] `ORDER BY p.age DESC` parses
+- [x] `ORDER BY p.age DESC, p.name ASC` parses multiple
 
 ---
 
@@ -2258,8 +2258,8 @@ fn build_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, 
 ```
 
 **Acceptance Criteria**:
-- [ ] `LIMIT 10` parses
-- [ ] `LIMIT 10 OFFSET 5` parses
+- [x] `LIMIT 10` parses
+- [x] `LIMIT 10 OFFSET 5` parses
 
 ---
 
@@ -2365,10 +2365,10 @@ primary = {
 ```
 
 **Acceptance Criteria**:
-- [ ] `COUNT(*)` parses
-- [ ] `COUNT(DISTINCT p.city)` parses
-- [ ] `SUM(p.age)` parses
-- [ ] `COLLECT(friend.name)` parses
+- [x] `COUNT(*)` parses
+- [x] `COUNT(DISTINCT p.city)` parses
+- [x] `SUM(p.age)` parses
+- [x] `COLLECT(friend.name)` parses
 
 ---
 
@@ -2426,9 +2426,9 @@ fn parse_agg_func(pair: pest::iterators::Pair<Rule>) -> Result<AggregateFunc, Pa
 ```
 
 **Acceptance Criteria**:
-- [ ] Aggregate expressions parse correctly
-- [ ] DISTINCT flag is captured
-- [ ] COUNT(*) works
+- [x] Aggregate expressions parse correctly
+- [x] DISTINCT flag is captured
+- [x] COUNT(*) works
 
 ---
 

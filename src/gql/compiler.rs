@@ -275,7 +275,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn validate_expression_variables(&self, expr: &Expression) -> Result<(), CompileError> {
         match expr {
             Expression::Variable(var) => {
-                if !self.bindings.contains_key(var) {
+                if !self.bindings.contains_key(var) && var != "*" {
                     return Err(CompileError::UndefinedVariable(var.clone()));
                 }
             }
@@ -287,6 +287,28 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             Expression::BinaryOp { left, right, .. } => {
                 self.validate_expression_variables(left)?;
                 self.validate_expression_variables(right)?;
+            }
+            Expression::UnaryOp { expr, .. } => {
+                self.validate_expression_variables(expr)?;
+            }
+            Expression::IsNull { expr, .. } => {
+                self.validate_expression_variables(expr)?;
+            }
+            Expression::InList { expr, list, .. } => {
+                self.validate_expression_variables(expr)?;
+                for item in list {
+                    self.validate_expression_variables(item)?;
+                }
+            }
+            Expression::List(items) => {
+                for item in items {
+                    self.validate_expression_variables(item)?;
+                }
+            }
+            Expression::FunctionCall { args, .. } => {
+                for arg in args {
+                    self.validate_expression_variables(arg)?;
+                }
             }
             Expression::Aggregate { expr, .. } => {
                 self.validate_expression_variables(expr)?;

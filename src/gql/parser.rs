@@ -24,12 +24,18 @@ pub fn parse(input: &str) -> Result<Query, ParseError> {
 
 fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut match_clause = None;
+    let mut where_clause = None;
     let mut return_clause = None;
+    let mut order_clause = None;
+    let mut limit_clause = None;
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::match_clause => match_clause = Some(build_match_clause(inner)?),
+            Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
+            Rule::order_clause => order_clause = Some(build_order_clause(inner)?),
+            Rule::limit_clause => limit_clause = Some(build_limit_clause(inner)?),
             Rule::EOI => {}
             _ => {}
         }
@@ -37,11 +43,76 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
 
     Ok(Query {
         match_clause: match_clause.ok_or(ParseError::MissingClause("MATCH"))?,
-        where_clause: None,
+        where_clause,
         return_clause: return_clause.ok_or(ParseError::MissingClause("RETURN"))?,
-        order_clause: None,
-        limit_clause: None,
+        order_clause,
+        limit_clause,
     })
+}
+
+fn build_where_clause(pair: pest::iterators::Pair<Rule>) -> Result<WhereClause, ParseError> {
+    let expr_pair = pair
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::expression)
+        .ok_or(ParseError::MissingClause("expression"))?;
+
+    Ok(WhereClause {
+        expression: build_expression(expr_pair)?,
+    })
+}
+
+fn build_order_clause(pair: pest::iterators::Pair<Rule>) -> Result<OrderClause, ParseError> {
+    let mut items = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::order_item {
+            items.push(build_order_item(inner)?);
+        }
+    }
+
+    Ok(OrderClause { items })
+}
+
+fn build_order_item(pair: pest::iterators::Pair<Rule>) -> Result<OrderItem, ParseError> {
+    let mut expression = None;
+    let mut descending = false;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::expression => expression = Some(build_expression(inner)?),
+            Rule::DESC => descending = true,
+            Rule::ASC => descending = false,
+            _ => {}
+        }
+    }
+
+    Ok(OrderItem {
+        expression: expression.ok_or(ParseError::MissingClause("expression"))?,
+        descending,
+    })
+}
+
+fn build_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, ParseError> {
+    let mut limit = 0u64;
+    let mut offset = None;
+    let mut seen_limit = false;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::integer {
+            let n: u64 = inner
+                .as_str()
+                .parse()
+                .map_err(|_| ParseError::InvalidLiteral(inner.as_str().to_string()))?;
+            if !seen_limit {
+                limit = n;
+                seen_limit = true;
+            } else {
+                offset = Some(n);
+            }
+        }
+    }
+
+    Ok(LimitClause { limit, offset })
 }
 
 fn build_match_clause(pair: pest::iterators::Pair<Rule>) -> Result<MatchClause, ParseError> {
@@ -291,7 +362,293 @@ fn build_expression(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Par
         .next()
         .ok_or(ParseError::MissingClause("expression"))?;
 
+    // Expression always starts with or_expr in the grammar
+    build_or_expr(inner)
+}
+
+fn build_or_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    // First child must be and_expr
+    if children.is_empty() {
+        return Err(ParseError::MissingClause("expression"));
+    }
+
+    let first = children.remove(0);
+    let mut left = build_and_expr(first)?;
+
+    // Remaining children are: OR, and_expr, OR, and_expr, ...
+    let mut iter = children.into_iter();
+    while let Some(or_token) = iter.next() {
+        if or_token.as_rule() == Rule::OR {
+            if let Some(right_pair) = iter.next() {
+                let right = build_and_expr(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::Or,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
+}
+
+fn build_and_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    // First child must be not_expr
+    if children.is_empty() {
+        return Err(ParseError::MissingClause("expression"));
+    }
+
+    let first = children.remove(0);
+    let mut left = build_not_expr(first)?;
+
+    // Remaining children are: AND, not_expr, AND, not_expr, ...
+    let mut iter = children.into_iter();
+    while let Some(and_token) = iter.next() {
+        if and_token.as_rule() == Rule::AND {
+            if let Some(right_pair) = iter.next() {
+                let right = build_not_expr(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::And,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
+}
+
+fn build_not_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut not_count = 0;
+    let mut comparison_pair = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::NOT => not_count += 1,
+            Rule::comparison => comparison_pair = Some(inner),
+            _ => {}
+        }
+    }
+
+    let mut expr =
+        build_comparison(comparison_pair.ok_or(ParseError::MissingClause("comparison"))?)?;
+
+    // Apply NOT operators (odd number = negated)
+    if not_count % 2 == 1 {
+        expr = Expression::UnaryOp {
+            op: UnaryOperator::Not,
+            expr: Box::new(expr),
+        };
+    }
+
+    Ok(expr)
+}
+
+fn build_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or(ParseError::MissingClause("comparison"))?;
+
     match inner.as_rule() {
+        Rule::is_null_expr => build_is_null_expr(inner),
+        Rule::in_expr => build_in_expr(inner),
+        Rule::comparison_expr => build_comparison_expr(inner),
+        _ => Err(ParseError::InvalidLiteral(format!(
+            "unexpected rule in comparison: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+fn build_is_null_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut iter = pair.into_inner();
+    let additive_pair = iter.next().ok_or(ParseError::MissingClause("expression"))?;
+    let expr = build_additive(additive_pair)?;
+
+    // Check for NOT keyword
+    let negated = iter.any(|p| p.as_rule() == Rule::NOT);
+
+    Ok(Expression::IsNull {
+        expr: Box::new(expr),
+        negated,
+    })
+}
+
+fn build_in_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut iter = pair.into_inner().peekable();
+    let additive_pair = iter.next().ok_or(ParseError::MissingClause("expression"))?;
+    let expr = build_additive(additive_pair)?;
+
+    // Check for NOT keyword
+    let mut negated = false;
+    let mut list = Vec::new();
+
+    for inner in iter {
+        match inner.as_rule() {
+            Rule::NOT => negated = true,
+            Rule::list_expr => list = build_list_expr(inner)?,
+            _ => {}
+        }
+    }
+
+    Ok(Expression::InList {
+        expr: Box::new(expr),
+        list,
+        negated,
+    })
+}
+
+fn build_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut iter = pair.into_inner();
+    let first = iter.next().ok_or(ParseError::MissingClause("expression"))?;
+    let left = build_additive(first)?;
+
+    // Check if there's a comparison operator
+    if let Some(op_pair) = iter.next() {
+        let op = parse_comp_op(&op_pair)?;
+        let right_pair = iter
+            .next()
+            .ok_or(ParseError::MissingClause("right operand"))?;
+        let right = build_additive(right_pair)?;
+        Ok(Expression::BinaryOp {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+        })
+    } else {
+        Ok(left)
+    }
+}
+
+fn parse_comp_op(pair: &pest::iterators::Pair<Rule>) -> Result<BinaryOperator, ParseError> {
+    // The comp_op rule contains one of the operator rules
+    let inner = pair
+        .clone()
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::InvalidLiteral(pair.as_str().to_string()))?;
+
+    match inner.as_rule() {
+        Rule::eq => Ok(BinaryOperator::Eq),
+        Rule::neq => Ok(BinaryOperator::Neq),
+        Rule::lt => Ok(BinaryOperator::Lt),
+        Rule::lte => Ok(BinaryOperator::Lte),
+        Rule::gt => Ok(BinaryOperator::Gt),
+        Rule::gte => Ok(BinaryOperator::Gte),
+        Rule::CONTAINS => Ok(BinaryOperator::Contains),
+        Rule::starts_with => Ok(BinaryOperator::StartsWith),
+        Rule::ends_with => Ok(BinaryOperator::EndsWith),
+        _ => Err(ParseError::InvalidLiteral(pair.as_str().to_string())),
+    }
+}
+
+fn build_additive(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    if children.is_empty() {
+        return Err(ParseError::MissingClause("expression"));
+    }
+
+    let first = children.remove(0);
+    let mut left = build_multiplicative(first)?;
+
+    // Remaining children are: add_op, multiplicative, add_op, multiplicative, ...
+    let mut iter = children.into_iter();
+    while let Some(op_pair) = iter.next() {
+        if op_pair.as_rule() == Rule::add_op {
+            let op = match op_pair.as_str() {
+                "+" => BinaryOperator::Add,
+                "-" => BinaryOperator::Sub,
+                _ => return Err(ParseError::InvalidLiteral(op_pair.as_str().to_string())),
+            };
+            if let Some(right_pair) = iter.next() {
+                let right = build_multiplicative(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
+}
+
+fn build_multiplicative(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    if children.is_empty() {
+        return Err(ParseError::MissingClause("expression"));
+    }
+
+    let first = children.remove(0);
+    let mut left = build_unary(first)?;
+
+    // Remaining children are: mul_op, unary, mul_op, unary, ...
+    let mut iter = children.into_iter();
+    while let Some(op_pair) = iter.next() {
+        if op_pair.as_rule() == Rule::mul_op {
+            let op = match op_pair.as_str() {
+                "*" => BinaryOperator::Mul,
+                "/" => BinaryOperator::Div,
+                "%" => BinaryOperator::Mod,
+                _ => return Err(ParseError::InvalidLiteral(op_pair.as_str().to_string())),
+            };
+            if let Some(right_pair) = iter.next() {
+                let right = build_unary(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
+}
+
+fn build_unary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut negated = false;
+    let mut primary_pair = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::neg_op => negated = true,
+            Rule::primary => primary_pair = Some(inner),
+            _ => {}
+        }
+    }
+
+    let expr = build_primary(primary_pair.ok_or(ParseError::MissingClause("primary expression"))?)?;
+
+    if negated {
+        Ok(Expression::UnaryOp {
+            op: UnaryOperator::Neg,
+            expr: Box::new(expr),
+        })
+    } else {
+        Ok(expr)
+    }
+}
+
+fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or(ParseError::MissingClause("primary expression"))?;
+
+    match inner.as_rule() {
+        Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
+        Rule::function_call => build_function_call(inner),
         Rule::property_access => {
             let mut parts = inner.into_inner();
             let variable = parts
@@ -307,9 +664,97 @@ fn build_expression(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Par
             Ok(Expression::Property { variable, property })
         }
         Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
-        Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
-        _ => Err(ParseError::InvalidLiteral(inner.as_str().to_string())),
+        Rule::paren_expr => {
+            // Parenthesized expression - extract the inner expression
+            let inner_expr = inner
+                .into_inner()
+                .next()
+                .ok_or(ParseError::MissingClause("expression"))?;
+            build_expression_from_inner(inner_expr)
+        }
+        Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
+        _ => Err(ParseError::InvalidLiteral(format!(
+            "unexpected rule in primary: {:?}",
+            inner.as_rule()
+        ))),
     }
+}
+
+fn build_expression_from_inner(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Expression, ParseError> {
+    // Handle the expression rule directly (which contains or_expr)
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or(ParseError::MissingClause("expression"))?;
+    build_or_expr(inner)
+}
+
+fn build_function_call(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut iter = pair.into_inner();
+    let name = iter
+        .next()
+        .ok_or(ParseError::MissingClause("function name"))?
+        .as_str()
+        .to_string();
+
+    let mut args = Vec::new();
+
+    // Parse function arguments if present
+    if let Some(args_pair) = iter.next() {
+        if args_pair.as_rule() == Rule::function_args {
+            for arg in args_pair.into_inner() {
+                match arg.as_rule() {
+                    Rule::star => {
+                        // COUNT(*) - represent as Variable("*")
+                        args.push(Expression::Variable("*".to_string()));
+                    }
+                    Rule::expression => {
+                        args.push(build_expression(arg)?);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Check if this is an aggregate function
+    let name_upper = name.to_uppercase();
+    match name_upper.as_str() {
+        "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "COLLECT" => {
+            let func = match name_upper.as_str() {
+                "COUNT" => AggregateFunc::Count,
+                "SUM" => AggregateFunc::Sum,
+                "AVG" => AggregateFunc::Avg,
+                "MIN" => AggregateFunc::Min,
+                "MAX" => AggregateFunc::Max,
+                "COLLECT" => AggregateFunc::Collect,
+                _ => unreachable!(),
+            };
+            // For now, assume no DISTINCT - would need grammar change to support
+            let expr = args
+                .into_iter()
+                .next()
+                .unwrap_or(Expression::Variable("*".to_string()));
+            Ok(Expression::Aggregate {
+                func,
+                distinct: false,
+                expr: Box::new(expr),
+            })
+        }
+        _ => Ok(Expression::FunctionCall { name, args }),
+    }
+}
+
+fn build_list_expr(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Expression>, ParseError> {
+    let mut items = Vec::new();
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::expression {
+            items.push(build_expression(inner)?);
+        }
+    }
+    Ok(items)
 }
 
 #[cfg(test)]
@@ -956,6 +1401,528 @@ mod tests {
         {
             assert_eq!(variable, "b");
             assert_eq!(property, "name");
+        }
+    }
+
+    // ============================================
+    // Phase 3.1 & 3.2: WHERE Clause and Expression Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_where_simple_comparison() {
+        let query = parse("MATCH (p:Person) WHERE p.age > 30 RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { left, op, right } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Gt));
+            if let Expression::Property { variable, property } = *left {
+                assert_eq!(variable, "p");
+                assert_eq!(property, "age");
+            } else {
+                panic!("Expected property access on left side");
+            }
+            if let Expression::Literal(Literal::Int(n)) = *right {
+                assert_eq!(n, 30);
+            } else {
+                panic!("Expected integer literal on right side");
+            }
+        } else {
+            panic!("Expected binary comparison expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_equality() {
+        let query = parse("MATCH (p:Person) WHERE p.name = 'Alice' RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { left, op, right } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Eq));
+            if let Expression::Property { variable, property } = *left {
+                assert_eq!(variable, "p");
+                assert_eq!(property, "name");
+            }
+            if let Expression::Literal(Literal::String(s)) = *right {
+                assert_eq!(s, "Alice");
+            }
+        } else {
+            panic!("Expected binary comparison expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_and() {
+        let query =
+            parse("MATCH (p:Person) WHERE p.age > 30 AND p.name = 'Alice' RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { left, op, right } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::And));
+            // Left side: p.age > 30
+            if let Expression::BinaryOp { op: left_op, .. } = *left {
+                assert!(matches!(left_op, BinaryOperator::Gt));
+            } else {
+                panic!("Expected binary op on left side of AND");
+            }
+            // Right side: p.name = 'Alice'
+            if let Expression::BinaryOp { op: right_op, .. } = *right {
+                assert!(matches!(right_op, BinaryOperator::Eq));
+            } else {
+                panic!("Expected binary op on right side of AND");
+            }
+        } else {
+            panic!("Expected AND expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_or() {
+        let query = parse("MATCH (p:Person) WHERE p.age < 20 OR p.age > 60 RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { op, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Or));
+        } else {
+            panic!("Expected OR expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_not() {
+        let query = parse("MATCH (p:Person) WHERE NOT p.active = true RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::UnaryOp { op, .. } = where_clause.expression {
+            assert!(matches!(op, UnaryOperator::Not));
+        } else {
+            panic!("Expected NOT expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_is_null() {
+        let query = parse("MATCH (p:Person) WHERE p.email IS NULL RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::IsNull { expr, negated } = where_clause.expression {
+            assert!(!negated);
+            if let Expression::Property { variable, property } = *expr {
+                assert_eq!(variable, "p");
+                assert_eq!(property, "email");
+            } else {
+                panic!("Expected property access");
+            }
+        } else {
+            panic!("Expected IS NULL expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_is_not_null() {
+        let query = parse("MATCH (p:Person) WHERE p.email IS NOT NULL RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::IsNull { negated, .. } = where_clause.expression {
+            assert!(negated);
+        } else {
+            panic!("Expected IS NOT NULL expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_in_list() {
+        let query =
+            parse("MATCH (p:Person) WHERE p.status IN ['active', 'pending'] RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::InList {
+            expr,
+            list,
+            negated,
+        } = where_clause.expression
+        {
+            assert!(!negated);
+            if let Expression::Property { variable, property } = *expr {
+                assert_eq!(variable, "p");
+                assert_eq!(property, "status");
+            }
+            assert_eq!(list.len(), 2);
+        } else {
+            panic!("Expected IN list expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_not_in_list() {
+        let query =
+            parse("MATCH (p:Person) WHERE p.status NOT IN ['inactive', 'deleted'] RETURN p")
+                .unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::InList { negated, .. } = where_clause.expression {
+            assert!(negated);
+        } else {
+            panic!("Expected NOT IN list expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_contains() {
+        let query = parse("MATCH (p:Person) WHERE p.name CONTAINS 'son' RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { op, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Contains));
+        } else {
+            panic!("Expected CONTAINS expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_starts_with() {
+        let query = parse("MATCH (p:Person) WHERE p.name STARTS WITH 'Al' RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { op, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::StartsWith));
+        } else {
+            panic!("Expected STARTS WITH expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_ends_with() {
+        let query = parse("MATCH (p:Person) WHERE p.name ENDS WITH 'son' RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { op, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::EndsWith));
+        } else {
+            panic!("Expected ENDS WITH expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_arithmetic() {
+        let query = parse("MATCH (p:Person) WHERE p.age + 5 > 30 RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { left, op, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Gt));
+            // Left side should be: p.age + 5
+            if let Expression::BinaryOp {
+                op: left_op,
+                left: inner_left,
+                ..
+            } = *left
+            {
+                assert!(matches!(left_op, BinaryOperator::Add));
+                if let Expression::Property { property, .. } = *inner_left {
+                    assert_eq!(property, "age");
+                }
+            } else {
+                panic!("Expected addition on left side");
+            }
+        } else {
+            panic!("Expected comparison expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_precedence_and_or() {
+        // AND has higher precedence than OR
+        // a OR b AND c  should parse as  a OR (b AND c)
+        let query =
+            parse("MATCH (p:Person) WHERE p.x = 1 OR p.y = 2 AND p.z = 3 RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        // Top level should be OR
+        if let Expression::BinaryOp { op, right, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Or));
+            // Right side should be AND
+            if let Expression::BinaryOp { op: right_op, .. } = *right {
+                assert!(matches!(right_op, BinaryOperator::And));
+            } else {
+                panic!("Expected AND on right side of OR");
+            }
+        } else {
+            panic!("Expected OR expression at top level");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_parentheses() {
+        // Parentheses override precedence
+        let query =
+            parse("MATCH (p:Person) WHERE (p.x = 1 OR p.y = 2) AND p.z = 3 RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        // Top level should be AND
+        if let Expression::BinaryOp { op, left, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::And));
+            // Left side should be OR (from parentheses)
+            if let Expression::BinaryOp { op: left_op, .. } = *left {
+                assert!(matches!(left_op, BinaryOperator::Or));
+            } else {
+                panic!("Expected OR on left side of AND");
+            }
+        } else {
+            panic!("Expected AND expression at top level");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_comparison_operators() {
+        // Test all comparison operators
+        let operators = vec![
+            ("=", BinaryOperator::Eq),
+            ("<>", BinaryOperator::Neq),
+            ("!=", BinaryOperator::Neq),
+            ("<", BinaryOperator::Lt),
+            ("<=", BinaryOperator::Lte),
+            (">", BinaryOperator::Gt),
+            (">=", BinaryOperator::Gte),
+        ];
+
+        for (op_str, expected_op) in operators {
+            let query_str = format!("MATCH (p:Person) WHERE p.age {} 30 RETURN p", op_str);
+            let query = parse(&query_str).unwrap();
+            assert!(query.where_clause.is_some());
+
+            let where_clause = query.where_clause.unwrap();
+            if let Expression::BinaryOp { op, .. } = where_clause.expression {
+                assert_eq!(op, expected_op, "Failed for operator: {}", op_str);
+            } else {
+                panic!("Expected binary comparison for operator: {}", op_str);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_where_unary_negation() {
+        let query = parse("MATCH (p:Person) WHERE p.balance > -100 RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { right, .. } = where_clause.expression {
+            if let Expression::UnaryOp { op, expr } = *right {
+                assert!(matches!(op, UnaryOperator::Neg));
+                if let Expression::Literal(Literal::Int(n)) = *expr {
+                    assert_eq!(n, 100);
+                }
+            } else {
+                panic!("Expected unary negation");
+            }
+        }
+    }
+
+    // ============================================
+    // Phase 4.1 & 4.2: ORDER BY and LIMIT Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_order_by_single() {
+        let query = parse("MATCH (p:Person) RETURN p ORDER BY p.age").unwrap();
+        assert!(query.order_clause.is_some());
+
+        let order_clause = query.order_clause.unwrap();
+        assert_eq!(order_clause.items.len(), 1);
+        assert!(!order_clause.items[0].descending); // Default is ASC
+    }
+
+    #[test]
+    fn test_parse_order_by_asc() {
+        let query = parse("MATCH (p:Person) RETURN p ORDER BY p.age ASC").unwrap();
+        assert!(query.order_clause.is_some());
+
+        let order_clause = query.order_clause.unwrap();
+        assert!(!order_clause.items[0].descending);
+    }
+
+    #[test]
+    fn test_parse_order_by_desc() {
+        let query = parse("MATCH (p:Person) RETURN p ORDER BY p.age DESC").unwrap();
+        assert!(query.order_clause.is_some());
+
+        let order_clause = query.order_clause.unwrap();
+        assert!(order_clause.items[0].descending);
+    }
+
+    #[test]
+    fn test_parse_order_by_multiple() {
+        let query = parse("MATCH (p:Person) RETURN p ORDER BY p.age DESC, p.name ASC").unwrap();
+        assert!(query.order_clause.is_some());
+
+        let order_clause = query.order_clause.unwrap();
+        assert_eq!(order_clause.items.len(), 2);
+        assert!(order_clause.items[0].descending);
+        assert!(!order_clause.items[1].descending);
+    }
+
+    #[test]
+    fn test_parse_limit_simple() {
+        let query = parse("MATCH (p:Person) RETURN p LIMIT 10").unwrap();
+        assert!(query.limit_clause.is_some());
+
+        let limit_clause = query.limit_clause.unwrap();
+        assert_eq!(limit_clause.limit, 10);
+        assert!(limit_clause.offset.is_none());
+    }
+
+    #[test]
+    fn test_parse_limit_with_offset() {
+        let query = parse("MATCH (p:Person) RETURN p LIMIT 10 OFFSET 5").unwrap();
+        assert!(query.limit_clause.is_some());
+
+        let limit_clause = query.limit_clause.unwrap();
+        assert_eq!(limit_clause.limit, 10);
+        assert_eq!(limit_clause.offset, Some(5));
+    }
+
+    #[test]
+    fn test_parse_full_query() {
+        // Test all clauses together
+        let query = parse(
+            "MATCH (p:Person) WHERE p.age > 25 RETURN p.name ORDER BY p.age DESC LIMIT 10 OFFSET 5",
+        )
+        .unwrap();
+
+        assert!(query.where_clause.is_some());
+        assert!(query.order_clause.is_some());
+        assert!(query.limit_clause.is_some());
+
+        let order_clause = query.order_clause.unwrap();
+        assert!(order_clause.items[0].descending);
+
+        let limit_clause = query.limit_clause.unwrap();
+        assert_eq!(limit_clause.limit, 10);
+        assert_eq!(limit_clause.offset, Some(5));
+    }
+
+    // ============================================
+    // Phase 4.4 & 4.5: Aggregate Function Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_count_star() {
+        let query = parse("MATCH (p:Person) RETURN count(*)").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Aggregate { func, expr, .. } = &query.return_clause.items[0].expression {
+            assert!(matches!(func, AggregateFunc::Count));
+            if let Expression::Variable(v) = expr.as_ref() {
+                assert_eq!(v, "*");
+            }
+        } else {
+            panic!("Expected aggregate expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_count_property() {
+        let query = parse("MATCH (p:Person) RETURN count(p.name)").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Aggregate { func, expr, .. } = &query.return_clause.items[0].expression {
+            assert!(matches!(func, AggregateFunc::Count));
+            if let Expression::Property { property, .. } = expr.as_ref() {
+                assert_eq!(property, "name");
+            }
+        } else {
+            panic!("Expected aggregate expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_sum() {
+        let query = parse("MATCH (p:Person) RETURN sum(p.age)").unwrap();
+
+        if let Expression::Aggregate { func, .. } = &query.return_clause.items[0].expression {
+            assert!(matches!(func, AggregateFunc::Sum));
+        } else {
+            panic!("Expected SUM aggregate");
+        }
+    }
+
+    #[test]
+    fn test_parse_avg() {
+        let query = parse("MATCH (p:Person) RETURN avg(p.age)").unwrap();
+
+        if let Expression::Aggregate { func, .. } = &query.return_clause.items[0].expression {
+            assert!(matches!(func, AggregateFunc::Avg));
+        } else {
+            panic!("Expected AVG aggregate");
+        }
+    }
+
+    #[test]
+    fn test_parse_min_max() {
+        let query = parse("MATCH (p:Person) RETURN min(p.age), max(p.age)").unwrap();
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        if let Expression::Aggregate { func, .. } = &query.return_clause.items[0].expression {
+            assert!(matches!(func, AggregateFunc::Min));
+        }
+        if let Expression::Aggregate { func, .. } = &query.return_clause.items[1].expression {
+            assert!(matches!(func, AggregateFunc::Max));
+        }
+    }
+
+    #[test]
+    fn test_parse_collect() {
+        let query = parse("MATCH (p:Person) RETURN collect(p.name)").unwrap();
+
+        if let Expression::Aggregate { func, .. } = &query.return_clause.items[0].expression {
+            assert!(matches!(func, AggregateFunc::Collect));
+        } else {
+            panic!("Expected COLLECT aggregate");
+        }
+    }
+
+    #[test]
+    fn test_parse_aggregate_case_insensitive() {
+        // Aggregate function names are case insensitive
+        let queries = vec![
+            "MATCH (p:Person) RETURN COUNT(*)",
+            "MATCH (p:Person) RETURN Count(*)",
+            "MATCH (p:Person) RETURN count(*)",
+        ];
+
+        for query_str in queries {
+            let query = parse(query_str).unwrap();
+            if let Expression::Aggregate { func, .. } = &query.return_clause.items[0].expression {
+                assert!(matches!(func, AggregateFunc::Count));
+            } else {
+                panic!("Expected COUNT aggregate for: {}", query_str);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call_non_aggregate() {
+        // Non-aggregate functions are parsed as FunctionCall
+        let query = parse("MATCH (p:Person) RETURN toUpper(p.name)").unwrap();
+
+        if let Expression::FunctionCall { name, args } = &query.return_clause.items[0].expression {
+            assert_eq!(name, "toUpper");
+            assert_eq!(args.len(), 1);
+        } else {
+            panic!("Expected function call expression");
         }
     }
 }

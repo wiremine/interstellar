@@ -1,26 +1,49 @@
-// GQL Grammar - Extended with Edge Patterns and RETURN Clause Extensions
+// GQL Grammar - Extended with WHERE clause and full expression support
 // Supports:
 // - Node patterns: (n:Label {prop: value})
 // - Edge patterns: -[e:TYPE]->, <-[e:TYPE]-, -[e:TYPE]-
 // - Multiple patterns: (a), (b)
 // - Path quantifiers: *1..3
 // - Extended RETURN: n.name, n.age AS personAge
+// - WHERE clause with comparison, logical, and string operators
+// - Arithmetic expressions
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
-// Keywords (case-insensitive)
-MATCH  = { ^"match" }
-RETURN = { ^"return" }
-AS     = { ^"as" }
-TRUE   = { ^"true" }
-FALSE  = { ^"false" }
-NULL   = { ^"null" }
+// Keywords (case-insensitive) with word boundary check
+// The !ASCII_ALPHANUMERIC ensures keywords don't match prefixes of longer words
+// e.g., OR should not match the "OR" in "ORDER"
+MATCH    = @{ ^"match" ~ !ASCII_ALPHANUMERIC }
+RETURN   = @{ ^"return" ~ !ASCII_ALPHANUMERIC }
+WHERE    = @{ ^"where" ~ !ASCII_ALPHANUMERIC }
+ORDER    = @{ ^"order" ~ !ASCII_ALPHANUMERIC }
+BY       = @{ ^"by" ~ !ASCII_ALPHANUMERIC }
+LIMIT    = @{ ^"limit" ~ !ASCII_ALPHANUMERIC }
+OFFSET   = @{ ^"offset" ~ !ASCII_ALPHANUMERIC }
+AS       = @{ ^"as" ~ !ASCII_ALPHANUMERIC }
+AND      = @{ ^"and" ~ !ASCII_ALPHANUMERIC }
+OR       = @{ ^"or" ~ !ASCII_ALPHANUMERIC }
+NOT      = @{ ^"not" ~ !ASCII_ALPHANUMERIC }
+TRUE     = @{ ^"true" ~ !ASCII_ALPHANUMERIC }
+FALSE    = @{ ^"false" ~ !ASCII_ALPHANUMERIC }
+NULL     = @{ ^"null" ~ !ASCII_ALPHANUMERIC }
+ASC      = @{ ^"asc" ~ !ASCII_ALPHANUMERIC }
+DESC     = @{ ^"desc" ~ !ASCII_ALPHANUMERIC }
+IN       = @{ ^"in" ~ !ASCII_ALPHANUMERIC }
+IS       = @{ ^"is" ~ !ASCII_ALPHANUMERIC }
+CONTAINS = @{ ^"contains" ~ !ASCII_ALPHANUMERIC }
+STARTS   = @{ ^"starts" ~ !ASCII_ALPHANUMERIC }
+ENDS     = @{ ^"ends" ~ !ASCII_ALPHANUMERIC }
+WITH     = @{ ^"with" ~ !ASCII_ALPHANUMERIC }
 
-// Entry point - query with MATCH and RETURN
-query = { SOI ~ match_clause ~ return_clause ~ EOI }
+// Entry point - query with optional WHERE clause
+query = { SOI ~ match_clause ~ where_clause? ~ return_clause ~ order_clause? ~ limit_clause? ~ EOI }
 
 // MATCH clause - multiple patterns separated by commas
 match_clause = { MATCH ~ pattern ~ ("," ~ pattern)* }
+
+// WHERE clause
+where_clause = { WHERE ~ expression }
 
 // Pattern: alternating nodes and edges starting with a node
 // e.g., (a)-[:KNOWS]->(b)-[:WORKS_WITH]->(c)
@@ -51,23 +74,128 @@ property = { identifier ~ ":" ~ literal }
 quantifier = { "*" ~ range? }
 range = { integer? ~ ".." ~ integer? | integer }
 
+// ============================================================
+// Expressions with correct precedence (lowest to highest)
+// ============================================================
+
+// expression is the entry point for all expressions
+expression = { or_expr }
+
+// OR has lowest precedence
+or_expr = { and_expr ~ (OR ~ and_expr)* }
+
+// AND has higher precedence than OR
+and_expr = { not_expr ~ (AND ~ not_expr)* }
+
+// NOT is a unary operator
+not_expr = { NOT* ~ comparison }
+
+// Comparison operators
+comparison = { 
+    is_null_expr 
+    | in_expr 
+    | comparison_expr 
+}
+
+// IS NULL / IS NOT NULL
+is_null_expr = { additive ~ IS ~ NOT? ~ NULL }
+
+// IN list / NOT IN list
+in_expr = { additive ~ NOT? ~ IN ~ list_expr }
+
+// Binary comparison operators
+comparison_expr = { additive ~ (comp_op ~ additive)? }
+
+comp_op = { 
+    neq | lte | gte | lt | gt | eq
+    | CONTAINS
+    | starts_with
+    | ends_with
+}
+
+// Use specific rules for operators to avoid ambiguity
+neq = { "<>" | "!=" }
+lte = { "<=" }
+gte = { ">=" }
+lt = { "<" }
+gt = { ">" }
+eq = { "=" }
+
+starts_with = { STARTS ~ WITH }
+ends_with = { ENDS ~ WITH }
+
+// Additive operators: + -
+additive = { multiplicative ~ (add_op ~ multiplicative)* }
+add_op = { "+" | "-" }
+
+// Multiplicative operators: * / %
+multiplicative = { unary ~ (mul_op ~ unary)* }
+mul_op = { "*" | "/" | "%" }
+
+// Unary minus
+unary = { neg_op? ~ primary }
+neg_op = { "-" }
+
+// Primary expressions (highest precedence)
+primary = { 
+    literal
+    | function_call
+    | property_access
+    | variable
+    | paren_expr
+    | list_expr
+}
+
+// Parenthesized expression
+paren_expr = { "(" ~ expression ~ ")" }
+
+// Function call: count(*), sum(x), etc.
+function_call = { identifier ~ "(" ~ function_args? ~ ")" }
+function_args = { star | expression ~ ("," ~ expression)* }
+star = { "*" }
+
+// List expression: [1, 2, 3] or ['a', 'b']
+list_expr = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+
+// Property access: n.name
+property_access = { variable ~ "." ~ identifier }
+
+// Identifiers and variables
+// NOTE: Keywords are excluded from identifier matching via the keyword rule
+variable = @{ !(keyword ~ !ASCII_ALPHANUMERIC) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// All keywords - used to exclude them from variable names
+keyword = {
+    MATCH | RETURN | WHERE | ORDER | BY | LIMIT | OFFSET |
+    AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
+    IN | IS | CONTAINS | STARTS | ENDS | WITH
+}
+
+// ============================================================
+// RETURN clause - multiple items with optional aliases
+// ============================================================
+// e.g., RETURN n, n.name, n.age AS personAge
+return_clause = { RETURN ~ return_item ~ ("," ~ return_item)* }
+return_item = { expression ~ (AS ~ identifier)? }
+
+// ============================================================
+// ORDER BY clause
+// ============================================================
+order_clause = { ORDER ~ BY ~ order_item ~ ("," ~ order_item)* }
+order_item = { expression ~ (ASC | DESC)? }
+
+// ============================================================
+// LIMIT clause
+// ============================================================
+limit_clause = { LIMIT ~ integer ~ (OFFSET ~ integer)? }
+
+// ============================================================
 // Literals
+// ============================================================
 literal = { string | float | integer | boolean | NULL }
 boolean = { TRUE | FALSE }
 string = ${ "'" ~ string_inner ~ "'" }
 string_inner = @{ (!"'" ~ ANY | "''")* }
 integer = @{ "-"? ~ ASCII_DIGIT+ }
 float = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
-
-// Identifiers and variables
-variable = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-
-// RETURN clause - multiple items with optional aliases
-// e.g., RETURN n, n.name, n.age AS personAge
-return_clause = { RETURN ~ return_item ~ ("," ~ return_item)* }
-return_item = { expression ~ (AS ~ identifier)? }
-
-// Expression - property access, variable, or literal
-expression = { property_access | variable | literal }
-property_access = { variable ~ "." ~ identifier }

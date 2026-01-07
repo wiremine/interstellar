@@ -1,6 +1,6 @@
 //! AST types for GQL queries.
 
-/// Complete GQL query (minimal spike version)
+/// Complete GQL query
 #[derive(Debug, Clone)]
 pub struct Query {
     pub match_clause: MatchClause,
@@ -59,7 +59,7 @@ pub struct PathQuantifier {
     pub max: Option<u32>,
 }
 
-/// WHERE clause (stub for spike)
+/// WHERE clause
 #[derive(Debug, Clone)]
 pub struct WhereClause {
     pub expression: Expression,
@@ -77,7 +77,7 @@ pub struct ReturnItem {
     pub alias: Option<String>,
 }
 
-/// ORDER BY clause (stub for spike)
+/// ORDER BY clause
 #[derive(Debug, Clone)]
 pub struct OrderClause {
     pub items: Vec<OrderItem>,
@@ -89,7 +89,7 @@ pub struct OrderItem {
     pub descending: bool,
 }
 
-/// LIMIT clause (stub for spike)
+/// LIMIT clause
 #[derive(Debug, Clone)]
 pub struct LimitClause {
     pub limit: u64,
@@ -108,19 +108,50 @@ pub enum Expression {
     /// Literal value
     Literal(Literal),
 
-    /// Binary operation (stub for spike)
+    /// Binary operation: `a + b`, `x = y`, `p AND q`
     BinaryOp {
         left: Box<Expression>,
         op: BinaryOperator,
         right: Box<Expression>,
     },
 
-    /// Aggregate function (stub for spike)
+    /// Unary operation: NOT, -
+    UnaryOp {
+        op: UnaryOperator,
+        expr: Box<Expression>,
+    },
+
+    /// IS NULL / IS NOT NULL
+    IsNull {
+        expr: Box<Expression>,
+        negated: bool, // true for IS NOT NULL
+    },
+
+    /// IN list check: `x IN [1, 2, 3]` / `x NOT IN [...]`
+    InList {
+        expr: Box<Expression>,
+        list: Vec<Expression>,
+        negated: bool, // true for NOT IN
+    },
+
+    /// List literal: [1, 2, 3]
+    List(Vec<Expression>),
+
+    /// Function call: count(*), sum(x), etc.
+    FunctionCall { name: String, args: Vec<Expression> },
+
+    /// Aggregate function: COUNT, SUM, AVG, MIN, MAX, COLLECT
     Aggregate {
         func: AggregateFunc,
         distinct: bool,
         expr: Box<Expression>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOperator {
+    Not,
+    Neg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
