@@ -1292,10 +1292,10 @@ impl<'a, 'g> Compiler<'a, 'g> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `(a)-[:KNOWS]->(b)` compiles to `out_labels(&["KNOWS"])`
-- [ ] `(a)<-[:KNOWS]-(b)` compiles to `in_labels(&["KNOWS"])`
-- [ ] `(a:Person {name: 'Alice'})` applies `has_value()`
-- [ ] Multi-hop patterns work: `(a)-[:KNOWS]->(b)-[:KNOWS]->(c)`
+- [x] `(a)-[:KNOWS]->(b)` compiles to `out_labels(&["KNOWS"])`
+- [x] `(a)<-[:KNOWS]-(b)` compiles to `in_labels(&["KNOWS"])`
+- [x] `(a:Person {name: 'Alice'})` applies `has_value()`
+- [x] Multi-hop patterns work: `(a)-[:KNOWS]->(b)-[:KNOWS]->(c)`
 
 ---
 

@@ -241,3 +241,181 @@ fn test_compile_function_export() {
 
     assert_eq!(results.len(), 3);
 }
+
+// =============================================================================
+// Edge Traversal Tests
+// =============================================================================
+
+/// Helper to create a test graph with edges for traversal tests
+fn create_graph_with_edges() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    let mut dave_props = HashMap::new();
+    dave_props.insert("name".to_string(), Value::from("Dave"));
+    let dave = storage.add_vertex("Person", dave_props);
+
+    // Create edges:
+    // Alice -[KNOWS]-> Bob
+    // Alice -[KNOWS]-> Carol
+    // Bob -[KNOWS]-> Carol
+    // Bob -[WORKS_WITH]-> Dave
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, dave, "WORKS_WITH", HashMap::new())
+        .unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+#[test]
+fn test_gql_outgoing_edge_traversal() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Alice knows 2 people (Bob and Carol)
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Alice should know 2 people");
+}
+
+#[test]
+fn test_gql_incoming_edge_traversal() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Carol is known by 2 people (Alice and Bob)
+    let results = snapshot
+        .gql("MATCH (c:Person {name: 'Carol'})<-[:KNOWS]-(source) RETURN source")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Carol should be known by 2 people");
+}
+
+#[test]
+fn test_gql_bidirectional_edge_traversal() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Bob is connected via KNOWS to: Alice (incoming), Carol (outgoing)
+    let results = snapshot
+        .gql("MATCH (b:Person {name: 'Bob'})-[:KNOWS]-(connected) RETURN connected")
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        2,
+        "Bob should be connected to 2 people via KNOWS"
+    );
+}
+
+#[test]
+fn test_gql_edge_without_label() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Bob has 3 outgoing edges total (2 KNOWS + 1 WORKS_WITH)
+    let results = snapshot
+        .gql("MATCH (b:Person {name: 'Bob'})-[]->(target) RETURN target")
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        2,
+        "Bob should have 2 outgoing edges (Carol via KNOWS, Dave via WORKS_WITH)"
+    );
+}
+
+#[test]
+fn test_gql_multi_hop_traversal() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Alice -> Bob -> Carol (two hops via KNOWS)
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c) RETURN c")
+        .unwrap();
+
+    // Alice knows Bob, Bob knows Carol -> should find Carol
+    assert_eq!(results.len(), 1, "Should find Carol via two-hop traversal");
+}
+
+#[test]
+fn test_gql_multi_hop_via_different_labels() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Alice -> Bob (KNOWS) -> Dave (WORKS_WITH)
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:WORKS_WITH]->(c) RETURN c")
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        1,
+        "Should find Dave via Alice->Bob->Dave path"
+    );
+}
+
+#[test]
+fn test_gql_property_filter_on_pattern() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Find friends of Alice named Bob
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend:Person {name: 'Bob'}) RETURN friend")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find exactly Bob");
+}
+
+#[test]
+fn test_gql_no_matching_edges() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Alice has no outgoing WORKS_WITH edges
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:WORKS_WITH]->(coworker) RETURN coworker")
+        .unwrap();
+
+    assert_eq!(results.len(), 0, "Alice should have no WORKS_WITH edges");
+}
+
+#[test]
+fn test_gql_chain_of_three_hops() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Three-hop traversal: a -> b -> c -> d
+    // With our graph: Alice -> Bob -> Carol, but Carol has no outgoing KNOWS edges
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c)-[:KNOWS]->(d) RETURN d")
+        .unwrap();
+
+    // Carol has no outgoing KNOWS edges, so this should return empty
+    assert_eq!(results.len(), 0, "No three-hop KNOWS path from Alice");
+}

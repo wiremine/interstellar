@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::gql::ast::*;
 use crate::gql::error::CompileError;
 use crate::graph::GraphSnapshot;
+use crate::traversal::BoundTraversal;
 use crate::value::Value;
 
 /// Compile and execute a GQL query against a graph snapshot.
@@ -41,7 +42,7 @@ struct BindingInfo {
     is_node: bool,
 }
 
-impl<'a, 'g> Compiler<'a, 'g> {
+impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn new(snapshot: &'a GraphSnapshot<'g>) -> Self {
         Self {
             snapshot,
@@ -50,7 +51,6 @@ impl<'a, 'g> Compiler<'a, 'g> {
     }
 
     fn compile(&mut self, query: &Query) -> Result<Vec<Value>, CompileError> {
-        // For spike: support only single pattern with single node
         if query.match_clause.patterns.is_empty() {
             return Err(CompileError::EmptyPattern);
         }
@@ -60,56 +60,166 @@ impl<'a, 'g> Compiler<'a, 'g> {
             return Err(CompileError::EmptyPattern);
         }
 
-        // Get the first node pattern
-        let node = match &pattern.elements[0] {
-            PatternElement::Node(n) => n,
-            PatternElement::Edge(_) => return Err(CompileError::PatternMustStartWithNode),
-        };
-
-        // Build traversal
+        // Build traversal starting from v()
         let g = self.snapshot.traversal();
-        let mut traversal = g.v();
+        let traversal = g.v();
 
+        // Compile the full pattern (nodes and edges)
+        let traversal = self.compile_pattern(pattern, traversal)?;
+
+        // Execute and collect results based on RETURN clause
+        self.execute_return(&query.return_clause, traversal)
+    }
+
+    /// Compile a pattern into traversal steps.
+    ///
+    /// A pattern consists of alternating node and edge elements:
+    /// (a)-[:KNOWS]->(b)-[:WORKS_WITH]->(c)
+    ///
+    /// The first element must be a node. Each edge is followed by a node.
+    fn compile_pattern(
+        &mut self,
+        pattern: &Pattern,
+        mut traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        let mut element_index = 0;
+
+        for element in &pattern.elements {
+            match element {
+                PatternElement::Node(node) => {
+                    traversal = self.compile_node(node, traversal, element_index)?;
+                }
+                PatternElement::Edge(edge) => {
+                    traversal = self.compile_edge(edge, traversal)?;
+                }
+            }
+            element_index += 1;
+        }
+
+        Ok(traversal)
+    }
+
+    /// Compile a node pattern into filter steps.
+    ///
+    /// Applies label filters and property filters to the traversal.
+    fn compile_node(
+        &mut self,
+        node: &NodePattern,
+        mut traversal: BoundTraversal<'g, (), Value>,
+        index: usize,
+    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
         // Apply label filter
         if !node.labels.is_empty() {
             let labels: Vec<&str> = node.labels.iter().map(|s| s.as_str()).collect();
             traversal = traversal.has_label_any(labels);
         }
 
+        // Apply property filters
+        for (key, value) in &node.properties {
+            let val: Value = value.clone().into();
+            traversal = traversal.has_value(key.as_str(), val);
+        }
+
         // Register binding
         if let Some(var) = &node.variable {
+            if self.bindings.contains_key(var) {
+                return Err(CompileError::DuplicateVariable(var.clone()));
+            }
             self.bindings.insert(
                 var.clone(),
                 BindingInfo {
-                    pattern_index: 0,
+                    pattern_index: index,
                     is_node: true,
                 },
             );
         }
 
-        // Execute and collect results based on RETURN clause
-        self.execute_return(&query.return_clause, traversal)
+        Ok(traversal)
+    }
+
+    /// Compile an edge pattern into navigation steps.
+    ///
+    /// Translates edge direction and labels into out()/in_()/both() calls.
+    fn compile_edge(
+        &mut self,
+        edge: &EdgePattern,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
+
+        // Navigate based on direction
+        let traversal = match edge.direction {
+            EdgeDirection::Outgoing => {
+                if labels.is_empty() {
+                    traversal.out()
+                } else {
+                    traversal.out_labels(&labels)
+                }
+            }
+            EdgeDirection::Incoming => {
+                if labels.is_empty() {
+                    traversal.in_()
+                } else {
+                    traversal.in_labels(&labels)
+                }
+            }
+            EdgeDirection::Both => {
+                if labels.is_empty() {
+                    traversal.both()
+                } else {
+                    traversal.both_labels(&labels)
+                }
+            }
+        };
+
+        // TODO: Handle edge variable binding (requires outE/inE approach)
+        // TODO: Handle property filters on edges
+        // TODO: Handle quantifiers (variable-length paths)
+
+        Ok(traversal)
     }
 
     fn execute_return(
         &self,
         return_clause: &ReturnClause,
-        traversal: crate::traversal::BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
-        // For spike: support only returning the matched node
         // Verify all referenced variables are bound
         for item in &return_clause.items {
-            if let Expression::Variable(var) = &item.expression {
-                if !self.bindings.contains_key(var) {
-                    return Err(CompileError::UndefinedVariable(var.clone()));
-                }
-            }
+            self.validate_expression_variables(&item.expression)?;
         }
 
         // Collect results - the traversal yields Value::Vertex for each match
         let results: Vec<Value> = traversal.to_list();
 
         Ok(results)
+    }
+
+    /// Validate that all variables referenced in an expression are bound.
+    fn validate_expression_variables(&self, expr: &Expression) -> Result<(), CompileError> {
+        match expr {
+            Expression::Variable(var) => {
+                if !self.bindings.contains_key(var) {
+                    return Err(CompileError::UndefinedVariable(var.clone()));
+                }
+            }
+            Expression::Property { variable, .. } => {
+                if !self.bindings.contains_key(variable) {
+                    return Err(CompileError::UndefinedVariable(variable.clone()));
+                }
+            }
+            Expression::BinaryOp { left, right, .. } => {
+                self.validate_expression_variables(left)?;
+                self.validate_expression_variables(right)?;
+            }
+            Expression::Aggregate { expr, .. } => {
+                self.validate_expression_variables(expr)?;
+            }
+            Expression::Literal(_) => {
+                // Literals don't reference variables
+            }
+        }
+        Ok(())
     }
 }
 
