@@ -68,7 +68,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let traversal = self.compile_pattern(pattern, traversal)?;
 
         // Execute and collect results based on RETURN clause
-        self.execute_return(&query.return_clause, traversal)
+        // Apply WHERE filter if present
+        self.execute_return(&query.return_clause, &query.where_clause, traversal)
     }
 
     /// Compile a pattern into traversal steps.
@@ -179,6 +180,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn execute_return(
         &self,
         return_clause: &ReturnClause,
+        where_clause: &Option<WhereClause>,
         traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // Verify all referenced variables are bound
@@ -186,11 +188,26 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             self.validate_expression_variables(&item.expression)?;
         }
 
+        // Validate WHERE clause variables if present
+        if let Some(where_cl) = where_clause {
+            self.validate_expression_variables(&where_cl.expression)?;
+        }
+
         // Collect the matched elements first
         let matched_elements: Vec<Value> = traversal.to_list();
 
+        // Apply WHERE filter if present
+        let filtered_elements = if let Some(where_cl) = where_clause {
+            matched_elements
+                .into_iter()
+                .filter(|element| self.evaluate_predicate(&where_cl.expression, element))
+                .collect()
+        } else {
+            matched_elements
+        };
+
         // Process each matched element according to the RETURN clause
-        let results: Vec<Value> = matched_elements
+        let results: Vec<Value> = filtered_elements
             .into_iter()
             .filter_map(|element| self.evaluate_return_for_element(&return_clause.items, &element))
             .collect();
@@ -271,6 +288,148 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         }
     }
 
+    // =========================================================================
+    // WHERE Clause Evaluation
+    // =========================================================================
+
+    /// Evaluate a predicate expression against an element, returning true if it matches.
+    fn evaluate_predicate(&self, expr: &Expression, element: &Value) -> bool {
+        match expr {
+            Expression::BinaryOp { left, op, right } => {
+                match op {
+                    // Logical operators
+                    BinaryOperator::And => {
+                        self.evaluate_predicate(left, element)
+                            && self.evaluate_predicate(right, element)
+                    }
+                    BinaryOperator::Or => {
+                        self.evaluate_predicate(left, element)
+                            || self.evaluate_predicate(right, element)
+                    }
+                    // Comparison and other operators
+                    _ => {
+                        let left_val = self.evaluate_value(left, element);
+                        let right_val = self.evaluate_value(right, element);
+                        apply_comparison(*op, &left_val, &right_val)
+                    }
+                }
+            }
+            Expression::UnaryOp { op, expr } => match op {
+                UnaryOperator::Not => !self.evaluate_predicate(expr, element),
+                UnaryOperator::Neg => {
+                    // Negation of a value - treat non-zero as true
+                    match self.evaluate_value(expr, element) {
+                        Value::Int(n) => n == 0,
+                        Value::Float(f) => f == 0.0,
+                        Value::Bool(b) => !b,
+                        Value::Null => true,
+                        _ => false,
+                    }
+                }
+            },
+            Expression::IsNull { expr, negated } => {
+                let val = self.evaluate_value(expr, element);
+                let is_null = matches!(val, Value::Null);
+                if *negated {
+                    !is_null
+                } else {
+                    is_null
+                }
+            }
+            Expression::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let val = self.evaluate_value(expr, element);
+                let in_list = list.iter().any(|item| {
+                    let item_val = self.evaluate_value(item, element);
+                    val == item_val
+                });
+                if *negated {
+                    !in_list
+                } else {
+                    in_list
+                }
+            }
+            // For other expressions, evaluate and check truthiness
+            _ => {
+                let val = self.evaluate_value(expr, element);
+                match val {
+                    Value::Bool(b) => b,
+                    Value::Null => false,
+                    Value::Int(n) => n != 0,
+                    Value::Float(f) => f != 0.0,
+                    Value::String(s) => !s.is_empty(),
+                    _ => true, // Non-null values are truthy
+                }
+            }
+        }
+    }
+
+    /// Evaluate an expression to a Value against an element.
+    fn evaluate_value(&self, expr: &Expression, element: &Value) -> Value {
+        match expr {
+            Expression::Literal(lit) => lit.clone().into(),
+            Expression::Variable(_) => {
+                // Return the element itself when referencing a variable
+                element.clone()
+            }
+            Expression::Property { property, .. } => {
+                // Extract property from the element
+                self.extract_property(element, property)
+                    .unwrap_or(Value::Null)
+            }
+            Expression::BinaryOp { left, op, right } => {
+                let left_val = self.evaluate_value(left, element);
+                let right_val = self.evaluate_value(right, element);
+                apply_binary_op(*op, left_val, right_val)
+            }
+            Expression::UnaryOp { op, expr } => match op {
+                UnaryOperator::Not => {
+                    let val = self.evaluate_value(expr, element);
+                    match val {
+                        Value::Bool(b) => Value::Bool(!b),
+                        _ => Value::Null,
+                    }
+                }
+                UnaryOperator::Neg => {
+                    let val = self.evaluate_value(expr, element);
+                    match val {
+                        Value::Int(n) => Value::Int(-n),
+                        Value::Float(f) => Value::Float(-f),
+                        _ => Value::Null,
+                    }
+                }
+            },
+            Expression::IsNull { expr, negated } => {
+                let val = self.evaluate_value(expr, element);
+                let is_null = matches!(val, Value::Null);
+                Value::Bool(if *negated { !is_null } else { is_null })
+            }
+            Expression::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let val = self.evaluate_value(expr, element);
+                let in_list = list.iter().any(|item| {
+                    let item_val = self.evaluate_value(item, element);
+                    val == item_val
+                });
+                Value::Bool(if *negated { !in_list } else { in_list })
+            }
+            Expression::List(items) => {
+                let values: Vec<Value> = items
+                    .iter()
+                    .map(|item| self.evaluate_value(item, element))
+                    .collect();
+                Value::List(values)
+            }
+            _ => Value::Null, // Unsupported expressions
+        }
+    }
+
     /// Validate that all variables referenced in an expression are bound.
     fn validate_expression_variables(&self, expr: &Expression) -> Result<(), CompileError> {
         match expr {
@@ -318,6 +477,123 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
         }
         Ok(())
+    }
+}
+
+// =============================================================================
+// Helper Functions for Expression Evaluation
+// =============================================================================
+
+/// Apply a comparison operator to two values.
+fn apply_comparison(op: BinaryOperator, left: &Value, right: &Value) -> bool {
+    match op {
+        BinaryOperator::Eq => left == right,
+        BinaryOperator::Neq => left != right,
+        BinaryOperator::Lt => compare_values(left, right) == std::cmp::Ordering::Less,
+        BinaryOperator::Lte => {
+            matches!(
+                compare_values(left, right),
+                std::cmp::Ordering::Less | std::cmp::Ordering::Equal
+            )
+        }
+        BinaryOperator::Gt => compare_values(left, right) == std::cmp::Ordering::Greater,
+        BinaryOperator::Gte => {
+            matches!(
+                compare_values(left, right),
+                std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
+            )
+        }
+        BinaryOperator::And => value_to_bool(left) && value_to_bool(right),
+        BinaryOperator::Or => value_to_bool(left) || value_to_bool(right),
+        BinaryOperator::Contains => match (left, right) {
+            (Value::String(s), Value::String(sub)) => s.contains(sub.as_str()),
+            _ => false,
+        },
+        BinaryOperator::StartsWith => match (left, right) {
+            (Value::String(s), Value::String(prefix)) => s.starts_with(prefix.as_str()),
+            _ => false,
+        },
+        BinaryOperator::EndsWith => match (left, right) {
+            (Value::String(s), Value::String(suffix)) => s.ends_with(suffix.as_str()),
+            _ => false,
+        },
+        // Arithmetic operators don't return bool, but we handle them for completeness
+        _ => false,
+    }
+}
+
+/// Apply a binary operator and return the result as a Value.
+fn apply_binary_op(op: BinaryOperator, left: Value, right: Value) -> Value {
+    match op {
+        BinaryOperator::Add => match (left, right) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 + b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a + b as f64),
+            (Value::String(a), Value::String(b)) => Value::String(a + &b),
+            _ => Value::Null,
+        },
+        BinaryOperator::Sub => match (left, right) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 - b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a - b as f64),
+            _ => Value::Null,
+        },
+        BinaryOperator::Mul => match (left, right) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 * b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a * b as f64),
+            _ => Value::Null,
+        },
+        BinaryOperator::Div => match (left, right) {
+            (Value::Int(a), Value::Int(b)) if b != 0 => Value::Int(a / b),
+            (Value::Float(a), Value::Float(b)) if b != 0.0 => Value::Float(a / b),
+            (Value::Int(a), Value::Float(b)) if b != 0.0 => Value::Float(a as f64 / b),
+            (Value::Float(a), Value::Int(b)) if b != 0 => Value::Float(a / b as f64),
+            _ => Value::Null,
+        },
+        BinaryOperator::Mod => match (left, right) {
+            (Value::Int(a), Value::Int(b)) if b != 0 => Value::Int(a % b),
+            _ => Value::Null,
+        },
+        // Comparison operators return Bool
+        op => Value::Bool(apply_comparison(op, &left, &right)),
+    }
+}
+
+/// Compare two values, returning Ordering.
+fn compare_values(left: &Value, right: &Value) -> std::cmp::Ordering {
+    match (left, right) {
+        (Value::Int(a), Value::Int(b)) => a.cmp(b),
+        (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Int(a), Value::Float(b)) => (*a as f64)
+            .partial_cmp(b)
+            .unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Float(a), Value::Int(b)) => a
+            .partial_cmp(&(*b as f64))
+            .unwrap_or(std::cmp::Ordering::Equal),
+        (Value::String(a), Value::String(b)) => a.cmp(b),
+        (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+        // Null is less than everything except Null
+        (Value::Null, Value::Null) => std::cmp::Ordering::Equal,
+        (Value::Null, _) => std::cmp::Ordering::Less,
+        (_, Value::Null) => std::cmp::Ordering::Greater,
+        // Incompatible types - default to equal
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+/// Convert a Value to a boolean for truthiness checks.
+fn value_to_bool(val: &Value) -> bool {
+    match val {
+        Value::Bool(b) => *b,
+        Value::Null => false,
+        Value::Int(n) => *n != 0,
+        Value::Float(f) => *f != 0.0,
+        Value::String(s) => !s.is_empty(),
+        _ => true,
     }
 }
 
