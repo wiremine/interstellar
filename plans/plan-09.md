@@ -1511,9 +1511,9 @@ fn test_gql_multi_hop() {
 ```
 
 **Acceptance Criteria**:
-- [ ] All pattern traversal tests pass
-- [ ] Property return tests pass
-- [ ] Multi-hop tests pass
+- [x] All pattern traversal tests pass
+- [x] Property return tests pass
+- [x] Multi-hop tests pass
 
 ---
 

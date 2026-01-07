@@ -627,3 +627,316 @@ fn test_gql_return_mixed_variable_and_property() {
         other => panic!("Expected Map, got {:?}", other),
     }
 }
+
+// =============================================================================
+// Phase 2.6: Integration Tests - Patterns
+// =============================================================================
+
+/// Helper to create a graph with rich edge relationships for pattern tests
+fn create_pattern_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    // Create edges:
+    // Alice -[KNOWS]-> Bob
+    // Alice -[KNOWS]-> Carol
+    // Bob -[WORKS_WITH]-> Carol
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "WORKS_WITH", HashMap::new())
+        .unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Phase 2.6 test: Edge traversal patterns
+///
+/// Tests outgoing, incoming, and bidirectional edge traversals with
+/// various label filters to ensure pattern matching works correctly.
+#[test]
+fn test_gql_edge_traversal_phase_2_6() {
+    let graph = create_pattern_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Test outgoing edge: Alice knows 2 people
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend")
+        .unwrap();
+    assert_eq!(
+        results.len(),
+        2,
+        "Alice should know 2 people (Bob and Carol)"
+    );
+
+    // Test incoming edge: Bob is known by Alice
+    let results = snapshot
+        .gql("MATCH (b:Person {name: 'Bob'})<-[:KNOWS]-(source) RETURN source")
+        .unwrap();
+    assert_eq!(results.len(), 1, "Bob should be known by 1 person (Alice)");
+
+    // Test bidirectional: Bob is connected via KNOWS to Alice (incoming)
+    // Note: Bob has no outgoing KNOWS edges, so only incoming from Alice counts
+    let results = snapshot
+        .gql("MATCH (b:Person {name: 'Bob'})-[:KNOWS]-(connected) RETURN connected")
+        .unwrap();
+    assert_eq!(
+        results.len(),
+        1,
+        "Bob should be connected to 1 person via KNOWS (Alice)"
+    );
+}
+
+/// Helper to create a graph with age property for property return tests
+fn create_property_return_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices with name and age
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("age".to_string(), Value::from(30i64));
+    storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    bob_props.insert("age".to_string(), Value::from(25i64));
+    storage.add_vertex("Person", bob_props);
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Phase 2.6 test: Property access in RETURN clause
+///
+/// Tests returning property values instead of entire vertices,
+/// ensuring that the correct property values are extracted.
+#[test]
+fn test_gql_property_return_phase_2_6() {
+    let graph = create_property_return_graph();
+    let snapshot = graph.snapshot();
+
+    // Return single property - should return property values, not vertices
+    let results = snapshot.gql("MATCH (p:Person) RETURN p.name").unwrap();
+    assert_eq!(results.len(), 2, "Should find 2 Person vertices");
+
+    // Collect names and verify
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        names.contains(&"Alice"),
+        "Results should contain Alice, got: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"Bob"),
+        "Results should contain Bob, got: {:?}",
+        names
+    );
+}
+
+/// Helper to create a graph for multi-hop traversal tests
+fn create_multi_hop_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create a chain: Alice -> Bob -> Carol
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    // Alice -[KNOWS]-> Bob -[KNOWS]-> Carol
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "KNOWS", HashMap::new())
+        .unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Phase 2.6 test: Multi-hop traversal
+///
+/// Tests traversing multiple edges in a single pattern,
+/// returning the property value at the end of the chain.
+#[test]
+fn test_gql_multi_hop_phase_2_6() {
+    let graph = create_multi_hop_graph();
+    let snapshot = graph.snapshot();
+
+    // Two-hop traversal: Alice -> Bob -> Carol
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c) RETURN c.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find exactly one path to Carol");
+    assert_eq!(
+        results[0],
+        Value::String("Carol".to_string()),
+        "Should find Carol at the end of two-hop traversal"
+    );
+}
+
+/// Phase 2.6 test: Comprehensive edge traversal test
+///
+/// Tests the complete edge traversal scenario from the plan,
+/// including property filters on starting nodes.
+#[test]
+fn test_gql_comprehensive_edge_traversal() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    // Create KNOWS edges
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "WORKS_WITH", HashMap::new())
+        .unwrap();
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // Test 1: Outgoing edge with property filter on source
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend")
+        .unwrap();
+    assert_eq!(results.len(), 2, "Alice knows 2 people");
+
+    // Test 2: Incoming edge with property filter on target
+    let results = snapshot
+        .gql("MATCH (b:Person {name: 'Bob'})<-[:KNOWS]-(source) RETURN source")
+        .unwrap();
+    assert_eq!(results.len(), 1, "Bob is known by 1 person");
+
+    // Test 3: Bidirectional - Bob connected via KNOWS (only Alice, since Bob has no outgoing KNOWS)
+    let results = snapshot
+        .gql("MATCH (b:Person {name: 'Bob'})-[:KNOWS]-(connected) RETURN connected")
+        .unwrap();
+    assert_eq!(
+        results.len(),
+        1,
+        "Bob connected via KNOWS to 1 person (Alice)"
+    );
+}
+
+/// Phase 2.6 test: Property return values verified against known data
+///
+/// Tests that property values match expected values in order or content.
+#[test]
+fn test_gql_property_return_values() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("age".to_string(), Value::from(30i64));
+    storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    bob_props.insert("age".to_string(), Value::from(25i64));
+    storage.add_vertex("Person", bob_props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // Return single property
+    let results = snapshot.gql("MATCH (p:Person) RETURN p.name").unwrap();
+    assert_eq!(results.len(), 2);
+
+    // Verify both expected names are present
+    assert!(results.contains(&Value::String("Alice".to_string())));
+    assert!(results.contains(&Value::String("Bob".to_string())));
+}
+
+/// Phase 2.6 test: Multi-hop with property filter at each step
+#[test]
+fn test_gql_multi_hop_with_property_filters() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    let mut dave_props = HashMap::new();
+    dave_props.insert("name".to_string(), Value::from("Dave"));
+    let dave = storage.add_vertex("Person", dave_props);
+
+    // Alice -[KNOWS]-> Bob -[KNOWS]-> Carol
+    // Alice -[KNOWS]-> Dave (no further connection)
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, dave, "KNOWS", HashMap::new())
+        .unwrap();
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // Two-hop traversal from Alice via Bob to Carol
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})-[:KNOWS]->(c) RETURN c.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should find exactly one result");
+    assert_eq!(
+        results[0],
+        Value::String("Carol".to_string()),
+        "Should find Carol via the Bob path"
+    );
+}
