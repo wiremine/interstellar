@@ -125,8 +125,8 @@ pub use parser::parse;
 ```
 
 **Acceptance Criteria**:
-- [ ] `cargo build` succeeds with new dependencies
-- [ ] `src/gql/mod.rs` exists and compiles
+- [x] `cargo build` succeeds with new dependencies
+- [x] `src/gql/mod.rs` exists and compiles
 
 ---
 
@@ -170,10 +170,10 @@ return_clause = { RETURN ~ variable }
 ```
 
 **Acceptance Criteria**:
-- [ ] Grammar file parses without pest errors
-- [ ] `MATCH (n:Person) RETURN n` parses successfully
-- [ ] `MATCH (n) RETURN n` parses successfully (no label)
-- [ ] `MATCH (:Person) RETURN n` fails (missing variable in RETURN)
+- [x] Grammar file parses without pest errors
+- [x] `MATCH (n:Person) RETURN n` parses successfully
+- [x] `MATCH (n) RETURN n` parses successfully (no label)
+- [x] `MATCH (:Person) RETURN n` fails (missing variable in RETURN)
 
 ---
 
@@ -354,9 +354,9 @@ impl From<Literal> for crate::value::Value {
 ```
 
 **Acceptance Criteria**:
-- [ ] All AST types compile
-- [ ] `Query`, `MatchClause`, `Pattern`, `NodePattern` are defined
-- [ ] `Literal` converts to `Value`
+- [x] All AST types compile
+- [x] `Query`, `MatchClause`, `Pattern`, `NodePattern` are defined
+- [x] `Literal` converts to `Value`
 
 ---
 
@@ -523,9 +523,9 @@ mod tests {
 ```
 
 **Acceptance Criteria**:
-- [ ] `parse("MATCH (n:Person) RETURN n")` returns valid AST
-- [ ] Parser tests pass
-- [ ] Invalid syntax returns `ParseError`
+- [x] `parse("MATCH (n:Person) RETURN n")` returns valid AST
+- [x] Parser tests pass
+- [x] Invalid syntax returns `ParseError`
 
 ---
 
@@ -595,9 +595,9 @@ pub enum CompileError {
 ```
 
 **Acceptance Criteria**:
-- [ ] Error types compile
-- [ ] Errors implement `std::error::Error`
-- [ ] Errors have useful messages
+- [x] Error types compile
+- [x] Errors implement `std::error::Error`
+- [x] Errors have useful messages
 
 ---
 
@@ -750,10 +750,10 @@ mod tests {
 ```
 
 **Acceptance Criteria**:
-- [ ] `compile()` executes simple MATCH query
-- [ ] Returns `Vec<Value>` with matched vertices
-- [ ] Undefined variable in RETURN produces error
-- [ ] Integration test passes
+- [x] `compile()` executes simple MATCH query
+- [x] Returns `Vec<Value>` with matched vertices
+- [x] Undefined variable in RETURN produces error
+- [x] Integration test passes
 
 ---
 
@@ -841,9 +841,9 @@ fn test_gql_undefined_variable() {
 ```
 
 **Acceptance Criteria**:
-- [ ] `snapshot.gql("MATCH (n:Person) RETURN n")` works end-to-end
-- [ ] All integration tests pass
-- [ ] Spike is complete - full pipeline from GQL text to results
+- [x] `snapshot.gql("MATCH (n:Person) RETURN n")` works end-to-end
+- [x] All integration tests pass
+- [x] Spike is complete - full pipeline from GQL text to results
 
 ---
 
@@ -938,11 +938,11 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 ```
 
 **Acceptance Criteria**:
-- [ ] `(a)-[:KNOWS]->(b)` parses with Outgoing direction
-- [ ] `(a)<-[:KNOWS]-(b)` parses with Incoming direction
-- [ ] `(a)-[:KNOWS]-(b)` parses with Both direction
-- [ ] `(n:Person {name: 'Alice'})` parses with properties
-- [ ] Multiple patterns `(a), (b)` parse correctly
+- [x] `(a)-[:KNOWS]->(b)` parses with Outgoing direction
+- [x] `(a)<-[:KNOWS]-(b)` parses with Incoming direction
+- [x] `(a)-[:KNOWS]-(b)` parses with Both direction
+- [x] `(n:Person {name: 'Alice'})` parses with properties
+- [x] Multiple patterns `(a), (b)` parse correctly
 
 ---
 

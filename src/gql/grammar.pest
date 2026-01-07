@@ -1,27 +1,65 @@
-// GQL Grammar - Minimal Spike Version
-// Supports: MATCH (n:Label) RETURN n
+// GQL Grammar - Extended with Edge Patterns (Phase 2.1)
+// Supports:
+// - Node patterns: (n:Label {prop: value})
+// - Edge patterns: -[e:TYPE]->, <-[e:TYPE]-, -[e:TYPE]-
+// - Multiple patterns: (a), (b)
+// - Path quantifiers: *1..3
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 // Keywords (case-insensitive)
 MATCH  = { ^"match" }
 RETURN = { ^"return" }
+TRUE   = { ^"true" }
+FALSE  = { ^"false" }
+NULL   = { ^"null" }
 
-// Entry point - minimal query
+// Entry point - query with MATCH and RETURN
 query = { SOI ~ match_clause ~ return_clause ~ EOI }
 
-// MATCH clause - single pattern only
-match_clause = { MATCH ~ pattern }
+// MATCH clause - multiple patterns separated by commas
+match_clause = { MATCH ~ pattern ~ ("," ~ pattern)* }
 
-pattern = { node_pattern }
+// Pattern: alternating nodes and edges starting with a node
+// e.g., (a)-[:KNOWS]->(b)-[:WORKS_WITH]->(c)
+pattern = { node_pattern ~ (edge_pattern ~ node_pattern)* }
 
-node_pattern = { "(" ~ variable? ~ label_filter? ~ ")" }
+// Node pattern: (variable:Label:Label2 {prop: value, prop2: value2})
+node_pattern = { "(" ~ variable? ~ label_filter? ~ property_filter? ~ ")" }
 
+// Edge pattern with direction
+// -[variable:TYPE {prop: value}]->  (outgoing)
+// <-[variable:TYPE {prop: value}]-  (incoming)
+// -[variable:TYPE {prop: value}]-   (both/undirected)
+edge_pattern = { 
+    left_arrow? ~ "-[" ~ variable? ~ label_filter? ~ quantifier? ~ property_filter? ~ "]-" ~ right_arrow?
+}
+
+left_arrow = { "<" }
+right_arrow = { ">" }
+
+// Labels: :Person or :Person:Employee (multiple labels)
+label_filter = { (":" ~ identifier)+ }
+
+// Properties: {name: 'Alice', age: 30}
+property_filter = { "{" ~ property ~ ("," ~ property)* ~ "}" }
+property = { identifier ~ ":" ~ literal }
+
+// Path quantifier for variable-length paths: *1..3, *, *2, *..5
+quantifier = { "*" ~ range? }
+range = { integer? ~ ".." ~ integer? | integer }
+
+// Literals
+literal = { string | float | integer | boolean | NULL }
+boolean = { TRUE | FALSE }
+string = ${ "'" ~ string_inner ~ "'" }
+string_inner = @{ (!"'" ~ ANY | "''")* }
+integer = @{ "-"? ~ ASCII_DIGIT+ }
+float = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+
+// Identifiers and variables
 variable = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-
-label_filter = { ":" ~ identifier }
-
 identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
-// RETURN clause - single variable only
+// RETURN clause - single variable only (extended in Phase 2.3)
 return_clause = { RETURN ~ variable }
