@@ -1668,3 +1668,900 @@ fn test_gql_order_limit_where() {
     // LIMIT 2: 35, 30
     assert_eq!(ages, vec![35, 30], "Should return top 2 ages descending");
 }
+
+// =============================================================================
+// Aggregation Tests
+// =============================================================================
+
+/// Helper to create a test graph for aggregation tests
+fn create_aggregation_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices with various ages and cities
+    let people = vec![
+        ("Alice", 30i64, "New York"),
+        ("Bob", 25i64, "Boston"),
+        ("Carol", 35i64, "New York"),
+        ("Dave", 28i64, "Boston"),
+        ("Eve", 22i64, "Chicago"),
+    ];
+
+    for (name, age, city) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("age".to_string(), Value::from(age));
+        props.insert("city".to_string(), Value::from(city));
+        storage.add_vertex("Person", props);
+    }
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test COUNT(*) - count all matches
+#[test]
+fn test_gql_count_star() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN count(*)").unwrap();
+
+    assert_eq!(results.len(), 1, "COUNT(*) should return single result");
+    assert_eq!(results[0], Value::Int(5), "Should count all 5 persons");
+}
+
+/// Test COUNT(*) with alias
+#[test]
+fn test_gql_count_star_with_alias() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(*) AS total")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("total"), Some(&Value::Int(5)));
+    } else {
+        panic!("Expected Map result with alias");
+    }
+}
+
+/// Test COUNT on property
+#[test]
+fn test_gql_count_property() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(5), "Should count all names");
+}
+
+/// Test COUNT(DISTINCT) - count unique values
+#[test]
+fn test_gql_count_distinct() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(DISTINCT p.city)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // 3 unique cities: New York, Boston, Chicago
+    assert_eq!(results[0], Value::Int(3), "Should count 3 unique cities");
+}
+
+/// Test SUM on numeric property
+#[test]
+fn test_gql_sum() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN sum(p.age)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    // 30 + 25 + 35 + 28 + 22 = 140
+    assert_eq!(results[0], Value::Int(140), "Sum of ages should be 140");
+}
+
+/// Test SUM with WHERE clause
+#[test]
+fn test_gql_sum_with_where() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 25 RETURN sum(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // 30 + 35 + 28 = 93 (ages > 25)
+    assert_eq!(results[0], Value::Int(93), "Sum of ages > 25 should be 93");
+}
+
+/// Test AVG on numeric property
+#[test]
+fn test_gql_avg() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN avg(p.age)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    // (30 + 25 + 35 + 28 + 22) / 5 = 140 / 5 = 28.0
+    if let Value::Float(avg) = results[0] {
+        assert!(
+            (avg - 28.0).abs() < 0.0001,
+            "Average should be 28.0, got {}",
+            avg
+        );
+    } else {
+        panic!("Expected Float result for AVG");
+    }
+}
+
+/// Test MIN on numeric property
+#[test]
+fn test_gql_min() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN min(p.age)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(22), "Min age should be 22");
+}
+
+/// Test MAX on numeric property
+#[test]
+fn test_gql_max() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN max(p.age)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(35), "Max age should be 35");
+}
+
+/// Test MIN on string property
+#[test]
+fn test_gql_min_string() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN min(p.name)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::String("Alice".to_string()),
+        "Min name should be Alice (alphabetically first)"
+    );
+}
+
+/// Test MAX on string property
+#[test]
+fn test_gql_max_string() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN max(p.name)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::String("Eve".to_string()),
+        "Max name should be Eve (alphabetically last)"
+    );
+}
+
+/// Test COLLECT - collect values into list
+#[test]
+fn test_gql_collect() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN collect(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::List(names) = &results[0] {
+        assert_eq!(names.len(), 5, "Should collect all 5 names");
+        // Names should include all 5 people (order may vary)
+        let names_set: std::collections::HashSet<_> = names.iter().collect();
+        assert!(names_set.contains(&Value::String("Alice".to_string())));
+        assert!(names_set.contains(&Value::String("Bob".to_string())));
+        assert!(names_set.contains(&Value::String("Carol".to_string())));
+        assert!(names_set.contains(&Value::String("Dave".to_string())));
+        assert!(names_set.contains(&Value::String("Eve".to_string())));
+    } else {
+        panic!("Expected List result for COLLECT");
+    }
+}
+
+/// Test COLLECT(DISTINCT) - collect unique values
+#[test]
+fn test_gql_collect_distinct() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN collect(DISTINCT p.city)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::List(cities) = &results[0] {
+        assert_eq!(cities.len(), 3, "Should collect 3 unique cities");
+        let cities_set: std::collections::HashSet<_> = cities.iter().collect();
+        assert!(cities_set.contains(&Value::String("New York".to_string())));
+        assert!(cities_set.contains(&Value::String("Boston".to_string())));
+        assert!(cities_set.contains(&Value::String("Chicago".to_string())));
+    } else {
+        panic!("Expected List result for COLLECT DISTINCT");
+    }
+}
+
+/// Test multiple aggregates in single query
+#[test]
+fn test_gql_multiple_aggregates() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(*) AS total, sum(p.age) AS total_age, avg(p.age) AS avg_age")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("total"), Some(&Value::Int(5)));
+        assert_eq!(map.get("total_age"), Some(&Value::Int(140)));
+        if let Some(Value::Float(avg)) = map.get("avg_age") {
+            assert!((avg - 28.0).abs() < 0.0001, "Average should be 28.0");
+        } else {
+            panic!("Expected Float for avg_age");
+        }
+    } else {
+        panic!("Expected Map result for multiple aggregates");
+    }
+}
+
+/// Test COUNT with empty result set
+#[test]
+fn test_gql_count_empty() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 100 RETURN count(*)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(0), "COUNT of empty set should be 0");
+}
+
+/// Test AVG with empty result set
+#[test]
+fn test_gql_avg_empty() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 100 RETURN avg(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null, "AVG of empty set should be Null");
+}
+
+/// Test MIN with empty result set
+#[test]
+fn test_gql_min_empty() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 100 RETURN min(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null, "MIN of empty set should be Null");
+}
+
+/// Test MAX with empty result set
+#[test]
+fn test_gql_max_empty() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 100 RETURN max(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null, "MAX of empty set should be Null");
+}
+
+/// Test SUM with empty result set
+#[test]
+fn test_gql_sum_empty() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 100 RETURN sum(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(0), "SUM of empty set should be 0");
+}
+
+/// Test COLLECT with empty result set
+#[test]
+fn test_gql_collect_empty() {
+    let graph = create_aggregation_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 100 RETURN collect(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![]),
+        "COLLECT of empty set should be empty list"
+    );
+}
+
+// =============================================================================
+// Phase 4.7: Advanced Integration Tests - ORDER BY, LIMIT, Aggregations
+// =============================================================================
+
+/// Helper to create a more comprehensive test graph for Phase 4.7 tests
+fn create_phase47_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices with department and salary for advanced testing
+    let people = vec![
+        ("Alice", 30i64, "Engineering", 100000i64),
+        ("Bob", 25i64, "Engineering", 80000i64),
+        ("Carol", 35i64, "Sales", 90000i64),
+        ("Dave", 28i64, "Sales", 75000i64),
+        ("Eve", 22i64, "Engineering", 70000i64),
+        ("Frank", 40i64, "Marketing", 95000i64),
+        ("Grace", 33i64, "Marketing", 85000i64),
+        ("Henry", 28i64, "Engineering", 82000i64),
+    ];
+
+    for (name, age, dept, salary) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("age".to_string(), Value::from(age));
+        props.insert("department".to_string(), Value::from(dept));
+        props.insert("salary".to_string(), Value::from(salary));
+        storage.add_vertex("Person", props);
+    }
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test ORDER BY with multiple columns
+#[test]
+fn test_gql_order_by_multiple_columns() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Order by department ASC, then by salary DESC within each department
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.department, p.name, p.salary ORDER BY p.department, p.salary DESC")
+        .unwrap();
+
+    assert_eq!(results.len(), 8, "Should return all 8 people");
+
+    // Extract and verify the order
+    let entries: Vec<(String, String, i64)> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                let dept = match map.get("p.department") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => return None,
+                };
+                let name = match map.get("p.name") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => return None,
+                };
+                let salary = match map.get("p.salary") {
+                    Some(Value::Int(n)) => *n,
+                    _ => return None,
+                };
+                Some((dept, name, salary))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Engineering should come first (alphabetically), with highest salary first
+    // Engineering: Alice (100000), Henry (82000), Bob (80000), Eve (70000)
+    assert_eq!(entries[0].0, "Engineering");
+    assert_eq!(entries[0].1, "Alice");
+    assert_eq!(entries[0].2, 100000);
+
+    // Then Marketing: Frank (95000), Grace (85000)
+    // Then Sales: Carol (90000), Dave (75000)
+}
+
+/// Test ORDER BY with mixed ASC and DESC
+#[test]
+fn test_gql_order_by_mixed_directions() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Order by department ASC, age DESC
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.department, p.name, p.age ORDER BY p.department ASC, p.age DESC")
+        .unwrap();
+
+    let entries: Vec<(String, i64)> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                let dept = match map.get("p.department") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => return None,
+                };
+                let age = match map.get("p.age") {
+                    Some(Value::Int(n)) => *n,
+                    _ => return None,
+                };
+                Some((dept, age))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Engineering first (alphabetically), oldest to youngest
+    // Engineering ages: 30 (Alice), 28 (Henry), 25 (Bob), 22 (Eve)
+    assert_eq!(entries[0].0, "Engineering");
+    assert_eq!(entries[0].1, 30); // Alice is oldest in Engineering
+
+    // Verify descending age order within Engineering
+    let engineering_ages: Vec<i64> = entries
+        .iter()
+        .filter(|(d, _)| d == "Engineering")
+        .map(|(_, a)| *a)
+        .collect();
+    assert_eq!(
+        engineering_ages,
+        vec![30, 28, 25, 22],
+        "Engineering should be sorted by age DESC"
+    );
+}
+
+/// Test LIMIT with ORDER BY returns correct subset
+#[test]
+fn test_gql_limit_with_order_top_n() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Get top 3 highest paid employees
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name, p.salary ORDER BY p.salary DESC LIMIT 3")
+        .unwrap();
+
+    assert_eq!(results.len(), 3, "Should return exactly 3 results");
+
+    let salaries: Vec<i64> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                match map.get("p.salary") {
+                    Some(Value::Int(n)) => Some(*n),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Top 3 salaries should be 100000, 95000, 90000
+    assert_eq!(
+        salaries,
+        vec![100000, 95000, 90000],
+        "Should return top 3 salaries"
+    );
+}
+
+/// Test OFFSET skips correct number of results
+#[test]
+fn test_gql_offset_pagination() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Get page 2 (skip first 3, take next 3)
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.salary ORDER BY p.salary DESC LIMIT 3 OFFSET 3")
+        .unwrap();
+
+    assert_eq!(results.len(), 3, "Should return 3 results for page 2");
+
+    let salaries: Vec<i64> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+
+    // After skipping top 3 (100000, 95000, 90000), should get (85000, 82000, 80000)
+    assert_eq!(
+        salaries,
+        vec![85000, 82000, 80000],
+        "Should return correct page of salaries"
+    );
+}
+
+/// Test aggregation with WHERE clause filtering
+#[test]
+fn test_gql_aggregation_with_filter() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Count and sum for Engineering department only
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.department = 'Engineering' RETURN count(*) AS count, sum(p.salary) AS total_salary, avg(p.salary) AS avg_salary")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("count"),
+            Some(&Value::Int(4)),
+            "Should have 4 engineers"
+        );
+        // Engineering salaries: 100000 + 80000 + 70000 + 82000 = 332000
+        assert_eq!(
+            map.get("total_salary"),
+            Some(&Value::Int(332000)),
+            "Total engineering salary"
+        );
+        if let Some(Value::Float(avg)) = map.get("avg_salary") {
+            assert!(
+                (avg - 83000.0).abs() < 0.01,
+                "Average engineering salary should be 83000"
+            );
+        }
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test multiple aggregations with aliases
+#[test]
+fn test_gql_aggregations_with_aliases() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(*) AS headcount, min(p.age) AS youngest, max(p.age) AS oldest, avg(p.age) AS avg_age")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("headcount"), Some(&Value::Int(8)));
+        assert_eq!(map.get("youngest"), Some(&Value::Int(22))); // Eve
+        assert_eq!(map.get("oldest"), Some(&Value::Int(40))); // Frank
+        if let Some(Value::Float(avg)) = map.get("avg_age") {
+            // (30+25+35+28+22+40+33+28) / 8 = 241 / 8 = 30.125
+            assert!((avg - 30.125).abs() < 0.01, "Average age should be ~30.125");
+        }
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test COLLECT with ORDER BY (note: COLLECT doesn't preserve order)
+#[test]
+fn test_gql_collect_all_values() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.department = 'Marketing' RETURN collect(p.name) AS names")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        if let Some(Value::List(names)) = map.get("names") {
+            assert_eq!(names.len(), 2, "Marketing has 2 people");
+            let name_set: std::collections::HashSet<_> = names.iter().collect();
+            assert!(name_set.contains(&Value::String("Frank".to_string())));
+            assert!(name_set.contains(&Value::String("Grace".to_string())));
+        } else {
+            panic!("Expected List for names");
+        }
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test COUNT DISTINCT on department
+#[test]
+fn test_gql_count_distinct_departments() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN count(DISTINCT p.department) AS num_departments")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("num_departments"),
+            Some(&Value::Int(3)),
+            "Should have 3 unique departments"
+        );
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test aggregation returning single value (no alias)
+#[test]
+fn test_gql_single_aggregation_no_alias() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Single COUNT(*) without alias returns just the value
+    let results = snapshot.gql("MATCH (p:Person) RETURN count(*)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(8), "Should count all 8 people");
+}
+
+/// Test ORDER BY with NULL values (vertices missing property)
+/// Note: Current implementation filters out rows where returned properties are missing.
+/// This test verifies that ORDER BY still works correctly when all returned rows have values.
+#[test]
+fn test_gql_order_by_with_nulls() {
+    let mut storage = InMemoryGraph::new();
+
+    // Some people have scores, some don't
+    let mut props1 = HashMap::new();
+    props1.insert("name".to_string(), Value::from("Alice"));
+    props1.insert("score".to_string(), Value::from(85i64));
+    storage.add_vertex("Person", props1);
+
+    let mut props2 = HashMap::new();
+    props2.insert("name".to_string(), Value::from("Bob"));
+    // Bob has no score - will be filtered out when returning p.score
+    storage.add_vertex("Person", props2);
+
+    let mut props3 = HashMap::new();
+    props3.insert("name".to_string(), Value::from("Carol"));
+    props3.insert("score".to_string(), Value::from(90i64));
+    storage.add_vertex("Person", props3);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // ORDER BY score - Bob will be filtered out since he has no score
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name, p.score ORDER BY p.score")
+        .unwrap();
+
+    // Only Alice and Carol should be in results (Bob filtered out)
+    assert_eq!(results.len(), 2, "Should only return 2 people with scores");
+
+    // Verify order: Alice (85) first, then Carol (90)
+    let scores: Vec<i64> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                match map.get("p.score") {
+                    Some(Value::Int(n)) => Some(*n),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert_eq!(scores, vec![85, 90], "Scores should be in ascending order");
+}
+
+/// Test LIMIT 0 returns empty result
+#[test]
+fn test_gql_limit_zero() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name LIMIT 0")
+        .unwrap();
+
+    assert_eq!(results.len(), 0, "LIMIT 0 should return empty result");
+}
+
+/// Test OFFSET beyond result set returns empty
+#[test]
+fn test_gql_offset_beyond_results() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name LIMIT 10 OFFSET 100")
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        0,
+        "OFFSET beyond result set should return empty"
+    );
+}
+
+/// Test combined WHERE + ORDER BY + LIMIT
+#[test]
+fn test_gql_combined_where_order_limit() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Get youngest 2 people over age 25
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.age > 25 RETURN p.name, p.age ORDER BY p.age ASC LIMIT 2")
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+
+    let ages: Vec<i64> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                match map.get("p.age") {
+                    Some(Value::Int(n)) => Some(*n),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // People over 25: Alice(30), Carol(35), Dave(28), Frank(40), Grace(33), Henry(28)
+    // Sorted by age ASC: Dave/Henry(28), Alice(30), Grace(33), Carol(35), Frank(40)
+    // LIMIT 2: 28, 28 or 28, 30 depending on stable sort
+    assert!(ages[0] == 28, "First should be age 28");
+    assert!(ages[1] == 28 || ages[1] == 30, "Second should be 28 or 30");
+}
+
+/// Test SUM with float values
+#[test]
+fn test_gql_sum_floats() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props1 = HashMap::new();
+    props1.insert("name".to_string(), Value::from("Product A"));
+    props1.insert("price".to_string(), Value::Float(19.99));
+    storage.add_vertex("Product", props1);
+
+    let mut props2 = HashMap::new();
+    props2.insert("name".to_string(), Value::from("Product B"));
+    props2.insert("price".to_string(), Value::Float(29.99));
+    storage.add_vertex("Product", props2);
+
+    let mut props3 = HashMap::new();
+    props3.insert("name".to_string(), Value::from("Product C"));
+    props3.insert("price".to_string(), Value::Float(9.99));
+    storage.add_vertex("Product", props3);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Product) RETURN sum(p.price) AS total")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        if let Some(Value::Float(total)) = map.get("total") {
+            // 19.99 + 29.99 + 9.99 = 59.97
+            assert!(
+                (total - 59.97).abs() < 0.001,
+                "Sum should be ~59.97, got {}",
+                total
+            );
+        } else {
+            panic!("Expected Float for total");
+        }
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test AVG with mixed int and float values
+#[test]
+fn test_gql_avg_mixed_numeric() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props1 = HashMap::new();
+    props1.insert("name".to_string(), Value::from("A"));
+    props1.insert("value".to_string(), Value::Int(10));
+    storage.add_vertex("Item", props1);
+
+    let mut props2 = HashMap::new();
+    props2.insert("name".to_string(), Value::from("B"));
+    props2.insert("value".to_string(), Value::Float(20.0));
+    storage.add_vertex("Item", props2);
+
+    let mut props3 = HashMap::new();
+    props3.insert("name".to_string(), Value::from("C"));
+    props3.insert("value".to_string(), Value::Int(30));
+    storage.add_vertex("Item", props3);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (i:Item) RETURN avg(i.value) AS average")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        if let Some(Value::Float(avg)) = map.get("average") {
+            // (10 + 20 + 30) / 3 = 20.0
+            assert!(
+                (avg - 20.0).abs() < 0.001,
+                "Average should be 20.0, got {}",
+                avg
+            );
+        } else {
+            panic!("Expected Float for average");
+        }
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test ORDER BY on computed/aliased expression (property access)
+#[test]
+fn test_gql_order_by_aliased_property() {
+    let graph = create_phase47_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name AS employee_name, p.salary AS pay ORDER BY p.salary DESC LIMIT 3")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // Should return top 3 paid: Alice (100000), Frank (95000), Carol (90000)
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                match map.get("employee_name") {
+                    Some(Value::String(s)) => Some(s.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert_eq!(names[0], "Alice", "Highest paid should be Alice");
+    assert_eq!(names[1], "Frank", "Second highest paid should be Frank");
+    assert_eq!(names[2], "Carol", "Third highest paid should be Carol");
+}

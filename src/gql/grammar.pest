@@ -7,6 +7,7 @@
 // - Extended RETURN: n.name, n.age AS personAge
 // - WHERE clause with comparison, logical, and string operators
 // - Arithmetic expressions
+// - Aggregate functions with DISTINCT: count(DISTINCT p.city)
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
@@ -35,6 +36,7 @@ CONTAINS = @{ ^"contains" ~ !ASCII_ALPHANUMERIC }
 STARTS   = @{ ^"starts" ~ !ASCII_ALPHANUMERIC }
 ENDS     = @{ ^"ends" ~ !ASCII_ALPHANUMERIC }
 WITH     = @{ ^"with" ~ !ASCII_ALPHANUMERIC }
+DISTINCT = @{ ^"distinct" ~ !ASCII_ALPHANUMERIC }
 
 // Entry point - query with optional WHERE clause
 query = { SOI ~ match_clause ~ where_clause? ~ return_clause ~ order_clause? ~ limit_clause? ~ EOI }
@@ -149,9 +151,9 @@ primary = {
 // Parenthesized expression
 paren_expr = { "(" ~ expression ~ ")" }
 
-// Function call: count(*), sum(x), etc.
+// Function call: count(*), sum(x), count(DISTINCT x), etc.
 function_call = { identifier ~ "(" ~ function_args? ~ ")" }
-function_args = { star | expression ~ ("," ~ expression)* }
+function_args = { star | DISTINCT? ~ expression ~ ("," ~ expression)* }
 star = { "*" }
 
 // List expression: [1, 2, 3] or ['a', 'b']
@@ -169,7 +171,7 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 keyword = {
     MATCH | RETURN | WHERE | ORDER | BY | LIMIT | OFFSET |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
-    IN | IS | CONTAINS | STARTS | ENDS | WITH
+    IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT
 }
 
 // ============================================================

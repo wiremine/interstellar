@@ -201,6 +201,13 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             self.validate_expression_variables(&where_cl.expression)?;
         }
 
+        // Check if this is an aggregated query
+        if self.has_aggregates(return_clause) {
+            return self.execute_aggregated_return(return_clause, where_clause, traversal);
+        }
+
+        // Non-aggregated path: process each element individually
+
         // Collect the matched elements first
         let matched_elements: Vec<Value> = traversal.to_list();
 
@@ -488,6 +495,276 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     }
 
     // =========================================================================
+    // Aggregation Support
+    // =========================================================================
+
+    /// Check if the RETURN clause contains any aggregate expressions.
+    fn has_aggregates(&self, return_clause: &ReturnClause) -> bool {
+        return_clause
+            .items
+            .iter()
+            .any(|item| self.expression_has_aggregate(&item.expression))
+    }
+
+    /// Recursively check if an expression contains an aggregate function.
+    fn expression_has_aggregate(&self, expr: &Expression) -> bool {
+        Self::expr_has_aggregate(expr)
+    }
+
+    /// Static helper to check if an expression contains an aggregate function.
+    fn expr_has_aggregate(expr: &Expression) -> bool {
+        match expr {
+            Expression::Aggregate { .. } => true,
+            Expression::BinaryOp { left, right, .. } => {
+                Self::expr_has_aggregate(left) || Self::expr_has_aggregate(right)
+            }
+            Expression::UnaryOp { expr, .. } => Self::expr_has_aggregate(expr),
+            Expression::IsNull { expr, .. } => Self::expr_has_aggregate(expr),
+            Expression::InList { expr, list, .. } => {
+                Self::expr_has_aggregate(expr) || list.iter().any(Self::expr_has_aggregate)
+            }
+            Expression::List(items) => items.iter().any(Self::expr_has_aggregate),
+            Expression::FunctionCall { args, .. } => args.iter().any(Self::expr_has_aggregate),
+            _ => false,
+        }
+    }
+
+    /// Execute a RETURN clause that contains aggregate functions.
+    ///
+    /// Separates group-by expressions from aggregates and processes accordingly.
+    fn execute_aggregated_return(
+        &self,
+        return_clause: &ReturnClause,
+        where_clause: &Option<WhereClause>,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        // Collect the matched elements first
+        let matched_elements: Vec<Value> = traversal.to_list();
+
+        // Apply WHERE filter if present
+        let filtered_elements: Vec<Value> = if let Some(where_cl) = where_clause {
+            matched_elements
+                .into_iter()
+                .filter(|element| self.evaluate_predicate(&where_cl.expression, element))
+                .collect()
+        } else {
+            matched_elements
+        };
+
+        // Separate group-by expressions from aggregates
+        let mut group_by_items: Vec<(&ReturnItem, &Expression)> = Vec::new();
+        let mut aggregate_items: Vec<(&ReturnItem, AggregateFunc, bool, &Expression)> = Vec::new();
+
+        for item in &return_clause.items {
+            if let Expression::Aggregate {
+                func,
+                distinct,
+                expr,
+            } = &item.expression
+            {
+                aggregate_items.push((item, *func, *distinct, expr.as_ref()));
+            } else {
+                group_by_items.push((item, &item.expression));
+            }
+        }
+
+        if group_by_items.is_empty() {
+            // No grouping - aggregate over all results (global aggregates)
+            self.execute_global_aggregates(&aggregate_items, &filtered_elements)
+        } else {
+            // Group by non-aggregate expressions, then aggregate per group
+            self.execute_grouped_aggregates(&group_by_items, &aggregate_items, &filtered_elements)
+        }
+    }
+
+    /// Execute global aggregates (no GROUP BY).
+    ///
+    /// Aggregates over all matched elements and returns a single result.
+    fn execute_global_aggregates(
+        &self,
+        aggregates: &[(&ReturnItem, AggregateFunc, bool, &Expression)],
+        elements: &[Value],
+    ) -> Result<Vec<Value>, CompileError> {
+        if aggregates.len() == 1 {
+            // Single aggregate - return just the value
+            let (item, func, distinct, expr) = &aggregates[0];
+            let value = self.compute_aggregate(*func, *distinct, expr, elements)?;
+
+            // If there's an alias, we might want to return a map, but for simplicity
+            // return the value directly for single aggregates (like SQL behavior)
+            if item.alias.is_some() {
+                let mut map = HashMap::new();
+                map.insert(self.get_return_item_key(item), value);
+                Ok(vec![Value::Map(map)])
+            } else {
+                Ok(vec![value])
+            }
+        } else {
+            // Multiple aggregates - return a map
+            let mut map = HashMap::new();
+
+            for (item, func, distinct, expr) in aggregates {
+                let key = self.get_return_item_key(item);
+                let value = self.compute_aggregate(*func, *distinct, expr, elements)?;
+                map.insert(key, value);
+            }
+
+            Ok(vec![Value::Map(map)])
+        }
+    }
+
+    /// Execute grouped aggregates (with GROUP BY expressions).
+    ///
+    /// Groups elements by non-aggregate expressions, then computes aggregates per group.
+    fn execute_grouped_aggregates(
+        &self,
+        group_by_items: &[(&ReturnItem, &Expression)],
+        aggregates: &[(&ReturnItem, AggregateFunc, bool, &Expression)],
+        elements: &[Value],
+    ) -> Result<Vec<Value>, CompileError> {
+        // Group elements by their group-by values
+        let mut groups: HashMap<Vec<ComparableValue>, Vec<&Value>> = HashMap::new();
+
+        for element in elements {
+            let group_key: Vec<ComparableValue> = group_by_items
+                .iter()
+                .map(|(_, expr)| {
+                    let val = self.evaluate_value(expr, element);
+                    ComparableValue::from(val)
+                })
+                .collect();
+
+            groups.entry(group_key).or_default().push(element);
+        }
+
+        // For each group, compute the aggregates
+        let mut results = Vec::new();
+
+        for (group_key, group_elements) in groups {
+            let mut map = HashMap::new();
+
+            // Add group-by values to result
+            for (i, (item, _expr)) in group_by_items.iter().enumerate() {
+                let key = self.get_return_item_key(item);
+                let value = group_key[i].clone().into();
+                map.insert(key, value);
+            }
+
+            // Compute aggregates for this group
+            let group_values: Vec<Value> = group_elements.into_iter().cloned().collect();
+            for (item, func, distinct, expr) in aggregates {
+                let key = self.get_return_item_key(item);
+                let value = self.compute_aggregate(*func, *distinct, expr, &group_values)?;
+                map.insert(key, value);
+            }
+
+            results.push(Value::Map(map));
+        }
+
+        Ok(results)
+    }
+
+    /// Compute a single aggregate function over a set of values.
+    fn compute_aggregate(
+        &self,
+        func: AggregateFunc,
+        distinct: bool,
+        expr: &Expression,
+        elements: &[Value],
+    ) -> Result<Value, CompileError> {
+        // Handle COUNT(*) specially - count all elements
+        let is_count_star = matches!(func, AggregateFunc::Count)
+            && matches!(expr, Expression::Variable(v) if v == "*");
+
+        if is_count_star {
+            return Ok(Value::Int(elements.len() as i64));
+        }
+
+        // Extract values to aggregate
+        let mut values: Vec<Value> = elements
+            .iter()
+            .filter_map(|element| self.evaluate_expression(expr, element))
+            .collect();
+
+        // Apply DISTINCT if requested
+        if distinct {
+            let mut seen: Vec<ComparableValue> = Vec::new();
+            values.retain(|v| {
+                let comparable = ComparableValue::from(v.clone());
+                if seen.contains(&comparable) {
+                    false
+                } else {
+                    seen.push(comparable);
+                    true
+                }
+            });
+        }
+
+        match func {
+            AggregateFunc::Count => Ok(Value::Int(values.len() as i64)),
+            AggregateFunc::Sum => {
+                let mut int_sum: i64 = 0;
+                let mut float_sum: f64 = 0.0;
+                let mut has_float = false;
+
+                for v in &values {
+                    match v {
+                        Value::Int(n) => int_sum += n,
+                        Value::Float(f) => {
+                            has_float = true;
+                            float_sum += f;
+                        }
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+
+                if has_float {
+                    Ok(Value::Float(int_sum as f64 + float_sum))
+                } else {
+                    Ok(Value::Int(int_sum))
+                }
+            }
+            AggregateFunc::Avg => {
+                let mut sum: f64 = 0.0;
+                let mut count: usize = 0;
+
+                for v in &values {
+                    match v {
+                        Value::Int(n) => {
+                            sum += *n as f64;
+                            count += 1;
+                        }
+                        Value::Float(f) => {
+                            sum += f;
+                            count += 1;
+                        }
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+
+                if count > 0 {
+                    Ok(Value::Float(sum / count as f64))
+                } else {
+                    Ok(Value::Null)
+                }
+            }
+            AggregateFunc::Min => values
+                .into_iter()
+                .filter(|v| !matches!(v, Value::Null))
+                .min_by(compare_values)
+                .map(Ok)
+                .unwrap_or(Ok(Value::Null)),
+            AggregateFunc::Max => values
+                .into_iter()
+                .filter(|v| !matches!(v, Value::Null))
+                .max_by(compare_values)
+                .map(Ok)
+                .unwrap_or(Ok(Value::Null)),
+            AggregateFunc::Collect => Ok(Value::List(values)),
+        }
+    }
+
+    // =========================================================================
     // ORDER BY and LIMIT Clause Application
     // =========================================================================
 
@@ -641,6 +918,93 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let count = limit.limit as usize;
 
         results.into_iter().skip(offset).take(count).collect()
+    }
+}
+
+// =============================================================================
+// Helper Types for Aggregation
+// =============================================================================
+
+/// A comparable wrapper for Value that implements Eq and Hash for grouping.
+#[derive(Debug, Clone)]
+struct ComparableValue(Value);
+
+impl PartialEq for ComparableValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Value::Null, Value::Null) => true,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => {
+                // Handle NaN and compare floats bitwise
+                a.to_bits() == b.to_bits()
+            }
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Vertex(a), Value::Vertex(b)) => a == b,
+            (Value::Edge(a), Value::Edge(b)) => a == b,
+            (Value::List(a), Value::List(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                a.iter()
+                    .zip(b.iter())
+                    .all(|(x, y)| ComparableValue(x.clone()) == ComparableValue(y.clone()))
+            }
+            (Value::Map(a), Value::Map(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                a.iter().all(|(k, v)| {
+                    b.get(k)
+                        .map(|bv| ComparableValue(v.clone()) == ComparableValue(bv.clone()))
+                        .unwrap_or(false)
+                })
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ComparableValue {}
+
+impl std::hash::Hash for ComparableValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(&self.0).hash(state);
+        match &self.0 {
+            Value::Null => {}
+            Value::Bool(b) => b.hash(state),
+            Value::Int(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::String(s) => s.hash(state),
+            Value::Vertex(id) => id.0.hash(state),
+            Value::Edge(id) => id.0.hash(state),
+            Value::List(items) => {
+                items.len().hash(state);
+                for item in items {
+                    ComparableValue(item.clone()).hash(state);
+                }
+            }
+            Value::Map(map) => {
+                map.len().hash(state);
+                // Note: HashMap order is not deterministic, but we still hash for consistency
+                for (k, v) in map {
+                    k.hash(state);
+                    ComparableValue(v.clone()).hash(state);
+                }
+            }
+        }
+    }
+}
+
+impl From<Value> for ComparableValue {
+    fn from(v: Value) -> Self {
+        ComparableValue(v)
+    }
+}
+
+impl From<ComparableValue> for Value {
+    fn from(cv: ComparableValue) -> Self {
+        cv.0
     }
 }
 

@@ -700,6 +700,7 @@ fn build_function_call(pair: pest::iterators::Pair<Rule>) -> Result<Expression, 
         .to_string();
 
     let mut args = Vec::new();
+    let mut distinct = false;
 
     // Parse function arguments if present
     if let Some(args_pair) = iter.next() {
@@ -709,6 +710,10 @@ fn build_function_call(pair: pest::iterators::Pair<Rule>) -> Result<Expression, 
                     Rule::star => {
                         // COUNT(*) - represent as Variable("*")
                         args.push(Expression::Variable("*".to_string()));
+                    }
+                    Rule::DISTINCT => {
+                        // DISTINCT keyword
+                        distinct = true;
                     }
                     Rule::expression => {
                         args.push(build_expression(arg)?);
@@ -732,14 +737,13 @@ fn build_function_call(pair: pest::iterators::Pair<Rule>) -> Result<Expression, 
                 "COLLECT" => AggregateFunc::Collect,
                 _ => unreachable!(),
             };
-            // For now, assume no DISTINCT - would need grammar change to support
             let expr = args
                 .into_iter()
                 .next()
                 .unwrap_or(Expression::Variable("*".to_string()));
             Ok(Expression::Aggregate {
                 func,
-                distinct: false,
+                distinct,
                 expr: Box::new(expr),
             })
         }
@@ -1909,6 +1913,69 @@ mod tests {
                 assert!(matches!(func, AggregateFunc::Count));
             } else {
                 panic!("Expected COUNT aggregate for: {}", query_str);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_count_distinct() {
+        let query = parse("MATCH (p:Person) RETURN count(DISTINCT p.city)").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Aggregate {
+            func,
+            distinct,
+            expr,
+        } = &query.return_clause.items[0].expression
+        {
+            assert!(matches!(func, AggregateFunc::Count));
+            assert!(distinct, "DISTINCT flag should be true");
+            if let Expression::Property { property, .. } = expr.as_ref() {
+                assert_eq!(property, "city");
+            } else {
+                panic!("Expected property expression");
+            }
+        } else {
+            panic!("Expected aggregate expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_collect_distinct() {
+        let query = parse("MATCH (p:Person) RETURN collect(DISTINCT p.city)").unwrap();
+
+        if let Expression::Aggregate {
+            func,
+            distinct,
+            expr,
+        } = &query.return_clause.items[0].expression
+        {
+            assert!(matches!(func, AggregateFunc::Collect));
+            assert!(distinct, "DISTINCT flag should be true");
+            if let Expression::Property { property, .. } = expr.as_ref() {
+                assert_eq!(property, "city");
+            }
+        } else {
+            panic!("Expected COLLECT DISTINCT aggregate");
+        }
+    }
+
+    #[test]
+    fn test_parse_distinct_case_insensitive() {
+        // DISTINCT keyword is case insensitive
+        let queries = vec![
+            "MATCH (p:Person) RETURN count(DISTINCT p.name)",
+            "MATCH (p:Person) RETURN count(distinct p.name)",
+            "MATCH (p:Person) RETURN count(Distinct p.name)",
+        ];
+
+        for query_str in queries {
+            let query = parse(query_str).unwrap();
+            if let Expression::Aggregate { distinct, .. } = &query.return_clause.items[0].expression
+            {
+                assert!(distinct, "DISTINCT flag should be true for: {}", query_str);
+            } else {
+                panic!("Expected aggregate expression for: {}", query_str);
             }
         }
     }

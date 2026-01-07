@@ -2557,11 +2557,11 @@ impl<'a, 'g> Compiler<'a, 'g> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `COUNT(*)` counts all matches
-- [ ] `SUM(p.age)` sums numeric property
-- [ ] `AVG(p.age)` computes average
-- [ ] `COLLECT(friend.name)` collects into list
-- [ ] `COUNT(DISTINCT p.city)` counts unique values
+- [x] `COUNT(*)` counts all matches
+- [x] `SUM(p.age)` sums numeric property
+- [x] `AVG(p.age)` computes average
+- [x] `COLLECT(friend.name)` collects into list
+- [x] `COUNT(DISTINCT p.city)` counts unique values
 
 ---
 
@@ -2672,9 +2672,9 @@ fn test_gql_aggregations() {
 ```
 
 **Acceptance Criteria**:
-- [ ] ORDER BY tests pass
-- [ ] LIMIT/OFFSET tests pass
-- [ ] Aggregation tests pass
+- [x] ORDER BY tests pass
+- [x] LIMIT/OFFSET tests pass
+- [x] Aggregation tests pass
 
 ---
 
@@ -3182,31 +3182,31 @@ fn test_parse_error_snapshot() {
 ## Exit Criteria Checklist
 
 ### Parser
-- [ ] Grammar parses all supported GQL constructs
-- [ ] Parser builds correct AST
+- [x] Grammar parses all supported GQL constructs
+- [x] Parser builds correct AST
 - [ ] Error messages include position information
-- [ ] Case-insensitive keywords work
+- [x] Case-insensitive keywords work
 
 ### Compiler
-- [ ] Node patterns compile to `has_label()`, `has_value()`
-- [ ] Edge patterns compile to `out()`, `in_()`, `both()`
-- [ ] WHERE clause compiles to filter predicates
-- [ ] RETURN clause handles variables, properties, aggregates
-- [ ] ORDER BY compiles to `order()` step
-- [ ] LIMIT/OFFSET compile to `limit()`, `skip()` steps
+- [x] Node patterns compile to `has_label()`, `has_value()`
+- [x] Edge patterns compile to `out()`, `in_()`, `both()`
+- [x] WHERE clause compiles to filter predicates
+- [x] RETURN clause handles variables, properties, aggregates
+- [x] ORDER BY compiles to `order()` step
+- [x] LIMIT/OFFSET compile to `limit()`, `skip()` steps
 - [ ] Variable-length paths compile to `repeat()` step
 
 ### Public API
-- [ ] `GraphSnapshot::gql()` method works
-- [ ] Errors are properly typed and informative
+- [x] `GraphSnapshot::gql()` method works
+- [x] Errors are properly typed and informative
 - [ ] Documentation is complete
 
 ### Testing
-- [ ] Unit tests for parser
-- [ ] Unit tests for compiler
-- [ ] Integration tests for full queries
+- [x] Unit tests for parser
+- [x] Unit tests for compiler
+- [x] Integration tests for full queries
 - [ ] Snapshot tests for AST and errors
-- [ ] Edge case tests pass
+- [x] Edge case tests pass
 
 ---
 
