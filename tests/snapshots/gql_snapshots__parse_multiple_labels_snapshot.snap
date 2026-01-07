@@ -11,6 +11,7 @@ match_clause:
               - Person
               - Employee
             properties: []
+optional_match_clauses: []
 where_clause: ~
 return_clause:
   distinct: false

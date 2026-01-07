@@ -12,6 +12,7 @@ match_clause:
             properties:
               - - name
                 - String: Alice
+optional_match_clauses: []
 where_clause: ~
 return_clause:
   distinct: false

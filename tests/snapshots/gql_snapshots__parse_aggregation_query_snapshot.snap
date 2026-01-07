@@ -22,6 +22,7 @@ match_clause:
             labels:
               - Product
             properties: []
+optional_match_clauses: []
 where_clause:
   expression:
     BinaryOp:

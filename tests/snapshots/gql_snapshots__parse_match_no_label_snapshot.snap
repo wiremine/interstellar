@@ -9,6 +9,7 @@ match_clause:
             variable: n
             labels: []
             properties: []
+optional_match_clauses: []
 where_clause: ~
 return_clause:
   distinct: false

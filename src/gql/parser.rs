@@ -36,9 +36,9 @@ use pest_derive::Parser;
 
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
-    GroupByClause, LimitClause, Literal, MatchClause, NodePattern, OrderClause, OrderItem,
-    PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
-    UnaryOperator, WhereClause,
+    GroupByClause, LimitClause, Literal, MatchClause, NodePattern, OptionalMatchClause,
+    OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, Query, ReturnClause,
+    ReturnItem, Statement, UnaryOperator, WhereClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -201,6 +201,7 @@ fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, Parse
 fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let pair_span = span_from_pair(&pair);
     let mut match_clause = None;
+    let mut optional_match_clauses = Vec::new();
     let mut where_clause = None;
     let mut return_clause = None;
     let mut group_by_clause = None;
@@ -210,6 +211,9 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::match_clause => match_clause = Some(build_match_clause(inner)?),
+            Rule::optional_match_clause => {
+                optional_match_clauses.push(build_optional_match_clause(inner)?);
+            }
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
             Rule::group_by_clause => group_by_clause = Some(build_group_by_clause(inner)?),
@@ -222,6 +226,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
 
     Ok(Query {
         match_clause: match_clause.ok_or_else(|| ParseError::missing_clause("MATCH", pair_span))?,
+        optional_match_clauses,
         where_clause,
         return_clause: return_clause
             .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
@@ -326,6 +331,20 @@ fn build_match_clause(pair: pest::iterators::Pair<Rule>) -> Result<MatchClause, 
     }
 
     Ok(MatchClause { patterns })
+}
+
+fn build_optional_match_clause(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<OptionalMatchClause, ParseError> {
+    let mut patterns = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::pattern {
+            patterns.push(build_pattern(inner)?);
+        }
+    }
+
+    Ok(OptionalMatchClause { patterns })
 }
 
 fn build_pattern(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {

@@ -2,4 +2,4 @@
 source: tests/gql_snapshots.rs
 expression: "format!(\"{}\", err)"
 ---
-"Syntax error:  --> 1:17\n  |\n1 | MATCH (n:Person)\n  |                 ^---\n  |\n  = expected RETURN, WHERE, or left_arrow"
+"Syntax error:  --> 1:17\n  |\n1 | MATCH (n:Person)\n  |                 ^---\n  |\n  = expected RETURN, WHERE, OPTIONAL, or left_arrow"

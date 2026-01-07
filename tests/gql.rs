@@ -7789,3 +7789,279 @@ fn test_gql_union_all_case_insensitive() {
     // TypeA has 3, TypeB has 3, UNION ALL = 6
     assert_eq!(results.len(), 6, "lowercase 'union all' should work");
 }
+
+// =============================================================================
+// OPTIONAL MATCH Tests
+// =============================================================================
+
+/// Helper to create a graph for OPTIONAL MATCH tests
+fn create_optional_match_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create players
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Michael Jordan"));
+    let mj = storage.add_vertex("player", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Scottie Pippen"));
+    let sp = storage.add_vertex("player", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Charles Barkley"));
+    let cb = storage.add_vertex("player", props);
+
+    // Create teams
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Chicago Bulls"));
+    let bulls = storage.add_vertex("team", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Phoenix Suns"));
+    let suns = storage.add_vertex("team", props);
+
+    // Create relationships
+    // MJ and Pippen won championships with Bulls
+    let _ = storage.add_edge(mj, bulls, "won_championship_with", HashMap::new());
+    let _ = storage.add_edge(sp, bulls, "won_championship_with", HashMap::new());
+
+    // All players played for their teams
+    let _ = storage.add_edge(mj, bulls, "played_for", HashMap::new());
+    let _ = storage.add_edge(sp, bulls, "played_for", HashMap::new());
+    let _ = storage.add_edge(cb, suns, "played_for", HashMap::new());
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test parsing OPTIONAL MATCH
+#[test]
+fn test_gql_parse_optional_match() {
+    let query = parse(
+        r#"
+        MATCH (p:player)
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        RETURN p.name, t.name
+    "#,
+    )
+    .unwrap();
+
+    assert!(!query.optional_match_clauses.is_empty());
+    assert_eq!(query.optional_match_clauses.len(), 1);
+}
+
+/// Test parsing multiple OPTIONAL MATCH clauses
+#[test]
+fn test_gql_parse_multiple_optional_match() {
+    let query = parse(
+        r#"
+        MATCH (p:player)
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        OPTIONAL MATCH (p)-[:played_for]->(t2:team)
+        RETURN p.name, t.name, t2.name
+    "#,
+    )
+    .unwrap();
+
+    assert_eq!(query.optional_match_clauses.len(), 2);
+}
+
+/// Test OPTIONAL MATCH returns null when no match
+#[test]
+fn test_gql_optional_match_returns_null() {
+    let graph = create_optional_match_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Charles Barkley never won a championship
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player {name: 'Charles Barkley'})
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        RETURN p.name, t.name
+    "#,
+        )
+        .unwrap();
+
+    // Should return one row with Barkley's name and null for team
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("p.name"),
+            Some(&Value::String("Charles Barkley".to_string()))
+        );
+        // t.name should be null
+        assert!(
+            map.get("t.name").is_none() || map.get("t.name") == Some(&Value::Null),
+            "Expected null for t.name, got {:?}",
+            map.get("t.name")
+        );
+    } else {
+        panic!("Expected Map result, got {:?}", results[0]);
+    }
+}
+
+/// Test OPTIONAL MATCH returns value when match exists
+#[test]
+fn test_gql_optional_match_returns_value() {
+    let graph = create_optional_match_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Michael Jordan won championships
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player {name: 'Michael Jordan'})
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        RETURN p.name, t.name
+    "#,
+        )
+        .unwrap();
+
+    // Should return one row with MJ's name and Bulls
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("p.name"),
+            Some(&Value::String("Michael Jordan".to_string()))
+        );
+        assert_eq!(
+            map.get("t.name"),
+            Some(&Value::String("Chicago Bulls".to_string()))
+        );
+    } else {
+        panic!("Expected Map result, got {:?}", results[0]);
+    }
+}
+
+/// Test OPTIONAL MATCH with all players - mixed results
+#[test]
+fn test_gql_optional_match_mixed_results() {
+    let graph = create_optional_match_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        RETURN p.name, t.name
+    "#,
+        )
+        .unwrap();
+
+    // Should return 3 rows (one per player)
+    // MJ and Pippen have teams, Barkley has null
+    assert_eq!(results.len(), 3);
+
+    let mut with_championship = 0;
+    let mut without_championship = 0;
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::String(_)) = map.get("t.name") {
+                with_championship += 1;
+            } else {
+                without_championship += 1;
+            }
+        }
+    }
+
+    assert_eq!(with_championship, 2, "MJ and Pippen have championships");
+    assert_eq!(without_championship, 1, "Barkley has no championship");
+}
+
+/// Test OPTIONAL MATCH case insensitivity
+#[test]
+fn test_gql_optional_match_case_insensitive() {
+    let graph = create_optional_match_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Test lowercase
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player {name: 'Michael Jordan'})
+        optional match (p)-[:won_championship_with]->(t:team)
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert!(
+        !results.is_empty(),
+        "lowercase 'optional match' should work"
+    );
+
+    // Test mixed case
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player {name: 'Michael Jordan'})
+        Optional Match (p)-[:won_championship_with]->(t:team)
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert!(
+        !results.is_empty(),
+        "mixed case 'Optional Match' should work"
+    );
+}
+
+/// Test OPTIONAL MATCH with WHERE clause
+#[test]
+fn test_gql_optional_match_with_where() {
+    let graph = create_optional_match_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter to only rows where optional match succeeded
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        WHERE t.name IS NOT NULL
+        RETURN p.name, t.name
+    "#,
+        )
+        .unwrap();
+
+    // Should return only MJ and Pippen (the ones with championships)
+    assert_eq!(results.len(), 2);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            let name = map.get("p.name");
+            assert!(
+                name == Some(&Value::String("Michael Jordan".to_string()))
+                    || name == Some(&Value::String("Scottie Pippen".to_string())),
+                "Expected MJ or Pippen, got {:?}",
+                name
+            );
+        }
+    }
+}
+
+/// Test OPTIONAL MATCH preserves rows even with no match
+#[test]
+fn test_gql_optional_match_preserves_base_rows() {
+    let graph = create_optional_match_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Count all players (should be 3 regardless of optional match)
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:player)
+        OPTIONAL MATCH (p)-[:won_championship_with]->(t:team)
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    // All 3 players should be returned
+    assert_eq!(results.len(), 3);
+}

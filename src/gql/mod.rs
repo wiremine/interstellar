@@ -274,9 +274,7 @@
 //!
 //! - **Mutations**: No `CREATE`, `DELETE`, `SET`, or `MERGE` clauses.
 //!   Use the Rust API for mutations.
-//! - **OPTIONAL MATCH**: All patterns must match; no optional matching.
 //! - **UNWIND**: No list unpacking in queries.
-//! - **CASE expressions**: No conditional expressions.
 //! - **Subqueries**: No nested queries or `CALL` procedures.
 //! - **Multiple graphs**: Single graph queries only.
 //! - **Path expressions**: Cannot return paths directly (use variable-length

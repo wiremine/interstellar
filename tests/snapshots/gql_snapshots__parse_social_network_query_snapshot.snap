@@ -26,6 +26,7 @@ match_clause:
             labels:
               - User
             properties: []
+optional_match_clauses: []
 where_clause:
   expression:
     BinaryOp:

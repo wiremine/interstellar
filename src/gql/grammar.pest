@@ -46,6 +46,7 @@ ELSE     = @{ ^"else" ~ !ASCII_ALPHANUMERIC }
 END      = @{ ^"end" ~ !ASCII_ALPHANUMERIC }
 UNION    = @{ ^"union" ~ !ASCII_ALPHANUMERIC }
 ALL      = @{ ^"all" ~ !ASCII_ALPHANUMERIC }
+OPTIONAL = @{ ^"optional" ~ !ASCII_ALPHANUMERIC }
 
 // Entry point - statement which may be a single query or UNION of queries
 statement = { SOI ~ query ~ (union_clause ~ query)* ~ EOI }
@@ -56,10 +57,15 @@ union_clause = { UNION ~ ALL? }
 
 // Single query with optional WHERE, GROUP BY, ORDER BY, and LIMIT clauses
 // GROUP BY comes after RETURN (GQL/SQL style)
-query = { match_clause ~ where_clause? ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
+// OPTIONAL MATCH clauses come after the main MATCH clause
+query = { match_clause ~ optional_match_clause* ~ where_clause? ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
 
 // MATCH clause - multiple patterns separated by commas
 match_clause = { MATCH ~ pattern ~ ("," ~ pattern)* }
+
+// OPTIONAL MATCH clause - matches if possible, produces nulls if not
+// Can reference variables from previous MATCH or OPTIONAL MATCH clauses
+optional_match_clause = { OPTIONAL ~ MATCH ~ pattern ~ ("," ~ pattern)* }
 
 // WHERE clause
 where_clause = { WHERE ~ expression }
@@ -201,7 +207,7 @@ keyword = {
     MATCH | RETURN | WHERE | ORDER | BY | GROUP | LIMIT | OFFSET |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
-    CASE | WHEN | THEN | ELSE | END | UNION | ALL
+    CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL
 }
 
 // ============================================================

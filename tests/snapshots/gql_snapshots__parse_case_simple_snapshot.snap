@@ -10,6 +10,7 @@ match_clause:
             labels:
               - player
             properties: []
+optional_match_clauses: []
 where_clause: ~
 return_clause:
   distinct: false

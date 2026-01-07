@@ -21,6 +21,7 @@ match_clause:
             variable: b
             labels: []
             properties: []
+optional_match_clauses: []
 where_clause: ~
 return_clause:
   distinct: false

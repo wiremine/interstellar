@@ -67,7 +67,12 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::gql::ast::*;
+use crate::gql::ast::{
+    AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
+    GroupByClause, LimitClause, Literal, NodePattern, OptionalMatchClause, OrderClause,
+    PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
+    UnaryOperator, WhereClause,
+};
 use crate::gql::error::CompileError;
 use crate::graph::GraphSnapshot;
 use crate::traversal::{BoundTraversal, Traversal, __};
@@ -310,9 +315,11 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // This is needed when:
         // 1. Multiple variables are bound (nodes or edges)
         // 2. Any edge variable is bound (needs path to access edge properties)
+        // 3. There are OPTIONAL MATCH clauses (always need path tracking)
         let var_count = Self::count_pattern_variables(pattern);
         let has_edge_var = Self::has_edge_variable(pattern);
-        self.has_multi_vars = var_count > 1 || has_edge_var;
+        let has_optional = !query.optional_match_clauses.is_empty();
+        self.has_multi_vars = var_count > 1 || has_edge_var || has_optional;
 
         // Build traversal starting from v()
         let g = self.snapshot.traversal();
@@ -327,6 +334,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 
         // Compile the full pattern (nodes and edges)
         let traversal = self.compile_pattern(pattern, traversal)?;
+
+        // Register variables from OPTIONAL MATCH clauses (they may be null)
+        // This is needed for validation - OPTIONAL MATCH variables are valid to reference
+        for opt_clause in &query.optional_match_clauses {
+            for opt_pattern in &opt_clause.patterns {
+                self.register_optional_pattern_variables(opt_pattern);
+            }
+        }
 
         // Verify all referenced variables are bound before proceeding
         for item in &query.return_clause.items {
@@ -360,6 +375,25 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             return Ok(results);
         }
 
+        // Handle OPTIONAL MATCH if present
+        if has_optional {
+            let results = self.execute_with_optional_match(
+                &query.return_clause,
+                &query.where_clause,
+                &query.optional_match_clauses,
+                traversal,
+            )?;
+
+            // Apply ORDER BY if present
+            let results =
+                self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+
+            // Apply LIMIT/OFFSET if present
+            let results = self.apply_limit(&query.limit_clause, results);
+
+            return Ok(results);
+        }
+
         // Execute and collect results based on RETURN clause
         // Apply WHERE filter if present
         let results = self.execute_return(&query.return_clause, &query.where_clause, traversal)?;
@@ -371,6 +405,42 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let results = self.apply_limit(&query.limit_clause, results);
 
         Ok(results)
+    }
+
+    /// Register variables from an OPTIONAL MATCH pattern.
+    /// These variables are valid to reference but may be null if the pattern doesn't match.
+    fn register_optional_pattern_variables(&mut self, pattern: &Pattern) {
+        for (index, element) in pattern.elements.iter().enumerate() {
+            match element {
+                PatternElement::Node(node) => {
+                    if let Some(var) = &node.variable {
+                        // Don't overwrite if already bound from main MATCH
+                        if !self.bindings.contains_key(var) {
+                            self.bindings.insert(
+                                var.clone(),
+                                BindingInfo {
+                                    pattern_index: index,
+                                    is_node: true,
+                                },
+                            );
+                        }
+                    }
+                }
+                PatternElement::Edge(edge) => {
+                    if let Some(var) = &edge.variable {
+                        if !self.bindings.contains_key(var) {
+                            self.bindings.insert(
+                                var.clone(),
+                                BindingInfo {
+                                    pattern_index: index,
+                                    is_node: false,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Compile a pattern into traversal steps.
@@ -813,6 +883,272 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         Ok(results)
+    }
+
+    /// Execute a query with OPTIONAL MATCH clauses.
+    ///
+    /// For each result from the main MATCH, we try to execute each OPTIONAL MATCH.
+    /// If the OPTIONAL MATCH succeeds, we merge the results. If it fails, we
+    /// add null values for the variables introduced in that OPTIONAL MATCH.
+    fn execute_with_optional_match(
+        &self,
+        return_clause: &ReturnClause,
+        where_clause: &Option<WhereClause>,
+        optional_match_clauses: &[OptionalMatchClause],
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Execute the main MATCH and collect traversers
+        let base_traversers: Vec<Traverser> = traversal.execute().collect();
+
+        // For each base traverser, try to execute each OPTIONAL MATCH
+        let mut expanded_traversers: Vec<Traverser> = Vec::new();
+
+        for base_traverser in base_traversers {
+            // Start with the base traverser's path
+            let mut current_traversers = vec![base_traverser];
+
+            // Process each OPTIONAL MATCH clause
+            for opt_clause in optional_match_clauses {
+                let mut next_traversers = Vec::new();
+
+                for traverser in current_traversers {
+                    // Try to execute the optional pattern from the current state
+                    let optional_results = self.try_optional_match(opt_clause, &traverser)?;
+
+                    if optional_results.is_empty() {
+                        // No match - add null values for optional variables and keep the row
+                        let mut updated_traverser = traverser.clone();
+                        self.add_null_optional_vars(&mut updated_traverser.path, opt_clause);
+                        next_traversers.push(updated_traverser);
+                    } else {
+                        // Matches found - create expanded rows
+                        for opt_result in optional_results {
+                            let mut merged_traverser = traverser.clone();
+                            // Merge the optional match path into the base path
+                            self.merge_paths(&mut merged_traverser.path, &opt_result.path);
+                            // Update the current value if the optional match produced one
+                            merged_traverser.value = opt_result.value;
+                            next_traversers.push(merged_traverser);
+                        }
+                    }
+                }
+
+                current_traversers = next_traversers;
+            }
+
+            expanded_traversers.extend(current_traversers);
+        }
+
+        // Apply WHERE filter if present
+        let filtered_traversers: Vec<Traverser> = if let Some(where_cl) = where_clause {
+            expanded_traversers
+                .into_iter()
+                .filter(|t| self.evaluate_predicate_from_path(&where_cl.expression, t))
+                .collect()
+        } else {
+            expanded_traversers
+        };
+
+        // Process each traverser according to the RETURN clause
+        let results: Vec<Value> = filtered_traversers
+            .into_iter()
+            .filter_map(|t| self.evaluate_return_for_traverser(&return_clause.items, &t))
+            .collect();
+
+        // Apply DISTINCT if requested
+        let results = if return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        Ok(results)
+    }
+
+    /// Try to execute an OPTIONAL MATCH pattern from a base traverser.
+    ///
+    /// Returns the matching traversers, or an empty vec if no matches.
+    fn try_optional_match(
+        &self,
+        opt_clause: &OptionalMatchClause,
+        base_traverser: &crate::traversal::Traverser,
+    ) -> Result<Vec<crate::traversal::Traverser>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // For now, we only support the first pattern in the optional match
+        if opt_clause.patterns.is_empty() {
+            return Ok(vec![]);
+        }
+        let pattern = &opt_clause.patterns[0];
+        if pattern.elements.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // The first node in the pattern should reference a variable from the base match
+        // Get the anchor variable and look it up in the base traverser's path
+        let anchor_var = match &pattern.elements[0] {
+            PatternElement::Node(node) => node.variable.as_ref(),
+            PatternElement::Edge(_) => None,
+        };
+
+        let anchor_vertex_id = if let Some(var) = anchor_var {
+            // Look up the variable in the base traverser's path
+            if let Some(values) = base_traverser.path.get(var) {
+                if let Some(path_value) = values.last() {
+                    match path_value.to_value() {
+                        Value::Vertex(vid) => Some(vid),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                // Variable not in path - might be the current value
+                match &base_traverser.value {
+                    Value::Vertex(vid) => Some(*vid),
+                    _ => None,
+                }
+            }
+        } else {
+            // No anchor variable - use current value
+            match &base_traverser.value {
+                Value::Vertex(vid) => Some(*vid),
+                _ => None,
+            }
+        };
+
+        let anchor_id = match anchor_vertex_id {
+            Some(id) => id,
+            None => return Ok(vec![]), // Can't anchor the optional match
+        };
+
+        // Start a new traversal from the anchor vertex
+        let g = self.snapshot.traversal();
+        let mut traversal = g.v_ids([anchor_id]).with_path();
+
+        // Apply the pattern starting from the first element
+        // Skip the first node if it's just the anchor reference
+        let mut skip_first_node = anchor_var.is_some();
+
+        for element in &pattern.elements {
+            match element {
+                PatternElement::Node(node) => {
+                    if skip_first_node {
+                        // Still need to apply label and property filters to anchor
+                        if !node.labels.is_empty() {
+                            let labels: Vec<&str> =
+                                node.labels.iter().map(|s| s.as_str()).collect();
+                            traversal = traversal.has_label_any(labels);
+                        }
+                        for (key, value) in &node.properties {
+                            let val: Value = value.clone().into();
+                            traversal = traversal.has_value(key.as_str(), val);
+                        }
+                        // Add as_() step for the anchor if it has a variable
+                        if let Some(var) = &node.variable {
+                            traversal = traversal.as_(var);
+                        }
+                        skip_first_node = false;
+                    } else {
+                        // Apply label filter
+                        if !node.labels.is_empty() {
+                            let labels: Vec<&str> =
+                                node.labels.iter().map(|s| s.as_str()).collect();
+                            traversal = traversal.has_label_any(labels);
+                        }
+                        // Apply property filters
+                        for (key, value) in &node.properties {
+                            let val: Value = value.clone().into();
+                            traversal = traversal.has_value(key.as_str(), val);
+                        }
+                        // Add as_() step for variable binding
+                        if let Some(var) = &node.variable {
+                            traversal = traversal.as_(var);
+                        }
+                    }
+                }
+                PatternElement::Edge(edge) => {
+                    // Navigate based on direction and labels
+                    let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
+                    traversal = match edge.direction {
+                        EdgeDirection::Outgoing => {
+                            if labels.is_empty() {
+                                traversal.out()
+                            } else {
+                                traversal.out_labels(&labels)
+                            }
+                        }
+                        EdgeDirection::Incoming => {
+                            if labels.is_empty() {
+                                traversal.in_()
+                            } else {
+                                traversal.in_labels(&labels)
+                            }
+                        }
+                        EdgeDirection::Both => {
+                            if labels.is_empty() {
+                                traversal.both()
+                            } else {
+                                traversal.both_labels(&labels)
+                            }
+                        }
+                    };
+                }
+            }
+        }
+
+        // Execute and collect the optional match results
+        let results: Vec<Traverser> = traversal.execute().collect();
+        Ok(results)
+    }
+
+    /// Add null values for all variables in an OPTIONAL MATCH clause to a path.
+    fn add_null_optional_vars(
+        &self,
+        path: &mut crate::traversal::Path,
+        opt_clause: &OptionalMatchClause,
+    ) {
+        use crate::traversal::PathValue;
+
+        for pattern in &opt_clause.patterns {
+            for element in &pattern.elements {
+                match element {
+                    PatternElement::Node(node) => {
+                        if let Some(var) = &node.variable {
+                            // Only add if not already present (don't overwrite anchor vars)
+                            if path.get(var).is_none() {
+                                path.push_labeled(PathValue::Property(Value::Null), var);
+                            }
+                        }
+                    }
+                    PatternElement::Edge(edge) => {
+                        if let Some(var) = &edge.variable {
+                            if path.get(var).is_none() {
+                                path.push_labeled(PathValue::Property(Value::Null), var);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Merge paths from an optional match into the base path.
+    fn merge_paths(
+        &self,
+        base_path: &mut crate::traversal::Path,
+        optional_path: &crate::traversal::Path,
+    ) {
+        // Get all labeled values from the optional path and add them to base
+        for label in optional_path.all_labels() {
+            if let Some(values) = optional_path.get(label) {
+                for value in values {
+                    base_path.push_labeled(value.clone(), label);
+                }
+            }
+        }
     }
 
     /// Evaluate a predicate expression using the traverser's path for variable lookup.
@@ -1381,6 +1717,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     }
 
     /// Extract a property value from a vertex or edge.
+    ///
+    /// Returns `Some(Value::Null)` for null elements (e.g., from OPTIONAL MATCH that didn't match).
     fn extract_property(&self, element: &Value, property: &str) -> Option<Value> {
         match element {
             Value::Vertex(id) => {
@@ -1391,6 +1729,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 let edge = self.snapshot.storage().get_edge(*id)?;
                 edge.properties.get(property).cloned()
             }
+            Value::Null => Some(Value::Null), // OPTIONAL MATCH variable that didn't match
             _ => None,
         }
     }

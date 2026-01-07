@@ -107,6 +107,7 @@ pub enum Statement {
 ///
 /// # Optional Clauses
 ///
+/// - `optional_match_clauses` - Optional pattern matches that produce nulls if not found
 /// - `where_clause` - Filters matched patterns
 /// - `group_by_clause` - Groups results for aggregation
 /// - `order_clause` - Sorts results
@@ -132,6 +133,8 @@ pub enum Statement {
 pub struct Query {
     /// The MATCH clause specifying graph patterns to find.
     pub match_clause: MatchClause,
+    /// Optional MATCH clauses that produce nulls if patterns don't match.
+    pub optional_match_clauses: Vec<OptionalMatchClause>,
     /// Optional WHERE clause for filtering matched patterns.
     pub where_clause: Option<WhereClause>,
     /// The RETURN clause specifying what values to output.
@@ -165,6 +168,30 @@ pub struct Query {
 #[derive(Debug, Clone, Serialize)]
 pub struct MatchClause {
     /// List of patterns to match. Currently only the first pattern is used.
+    pub patterns: Vec<Pattern>,
+}
+
+/// The OPTIONAL MATCH clause for optional pattern matching.
+///
+/// Similar to MATCH, but if the pattern doesn't find any matches,
+/// the query continues with null values for the variables introduced
+/// in this clause instead of filtering out the row.
+///
+/// OPTIONAL MATCH can reference variables from previous MATCH or
+/// OPTIONAL MATCH clauses.
+///
+/// # Example
+///
+/// ```text
+/// MATCH (p:Player)
+/// OPTIONAL MATCH (p)-[:won_championship_with]->(t:Team)
+/// RETURN p.name, t.name
+/// ```
+///
+/// Players without championships will have `null` for `t.name`.
+#[derive(Debug, Clone, Serialize)]
+pub struct OptionalMatchClause {
+    /// List of patterns to optionally match.
     pub patterns: Vec<Pattern>,
 }
 

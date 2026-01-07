@@ -10,6 +10,7 @@ match_clause:
             labels:
               - Person
             properties: []
+optional_match_clauses: []
 where_clause: ~
 return_clause:
   distinct: true
