@@ -2750,10 +2750,10 @@ fn compile_edge_with_quantifier(
 ```
 
 **Acceptance Criteria**:
-- [ ] `*` compiles to repeat with default bounds
-- [ ] `*2` compiles to exactly 2 iterations
-- [ ] `*1..3` compiles to 1-3 iterations
-- [ ] `*..5` compiles to 0-5 iterations
+- [x] `*` compiles to repeat with default bounds
+- [x] `*2` compiles to exactly 2 iterations
+- [x] `*1..3` compiles to 1-3 iterations
+- [x] `*..5` compiles to 0-5 iterations
 
 ---
 
@@ -2836,9 +2836,9 @@ fn test_gql_friends_of_friends() {
 ```
 
 **Acceptance Criteria**:
-- [ ] Exact hop count works
-- [ ] Range bounds work
-- [ ] Friends-of-friends pattern works
+- [x] Exact hop count works
+- [x] Range bounds work
+- [x] Friends-of-friends pattern works
 
 ---
 

@@ -2565,3 +2565,335 @@ fn test_gql_order_by_aliased_property() {
     assert_eq!(names[1], "Frank", "Second highest paid should be Frank");
     assert_eq!(names[2], "Carol", "Third highest paid should be Carol");
 }
+
+// =============================================================================
+// Phase 5.1/5.2: Variable-Length Path Tests
+// =============================================================================
+
+/// Helper to create a graph for variable-length path tests
+///
+/// Graph structure:
+/// ```
+///   Alice -[KNOWS]-> Bob -[KNOWS]-> Carol -[KNOWS]-> Dave -[KNOWS]-> Eve
+///         \                                         /
+///          -[KNOWS]-> Frank -----[KNOWS]-----------
+/// ```
+fn create_variable_length_path_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    let mut dave_props = HashMap::new();
+    dave_props.insert("name".to_string(), Value::from("Dave"));
+    let dave = storage.add_vertex("Person", dave_props);
+
+    let mut eve_props = HashMap::new();
+    eve_props.insert("name".to_string(), Value::from("Eve"));
+    let eve = storage.add_vertex("Person", eve_props);
+
+    let mut frank_props = HashMap::new();
+    frank_props.insert("name".to_string(), Value::from("Frank"));
+    let frank = storage.add_vertex("Person", frank_props);
+
+    // Create a chain: Alice -> Bob -> Carol -> Dave -> Eve
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(carol, dave, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(dave, eve, "KNOWS", HashMap::new())
+        .unwrap();
+
+    // Also: Alice -> Frank -> Dave (shorter path to Dave)
+    storage
+        .add_edge(alice, frank, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(frank, dave, "KNOWS", HashMap::new())
+        .unwrap();
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test exact hop count: *2 (exactly 2 hops)
+#[test]
+fn test_gql_variable_path_exact_hops() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find people exactly 2 hops from Alice
+    // Alice -[KNOWS]-> Bob -[KNOWS]-> Carol (2 hops)
+    // Alice -[KNOWS]-> Frank -[KNOWS]-> Dave (2 hops)
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*2]->(target) RETURN target.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should find 2 people at exactly 2 hops");
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Carol"), "Carol is 2 hops via Bob");
+    assert!(names.contains(&"Dave"), "Dave is 2 hops via Frank");
+}
+
+/// Test range bounds: *1..3 (1 to 3 hops)
+#[test]
+fn test_gql_variable_path_range() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find people 1-3 hops from Alice
+    // 1 hop: Bob, Frank
+    // 2 hops: Carol (via Bob), Dave (via Frank)
+    // 3 hops: Dave (via Bob->Carol), Eve (via Frank->Dave)
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(target) RETURN target.name")
+        .unwrap();
+
+    // With dedup, should find: Bob, Frank, Carol, Dave, Eve
+    // Note: Dave is reachable via multiple paths but should only appear once
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains(&"Bob"), "Bob is 1 hop");
+    assert!(names.contains(&"Frank"), "Frank is 1 hop");
+    assert!(names.contains(&"Carol"), "Carol is 2 hops");
+    assert!(names.contains(&"Dave"), "Dave is 2-3 hops");
+    // Note: Eve might be in range depending on path
+}
+
+/// Test max only: *..2 (0 to 2 hops, includes start)
+#[test]
+fn test_gql_variable_path_max_only() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find people 0-2 hops from Alice (should include Alice herself)
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..2]->(target) RETURN target.name")
+        .unwrap();
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Should include:
+    // 0 hops: Alice
+    // 1 hop: Bob, Frank
+    // 2 hops: Carol, Dave
+    assert!(names.contains(&"Alice"), "Alice is 0 hops (start)");
+    assert!(names.contains(&"Bob"), "Bob is 1 hop");
+    assert!(names.contains(&"Frank"), "Frank is 1 hop");
+    assert!(names.contains(&"Carol"), "Carol is 2 hops");
+    assert!(names.contains(&"Dave"), "Dave is 2 hops");
+}
+
+/// Test unbounded: * (all reachable)
+#[test]
+fn test_gql_variable_path_unbounded() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find all people reachable from Alice
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*]->(target) RETURN target.name")
+        .unwrap();
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Should find everyone including Alice
+    assert!(names.contains(&"Alice"), "Alice should be included (start)");
+    assert!(names.contains(&"Bob"), "Bob is reachable");
+    assert!(names.contains(&"Frank"), "Frank is reachable");
+    assert!(names.contains(&"Carol"), "Carol is reachable");
+    assert!(names.contains(&"Dave"), "Dave is reachable");
+    assert!(names.contains(&"Eve"), "Eve is reachable");
+}
+
+/// Test friends-of-friends pattern
+#[test]
+fn test_gql_friends_of_friends() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Classic friends-of-friends: exactly 2 hops
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*2]->(fof) RETURN fof.name")
+        .unwrap();
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Should not include direct friends (Bob, Frank)
+    assert!(!names.contains(&"Bob"), "Bob is direct friend, not FoF");
+    assert!(!names.contains(&"Frank"), "Frank is direct friend, not FoF");
+
+    // Should include people 2 hops away
+    assert!(names.contains(&"Carol"), "Carol is FoF via Bob");
+    assert!(names.contains(&"Dave"), "Dave is FoF via Frank");
+}
+
+/// Test variable-length with incoming edges
+#[test]
+fn test_gql_variable_path_incoming() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find people who can reach Eve in 1-2 hops
+    let results = snapshot
+        .gql("MATCH (e:Person {name: 'Eve'})<-[:KNOWS*1..2]-(source) RETURN source.name")
+        .unwrap();
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // 1 hop back: Dave
+    // 2 hops back: Carol, Frank
+    assert!(names.contains(&"Dave"), "Dave is 1 hop back from Eve");
+    assert!(names.contains(&"Carol"), "Carol is 2 hops back from Eve");
+    assert!(names.contains(&"Frank"), "Frank is 2 hops back from Eve");
+}
+
+/// Test variable-length with bidirectional edges
+#[test]
+fn test_gql_variable_path_bidirectional() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find people connected to Carol within 2 hops (either direction)
+    let results = snapshot
+        .gql("MATCH (c:Person {name: 'Carol'})-[:KNOWS*1..2]-(connected) RETURN connected.name")
+        .unwrap();
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Carol is in the middle of the chain: Alice -> Bob -> Carol -> Dave -> Eve
+    // 1 hop: Bob (incoming), Dave (outgoing)
+    // 2 hops: Alice (via Bob), Eve (via Dave)
+    assert!(names.contains(&"Bob"), "Bob is 1 hop from Carol");
+    assert!(names.contains(&"Dave"), "Dave is 1 hop from Carol");
+    assert!(names.contains(&"Alice"), "Alice is 2 hops from Carol");
+    assert!(names.contains(&"Eve"), "Eve is 2 hops from Carol");
+}
+
+/// Test variable-length without label filter
+#[test]
+fn test_gql_variable_path_no_label() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find all vertices reachable in exactly 1 hop via any edge type
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[*1]->(target) RETURN target.name")
+        .unwrap();
+
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Direct neighbors: Bob, Frank
+    assert!(names.contains(&"Bob"), "Bob is direct neighbor");
+    assert!(names.contains(&"Frank"), "Frank is direct neighbor");
+    assert_eq!(names.len(), 2, "Should find exactly 2 direct neighbors");
+}
+
+/// Test single hop equivalent to *1
+#[test]
+fn test_gql_variable_path_single_hop() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // *1 should be equivalent to regular single-hop traversal
+    let results_single = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(target) RETURN target.name")
+        .unwrap();
+
+    let results_star1 = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1]->(target) RETURN target.name")
+        .unwrap();
+
+    // Both should return the same results
+    assert_eq!(
+        results_single.len(),
+        results_star1.len(),
+        "Single hop and *1 should return same count"
+    );
+
+    let names_single: std::collections::HashSet<&str> = results_single
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    let names_star1: std::collections::HashSet<&str> = results_star1
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(
+        names_single, names_star1,
+        "Single hop and *1 should return same names"
+    );
+}
