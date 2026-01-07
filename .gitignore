@@ -9,3 +9,6 @@
 # Coverage
 lcov.info
 target/llvm-cov/
+
+*.db
+*.wal
