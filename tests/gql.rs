@@ -8065,3 +8065,360 @@ fn test_gql_optional_match_preserves_base_rows() {
     // All 3 players should be returned
     assert_eq!(results.len(), 3);
 }
+
+// =============================================================================
+// WITH PATH and path() Function Tests
+// =============================================================================
+
+/// Test WITH PATH returns path as list
+#[test]
+fn test_gql_with_path_returns_path() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Query: find path from Alice to her friends
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person)
+        WITH PATH
+        RETURN path()
+    "#,
+        )
+        .unwrap();
+
+    // Alice knows 2 people (Bob and Carol), so we should have 2 paths
+    assert_eq!(results.len(), 2);
+
+    // Each result should be a list representing the path
+    for result in &results {
+        match result {
+            Value::List(path_elements) => {
+                // Path should have at least 2 elements (Alice and friend)
+                assert!(
+                    path_elements.len() >= 2,
+                    "Path should have at least 2 elements, got {}",
+                    path_elements.len()
+                );
+            }
+            _ => panic!("Expected path() to return a list, got {:?}", result),
+        }
+    }
+}
+
+/// Test path() function returns correct path elements
+#[test]
+fn test_gql_path_function_elements() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Single path traversal
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+        WITH PATH
+        RETURN path()
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        1,
+        "Should find exactly one path from Alice to Bob"
+    );
+
+    if let Value::List(path_elements) = &results[0] {
+        // Path should contain vertices (Alice and Bob)
+        // The exact content depends on path tracking implementation
+        assert!(!path_elements.is_empty(), "Path should not be empty");
+
+        // First element should be a vertex (Alice)
+        assert!(
+            matches!(path_elements.first(), Some(Value::Vertex(_))),
+            "First path element should be a vertex"
+        );
+    } else {
+        panic!("Expected path() to return a list");
+    }
+}
+
+/// Test path() function with longer path
+#[test]
+fn test_gql_path_function_multi_hop() {
+    let graph = create_graph_with_edges();
+    let snapshot = graph.snapshot();
+
+    // Multi-hop path: Alice -> Bob -> Carol
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})-[:KNOWS]->(c:Person {name: 'Carol'})
+        WITH PATH
+        RETURN path()
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        1,
+        "Should find exactly one path from Alice to Bob to Carol"
+    );
+
+    if let Value::List(path_elements) = &results[0] {
+        // Path should contain all three vertices
+        assert!(
+            path_elements.len() >= 3,
+            "Multi-hop path should have at least 3 elements, got {}",
+            path_elements.len()
+        );
+    } else {
+        panic!("Expected path() to return a list");
+    }
+}
+
+// =============================================================================
+// UNWIND Tests
+// =============================================================================
+
+/// Test UNWIND with list property
+#[test]
+fn test_gql_unwind_list() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create a vertex with a list property
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert(
+        "hobbies".to_string(),
+        Value::List(vec![
+            Value::from("reading"),
+            Value::from("coding"),
+            Value::from("gaming"),
+        ]),
+    );
+    storage.add_vertex("Person", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:Person)
+        UNWIND p.hobbies AS hobby
+        RETURN hobby
+    "#,
+        )
+        .unwrap();
+
+    // Should unwind to 3 rows
+    assert_eq!(results.len(), 3);
+
+    let hobbies: HashSet<String> = results
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+
+    assert!(hobbies.contains("reading"));
+    assert!(hobbies.contains("coding"));
+    assert!(hobbies.contains("gaming"));
+}
+
+/// Test UNWIND with null produces no rows
+#[test]
+fn test_gql_unwind_null_produces_no_rows() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create a vertex without the list property
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    storage.add_vertex("Person", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:Person)
+        UNWIND p.missing_property AS item
+        RETURN item
+    "#,
+        )
+        .unwrap();
+
+    // UNWIND null produces no rows
+    assert_eq!(results.len(), 0, "UNWIND null should produce no rows");
+}
+
+/// Test UNWIND non-list wraps in single-element list
+#[test]
+fn test_gql_unwind_non_list_wraps() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert("age".to_string(), Value::from(30i64));
+    storage.add_vertex("Person", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:Person)
+        UNWIND p.age AS val
+        RETURN val
+    "#,
+        )
+        .unwrap();
+
+    // UNWIND non-list treats it as single-element list
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(30));
+}
+
+/// Test multiple UNWIND clauses
+#[test]
+fn test_gql_multiple_unwind() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert(
+        "colors".to_string(),
+        Value::List(vec![Value::from("red"), Value::from("blue")]),
+    );
+    props.insert(
+        "sizes".to_string(),
+        Value::List(vec![Value::from("S"), Value::from("M")]),
+    );
+    storage.add_vertex("Person", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:Person)
+        UNWIND p.colors AS color
+        UNWIND p.sizes AS size
+        RETURN color, size
+    "#,
+        )
+        .unwrap();
+
+    // Should produce cartesian product: 2 colors x 2 sizes = 4 rows
+    assert_eq!(
+        results.len(),
+        4,
+        "Multiple UNWIND should produce cartesian product"
+    );
+
+    // Verify we have all combinations
+    let combinations: Vec<(String, String)> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(map) => {
+                let color = map.get("color").and_then(|c| match c {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })?;
+                let size = map.get("size").and_then(|s| match s {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })?;
+                Some((color, size))
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(combinations.len(), 4);
+}
+
+/// Test UNWIND with inline list
+#[test]
+fn test_gql_unwind_inline_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:Person)
+        UNWIND [1, 2, 3] AS num
+        RETURN num
+        LIMIT 9
+    "#,
+        )
+        .unwrap();
+
+    // 3 people x 3 numbers = 9 rows
+    assert_eq!(results.len(), 9);
+
+    // All results should be 1, 2, or 3
+    for result in &results {
+        match result {
+            Value::Int(n) => {
+                assert!(*n >= 1 && *n <= 3, "Expected 1, 2, or 3, got {}", n);
+            }
+            _ => panic!("Expected Int, got {:?}", result),
+        }
+    }
+}
+
+/// Test UNWIND with WHERE filter
+#[test]
+fn test_gql_unwind_with_where() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert(
+        "scores".to_string(),
+        Value::List(vec![
+            Value::from(85i64),
+            Value::from(92i64),
+            Value::from(78i64),
+            Value::from(95i64),
+        ]),
+    );
+    storage.add_vertex("Person", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (p:Person)
+        UNWIND p.scores AS score
+        WHERE score >= 90
+        RETURN score
+    "#,
+        )
+        .unwrap();
+
+    // Only scores >= 90: 92 and 95
+    assert_eq!(results.len(), 2);
+
+    let scores: HashSet<i64> = results
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::Int(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+
+    assert!(scores.contains(&92));
+    assert!(scores.contains(&95));
+}

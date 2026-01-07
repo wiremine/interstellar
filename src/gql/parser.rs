@@ -38,7 +38,7 @@ use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
     GroupByClause, LimitClause, Literal, MatchClause, NodePattern, OptionalMatchClause,
     OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, Query, ReturnClause,
-    ReturnItem, Statement, UnaryOperator, WhereClause,
+    ReturnItem, Statement, UnaryOperator, UnwindClause, WhereClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -105,7 +105,7 @@ pub fn parse(input: &str) -> Result<Query, ParseError> {
     // Parse as a statement and extract the single query
     let stmt = parse_statement(input)?;
     match stmt {
-        Statement::Query(query) => Ok(query),
+        Statement::Query(query) => Ok(*query),
         Statement::Union { .. } => {
             // For backward compatibility, parse() returns Query
             // Use parse_statement() for UNION queries
@@ -189,7 +189,7 @@ fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, Parse
     }
 
     if queries.len() == 1 {
-        Ok(Statement::Query(queries.pop().unwrap()))
+        Ok(Statement::Query(Box::new(queries.pop().unwrap())))
     } else {
         Ok(Statement::Union {
             queries,
@@ -202,6 +202,8 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let pair_span = span_from_pair(&pair);
     let mut match_clause = None;
     let mut optional_match_clauses = Vec::new();
+    let mut with_path_clause = None;
+    let mut unwind_clauses = Vec::new();
     let mut where_clause = None;
     let mut return_clause = None;
     let mut group_by_clause = None;
@@ -214,6 +216,8 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::optional_match_clause => {
                 optional_match_clauses.push(build_optional_match_clause(inner)?);
             }
+            Rule::with_path_clause => with_path_clause = Some(build_with_path_clause(inner)?),
+            Rule::unwind_clause => unwind_clauses.push(build_unwind_clause(inner)?),
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
             Rule::group_by_clause => group_by_clause = Some(build_group_by_clause(inner)?),
@@ -227,6 +231,8 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     Ok(Query {
         match_clause: match_clause.ok_or_else(|| ParseError::missing_clause("MATCH", pair_span))?,
         optional_match_clauses,
+        with_path_clause,
+        unwind_clauses,
         where_clause,
         return_clause: return_clause
             .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
@@ -345,6 +351,44 @@ fn build_optional_match_clause(
     }
 
     Ok(OptionalMatchClause { patterns })
+}
+
+/// Build a WITH PATH clause from a pest pair.
+///
+/// WITH PATH or WITH PATH AS alias
+fn build_with_path_clause(pair: pest::iterators::Pair<Rule>) -> Result<WithPathClause, ParseError> {
+    let mut alias = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::identifier {
+            alias = Some(inner.as_str().to_string());
+        }
+    }
+
+    Ok(WithPathClause { alias })
+}
+
+/// Build an UNWIND clause from a pest pair.
+///
+/// UNWIND expression AS variable
+fn build_unwind_clause(pair: pest::iterators::Pair<Rule>) -> Result<UnwindClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut expression = None;
+    let mut alias = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::expression => expression = Some(build_expression(inner)?),
+            Rule::identifier => alias = Some(inner.as_str().to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(UnwindClause {
+        expression: expression
+            .ok_or_else(|| ParseError::missing_clause("UNWIND expression", pair_span))?,
+        alias: alias.ok_or_else(|| ParseError::missing_clause("UNWIND alias", pair_span))?,
+    })
 }
 
 fn build_pattern(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {

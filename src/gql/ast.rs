@@ -76,8 +76,8 @@ use serde::Serialize;
 /// ```
 #[derive(Debug, Clone, Serialize)]
 pub enum Statement {
-    /// A single query.
-    Query(Query),
+    /// A single query (boxed to reduce enum variant size).
+    Query(Box<Query>),
     /// A UNION of multiple queries.
     ///
     /// The `all` flag indicates whether duplicates should be kept:
@@ -108,6 +108,8 @@ pub enum Statement {
 /// # Optional Clauses
 ///
 /// - `optional_match_clauses` - Optional pattern matches that produce nulls if not found
+/// - `with_path_clause` - Enables path tracking for use with path() function
+/// - `unwind_clauses` - Expands lists into rows
 /// - `where_clause` - Filters matched patterns
 /// - `group_by_clause` - Groups results for aggregation
 /// - `order_clause` - Sorts results
@@ -135,6 +137,10 @@ pub struct Query {
     pub match_clause: MatchClause,
     /// Optional MATCH clauses that produce nulls if patterns don't match.
     pub optional_match_clauses: Vec<OptionalMatchClause>,
+    /// Optional WITH PATH clause for enabling path tracking.
+    pub with_path_clause: Option<WithPathClause>,
+    /// UNWIND clauses for expanding lists into rows.
+    pub unwind_clauses: Vec<UnwindClause>,
     /// Optional WHERE clause for filtering matched patterns.
     pub where_clause: Option<WhereClause>,
     /// The RETURN clause specifying what values to output.
@@ -193,6 +199,57 @@ pub struct MatchClause {
 pub struct OptionalMatchClause {
     /// List of patterns to optionally match.
     pub patterns: Vec<Pattern>,
+}
+
+/// The WITH PATH clause for enabling path tracking.
+///
+/// When present, the query engine tracks the full traversal path,
+/// which can be retrieved using the `path()` function in the RETURN clause.
+///
+/// # Example
+///
+/// ```text
+/// MATCH (p1:Player)-[:played_for]->(t:Team)<-[:played_for]-(p2:Player)
+/// WITH PATH
+/// RETURN path(), p2.name
+/// ```
+///
+/// The path() function returns a list containing all vertices and edges
+/// traversed, in order.
+#[derive(Debug, Clone, Serialize)]
+pub struct WithPathClause {
+    /// Optional alias for the path variable.
+    /// If specified with AS, the path is bound to this variable name.
+    pub alias: Option<String>,
+}
+
+/// The UNWIND clause for expanding lists into rows.
+///
+/// UNWIND takes a list expression and produces a row for each element
+/// in the list, binding each element to the specified variable.
+///
+/// This is equivalent to the `unfold()` traversal step.
+///
+/// # Example
+///
+/// ```text
+/// UNWIND [1, 2, 3] AS num
+/// RETURN num * 2
+/// -- Returns: 2, 4, 6
+///
+/// MATCH (p:Player)
+/// UNWIND collect(p.name) AS name
+/// RETURN name
+/// ```
+///
+/// UNWIND null produces no rows.
+/// UNWIND a non-list value wraps it in a single-element list.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnwindClause {
+    /// The expression that produces a list to unwind.
+    pub expression: Expression,
+    /// The variable name for each element.
+    pub alias: String,
 }
 
 /// A graph pattern describing a path through the graph.

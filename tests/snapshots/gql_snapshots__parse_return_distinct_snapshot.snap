@@ -11,6 +11,8 @@ match_clause:
               - Person
             properties: []
 optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
 where_clause: ~
 return_clause:
   distinct: true

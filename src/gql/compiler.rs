@@ -71,7 +71,7 @@ use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
     GroupByClause, LimitClause, Literal, NodePattern, OptionalMatchClause, OrderClause,
     PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
-    UnaryOperator, WhereClause,
+    UnaryOperator, UnwindClause, WhereClause,
 };
 use crate::gql::error::CompileError;
 use crate::graph::GraphSnapshot;
@@ -220,7 +220,7 @@ pub fn compile_statement<'g>(
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
     match stmt {
-        Statement::Query(query) => compile(query, snapshot),
+        Statement::Query(query) => compile(query.as_ref(), snapshot),
         Statement::Union { queries, all } => compile_union(queries, *all, snapshot),
     }
 }
@@ -293,6 +293,41 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             .count()
     }
 
+    /// Check if the RETURN clause uses the path() function.
+    fn return_uses_path_function(&self, return_clause: &ReturnClause) -> bool {
+        return_clause
+            .items
+            .iter()
+            .any(|item| Self::expression_uses_path_function(&item.expression))
+    }
+
+    /// Check if an expression contains a path() function call.
+    fn expression_uses_path_function(expr: &Expression) -> bool {
+        match expr {
+            Expression::FunctionCall { name, .. } if name.eq_ignore_ascii_case("path") => true,
+            Expression::BinaryOp { left, right, .. } => {
+                Self::expression_uses_path_function(left)
+                    || Self::expression_uses_path_function(right)
+            }
+            Expression::UnaryOp { expr, .. } => Self::expression_uses_path_function(expr),
+            Expression::List(items) => items.iter().any(Self::expression_uses_path_function),
+            Expression::FunctionCall { args, .. } => {
+                args.iter().any(Self::expression_uses_path_function)
+            }
+            Expression::Aggregate { expr, .. } => Self::expression_uses_path_function(expr),
+            Expression::Case(case_expr) => {
+                case_expr.when_clauses.iter().any(|(c, r)| {
+                    Self::expression_uses_path_function(c) || Self::expression_uses_path_function(r)
+                }) || case_expr
+                    .else_clause
+                    .as_ref()
+                    .map(|e| Self::expression_uses_path_function(e))
+                    .unwrap_or(false)
+            }
+            _ => false,
+        }
+    }
+
     /// Check if a pattern has any edge variables.
     fn has_edge_variable(pattern: &Pattern) -> bool {
         pattern
@@ -316,10 +351,21 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // 1. Multiple variables are bound (nodes or edges)
         // 2. Any edge variable is bound (needs path to access edge properties)
         // 3. There are OPTIONAL MATCH clauses (always need path tracking)
+        // 4. WITH PATH clause is present (explicit path tracking)
+        // 5. path() function is used in RETURN clause
+        // 6. UNWIND clause is present (needs variable access for expression evaluation)
         let var_count = Self::count_pattern_variables(pattern);
         let has_edge_var = Self::has_edge_variable(pattern);
         let has_optional = !query.optional_match_clauses.is_empty();
-        self.has_multi_vars = var_count > 1 || has_edge_var || has_optional;
+        let has_with_path = query.with_path_clause.is_some();
+        let uses_path_func = self.return_uses_path_function(&query.return_clause);
+        let has_unwind = !query.unwind_clauses.is_empty();
+        self.has_multi_vars = var_count > 1
+            || has_edge_var
+            || has_optional
+            || has_with_path
+            || uses_path_func
+            || has_unwind;
 
         // Build traversal starting from v()
         let g = self.snapshot.traversal();
@@ -341,6 +387,17 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             for opt_pattern in &opt_clause.patterns {
                 self.register_optional_pattern_variables(opt_pattern);
             }
+        }
+
+        // Register UNWIND aliases as valid variable bindings
+        for unwind in &query.unwind_clauses {
+            self.bindings.insert(
+                unwind.alias.clone(),
+                BindingInfo {
+                    pattern_index: 0,
+                    is_node: false,
+                },
+            );
         }
 
         // Verify all referenced variables are bound before proceeding
@@ -394,6 +451,11 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             return Ok(results);
         }
 
+        // Check if we have UNWIND clauses to apply
+        if !query.unwind_clauses.is_empty() {
+            return self.execute_with_unwind(query, traversal);
+        }
+
         // Execute and collect results based on RETURN clause
         // Apply WHERE filter if present
         let results = self.execute_return(&query.return_clause, &query.where_clause, traversal)?;
@@ -405,6 +467,322 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let results = self.apply_limit(&query.limit_clause, results);
 
         Ok(results)
+    }
+
+    /// Execute a query with UNWIND clauses.
+    ///
+    /// UNWIND expands a list expression into individual rows. Each element
+    /// from the list becomes a separate row bound to the alias variable.
+    fn execute_with_unwind(
+        &mut self,
+        query: &Query,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Execute the base match first
+        let base_traversers: Vec<Traverser> = if self.has_multi_vars {
+            traversal.execute().collect()
+        } else {
+            // Convert values to traversers for consistent handling
+            traversal
+                .to_list()
+                .into_iter()
+                .map(Traverser::new)
+                .collect()
+        };
+
+        // Apply each UNWIND clause in sequence
+        let mut current_rows: Vec<HashMap<String, Value>> = base_traversers
+            .into_iter()
+            .map(|t| {
+                let mut row = HashMap::new();
+                // Copy bound variables from path to row
+                for label in t.path.all_labels() {
+                    if let Some(values) = t.path.get(label) {
+                        if let Some(path_value) = values.last() {
+                            row.insert(label.clone(), path_value.to_value());
+                        }
+                    }
+                }
+                // Store the full path as __path__ for path() function
+                let path_values: Vec<Value> = t.path.objects().map(|pv| pv.to_value()).collect();
+                row.insert("__path__".to_string(), Value::List(path_values));
+                // Also store the current traverser value if we have bindings
+                row.insert("__current__".to_string(), t.value);
+                row
+            })
+            .collect();
+
+        // Apply each UNWIND clause
+        for unwind in &query.unwind_clauses {
+            current_rows = self.apply_unwind(current_rows, unwind)?;
+        }
+
+        // Apply WHERE filter if present
+        let filtered_rows: Vec<HashMap<String, Value>> = if let Some(where_cl) = &query.where_clause
+        {
+            current_rows
+                .into_iter()
+                .filter(|row| self.evaluate_predicate_from_row(&where_cl.expression, row))
+                .collect()
+        } else {
+            current_rows
+        };
+
+        // Process RETURN clause
+        let results: Vec<Value> = filtered_rows
+            .into_iter()
+            .filter_map(|row| self.evaluate_return_for_row(&query.return_clause.items, &row))
+            .collect();
+
+        // Apply DISTINCT if requested
+        let results = if query.return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        // Apply ORDER BY if present
+        let results = self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+
+        // Apply LIMIT/OFFSET if present
+        let results = self.apply_limit(&query.limit_clause, results);
+
+        Ok(results)
+    }
+
+    /// Apply an UNWIND clause to expand lists into rows.
+    fn apply_unwind(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        unwind: &UnwindClause,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        let mut result = Vec::new();
+
+        for row in rows {
+            // Evaluate the expression to get a list
+            let list_value = self.evaluate_expression_from_row(&unwind.expression, &row);
+
+            match list_value {
+                Value::List(items) => {
+                    // Create a new row for each item
+                    for item in items {
+                        let mut new_row = row.clone();
+                        new_row.insert(unwind.alias.clone(), item);
+                        result.push(new_row);
+                    }
+                }
+                Value::Null => {
+                    // UNWIND null produces no rows
+                }
+                other => {
+                    // UNWIND non-list wraps in single-element list
+                    let mut new_row = row.clone();
+                    new_row.insert(unwind.alias.clone(), other);
+                    result.push(new_row);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Evaluate an expression using a row (HashMap) for variable lookup.
+    fn evaluate_expression_from_row(
+        &self,
+        expr: &Expression,
+        row: &HashMap<String, Value>,
+    ) -> Value {
+        match expr {
+            Expression::Literal(lit) => lit.clone().into(),
+            Expression::Variable(var) => row.get(var).cloned().unwrap_or(Value::Null),
+            Expression::Property { variable, property } => {
+                let element = row.get(variable).cloned().unwrap_or(Value::Null);
+                self.extract_property(&element, property)
+                    .unwrap_or(Value::Null)
+            }
+            Expression::BinaryOp { left, op, right } => {
+                let left_val = self.evaluate_expression_from_row(left, row);
+                let right_val = self.evaluate_expression_from_row(right, row);
+                apply_binary_op(*op, left_val, right_val)
+            }
+            Expression::UnaryOp { op, expr } => match op {
+                UnaryOperator::Not => {
+                    let val = self.evaluate_expression_from_row(expr, row);
+                    match val {
+                        Value::Bool(b) => Value::Bool(!b),
+                        _ => Value::Null,
+                    }
+                }
+                UnaryOperator::Neg => {
+                    let val = self.evaluate_expression_from_row(expr, row);
+                    match val {
+                        Value::Int(n) => Value::Int(-n),
+                        Value::Float(f) => Value::Float(-f),
+                        _ => Value::Null,
+                    }
+                }
+            },
+            Expression::List(items) => {
+                let values: Vec<Value> = items
+                    .iter()
+                    .map(|item| self.evaluate_expression_from_row(item, row))
+                    .collect();
+                Value::List(values)
+            }
+            Expression::FunctionCall { name, args } => {
+                self.evaluate_function_call_from_row(name, args, row)
+            }
+            _ => Value::Null,
+        }
+    }
+
+    /// Evaluate a function call using a row for variable lookup.
+    fn evaluate_function_call_from_row(
+        &self,
+        name: &str,
+        args: &[Expression],
+        row: &HashMap<String, Value>,
+    ) -> Value {
+        match name.to_uppercase().as_str() {
+            "COALESCE" => {
+                for arg in args {
+                    let val = self.evaluate_expression_from_row(arg, row);
+                    if !matches!(val, Value::Null) {
+                        return val;
+                    }
+                }
+                Value::Null
+            }
+            "TOUPPER" | "UPPER" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_expression_from_row(arg, row) {
+                        return Value::String(s.to_uppercase());
+                    }
+                }
+                Value::Null
+            }
+            "TOLOWER" | "LOWER" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_expression_from_row(arg, row) {
+                        return Value::String(s.to_lowercase());
+                    }
+                }
+                Value::Null
+            }
+            "SIZE" | "LENGTH" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::String(s) => Value::Int(s.len() as i64),
+                        Value::List(l) => Value::Int(l.len() as i64),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "ABS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Int(n.abs()),
+                        Value::Float(f) => Value::Float(f.abs()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            // Path function - returns the full traversal path stored in row
+            "PATH" => row.get("__path__").cloned().unwrap_or(Value::List(vec![])),
+            _ => Value::Null,
+        }
+    }
+
+    /// Evaluate a predicate using a row for variable lookup.
+    fn evaluate_predicate_from_row(&self, expr: &Expression, row: &HashMap<String, Value>) -> bool {
+        match expr {
+            Expression::BinaryOp { left, op, right } => match op {
+                BinaryOperator::And => {
+                    self.evaluate_predicate_from_row(left, row)
+                        && self.evaluate_predicate_from_row(right, row)
+                }
+                BinaryOperator::Or => {
+                    self.evaluate_predicate_from_row(left, row)
+                        || self.evaluate_predicate_from_row(right, row)
+                }
+                _ => {
+                    let left_val = self.evaluate_expression_from_row(left, row);
+                    let right_val = self.evaluate_expression_from_row(right, row);
+                    apply_comparison(*op, &left_val, &right_val)
+                }
+            },
+            Expression::UnaryOp { op, expr } => match op {
+                UnaryOperator::Not => !self.evaluate_predicate_from_row(expr, row),
+                UnaryOperator::Neg => match self.evaluate_expression_from_row(expr, row) {
+                    Value::Int(n) => n == 0,
+                    Value::Float(f) => f == 0.0,
+                    Value::Bool(b) => !b,
+                    Value::Null => true,
+                    _ => false,
+                },
+            },
+            Expression::IsNull { expr, negated } => {
+                let val = self.evaluate_expression_from_row(expr, row);
+                let is_null = matches!(val, Value::Null);
+                if *negated {
+                    !is_null
+                } else {
+                    is_null
+                }
+            }
+            Expression::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let val = self.evaluate_expression_from_row(expr, row);
+                let in_list = list.iter().any(|item| {
+                    let item_val = self.evaluate_expression_from_row(item, row);
+                    val == item_val
+                });
+                if *negated {
+                    !in_list
+                } else {
+                    in_list
+                }
+            }
+            _ => {
+                let val = self.evaluate_expression_from_row(expr, row);
+                match val {
+                    Value::Bool(b) => b,
+                    Value::Null => false,
+                    Value::Int(n) => n != 0,
+                    Value::Float(f) => f != 0.0,
+                    Value::String(s) => !s.is_empty(),
+                    _ => true,
+                }
+            }
+        }
+    }
+
+    /// Evaluate RETURN clause for a row.
+    fn evaluate_return_for_row(
+        &self,
+        items: &[ReturnItem],
+        row: &HashMap<String, Value>,
+    ) -> Option<Value> {
+        if items.len() == 1 {
+            Some(self.evaluate_expression_from_row(&items[0].expression, row))
+        } else {
+            let mut map = HashMap::new();
+            for item in items {
+                let key = self.get_return_item_key(item);
+                let value = self.evaluate_expression_from_row(&item.expression, row);
+                map.insert(key, value);
+            }
+            Some(Value::Map(map))
+        }
     }
 
     /// Register variables from an OPTIONAL MATCH pattern.
@@ -1553,6 +1931,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 }
             }
 
+            // Path function - returns the full traversal path as a list
+            "PATH" => {
+                // Convert all path objects to a Value::List
+                let path_values: Vec<Value> =
+                    traverser.path.objects().map(|pv| pv.to_value()).collect();
+                Value::List(path_values)
+            }
+
             // Unknown function
             _ => Value::Null,
         }
@@ -2557,11 +2943,11 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 
         // Validate: non-aggregate expressions in RETURN must appear in GROUP BY
         for item in &return_clause.items {
-            if !Self::expr_has_aggregate(&item.expression) {
-                if !self.expression_in_group_by(&item.expression, group_by) {
-                    let expr_str = self.expression_to_string(&item.expression);
-                    return Err(CompileError::expression_not_in_group_by(expr_str));
-                }
+            if !Self::expr_has_aggregate(&item.expression)
+                && !self.expression_in_group_by(&item.expression, group_by)
+            {
+                let expr_str = self.expression_to_string(&item.expression);
+                return Err(CompileError::expression_not_in_group_by(expr_str));
             }
         }
 
@@ -2921,7 +3307,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             group_elements
                 .first()
                 .map(|e| self.evaluate_value(expr, e))
-                .ok_or_else(|| CompileError::EmptyPattern)
+                .ok_or(CompileError::EmptyPattern)
         }
     }
 

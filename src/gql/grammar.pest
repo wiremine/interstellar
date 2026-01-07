@@ -47,6 +47,8 @@ END      = @{ ^"end" ~ !ASCII_ALPHANUMERIC }
 UNION    = @{ ^"union" ~ !ASCII_ALPHANUMERIC }
 ALL      = @{ ^"all" ~ !ASCII_ALPHANUMERIC }
 OPTIONAL = @{ ^"optional" ~ !ASCII_ALPHANUMERIC }
+PATH     = @{ ^"path" ~ !ASCII_ALPHANUMERIC }
+UNWIND   = @{ ^"unwind" ~ !ASCII_ALPHANUMERIC }
 
 // Entry point - statement which may be a single query or UNION of queries
 statement = { SOI ~ query ~ (union_clause ~ query)* ~ EOI }
@@ -58,7 +60,16 @@ union_clause = { UNION ~ ALL? }
 // Single query with optional WHERE, GROUP BY, ORDER BY, and LIMIT clauses
 // GROUP BY comes after RETURN (GQL/SQL style)
 // OPTIONAL MATCH clauses come after the main MATCH clause
-query = { match_clause ~ optional_match_clause* ~ where_clause? ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
+// WITH PATH enables path tracking, UNWIND expands lists into rows
+query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
+
+// WITH PATH clause - enables path tracking and collection
+// Allows using path() function in RETURN to get the traversed path
+with_path_clause = { WITH ~ PATH ~ (AS ~ identifier)? }
+
+// UNWIND clause - expands a list into individual rows
+// UNWIND expression AS variable
+unwind_clause = { UNWIND ~ expression ~ AS ~ identifier }
 
 // MATCH clause - multiple patterns separated by commas
 match_clause = { MATCH ~ pattern ~ ("," ~ pattern)* }
@@ -207,7 +218,8 @@ keyword = {
     MATCH | RETURN | WHERE | ORDER | BY | GROUP | LIMIT | OFFSET |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
-    CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL
+    CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL |
+    PATH | UNWIND
 }
 
 // ============================================================

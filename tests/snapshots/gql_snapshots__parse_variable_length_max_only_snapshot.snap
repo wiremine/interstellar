@@ -22,6 +22,8 @@ match_clause:
             labels: []
             properties: []
 optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
 where_clause: ~
 return_clause:
   distinct: false

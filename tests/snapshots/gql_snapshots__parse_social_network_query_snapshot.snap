@@ -27,6 +27,8 @@ match_clause:
               - User
             properties: []
 optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
 where_clause:
   expression:
     BinaryOp:
