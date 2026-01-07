@@ -2030,11 +2030,11 @@ fn apply_binary_op(op: BinaryOperator, left: Value, right: Value) -> Value {
 ```
 
 **Acceptance Criteria**:
-- [ ] `WHERE p.age > 30` filters correctly
-- [ ] `WHERE p.age > 30 AND p.name = 'Alice'` combines predicates
-- [ ] `WHERE NOT p.active` negates predicate
-- [ ] `WHERE p.status IN ['active', 'pending']` checks list membership
-- [ ] `WHERE p.email IS NOT NULL` checks for non-null
+- [x] `WHERE p.age > 30` filters correctly
+- [x] `WHERE p.age > 30 AND p.name = 'Alice'` combines predicates
+- [x] `WHERE NOT p.active` negates predicate
+- [x] `WHERE p.status IN ['active', 'pending']` checks list membership
+- [x] `WHERE p.email IS NOT NULL` checks for non-null
 
 ---
 
@@ -2155,11 +2155,11 @@ fn test_gql_where_null_check() {
 ```
 
 **Acceptance Criteria**:
-- [ ] All WHERE clause tests pass
-- [ ] Comparison operators work correctly
-- [ ] String operations work
-- [ ] IN list membership works
-- [ ] NULL checks work
+- [x] All WHERE clause tests pass
+- [x] Comparison operators work correctly
+- [x] String operations work
+- [x] IN list membership works
+- [x] NULL checks work
 
 ---
 
@@ -2326,10 +2326,10 @@ impl<'a, 'g> Compiler<'a, 'g> {
 ```
 
 **Acceptance Criteria**:
-- [ ] `ORDER BY p.age` sorts ascending
-- [ ] `ORDER BY p.age DESC` sorts descending
-- [ ] `LIMIT 10` returns at most 10 results
-- [ ] `LIMIT 10 OFFSET 5` skips 5, returns next 10
+- [x] `ORDER BY p.age` sorts ascending
+- [x] `ORDER BY p.age DESC` sorts descending
+- [x] `LIMIT 10` returns at most 10 results
+- [x] `LIMIT 10 OFFSET 5` skips 5, returns next 10
 
 ---
 

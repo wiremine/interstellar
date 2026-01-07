@@ -69,7 +69,15 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 
         // Execute and collect results based on RETURN clause
         // Apply WHERE filter if present
-        self.execute_return(&query.return_clause, &query.where_clause, traversal)
+        let results = self.execute_return(&query.return_clause, &query.where_clause, traversal)?;
+
+        // Apply ORDER BY if present
+        let results = self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+
+        // Apply LIMIT/OFFSET if present
+        let results = self.apply_limit(&query.limit_clause, results);
+
+        Ok(results)
     }
 
     /// Compile a pattern into traversal steps.
@@ -477,6 +485,162 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
         }
         Ok(())
+    }
+
+    // =========================================================================
+    // ORDER BY and LIMIT Clause Application
+    // =========================================================================
+
+    /// Apply ORDER BY clause to results.
+    ///
+    /// Sorts the results based on the order items. Each order item specifies
+    /// an expression to sort by and whether to sort descending.
+    ///
+    /// The tricky part: we need to extract the sort key from each result.
+    /// Results are Values that came from execute_return, so they might be:
+    /// - A Vertex/Edge if RETURN n
+    /// - A property value if RETURN n.name  
+    /// - A Map if RETURN n.name, n.age
+    ///
+    /// ORDER BY expressions reference the original bindings (e.g., ORDER BY n.age),
+    /// but we only have the RETURN results. We need to either:
+    /// 1. Keep the original elements alongside results, or
+    /// 2. Extract from the result if it contains the needed data
+    ///
+    /// For now, we'll handle the common case where ORDER BY references
+    /// properties that are also in the RETURN clause (directly or in a map).
+    fn apply_order_by(
+        &self,
+        order_clause: &Option<OrderClause>,
+        return_clause: &ReturnClause,
+        mut results: Vec<Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        let order = match order_clause {
+            Some(o) => o,
+            None => return Ok(results),
+        };
+
+        if order.items.is_empty() {
+            return Ok(results);
+        }
+
+        // Sort by each order item (multi-key sort)
+        // We sort in reverse order of priority so that the first item has highest priority
+        for order_item in order.items.iter().rev() {
+            let descending = order_item.descending;
+            let expr = &order_item.expression;
+
+            // Create a key extractor for this order item
+            results.sort_by(|a, b| {
+                let key_a = self.extract_order_key(expr, a, return_clause);
+                let key_b = self.extract_order_key(expr, b, return_clause);
+
+                let cmp = compare_values(&key_a, &key_b);
+                if descending {
+                    cmp.reverse()
+                } else {
+                    cmp
+                }
+            });
+        }
+
+        Ok(results)
+    }
+
+    /// Extract the sort key from a result value based on the order expression.
+    ///
+    /// This handles several cases:
+    /// - If result is a Map and expression is Property, look up in map
+    /// - If result is a Vertex/Edge and expression is Property, extract property
+    /// - If expression is Variable, use the result directly
+    fn extract_order_key(
+        &self,
+        expr: &Expression,
+        result: &Value,
+        return_clause: &ReturnClause,
+    ) -> Value {
+        match expr {
+            Expression::Property { variable, property } => {
+                // First, try to extract from the result itself
+                match result {
+                    Value::Map(map) => {
+                        // Look for the property in the map
+                        // Could be keyed as "n.age" or just "age" if aliased
+                        let full_key = format!("{}.{}", variable, property);
+                        if let Some(val) = map.get(&full_key) {
+                            return val.clone();
+                        }
+                        if let Some(val) = map.get(property) {
+                            return val.clone();
+                        }
+                        // Check aliases in return clause
+                        for item in &return_clause.items {
+                            if let Some(alias) = &item.alias {
+                                if let Expression::Property {
+                                    variable: v,
+                                    property: p,
+                                } = &item.expression
+                                {
+                                    if v == variable && p == property {
+                                        if let Some(val) = map.get(alias) {
+                                            return val.clone();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Value::Null
+                    }
+                    Value::Vertex(id) => {
+                        // Extract property from vertex
+                        if let Some(vertex) = self.snapshot.storage().get_vertex(*id) {
+                            vertex
+                                .properties
+                                .get(property)
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                        } else {
+                            Value::Null
+                        }
+                    }
+                    Value::Edge(id) => {
+                        // Extract property from edge
+                        if let Some(edge) = self.snapshot.storage().get_edge(*id) {
+                            edge.properties
+                                .get(property)
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                        } else {
+                            Value::Null
+                        }
+                    }
+                    // If result is the property value itself (single return item),
+                    // use it directly
+                    _ => result.clone(),
+                }
+            }
+            Expression::Variable(_) => {
+                // Use the result directly
+                result.clone()
+            }
+            Expression::Literal(lit) => lit.clone().into(),
+            _ => Value::Null,
+        }
+    }
+
+    /// Apply LIMIT and OFFSET to results.
+    ///
+    /// OFFSET skips the first N results, LIMIT takes at most N results.
+    fn apply_limit(&self, limit_clause: &Option<LimitClause>, results: Vec<Value>) -> Vec<Value> {
+        let limit = match limit_clause {
+            Some(l) => l,
+            None => return results,
+        };
+
+        let offset = limit.offset.unwrap_or(0) as usize;
+        let count = limit.limit as usize;
+
+        results.into_iter().skip(offset).take(count).collect()
     }
 }
 
