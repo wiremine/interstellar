@@ -39,6 +39,11 @@ ENDS     = @{ ^"ends" ~ !ASCII_ALPHANUMERIC }
 WITH     = @{ ^"with" ~ !ASCII_ALPHANUMERIC }
 DISTINCT = @{ ^"distinct" ~ !ASCII_ALPHANUMERIC }
 EXISTS   = @{ ^"exists" ~ !ASCII_ALPHANUMERIC }
+CASE     = @{ ^"case" ~ !ASCII_ALPHANUMERIC }
+WHEN     = @{ ^"when" ~ !ASCII_ALPHANUMERIC }
+THEN     = @{ ^"then" ~ !ASCII_ALPHANUMERIC }
+ELSE     = @{ ^"else" ~ !ASCII_ALPHANUMERIC }
+END      = @{ ^"end" ~ !ASCII_ALPHANUMERIC }
 
 // Entry point - query with optional WHERE, GROUP BY, ORDER BY, and LIMIT clauses
 // GROUP BY comes after RETURN (GQL/SQL style)
@@ -143,7 +148,8 @@ neg_op = { "-" }
 
 // Primary expressions (highest precedence)
 primary = { 
-    exists_expr
+    case_expr
+    | exists_expr
     | literal
     | function_call
     | property_access
@@ -151,6 +157,12 @@ primary = {
     | paren_expr
     | list_expr
 }
+
+// CASE expression
+// CASE WHEN condition THEN result [WHEN ... THEN ...] [ELSE default] END
+case_expr = { CASE ~ case_when_clause+ ~ case_else_clause? ~ END }
+case_when_clause = { WHEN ~ expression ~ THEN ~ expression }
+case_else_clause = { ELSE ~ expression }
 
 // EXISTS expression: EXISTS { pattern } or NOT EXISTS { pattern }
 // Used to check if a subpattern matches from the current element
@@ -179,7 +191,8 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 keyword = {
     MATCH | RETURN | WHERE | ORDER | BY | GROUP | LIMIT | OFFSET |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
-    IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS
+    IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
+    CASE | WHEN | THEN | ELSE | END
 }
 
 // ============================================================

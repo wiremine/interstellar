@@ -1,0 +1,48 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+where_clause:
+  expression:
+    Case:
+      when_clauses:
+        - - BinaryOp:
+              left:
+                Property:
+                  variable: p
+                  property: position
+              op: Eq
+              right:
+                Literal:
+                  String: Center
+          - BinaryOp:
+              left:
+                Property:
+                  variable: p
+                  property: height
+              op: Gt
+              right:
+                Literal:
+                  Int: 84
+      else_clause:
+        Literal:
+          Bool: true
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Property:
+          variable: p
+          property: name
+      alias: ~
+group_by_clause: ~
+order_clause: ~
+limit_clause: ~

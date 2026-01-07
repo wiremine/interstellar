@@ -1,0 +1,27 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        FunctionCall:
+          name: toInteger
+          args:
+            - Property:
+                variable: p
+                property: jersey_number
+      alias: ~
+group_by_clause: ~
+order_clause: ~
+limit_clause: ~

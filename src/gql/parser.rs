@@ -805,6 +805,7 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
 
     let span = span_from_pair(&inner);
     match inner.as_rule() {
+        Rule::case_expr => build_case_expr(inner),
         Rule::exists_expr => build_exists_expr(inner),
         Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
         Rule::function_call => build_function_call(inner),
@@ -835,9 +836,70 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, function call, or EXISTS expression",
+            "literal, variable, property access, function call, CASE, or EXISTS expression",
         )),
     }
+}
+
+/// Build a CASE expression from a pest pair.
+///
+/// CASE WHEN condition THEN result [WHEN ... THEN ...] [ELSE default] END
+fn build_case_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut when_clauses = Vec::new();
+    let mut else_clause = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::case_when_clause => {
+                let (condition, result) = build_case_when_clause(inner)?;
+                when_clauses.push((condition, result));
+            }
+            Rule::case_else_clause => {
+                else_clause = Some(Box::new(build_case_else_clause(inner)?));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(Expression::Case(CaseExpression {
+        when_clauses,
+        else_clause,
+    }))
+}
+
+/// Build a single WHEN/THEN clause from a pest pair.
+fn build_case_when_clause(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<(Expression, Expression), ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut condition = None;
+    let mut result = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::expression {
+            if condition.is_none() {
+                condition = Some(build_expression(inner)?);
+            } else {
+                result = Some(build_expression(inner)?);
+            }
+        }
+    }
+
+    Ok((
+        condition.ok_or_else(|| ParseError::missing_clause("WHEN condition", pair_span))?,
+        result.ok_or_else(|| ParseError::missing_clause("THEN result", pair_span))?,
+    ))
+}
+
+/// Build the ELSE clause from a pest pair.
+fn build_case_else_clause(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::expression {
+            return build_expression(inner);
+        }
+    }
+    Err(ParseError::missing_clause("ELSE expression", pair_span))
 }
 
 /// Build an EXISTS expression from a pest pair.

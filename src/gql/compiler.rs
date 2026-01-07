@@ -888,7 +888,279 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 let exists = self.evaluate_exists_pattern(pattern, &traverser.value);
                 Value::Bool(if *negated { !exists } else { exists })
             }
+            Expression::FunctionCall { name, args } => {
+                self.evaluate_function_call_from_path(name, args, traverser)
+            }
+            Expression::Case(case_expr) => self.evaluate_case_from_path(case_expr, traverser),
             _ => Value::Null,
+        }
+    }
+
+    /// Evaluate a function call using path-based variable lookup.
+    fn evaluate_function_call_from_path(
+        &self,
+        name: &str,
+        args: &[Expression],
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        match name.to_uppercase().as_str() {
+            // COALESCE: return first non-null argument
+            "COALESCE" => {
+                for arg in args {
+                    let val = self.evaluate_value_from_path(arg, traverser);
+                    if !matches!(val, Value::Null) {
+                        return val;
+                    }
+                }
+                Value::Null
+            }
+
+            // String functions
+            "TOUPPER" | "UPPER" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value_from_path(arg, traverser) {
+                        return Value::String(s.to_uppercase());
+                    }
+                }
+                Value::Null
+            }
+            "TOLOWER" | "LOWER" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value_from_path(arg, traverser) {
+                        return Value::String(s.to_lowercase());
+                    }
+                }
+                Value::Null
+            }
+            "SIZE" | "LENGTH" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::String(s) => Value::Int(s.len() as i64),
+                        Value::List(l) => Value::Int(l.len() as i64),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TRIM" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value_from_path(arg, traverser) {
+                        return Value::String(s.trim().to_string());
+                    }
+                }
+                Value::Null
+            }
+            "LTRIM" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value_from_path(arg, traverser) {
+                        return Value::String(s.trim_start().to_string());
+                    }
+                }
+                Value::Null
+            }
+            "RTRIM" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value_from_path(arg, traverser) {
+                        return Value::String(s.trim_end().to_string());
+                    }
+                }
+                Value::Null
+            }
+            "SUBSTRING" => {
+                if args.len() >= 2 {
+                    let val = self.evaluate_value_from_path(&args[0], traverser);
+                    let start = self.evaluate_value_from_path(&args[1], traverser);
+                    let length = args
+                        .get(2)
+                        .map(|a| self.evaluate_value_from_path(a, traverser));
+
+                    if let (Value::String(s), Value::Int(start_idx)) = (val, start) {
+                        let start_idx = start_idx.max(0) as usize;
+                        if start_idx >= s.len() {
+                            return Value::String(String::new());
+                        }
+                        let result = if let Some(Value::Int(len)) = length {
+                            let len = len.max(0) as usize;
+                            s.chars().skip(start_idx).take(len).collect()
+                        } else {
+                            s.chars().skip(start_idx).collect()
+                        };
+                        return Value::String(result);
+                    }
+                }
+                Value::Null
+            }
+            "REPLACE" => {
+                if args.len() >= 3 {
+                    let val = self.evaluate_value_from_path(&args[0], traverser);
+                    let search = self.evaluate_value_from_path(&args[1], traverser);
+                    let replacement = self.evaluate_value_from_path(&args[2], traverser);
+
+                    if let (Value::String(s), Value::String(search), Value::String(replacement)) =
+                        (val, search, replacement)
+                    {
+                        return Value::String(s.replace(&search, &replacement));
+                    }
+                }
+                Value::Null
+            }
+
+            // Numeric functions
+            "ABS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Int(n.abs()),
+                        Value::Float(f) => Value::Float(f.abs()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "CEIL" | "CEILING" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Float(f) => Value::Float(f.ceil()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "FLOOR" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Float(f) => Value::Float(f.floor()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "ROUND" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Float(f) => Value::Float(f.round()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "SIGN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Int(n.signum()),
+                        Value::Float(f) => {
+                            if f > 0.0 {
+                                Value::Int(1)
+                            } else if f < 0.0 {
+                                Value::Int(-1)
+                            } else {
+                                Value::Int(0)
+                            }
+                        }
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Type conversion functions
+            "TOSTRING" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value_from_path(arg, traverser);
+                    match val {
+                        Value::String(s) => Value::String(s),
+                        Value::Int(n) => Value::String(n.to_string()),
+                        Value::Float(f) => Value::String(f.to_string()),
+                        Value::Bool(b) => Value::String(b.to_string()),
+                        Value::Null => Value::Null,
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TOINTEGER" | "TOINT" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value_from_path(arg, traverser);
+                    match val {
+                        Value::Int(n) => Value::Int(n),
+                        Value::Float(f) => Value::Int(f as i64),
+                        Value::String(s) => {
+                            s.parse::<i64>().ok().map(Value::Int).unwrap_or(Value::Null)
+                        }
+                        Value::Bool(b) => Value::Int(if b { 1 } else { 0 }),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TOFLOAT" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value_from_path(arg, traverser);
+                    match val {
+                        Value::Float(f) => Value::Float(f),
+                        Value::Int(n) => Value::Float(n as f64),
+                        Value::String(s) => s
+                            .parse::<f64>()
+                            .ok()
+                            .map(Value::Float)
+                            .unwrap_or(Value::Null),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TOBOOLEAN" | "TOBOOL" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value_from_path(arg, traverser);
+                    match val {
+                        Value::Bool(b) => Value::Bool(b),
+                        Value::String(s) => match s.to_lowercase().as_str() {
+                            "true" | "yes" | "1" => Value::Bool(true),
+                            "false" | "no" | "0" => Value::Bool(false),
+                            _ => Value::Null,
+                        },
+                        Value::Int(n) => Value::Bool(n != 0),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Unknown function
+            _ => Value::Null,
+        }
+    }
+
+    /// Evaluate a CASE expression using path-based variable lookup.
+    fn evaluate_case_from_path(
+        &self,
+        case_expr: &CaseExpression,
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        // Evaluate each WHEN clause in order
+        for (condition, result) in &case_expr.when_clauses {
+            if self.evaluate_predicate_from_path(condition, traverser) {
+                return self.evaluate_value_from_path(result, traverser);
+            }
+        }
+
+        // No WHEN matched, evaluate ELSE or return null
+        if let Some(else_expr) = &case_expr.else_clause {
+            self.evaluate_value_from_path(else_expr, traverser)
+        } else {
+            Value::Null
         }
     }
 
@@ -1023,8 +1295,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 Some(lit.clone().into())
             }
             _ => {
-                // Other expressions not yet implemented
-                Some(element.clone())
+                // Delegate to evaluate_value for FunctionCall, Case, and other expressions
+                Some(self.evaluate_value(expr, element))
             }
         }
     }
@@ -1194,7 +1466,288 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 let exists = self.evaluate_exists_pattern(pattern, element);
                 Value::Bool(if *negated { !exists } else { exists })
             }
+            Expression::FunctionCall { name, args } => {
+                self.evaluate_function_call(name, args, element)
+            }
+            Expression::Case(case_expr) => self.evaluate_case(case_expr, element),
             _ => Value::Null, // Unsupported expressions
+        }
+    }
+
+    /// Evaluate a function call expression.
+    ///
+    /// Supported functions:
+    /// - `COALESCE(expr, ...)` - returns first non-null value
+    /// - `TOUPPER(str)` / `UPPER(str)` - converts string to uppercase
+    /// - `TOLOWER(str)` / `LOWER(str)` - converts string to lowercase
+    /// - `SIZE(str|list)` / `LENGTH(str|list)` - returns length
+    /// - `ABS(num)` - returns absolute value
+    /// - `TOSTRING(val)` - converts value to string
+    /// - `TOINTEGER(val)` / `TOINT(val)` - converts value to integer
+    /// - `TOFLOAT(val)` - converts value to float
+    /// - `TOBOOLEAN(val)` / `TOBOOL(val)` - converts value to boolean
+    fn evaluate_function_call(&self, name: &str, args: &[Expression], element: &Value) -> Value {
+        match name.to_uppercase().as_str() {
+            // COALESCE: return first non-null argument
+            "COALESCE" => {
+                for arg in args {
+                    let val = self.evaluate_value(arg, element);
+                    if !matches!(val, Value::Null) {
+                        return val;
+                    }
+                }
+                Value::Null
+            }
+
+            // String functions
+            "TOUPPER" | "UPPER" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value(arg, element) {
+                        return Value::String(s.to_uppercase());
+                    }
+                }
+                Value::Null
+            }
+            "TOLOWER" | "LOWER" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value(arg, element) {
+                        return Value::String(s.to_lowercase());
+                    }
+                }
+                Value::Null
+            }
+            "SIZE" | "LENGTH" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::String(s) => Value::Int(s.len() as i64),
+                        Value::List(l) => Value::Int(l.len() as i64),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TRIM" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value(arg, element) {
+                        return Value::String(s.trim().to_string());
+                    }
+                }
+                Value::Null
+            }
+            "LTRIM" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value(arg, element) {
+                        return Value::String(s.trim_start().to_string());
+                    }
+                }
+                Value::Null
+            }
+            "RTRIM" => {
+                if let Some(arg) = args.first() {
+                    if let Value::String(s) = self.evaluate_value(arg, element) {
+                        return Value::String(s.trim_end().to_string());
+                    }
+                }
+                Value::Null
+            }
+            "SUBSTRING" => {
+                if args.len() >= 2 {
+                    let val = self.evaluate_value(&args[0], element);
+                    let start = self.evaluate_value(&args[1], element);
+                    let length = args.get(2).map(|a| self.evaluate_value(a, element));
+
+                    if let (Value::String(s), Value::Int(start_idx)) = (val, start) {
+                        let start_idx = start_idx.max(0) as usize;
+                        if start_idx >= s.len() {
+                            return Value::String(String::new());
+                        }
+                        let result = if let Some(Value::Int(len)) = length {
+                            let len = len.max(0) as usize;
+                            s.chars().skip(start_idx).take(len).collect()
+                        } else {
+                            s.chars().skip(start_idx).collect()
+                        };
+                        return Value::String(result);
+                    }
+                }
+                Value::Null
+            }
+            "REPLACE" => {
+                if args.len() >= 3 {
+                    let val = self.evaluate_value(&args[0], element);
+                    let search = self.evaluate_value(&args[1], element);
+                    let replacement = self.evaluate_value(&args[2], element);
+
+                    if let (Value::String(s), Value::String(search), Value::String(replacement)) =
+                        (val, search, replacement)
+                    {
+                        return Value::String(s.replace(&search, &replacement));
+                    }
+                }
+                Value::Null
+            }
+
+            // Numeric functions
+            "ABS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Int(n.abs()),
+                        Value::Float(f) => Value::Float(f.abs()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "CEIL" | "CEILING" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Float(f) => Value::Float(f.ceil()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "FLOOR" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Float(f) => Value::Float(f.floor()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "ROUND" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Float(f) => Value::Float(f.round()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "SIGN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Int(n.signum()),
+                        Value::Float(f) => {
+                            if f > 0.0 {
+                                Value::Int(1)
+                            } else if f < 0.0 {
+                                Value::Int(-1)
+                            } else {
+                                Value::Int(0)
+                            }
+                        }
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Type conversion functions
+            "TOSTRING" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value(arg, element);
+                    match val {
+                        Value::String(s) => Value::String(s),
+                        Value::Int(n) => Value::String(n.to_string()),
+                        Value::Float(f) => Value::String(f.to_string()),
+                        Value::Bool(b) => Value::String(b.to_string()),
+                        Value::Null => Value::Null,
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TOINTEGER" | "TOINT" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value(arg, element);
+                    match val {
+                        Value::Int(n) => Value::Int(n),
+                        Value::Float(f) => Value::Int(f as i64),
+                        Value::String(s) => {
+                            s.parse::<i64>().ok().map(Value::Int).unwrap_or(Value::Null)
+                        }
+                        Value::Bool(b) => Value::Int(if b { 1 } else { 0 }),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TOFLOAT" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value(arg, element);
+                    match val {
+                        Value::Float(f) => Value::Float(f),
+                        Value::Int(n) => Value::Float(n as f64),
+                        Value::String(s) => s
+                            .parse::<f64>()
+                            .ok()
+                            .map(Value::Float)
+                            .unwrap_or(Value::Null),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            "TOBOOLEAN" | "TOBOOL" => {
+                if let Some(arg) = args.first() {
+                    let val = self.evaluate_value(arg, element);
+                    match val {
+                        Value::Bool(b) => Value::Bool(b),
+                        Value::String(s) => match s.to_lowercase().as_str() {
+                            "true" | "yes" | "1" => Value::Bool(true),
+                            "false" | "no" | "0" => Value::Bool(false),
+                            _ => Value::Null,
+                        },
+                        Value::Int(n) => Value::Bool(n != 0),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Unknown function
+            _ => Value::Null,
+        }
+    }
+
+    /// Evaluate a CASE expression.
+    ///
+    /// CASE expressions have the form:
+    /// ```text
+    /// CASE
+    ///     WHEN condition1 THEN result1
+    ///     WHEN condition2 THEN result2
+    ///     ELSE defaultResult
+    /// END
+    /// ```
+    fn evaluate_case(&self, case_expr: &CaseExpression, element: &Value) -> Value {
+        // Evaluate each WHEN clause in order
+        for (condition, result) in &case_expr.when_clauses {
+            if self.evaluate_predicate(condition, element) {
+                return self.evaluate_value(result, element);
+            }
+        }
+
+        // No WHEN matched, evaluate ELSE or return null
+        if let Some(else_expr) = &case_expr.else_clause {
+            self.evaluate_value(else_expr, element)
+        } else {
+            Value::Null
         }
     }
 
@@ -1358,6 +1911,16 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 // Other variables in the EXISTS pattern are local to the sub-pattern
                 // and don't need validation against outer scope bindings
             }
+            Expression::Case(case_expr) => {
+                // Validate all expressions in the CASE expression
+                for (condition, result) in &case_expr.when_clauses {
+                    self.validate_expression_variables(condition)?;
+                    self.validate_expression_variables(result)?;
+                }
+                if let Some(else_expr) = &case_expr.else_clause {
+                    self.validate_expression_variables(else_expr)?;
+                }
+            }
             Expression::Literal(_) => {
                 // Literals don't reference variables
             }
@@ -1396,6 +1959,17 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
             Expression::List(items) => items.iter().any(Self::expr_has_aggregate),
             Expression::FunctionCall { args, .. } => args.iter().any(Self::expr_has_aggregate),
+            Expression::Case(case_expr) => {
+                case_expr
+                    .when_clauses
+                    .iter()
+                    .any(|(c, r)| Self::expr_has_aggregate(c) || Self::expr_has_aggregate(r))
+                    || case_expr
+                        .else_clause
+                        .as_ref()
+                        .map(|e| Self::expr_has_aggregate(e))
+                        .unwrap_or(false)
+            }
             _ => false,
         }
     }

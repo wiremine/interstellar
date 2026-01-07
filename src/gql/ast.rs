@@ -654,6 +654,54 @@ pub enum Expression {
         /// True for `NOT EXISTS`, false for `EXISTS`.
         negated: bool,
     },
+
+    /// CASE expression with WHEN/THEN/ELSE branches.
+    ///
+    /// Evaluates conditions in order and returns the result of the first
+    /// matching WHEN clause, or the ELSE result if no conditions match.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Simple categorization
+    /// CASE
+    ///     WHEN p.age > 35 THEN 'Senior'
+    ///     WHEN p.age > 28 THEN 'Prime'
+    ///     ELSE 'Young'
+    /// END
+    ///
+    /// -- Conditional value selection
+    /// CASE
+    ///     WHEN p.score >= 90 THEN 'A'
+    ///     WHEN p.score >= 80 THEN 'B'
+    ///     WHEN p.score >= 70 THEN 'C'
+    ///     ELSE 'F'
+    /// END
+    /// ```
+    Case(CaseExpression),
+}
+
+/// A CASE expression with WHEN/THEN/ELSE branches.
+///
+/// Evaluates conditions in order and returns the result of the first
+/// matching WHEN clause, or the ELSE result if no conditions match.
+/// If no conditions match and there's no ELSE clause, returns NULL.
+///
+/// # Example
+///
+/// ```text
+/// CASE
+///     WHEN p.age > 35 THEN 'Veteran'
+///     WHEN p.age > 28 THEN 'Prime'
+///     ELSE 'Young'
+/// END
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CaseExpression {
+    /// List of (condition, result) pairs for WHEN/THEN clauses.
+    pub when_clauses: Vec<(Expression, Expression)>,
+    /// Optional ELSE result expression.
+    pub else_clause: Option<Box<Expression>>,
 }
 
 // =============================================================================

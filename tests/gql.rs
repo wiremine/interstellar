@@ -4414,7 +4414,6 @@ fn test_gql_stress_dense_graph() {
     }
 
     // Create 250 edges (each node connects to 5 random others)
-    let mut edge_count = 0;
     for i in 0..50 {
         for j in 1..=5 {
             let target = (i + j * 7) % 50; // deterministic "random" targets
@@ -4427,7 +4426,6 @@ fn test_gql_stress_dense_graph() {
                         HashMap::new(),
                     )
                     .unwrap();
-                edge_count += 1;
             }
         }
     }
@@ -6480,7 +6478,7 @@ fn test_gql_debug_var_path_where() {
     "#;
     let results1: Vec<_> = snapshot.gql(query1).unwrap();
     println!("With inline filter: {:?}", results1);
-    
+
     // Now test with WHERE clause (triggers multi-var path)
     let query2 = r#"
         MATCH (p:Person)-[:KNOWS*2..3]->(target:Person)
@@ -6490,17 +6488,21 @@ fn test_gql_debug_var_path_where() {
     "#;
     let results2: Vec<_> = snapshot.gql(query2).unwrap();
     println!("With WHERE clause: {:?}", results2);
-    
+
     // The results should be the same
-    assert!(!results1.is_empty(), "Inline filter results should not be empty");
-    assert!(!results2.is_empty(), "WHERE clause results should not be empty");
+    assert!(
+        !results1.is_empty(),
+        "Inline filter results should not be empty"
+    );
+    assert!(
+        !results2.is_empty(),
+        "WHERE clause results should not be empty"
+    );
 }
 
 /// Debug test to see traverser path contents
 #[test]
 fn test_gql_debug_path_contents() {
-    use rustgremlin::gql::{compile, parse};
-    
     let graph = create_social_network_graph();
     let snapshot = graph.snapshot();
 
@@ -6515,7 +6517,7 @@ fn test_gql_debug_path_contents() {
     for r in &results {
         println!("  {:?}", r);
     }
-    
+
     // Should find Alice's direct friends: Bob, Charlie, Diana
     assert_eq!(results.len(), 3, "Alice KNOWS 3 people directly");
 }
@@ -6538,7 +6540,7 @@ fn test_gql_debug_2hop_path() {
     for r in &results {
         println!("  {:?}", r);
     }
-    
+
     // Alice's 1-hop: Bob, Charlie, Diana
     // Alice's 2-hop (deduped): Eve (via Bob or Diana), Frank (via Bob), Grace (via Charlie), Henry (via Eve via Diana)
     assert!(!results.is_empty(), "Should find 2-hop targets");
@@ -6549,20 +6551,22 @@ fn test_gql_debug_2hop_path() {
 fn test_gql_debug_traverser_path() {
     let graph = create_social_network_graph();
     let snapshot = graph.snapshot();
-    
+
     // Use the traversal API directly to see what's happening
     let g = snapshot.traversal();
-    
+
     // First find Alice
-    let alice_results: Vec<_> = g.v()
+    let alice_results: Vec<_> = g
+        .v()
         .has_label("Person")
         .has_value("name", rustgremlin::value::Value::from("Alice"))
         .to_list();
     println!("Alice found: {:?}", alice_results);
-    
+
     // Now do 2-hop with path tracking
     let g2 = snapshot.traversal();
-    let path_results: Vec<_> = g2.v()
+    let path_results: Vec<_> = g2
+        .v()
         .with_path()
         .has_label("Person")
         .has_value("name", rustgremlin::value::Value::from("Alice"))
@@ -6572,7 +6576,7 @@ fn test_gql_debug_traverser_path() {
         .as_("target")
         .select(&["p", "target"])
         .to_list();
-    
+
     println!("2-hop path results with select: {:?}", path_results);
     assert!(!path_results.is_empty(), "Should have path results");
 }
@@ -6581,12 +6585,13 @@ fn test_gql_debug_traverser_path() {
 #[test]
 fn test_gql_debug_traverser_repeat_path() {
     use rustgremlin::traversal::__;
-    
+
     let graph = create_social_network_graph();
     let snapshot = graph.snapshot();
-    
+
     let g = snapshot.traversal();
-    let path_results: Vec<_> = g.v()
+    let path_results: Vec<_> = g
+        .v()
         .with_path()
         .has_label("Person")
         .has_value("name", rustgremlin::value::Value::from("Alice"))
@@ -6596,7 +6601,652 @@ fn test_gql_debug_traverser_repeat_path() {
         .as_("target")
         .select(&["p", "target"])
         .to_list();
-    
+
     println!("2-hop with repeat + select: {:?}", path_results);
     assert!(!path_results.is_empty(), "Should have repeat path results");
+}
+
+// =============================================================================
+// Phase 4.1: COALESCE Function Tests
+// =============================================================================
+
+/// Helper to create a graph with null values for COALESCE tests
+fn create_coalesce_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Person with both name and nickname
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("nickname".to_string(), Value::from("Ali"));
+    storage.add_vertex("Person", alice_props);
+
+    // Person with name but no nickname
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    // Note: no nickname property
+    storage.add_vertex("Person", bob_props);
+
+    // Person with nickname but no name (unusual case)
+    let mut carol_props = HashMap::new();
+    carol_props.insert("nickname".to_string(), Value::from("Carol the Great"));
+    storage.add_vertex("Person", carol_props);
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test COALESCE returns first non-null value
+#[test]
+fn test_gql_coalesce_first_value() {
+    let graph = create_coalesce_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Alice has nickname, so COALESCE should return nickname
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN coalesce(p.nickname, p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Ali".to_string()));
+}
+
+/// Test COALESCE falls back to second value when first is null
+#[test]
+fn test_gql_coalesce_fallback() {
+    let graph = create_coalesce_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Bob has no nickname, so COALESCE should return name
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Bob' RETURN coalesce(p.nickname, p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Bob".to_string()));
+}
+
+/// Test COALESCE with literal default
+#[test]
+fn test_gql_coalesce_literal_default() {
+    let graph = create_coalesce_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Bob has no nickname, so return default literal
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Bob' RETURN coalesce(p.nickname, 'No Nickname')")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("No Nickname".to_string()));
+}
+
+/// Test COALESCE with multiple arguments
+#[test]
+fn test_gql_coalesce_multiple_args() {
+    let graph = create_coalesce_test_graph();
+    let snapshot = graph.snapshot();
+
+    // For Carol: name is null, nickname exists
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.nickname = 'Carol the Great' RETURN coalesce(p.name, p.nickname, 'Unknown')")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Carol the Great".to_string()));
+}
+
+/// Test COALESCE case insensitivity
+#[test]
+fn test_gql_coalesce_case_insensitive() {
+    let graph = create_coalesce_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Bob' RETURN COALESCE(p.nickname, p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Bob".to_string()));
+}
+
+// =============================================================================
+// Phase 4.2: CASE Expression Tests
+// =============================================================================
+
+/// Helper to create a graph for CASE expression tests
+fn create_case_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    let people = vec![
+        ("Alice", 32i64, 92i64),
+        ("Bob", 25i64, 75i64),
+        ("Carol", 42i64, 88i64),
+        ("Dave", 18i64, 65i64),
+        ("Eve", 55i64, 45i64),
+    ];
+
+    for (name, age, score) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("age".to_string(), Value::from(age));
+        props.insert("score".to_string(), Value::from(score));
+        storage.add_vertex("Person", props);
+    }
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test CASE expression with age categorization
+#[test]
+fn test_gql_case_age_category() {
+    let graph = create_case_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person) 
+            WHERE p.name = 'Carol'
+            RETURN CASE 
+                WHEN p.age > 40 THEN 'Senior'
+                WHEN p.age > 30 THEN 'Middle'
+                ELSE 'Young'
+            END
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Senior".to_string()));
+}
+
+/// Test CASE expression returns ELSE when no WHEN matches
+#[test]
+fn test_gql_case_else_branch() {
+    let graph = create_case_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person) 
+            WHERE p.name = 'Dave'
+            RETURN CASE 
+                WHEN p.age > 40 THEN 'Senior'
+                WHEN p.age > 30 THEN 'Middle'
+                ELSE 'Young'
+            END
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Young".to_string()));
+}
+
+/// Test CASE expression with grade categorization
+#[test]
+fn test_gql_case_grade() {
+    let graph = create_case_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Alice has score 92, should be 'A'
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person) 
+            WHERE p.name = 'Alice'
+            RETURN p.name, CASE 
+                WHEN p.score >= 90 THEN 'A'
+                WHEN p.score >= 80 THEN 'B'
+                WHEN p.score >= 70 THEN 'C'
+                ELSE 'F'
+            END AS grade
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("grade"), Some(&Value::String("A".to_string())));
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+/// Test CASE expression without ELSE returns null
+#[test]
+fn test_gql_case_no_else_returns_null() {
+    let graph = create_case_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Eve (age 55) won't match any WHEN condition if we check for age < 20
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person) 
+            WHERE p.name = 'Eve'
+            RETURN CASE 
+                WHEN p.age < 20 THEN 'Teen'
+            END
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+/// Test CASE expression with multiple results
+#[test]
+fn test_gql_case_multiple_results() {
+    let graph = create_case_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (p:Person)
+            RETURN p.name, CASE 
+                WHEN p.age > 40 THEN 'Senior'
+                WHEN p.age > 25 THEN 'Adult'
+                ELSE 'Young'
+            END AS category
+            ORDER BY p.name
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 5);
+
+    // Verify categories are correct
+    let categories: Vec<_> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::Map(map) = v {
+                let name = map.get("p.name").cloned();
+                let category = map.get("category").cloned();
+                Some((name, category))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Alice (32) -> Adult
+    assert!(categories.contains(&(
+        Some(Value::String("Alice".to_string())),
+        Some(Value::String("Adult".to_string()))
+    )));
+    // Carol (42) -> Senior
+    assert!(categories.contains(&(
+        Some(Value::String("Carol".to_string())),
+        Some(Value::String("Senior".to_string()))
+    )));
+    // Dave (18) -> Young
+    assert!(categories.contains(&(
+        Some(Value::String("Dave".to_string())),
+        Some(Value::String("Young".to_string()))
+    )));
+}
+
+// =============================================================================
+// Phase 4.3: Type Conversion Function Tests
+// =============================================================================
+
+/// Helper to create a graph for type conversion tests
+fn create_type_conversion_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert("age".to_string(), Value::from(30i64));
+    props.insert("score".to_string(), Value::from(95.5));
+    props.insert("active".to_string(), Value::from(true));
+    props.insert("count_str".to_string(), Value::from("42"));
+    props.insert("float_str".to_string(), Value::from("3.14"));
+    props.insert("bool_str".to_string(), Value::from("true"));
+    storage.add_vertex("Person", props);
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test toString() converts integer to string
+#[test]
+fn test_gql_tostring_integer() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toString(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("30".to_string()));
+}
+
+/// Test toString() converts float to string
+#[test]
+fn test_gql_tostring_float() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toString(p.score)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::String(s) = &results[0] {
+        assert!(s.starts_with("95.5"), "Expected '95.5...' got '{}'", s);
+    } else {
+        panic!("Expected String result");
+    }
+}
+
+/// Test toString() converts boolean to string
+#[test]
+fn test_gql_tostring_boolean() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toString(p.active)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("true".to_string()));
+}
+
+/// Test toInteger() converts string to integer
+#[test]
+fn test_gql_tointeger_string() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toInteger(p.count_str)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(42));
+}
+
+/// Test toInteger() converts float to integer (truncates)
+#[test]
+fn test_gql_tointeger_float() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toInteger(p.score)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(95));
+}
+
+/// Test toInteger() with invalid string returns null
+#[test]
+fn test_gql_tointeger_invalid_string() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toInteger(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+/// Test toFloat() converts integer to float
+#[test]
+fn test_gql_tofloat_integer() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toFloat(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Float(f) = results[0] {
+        assert!((f - 30.0).abs() < 0.0001, "Expected 30.0, got {}", f);
+    } else {
+        panic!("Expected Float result");
+    }
+}
+
+/// Test toFloat() converts string to float
+#[test]
+fn test_gql_tofloat_string() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toFloat(p.float_str)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Float(f) = results[0] {
+        assert!((f - 3.14).abs() < 0.0001, "Expected 3.14, got {}", f);
+    } else {
+        panic!("Expected Float result");
+    }
+}
+
+/// Test toBoolean() converts string "true" to true
+#[test]
+fn test_gql_toboolean_string_true() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toBoolean(p.bool_str)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+/// Test toBoolean() converts integer to boolean (0 = false)
+#[test]
+fn test_gql_toboolean_integer() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Non-zero integer should be true
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN toBoolean(p.age)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+/// Test toBoolean() with "false" string
+#[test]
+fn test_gql_toboolean_string_false() {
+    let mut storage = InMemoryGraph::new();
+    let mut props = HashMap::new();
+    props.insert("status".to_string(), Value::from("false"));
+    storage.add_vertex("Test", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (t:Test) RETURN toBoolean(t.status)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+// =============================================================================
+// Additional String Function Tests
+// =============================================================================
+
+/// Test UPPER/TOUPPER function
+#[test]
+fn test_gql_upper_function() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN upper(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("ALICE".to_string()));
+}
+
+/// Test LOWER/TOLOWER function
+#[test]
+fn test_gql_lower_function() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN lower(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("alice".to_string()));
+}
+
+/// Test LENGTH/SIZE function for string
+#[test]
+fn test_gql_length_string() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN length(p.name)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(5)); // "Alice" has 5 characters
+}
+
+/// Test ABS function
+#[test]
+fn test_gql_abs_function() {
+    let mut storage = InMemoryGraph::new();
+    let mut props = HashMap::new();
+    props.insert("balance".to_string(), Value::from(-100i64));
+    storage.add_vertex("Account", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (a:Account) RETURN abs(a.balance)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(100));
+}
+
+/// Test TRIM function
+#[test]
+fn test_gql_trim_function() {
+    let mut storage = InMemoryGraph::new();
+    let mut props = HashMap::new();
+    props.insert("text".to_string(), Value::from("  hello world  "));
+    storage.add_vertex("Test", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (t:Test) RETURN trim(t.text)").unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("hello world".to_string()));
+}
+
+/// Test ROUND function
+#[test]
+fn test_gql_round_function() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN round(p.score)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Float(f) = results[0] {
+        assert!((f - 96.0).abs() < 0.0001, "Expected 96.0, got {}", f);
+    } else {
+        panic!("Expected Float result");
+    }
+}
+
+/// Test FLOOR function
+#[test]
+fn test_gql_floor_function() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN floor(p.score)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Float(f) = results[0] {
+        assert!((f - 95.0).abs() < 0.0001, "Expected 95.0, got {}", f);
+    } else {
+        panic!("Expected Float result");
+    }
+}
+
+/// Test CEIL function
+#[test]
+fn test_gql_ceil_function() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN ceil(p.score)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Float(f) = results[0] {
+        assert!((f - 96.0).abs() < 0.0001, "Expected 96.0, got {}", f);
+    } else {
+        panic!("Expected Float result");
+    }
+}
+
+/// Test SUBSTRING function
+#[test]
+fn test_gql_substring_function() {
+    let graph = create_type_conversion_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN substring(p.name, 0, 3)")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Ali".to_string()));
+}
+
+/// Test REPLACE function
+#[test]
+fn test_gql_replace_function() {
+    let mut storage = InMemoryGraph::new();
+    let mut props = HashMap::new();
+    props.insert("text".to_string(), Value::from("hello world"));
+    storage.add_vertex("Test", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (t:Test) RETURN replace(t.text, 'world', 'there')")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("hello there".to_string()));
 }

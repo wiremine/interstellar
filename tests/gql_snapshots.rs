@@ -504,3 +504,147 @@ fn test_parse_mixed_case_keywords_snapshot() {
     let ast = parse("Match (n:Person) Where n.age > 21 Return n Order By n.name Limit 10").unwrap();
     assert_yaml_snapshot!(ast);
 }
+
+// =============================================================================
+// CASE Expression Snapshots
+// =============================================================================
+
+#[test]
+fn test_parse_case_simple_snapshot() {
+    let ast =
+        parse(r#"MATCH (p:player) RETURN CASE WHEN p.age > 30 THEN 'Senior' ELSE 'Junior' END"#)
+            .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_case_multiple_when_snapshot() {
+    let ast = parse(
+        r#"
+        MATCH (p:player)
+        RETURN p.name, CASE 
+            WHEN p.ppg >= 25 THEN 'Elite'
+            WHEN p.ppg >= 15 THEN 'Starter'
+            WHEN p.ppg >= 5 THEN 'Role Player'
+            ELSE 'Bench'
+        END AS tier
+    "#,
+    )
+    .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_case_no_else_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN CASE WHEN p.mvp_count > 0 THEN 'MVP Winner' END"#)
+        .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_case_with_comparison_snapshot() {
+    let ast = parse(
+        r#"
+        MATCH (p:player)
+        WHERE CASE WHEN p.position = 'Center' THEN p.height > 84 ELSE true END
+        RETURN p.name
+    "#,
+    )
+    .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+// =============================================================================
+// Function Call Snapshots (including COALESCE)
+// =============================================================================
+
+#[test]
+fn test_parse_coalesce_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN coalesce(p.nickname, p.name)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_coalesce_multiple_args_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN coalesce(p.nickname, p.alias, p.name, 'Unknown')"#)
+        .unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_upper_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN upper(p.name)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_lower_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN lower(p.name)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_trim_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN trim(p.name)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_substring_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN substring(p.name, 0, 3)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_replace_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN replace(p.name, ' ', '_')"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_tostring_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN toString(p.age)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_tointeger_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN toInteger(p.jersey_number)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_tofloat_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN toFloat(p.ppg)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_abs_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN abs(p.plus_minus)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_ceil_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN ceil(p.ppg)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_floor_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN floor(p.ppg)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_round_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN round(p.ppg)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn test_parse_length_function_snapshot() {
+    let ast = parse(r#"MATCH (p:player) RETURN length(p.name)"#).unwrap();
+    assert_yaml_snapshot!(ast);
+}

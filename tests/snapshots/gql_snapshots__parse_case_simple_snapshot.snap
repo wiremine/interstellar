@@ -1,0 +1,37 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Case:
+          when_clauses:
+            - - BinaryOp:
+                  left:
+                    Property:
+                      variable: p
+                      property: age
+                  op: Gt
+                  right:
+                    Literal:
+                      Int: 30
+              - Literal:
+                  String: Senior
+          else_clause:
+            Literal:
+              String: Junior
+      alias: ~
+group_by_clause: ~
+order_clause: ~
+limit_clause: ~
