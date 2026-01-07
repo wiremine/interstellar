@@ -1,201 +1,757 @@
 //! AST types for GQL queries.
+//!
+//! This module defines the Abstract Syntax Tree (AST) types that represent
+//! parsed GQL queries. These types are produced by the [`parser`] module
+//! and consumed by the [`compiler`] module.
+//!
+//! # Structure
+//!
+//! A GQL query is represented by the [`Query`] struct, which contains:
+//!
+//! - [`MatchClause`] - The MATCH clause with graph patterns (required)
+//! - [`WhereClause`] - Optional filtering conditions
+//! - [`ReturnClause`] - The RETURN clause specifying output (required)
+//! - [`OrderClause`] - Optional sorting specification
+//! - [`LimitClause`] - Optional result pagination
+//!
+//! # Example AST Structure
+//!
+//! For the query: `MATCH (n:Person)-[:KNOWS]->(m) WHERE n.age > 30 RETURN n.name`
+//!
+//! ```text
+//! Query {
+//!     match_clause: MatchClause {
+//!         patterns: [Pattern {
+//!             elements: [
+//!                 Node { variable: "n", labels: ["Person"], properties: [] },
+//!                 Edge { direction: Outgoing, labels: ["KNOWS"], ... },
+//!                 Node { variable: "m", labels: [], properties: [] }
+//!             ]
+//!         }]
+//!     },
+//!     where_clause: Some(WhereClause {
+//!         expression: BinaryOp { left: Property("n", "age"), op: Gt, right: Literal(30) }
+//!     }),
+//!     return_clause: ReturnClause {
+//!         items: [ReturnItem { expression: Property("n", "name"), alias: None }]
+//!     },
+//!     ...
+//! }
+//! ```
+//!
+//! [`parser`]: crate::gql::parser
+//! [`compiler`]: crate::gql::compiler
 
-/// Complete GQL query
+// =============================================================================
+// Query Structure
+// =============================================================================
+
+/// A complete GQL query.
+///
+/// Represents a fully parsed GQL query with all its clauses. This is the
+/// root type of the AST, produced by [`parse()`] and consumed by [`compile()`].
+///
+/// # Required Clauses
+///
+/// - `match_clause` - Specifies the graph pattern to match
+/// - `return_clause` - Specifies what to return from matched patterns
+///
+/// # Optional Clauses
+///
+/// - `where_clause` - Filters matched patterns
+/// - `order_clause` - Sorts results
+/// - `limit_clause` - Limits and offsets results
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+///
+/// let query = parse("MATCH (n:Person) WHERE n.age > 21 RETURN n.name ORDER BY n.name LIMIT 10").unwrap();
+///
+/// assert!(!query.match_clause.patterns.is_empty());
+/// assert!(query.where_clause.is_some());
+/// assert!(!query.return_clause.items.is_empty());
+/// assert!(query.order_clause.is_some());
+/// assert!(query.limit_clause.is_some());
+/// ```
+///
+/// [`parse()`]: crate::gql::parse
+/// [`compile()`]: crate::gql::compile
 #[derive(Debug, Clone)]
 pub struct Query {
+    /// The MATCH clause specifying graph patterns to find.
     pub match_clause: MatchClause,
+    /// Optional WHERE clause for filtering matched patterns.
     pub where_clause: Option<WhereClause>,
+    /// The RETURN clause specifying what values to output.
     pub return_clause: ReturnClause,
+    /// Optional ORDER BY clause for sorting results.
     pub order_clause: Option<OrderClause>,
+    /// Optional LIMIT/OFFSET clause for pagination.
     pub limit_clause: Option<LimitClause>,
 }
 
-/// MATCH clause with patterns
+// =============================================================================
+// MATCH Clause Types
+// =============================================================================
+
+/// The MATCH clause containing graph patterns to find.
+///
+/// Contains one or more patterns that describe the subgraph structure
+/// to search for in the graph.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+///
+/// // Single pattern
+/// let query = parse("MATCH (n:Person) RETURN n").unwrap();
+/// assert_eq!(query.match_clause.patterns.len(), 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct MatchClause {
+    /// List of patterns to match. Currently only the first pattern is used.
     pub patterns: Vec<Pattern>,
 }
 
-/// A pattern is a path through the graph
+/// A graph pattern describing a path through the graph.
+///
+/// A pattern consists of alternating node and edge elements that describe
+/// a path structure to match. Patterns always start with a node element.
+///
+/// # Structure
+///
+/// A pattern like `(a)-[:KNOWS]->(b)-[:WORKS_AT]->(c)` is represented as:
+///
+/// ```text
+/// Pattern {
+///     elements: [
+///         Node("a"),
+///         Edge(KNOWS, Outgoing),
+///         Node("b"),
+///         Edge(WORKS_AT, Outgoing),
+///         Node("c")
+///     ]
+/// }
+/// ```
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::PatternElement;
+///
+/// let query = parse("MATCH (a)-[:KNOWS]->(b) RETURN a, b").unwrap();
+/// let pattern = &query.match_clause.patterns[0];
+///
+/// assert_eq!(pattern.elements.len(), 3); // node, edge, node
+/// assert!(matches!(&pattern.elements[0], PatternElement::Node(_)));
+/// assert!(matches!(&pattern.elements[1], PatternElement::Edge(_)));
+/// assert!(matches!(&pattern.elements[2], PatternElement::Node(_)));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Pattern {
+    /// Alternating sequence of node and edge pattern elements.
     pub elements: Vec<PatternElement>,
 }
 
+/// An element in a pattern: either a node or an edge.
+///
+/// Patterns consist of alternating nodes and edges. A valid pattern
+/// always starts and ends with a node.
 #[derive(Debug, Clone)]
 pub enum PatternElement {
+    /// A node pattern like `(n:Person {name: "Alice"})`.
     Node(NodePattern),
+    /// An edge pattern like `-[:KNOWS]->`.
     Edge(EdgePattern),
 }
 
-/// Node pattern: (variable:Label {prop: value})
+/// A node pattern specifying constraints on matched vertices.
+///
+/// Node patterns can optionally specify:
+/// - A variable name for binding the matched vertex
+/// - One or more labels to filter by
+/// - Property value constraints
+///
+/// # Syntax
+///
+/// ```text
+/// (variable:Label1:Label2 {prop1: value1, prop2: value2})
+/// ```
+///
+/// All parts are optional:
+/// - `()` - matches any vertex
+/// - `(n)` - matches any vertex, binds to `n`
+/// - `(:Person)` - matches vertices with label "Person"
+/// - `(n:Person {age: 30})` - matches Person vertices with age=30, binds to `n`
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::{PatternElement, Literal};
+///
+/// let query = parse("MATCH (n:Person {name: 'Alice'}) RETURN n").unwrap();
+/// if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
+///     assert_eq!(node.variable, Some("n".to_string()));
+///     assert_eq!(node.labels, vec!["Person".to_string()]);
+///     assert_eq!(node.properties.len(), 1);
+///     assert_eq!(node.properties[0].0, "name");
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct NodePattern {
+    /// Optional variable name to bind the matched vertex.
     pub variable: Option<String>,
+    /// Labels that the vertex must have (empty means any label).
     pub labels: Vec<String>,
+    /// Property constraints as (key, value) pairs.
     pub properties: Vec<(String, Literal)>,
 }
 
-/// Edge pattern: -[variable:TYPE]->
+/// An edge pattern specifying constraints on matched edges.
+///
+/// Edge patterns can optionally specify:
+/// - A variable name for binding the matched edge
+/// - One or more relationship types (labels)
+/// - Direction (outgoing, incoming, or both)
+/// - A path quantifier for variable-length paths
+/// - Property constraints
+///
+/// # Syntax
+///
+/// ```text
+/// -[variable:TYPE1|TYPE2 {prop: value}]->   // outgoing
+/// <-[variable:TYPE]-                         // incoming  
+/// -[variable:TYPE]-                          // either direction
+/// -[*2..5]->                                 // variable-length path
+/// ```
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::{PatternElement, EdgeDirection};
+///
+/// let query = parse("MATCH (a)-[:KNOWS]->(b) RETURN a, b").unwrap();
+/// if let PatternElement::Edge(edge) = &query.match_clause.patterns[0].elements[1] {
+///     assert_eq!(edge.labels, vec!["KNOWS".to_string()]);
+///     assert_eq!(edge.direction, EdgeDirection::Outgoing);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct EdgePattern {
+    /// Optional variable name to bind the matched edge.
     pub variable: Option<String>,
+    /// Relationship types that the edge must have (empty means any type).
     pub labels: Vec<String>,
+    /// Direction of the edge in the pattern.
     pub direction: EdgeDirection,
+    /// Optional quantifier for variable-length paths.
     pub quantifier: Option<PathQuantifier>,
+    /// Property constraints as (key, value) pairs.
     pub properties: Vec<(String, Literal)>,
 }
 
+/// Direction of an edge in a pattern.
+///
+/// Determines which direction to traverse when matching edges.
+///
+/// # Syntax Mapping
+///
+/// | Direction | Syntax | Description |
+/// |-----------|--------|-------------|
+/// | `Outgoing` | `-->` | Follow edges from source to target |
+/// | `Incoming` | `<--` | Follow edges from target to source |
+/// | `Both` | `--` | Follow edges in either direction |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeDirection {
-    Outgoing, // -->
-    Incoming, // <--
-    Both,     // --
+    /// Outgoing edge: `-->`
+    Outgoing,
+    /// Incoming edge: `<--`
+    Incoming,
+    /// Either direction: `--`
+    Both,
 }
 
+/// Quantifier for variable-length path matching.
+///
+/// Specifies the minimum and maximum number of edge hops to match.
+///
+/// # Syntax
+///
+/// | Syntax | Min | Max | Description |
+/// |--------|-----|-----|-------------|
+/// | `*` | None | None | Any number of hops (0 to default max) |
+/// | `*3` | 3 | 3 | Exactly 3 hops |
+/// | `*2..5` | 2 | 5 | Between 2 and 5 hops |
+/// | `*..5` | None | 5 | Up to 5 hops (including 0) |
+/// | `*2..` | 2 | None | At least 2 hops |
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::PatternElement;
+///
+/// let query = parse("MATCH (a)-[*2..5]->(b) RETURN b").unwrap();
+/// if let PatternElement::Edge(edge) = &query.match_clause.patterns[0].elements[1] {
+///     let q = edge.quantifier.as_ref().unwrap();
+///     assert_eq!(q.min, Some(2));
+///     assert_eq!(q.max, Some(5));
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct PathQuantifier {
+    /// Minimum number of hops (None means 0).
     pub min: Option<u32>,
+    /// Maximum number of hops (None means unbounded, uses default max).
     pub max: Option<u32>,
 }
 
-/// WHERE clause
+// =============================================================================
+// WHERE Clause
+// =============================================================================
+
+/// The WHERE clause containing a filter expression.
+///
+/// The expression is evaluated for each matched pattern, and only patterns
+/// where the expression evaluates to true are included in results.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::Expression;
+///
+/// let query = parse("MATCH (n:Person) WHERE n.age > 21 RETURN n").unwrap();
+/// let where_clause = query.where_clause.unwrap();
+///
+/// // The expression is a binary comparison: n.age > 21
+/// assert!(matches!(where_clause.expression, Expression::BinaryOp { .. }));
+/// ```
 #[derive(Debug, Clone)]
 pub struct WhereClause {
+    /// The filter expression to evaluate.
     pub expression: Expression,
 }
 
-/// RETURN clause
+// =============================================================================
+// RETURN Clause
+// =============================================================================
+
+/// The RETURN clause specifying what values to output.
+///
+/// Contains a list of expressions to evaluate for each matched pattern.
+/// Results are returned as `Value` instances.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+///
+/// // Return multiple values with aliases
+/// let query = parse("MATCH (n:Person) RETURN n.name AS name, n.age AS age").unwrap();
+/// assert_eq!(query.return_clause.items.len(), 2);
+/// assert_eq!(query.return_clause.items[0].alias, Some("name".to_string()));
+///
+/// // Return with DISTINCT
+/// let query = parse("MATCH (n) RETURN DISTINCT n.label").unwrap();
+/// assert!(query.return_clause.distinct);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ReturnClause {
+    /// Whether to deduplicate results (RETURN DISTINCT).
     pub distinct: bool,
+    /// List of items to return.
     pub items: Vec<ReturnItem>,
 }
 
+/// A single item in a RETURN clause.
+///
+/// Each item has an expression to evaluate and an optional alias
+/// for the result column name.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::Expression;
+///
+/// let query = parse("MATCH (n) RETURN n.name AS personName").unwrap();
+/// let item = &query.return_clause.items[0];
+///
+/// assert!(matches!(&item.expression, Expression::Property { .. }));
+/// assert_eq!(item.alias, Some("personName".to_string()));
+/// ```
 #[derive(Debug, Clone)]
 pub struct ReturnItem {
+    /// The expression to evaluate.
     pub expression: Expression,
+    /// Optional alias for the result (AS name).
     pub alias: Option<String>,
 }
 
-/// ORDER BY clause
+// =============================================================================
+// ORDER BY Clause
+// =============================================================================
+
+/// The ORDER BY clause specifying result sorting.
+///
+/// Contains one or more ordering items, each specifying an expression
+/// to sort by and the sort direction.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+///
+/// let query = parse("MATCH (n:Person) RETURN n ORDER BY n.age DESC, n.name").unwrap();
+/// let order = query.order_clause.unwrap();
+///
+/// assert_eq!(order.items.len(), 2);
+/// assert!(order.items[0].descending);  // n.age DESC
+/// assert!(!order.items[1].descending); // n.name (ascending by default)
+/// ```
 #[derive(Debug, Clone)]
 pub struct OrderClause {
+    /// List of ordering specifications.
     pub items: Vec<OrderItem>,
 }
 
+/// A single ordering specification in ORDER BY.
+///
+/// Specifies an expression to sort by and whether to sort in
+/// descending order (ascending is the default).
 #[derive(Debug, Clone)]
 pub struct OrderItem {
+    /// The expression to sort by.
     pub expression: Expression,
+    /// Whether to sort in descending order (default: false = ascending).
     pub descending: bool,
 }
 
-/// LIMIT clause
+// =============================================================================
+// LIMIT Clause
+// =============================================================================
+
+/// The LIMIT clause for result pagination.
+///
+/// Specifies the maximum number of results to return and optionally
+/// how many results to skip.
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+///
+/// // LIMIT only
+/// let query = parse("MATCH (n) RETURN n LIMIT 10").unwrap();
+/// let limit = query.limit_clause.unwrap();
+/// assert_eq!(limit.limit, 10);
+/// assert_eq!(limit.offset, None);
+///
+/// // LIMIT with OFFSET
+/// let query = parse("MATCH (n) RETURN n LIMIT 10 OFFSET 5").unwrap();
+/// let limit = query.limit_clause.unwrap();
+/// assert_eq!(limit.limit, 10);
+/// assert_eq!(limit.offset, Some(5));
+/// ```
 #[derive(Debug, Clone)]
 pub struct LimitClause {
+    /// Maximum number of results to return.
     pub limit: u64,
+    /// Number of results to skip (SKIP/OFFSET).
     pub offset: Option<u64>,
 }
 
-/// Expression types
+// =============================================================================
+// Expression Types
+// =============================================================================
+
+/// An expression that can be evaluated to produce a value.
+///
+/// Expressions are used throughout GQL queries:
+/// - In WHERE clauses for filtering
+/// - In RETURN clauses for projection
+/// - In ORDER BY clauses for sorting
+///
+/// # Variants
+///
+/// | Variant | Example | Description |
+/// |---------|---------|-------------|
+/// | `Variable` | `n` | Reference to a bound variable |
+/// | `Property` | `n.name` | Property access on a variable |
+/// | `Literal` | `42`, `"hello"` | Constant value |
+/// | `BinaryOp` | `a + b`, `x = y` | Binary operation |
+/// | `UnaryOp` | `NOT x`, `-n` | Unary operation |
+/// | `IsNull` | `x IS NULL` | Null check |
+/// | `InList` | `x IN [1,2,3]` | List membership |
+/// | `List` | `[1, 2, 3]` | List literal |
+/// | `FunctionCall` | `toUpper(s)` | Function invocation |
+/// | `Aggregate` | `COUNT(*)` | Aggregate function |
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::{Expression, BinaryOperator};
+///
+/// let query = parse("MATCH (n) WHERE n.age >= 21 AND n.name STARTS WITH 'A' RETURN n").unwrap();
+/// let expr = &query.where_clause.unwrap().expression;
+///
+/// // Top-level is AND
+/// if let Expression::BinaryOp { op, .. } = expr {
+///     assert_eq!(*op, BinaryOperator::And);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum Expression {
     /// Variable reference: `n`
+    ///
+    /// References a variable bound in the MATCH clause.
     Variable(String),
 
     /// Property access: `n.name`
-    Property { variable: String, property: String },
+    ///
+    /// Accesses a property on a bound variable (vertex or edge).
+    Property {
+        /// The variable to access.
+        variable: String,
+        /// The property name.
+        property: String,
+    },
 
-    /// Literal value
+    /// Literal value: `42`, `"hello"`, `true`, `null`
     Literal(Literal),
 
     /// Binary operation: `a + b`, `x = y`, `p AND q`
+    ///
+    /// Applies a binary operator to two sub-expressions.
     BinaryOp {
+        /// Left operand.
         left: Box<Expression>,
+        /// The operator.
         op: BinaryOperator,
+        /// Right operand.
         right: Box<Expression>,
     },
 
-    /// Unary operation: NOT, -
+    /// Unary operation: `NOT x`, `-n`
+    ///
+    /// Applies a unary operator to an expression.
     UnaryOp {
+        /// The operator.
         op: UnaryOperator,
+        /// The operand expression.
         expr: Box<Expression>,
     },
 
-    /// IS NULL / IS NOT NULL
+    /// IS NULL / IS NOT NULL check.
+    ///
+    /// Tests whether an expression evaluates to null.
     IsNull {
+        /// The expression to test.
         expr: Box<Expression>,
-        negated: bool, // true for IS NOT NULL
+        /// True for `IS NOT NULL`, false for `IS NULL`.
+        negated: bool,
     },
 
     /// IN list check: `x IN [1, 2, 3]` / `x NOT IN [...]`
+    ///
+    /// Tests whether a value is in a list of values.
     InList {
+        /// The expression to test.
         expr: Box<Expression>,
+        /// The list of values to check against.
         list: Vec<Expression>,
-        negated: bool, // true for NOT IN
+        /// True for `NOT IN`, false for `IN`.
+        negated: bool,
     },
 
-    /// List literal: [1, 2, 3]
+    /// List literal: `[1, 2, 3]`
+    ///
+    /// A list of expressions.
     List(Vec<Expression>),
 
-    /// Function call: count(*), sum(x), etc.
-    FunctionCall { name: String, args: Vec<Expression> },
+    /// Function call: `toUpper(s)`, `abs(n)`
+    ///
+    /// Invokes a built-in function.
+    FunctionCall {
+        /// Function name.
+        name: String,
+        /// Function arguments.
+        args: Vec<Expression>,
+    },
 
-    /// Aggregate function: COUNT, SUM, AVG, MIN, MAX, COLLECT
+    /// Aggregate function: `COUNT(*)`, `SUM(n.value)`
+    ///
+    /// Aggregates values across matched patterns.
     Aggregate {
+        /// The aggregate function.
         func: AggregateFunc,
+        /// Whether to apply DISTINCT before aggregating.
         distinct: bool,
+        /// The expression to aggregate.
         expr: Box<Expression>,
     },
 }
 
+// =============================================================================
+// Operators
+// =============================================================================
+
+/// Unary operators.
+///
+/// Applied to a single operand expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOperator {
+    /// Logical NOT: `NOT x`
     Not,
+    /// Numeric negation: `-x`
     Neg,
 }
 
+/// Binary operators for expressions.
+///
+/// Applied to two operand expressions.
+///
+/// # Categories
+///
+/// | Category | Operators |
+/// |----------|-----------|
+/// | Comparison | `=`, `<>`, `<`, `<=`, `>`, `>=` |
+/// | Logical | `AND`, `OR` |
+/// | Arithmetic | `+`, `-`, `*`, `/`, `%` |
+/// | String | `CONTAINS`, `STARTS WITH`, `ENDS WITH` |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
-    // Comparison
+    // Comparison operators
+    /// Equality: `=`
     Eq,
+    /// Inequality: `<>`
     Neq,
+    /// Less than: `<`
     Lt,
+    /// Less than or equal: `<=`
     Lte,
+    /// Greater than: `>`
     Gt,
+    /// Greater than or equal: `>=`
     Gte,
-    // Logical
+
+    // Logical operators
+    /// Logical AND: `AND`
     And,
+    /// Logical OR: `OR`
     Or,
-    // Arithmetic
+
+    // Arithmetic operators
+    /// Addition: `+`
     Add,
+    /// Subtraction: `-`
     Sub,
+    /// Multiplication: `*`
     Mul,
+    /// Division: `/`
     Div,
+    /// Modulo: `%`
     Mod,
-    // String
+
+    // String operators
+    /// String contains: `CONTAINS`
     Contains,
+    /// String prefix: `STARTS WITH`
     StartsWith,
+    /// String suffix: `ENDS WITH`
     EndsWith,
 }
 
+/// Aggregate functions for computing values across matched patterns.
+///
+/// These functions aggregate values from multiple matched elements
+/// into a single result.
+///
+/// # Functions
+///
+/// | Function | Description |
+/// |----------|-------------|
+/// | `COUNT` | Count matched elements |
+/// | `SUM` | Sum numeric values |
+/// | `AVG` | Average of numeric values |
+/// | `MIN` | Minimum value |
+/// | `MAX` | Maximum value |
+/// | `COLLECT` | Collect values into a list |
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::{Expression, AggregateFunc};
+///
+/// let query = parse("MATCH (n:Person) RETURN COUNT(DISTINCT n)").unwrap();
+/// if let Expression::Aggregate { func, distinct, .. } = &query.return_clause.items[0].expression {
+///     assert_eq!(*func, AggregateFunc::Count);
+///     assert!(*distinct);
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggregateFunc {
+    /// Count elements: `COUNT(*)`
     Count,
+    /// Sum numeric values: `SUM(n.value)`
     Sum,
+    /// Average of numeric values: `AVG(n.value)`
     Avg,
+    /// Minimum value: `MIN(n.value)`
     Min,
+    /// Maximum value: `MAX(n.value)`
     Max,
+    /// Collect values into a list: `COLLECT(n.name)`
     Collect,
 }
 
-/// Literal values
+// =============================================================================
+// Literal Values
+// =============================================================================
+
+/// Literal values in expressions.
+///
+/// Represents constant values that appear directly in the query.
+///
+/// # Variants
+///
+/// | Variant | Example | Description |
+/// |---------|---------|-------------|
+/// | `Null` | `null` | Null/missing value |
+/// | `Bool` | `true`, `false` | Boolean value |
+/// | `Int` | `42`, `-7` | 64-bit signed integer |
+/// | `Float` | `3.14`, `-0.5` | 64-bit floating point |
+/// | `String` | `"hello"`, `'world'` | String value |
+///
+/// # Example
+///
+/// ```
+/// use rustgremlin::gql::parse;
+/// use rustgremlin::gql::{Expression, Literal};
+///
+/// let query = parse("MATCH (n) WHERE n.name = 'Alice' RETURN n").unwrap();
+/// // The literal 'Alice' is parsed as Literal::String("Alice")
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
+    /// Null value.
     Null,
+    /// Boolean value.
     Bool(bool),
+    /// 64-bit signed integer.
     Int(i64),
+    /// 64-bit floating point number.
     Float(f64),
+    /// String value.
     String(String),
 }
 

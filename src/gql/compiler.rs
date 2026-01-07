@@ -1,7 +1,68 @@
 //! Compiler that transforms GQL AST to traversal execution.
 //!
-//! The compiler takes a parsed GQL query and executes it against
-//! a graph snapshot, returning results as `Vec<Value>`.
+//! The compiler takes a parsed GQL [`Query`] and executes it against
+//! a [`GraphSnapshot`], returning results as `Vec<Value>`.
+//!
+//! # Overview
+//!
+//! The compilation process transforms a GQL query into a series of graph
+//! traversal operations:
+//!
+//! 1. **Pattern matching**: MATCH clause patterns are compiled into `v()`,
+//!    `out()`, `in_()`, `has_label()`, and `has_value()` traversal steps
+//! 2. **Filtering**: WHERE clause predicates are evaluated against matched elements
+//! 3. **Projection**: RETURN clause expressions extract values from matched elements
+//! 4. **Ordering**: ORDER BY clause sorts results
+//! 5. **Pagination**: LIMIT/OFFSET restrict the result set
+//!
+//! # Usage
+//!
+//! ```
+//! use rustgremlin::gql::{parse, compile};
+//! use rustgremlin::Graph;
+//!
+//! let graph = Graph::in_memory();
+//! // ... populate graph ...
+//!
+//! let snapshot = graph.snapshot();
+//! let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
+//! let results = compile(&query, &snapshot).unwrap();
+//! ```
+//!
+//! # Supported Features
+//!
+//! ## Pattern Compilation
+//!
+//! - **Node patterns**: `(n)`, `(n:Label)`, `(n {prop: value})`
+//! - **Edge patterns**: `-[e]->`, `-[:TYPE]->`, `<-[e]-`, `-[e]-`
+//! - **Variable-length paths**: `-[*]->`, `-[*2..5]->`
+//!
+//! ## Expression Evaluation
+//!
+//! - **Comparisons**: `=`, `<>`, `<`, `<=`, `>`, `>=`
+//! - **Logical**: `AND`, `OR`, `NOT`
+//! - **Arithmetic**: `+`, `-`, `*`, `/`, `%`
+//! - **String**: `CONTAINS`, `STARTS WITH`, `ENDS WITH`
+//! - **Null checks**: `IS NULL`, `IS NOT NULL`
+//! - **List membership**: `IN`, `NOT IN`
+//!
+//! ## Aggregation
+//!
+//! - `COUNT(*)`, `COUNT(expr)`, `COUNT(DISTINCT expr)`
+//! - `SUM(expr)`, `AVG(expr)`, `MIN(expr)`, `MAX(expr)`
+//! - `COLLECT(expr)` - collects values into a list
+//!
+//! # Error Handling
+//!
+//! The compiler returns [`CompileError`] for:
+//! - Undefined variables referenced in WHERE or RETURN
+//! - Duplicate variable bindings in MATCH
+//! - Empty patterns
+//! - Type mismatches in expressions
+//!
+//! [`Query`]: crate::gql::ast::Query
+//! [`GraphSnapshot`]: crate::graph::GraphSnapshot
+//! [`CompileError`]: crate::gql::error::CompileError
 
 use std::collections::HashMap;
 
@@ -13,12 +74,95 @@ use crate::value::Value;
 
 /// Compile and execute a GQL query against a graph snapshot.
 ///
-/// # Example
+/// This is the main entry point for executing GQL queries. It takes a parsed
+/// [`Query`] AST and a [`GraphSnapshot`], executing the query and returning
+/// matching results.
 ///
-/// ```ignore
-/// let query = parse("MATCH (n:Person) RETURN n")?;
-/// let results = compile(&query, &snapshot)?;
+/// # Arguments
+///
+/// * `query` - A parsed GQL query from [`parse()`]
+/// * `snapshot` - An immutable snapshot of the graph to query
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<Value>)` containing the query results on success.
+/// Results are [`Value`] instances that can be:
+/// - `Value::Vertex` - when returning node variables
+/// - `Value::Edge` - when returning edge variables  
+/// - Primitive values (String, Int, Float, etc.) - when returning properties
+/// - `Value::Map` - when returning multiple expressions
+/// - `Value::List` - when using `COLLECT()` aggregation
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if:
+/// - A variable in RETURN or WHERE is not bound in MATCH
+/// - A variable is bound multiple times in MATCH
+/// - The MATCH pattern is empty
+///
+/// # Examples
+///
+/// ## Simple node query
+///
 /// ```
+/// use rustgremlin::gql::{parse, compile};
+/// use rustgremlin::Graph;
+/// use rustgremlin::storage::InMemoryGraph;
+/// use rustgremlin::value::Value;
+/// use std::collections::HashMap;
+/// use std::sync::Arc;
+///
+/// let mut storage = InMemoryGraph::new();
+/// let mut props = HashMap::new();
+/// props.insert("name".to_string(), Value::from("Alice"));
+/// storage.add_vertex("Person", props);
+///
+/// let graph = Graph::new(Arc::new(storage));
+/// let snapshot = graph.snapshot();
+/// let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
+/// let results = compile(&query, &snapshot).unwrap();
+/// assert_eq!(results.len(), 1);
+/// ```
+///
+/// ## Query with filtering
+///
+/// ```
+/// use rustgremlin::gql::{parse, compile};
+/// use rustgremlin::Graph;
+/// use rustgremlin::storage::InMemoryGraph;
+/// use rustgremlin::value::Value;
+/// use std::collections::HashMap;
+/// use std::sync::Arc;
+///
+/// let mut storage = InMemoryGraph::new();
+/// let mut props = HashMap::new();
+/// props.insert("name".to_string(), Value::from("Alice"));
+/// props.insert("age".to_string(), Value::from(30));
+/// storage.add_vertex("Person", props);
+///
+/// let graph = Graph::new(Arc::new(storage));
+/// let snapshot = graph.snapshot();
+/// let query = parse("MATCH (n:Person) WHERE n.age > 25 RETURN n.name").unwrap();
+/// let results = compile(&query, &snapshot).unwrap();
+/// ```
+///
+/// ## Aggregation query
+///
+/// ```
+/// use rustgremlin::gql::{parse, compile};
+/// use rustgremlin::Graph;
+///
+/// let graph = Graph::in_memory();
+/// let snapshot = graph.snapshot();
+/// let query = parse("MATCH (n:Person) RETURN COUNT(*)").unwrap();
+/// let results = compile(&query, &snapshot).unwrap();
+/// ```
+///
+/// [`Query`]: crate::gql::ast::Query
+/// [`GraphSnapshot`]: crate::graph::GraphSnapshot
+/// [`Value`]: crate::value::Value
+/// [`CompileError`]: crate::gql::error::CompileError
+/// [`parse()`]: crate::gql::parse
 pub fn compile<'g>(
     query: &Query,
     snapshot: &'g GraphSnapshot<'g>,

@@ -1,6 +1,35 @@
 //! Parser for GQL queries.
 //!
-//! Converts GQL text into AST using pest.
+//! This module converts GQL query text into a typed AST using the
+//! [pest](https://pest.rs) parsing library. The grammar is defined in
+//! `grammar.pest`.
+//!
+//! # Usage
+//!
+//! The primary entry point is the [`parse`] function:
+//!
+//! ```rust
+//! use rustgremlin::gql::parse;
+//!
+//! let ast = parse("MATCH (n:Person) RETURN n").unwrap();
+//! assert_eq!(ast.match_clause.patterns.len(), 1);
+//! ```
+//!
+//! # Error Handling
+//!
+//! Parse errors include source position information for debugging:
+//!
+//! ```rust
+//! use rustgremlin::gql::{parse, ParseError};
+//!
+//! match parse("MATCH (n:Person") {
+//!     Ok(_) => unreachable!(),
+//!     Err(e) => {
+//!         // Error message includes position info
+//!         println!("Parse error: {}", e);
+//!     }
+//! }
+//! ```
 
 use pest::Parser;
 use pest_derive::Parser;
@@ -19,6 +48,54 @@ fn span_from_pair(pair: &pest::iterators::Pair<Rule>) -> Span {
 }
 
 /// Parse a GQL query string into an AST.
+///
+/// This is the main entry point for parsing GQL queries. It takes a query
+/// string and returns a [`Query`] AST node that can be passed to
+/// [`compile`](crate::gql::compile) for execution.
+///
+/// # Arguments
+///
+/// * `input` - A GQL query string
+///
+/// # Returns
+///
+/// Returns `Ok(Query)` on successful parse, or `Err(ParseError)` if the
+/// query contains syntax errors.
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::gql::parse;
+///
+/// // Simple query
+/// let query = parse("MATCH (n:Person) RETURN n").unwrap();
+///
+/// // Query with all clauses
+/// let query = parse(r#"
+///     MATCH (p:Person)-[:KNOWS]->(friend:Person)
+///     WHERE p.age > 25
+///     RETURN p.name, friend.name
+///     ORDER BY p.age DESC
+///     LIMIT 10
+/// "#).unwrap();
+/// ```
+///
+/// # Errors
+///
+/// Returns [`ParseError`] for:
+/// - Syntax errors (malformed query structure)
+/// - Missing required clauses (MATCH, RETURN)
+/// - Invalid literals (malformed numbers, strings)
+///
+/// ```rust
+/// use rustgremlin::gql::parse;
+///
+/// // Missing RETURN clause
+/// assert!(parse("MATCH (n:Person)").is_err());
+///
+/// // Malformed pattern
+/// assert!(parse("MATCH (n:Person RETURN n").is_err());
+/// ```
 pub fn parse(input: &str) -> Result<Query, ParseError> {
     let pairs =
         GqlParser::parse(Rule::query, input).map_err(|e| ParseError::Syntax(e.to_string()))?;

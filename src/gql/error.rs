@@ -1,4 +1,53 @@
 //! Error types for GQL parsing and compilation.
+//!
+//! This module defines the error types that can occur during GQL query
+//! processing. Errors are separated into two categories:
+//!
+//! - [`ParseError`] - Errors during query parsing (syntax errors, invalid literals, etc.)
+//! - [`CompileError`] - Errors during compilation to traversals (undefined variables, etc.)
+//!
+//! Both error types can be wrapped in the top-level [`GqlError`] type.
+//!
+//! # Error Location
+//!
+//! Parse errors include [`Span`] information indicating the position in the
+//! source query where the error occurred. This helps users identify and fix
+//! syntax errors.
+//!
+//! # Examples
+//!
+//! ## Handling parse errors
+//!
+//! ```
+//! use rustgremlin::gql::{parse, ParseError};
+//!
+//! match parse("MATCH (n) RETURN") {
+//!     Ok(_) => println!("Query parsed successfully"),
+//!     Err(ParseError::MissingClauseLegacy(clause)) => {
+//!         println!("Missing clause: {}", clause);
+//!     }
+//!     Err(e) => println!("Parse error: {}", e),
+//! }
+//! ```
+//!
+//! ## Handling compile errors
+//!
+//! ```
+//! use rustgremlin::gql::{parse, compile, CompileError};
+//! use rustgremlin::Graph;
+//!
+//! let graph = Graph::in_memory();
+//! let snapshot = graph.snapshot();
+//!
+//! let query = parse("MATCH (n:Person) RETURN x").unwrap();
+//! match compile(&query, &snapshot) {
+//!     Ok(_) => println!("Query executed successfully"),
+//!     Err(CompileError::UndefinedVariable { name }) => {
+//!         println!("Variable '{}' is not defined in MATCH", name);
+//!     }
+//!     Err(e) => println!("Compile error: {}", e),
+//! }
+//! ```
 
 use thiserror::Error;
 
