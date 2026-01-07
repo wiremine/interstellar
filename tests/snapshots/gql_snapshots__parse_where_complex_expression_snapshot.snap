@@ -1,0 +1,57 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties: []
+where_clause:
+  expression:
+    BinaryOp:
+      left:
+        BinaryOp:
+          left:
+            BinaryOp:
+              left:
+                Property:
+                  variable: n
+                  property: age
+              op: Gt
+              right:
+                Literal:
+                  Int: 21
+          op: And
+          right:
+            BinaryOp:
+              left:
+                Property:
+                  variable: n
+                  property: age
+              op: Lt
+              right:
+                Literal:
+                  Int: 65
+      op: Or
+      right:
+        BinaryOp:
+          left:
+            Property:
+              variable: n
+              property: vip
+          op: Eq
+          right:
+            Literal:
+              Bool: true
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Variable: n
+      alias: ~
+order_clause: ~
+limit_clause: ~

@@ -42,6 +42,8 @@
 //! [`parser`]: crate::gql::parser
 //! [`compiler`]: crate::gql::compiler
 
+use serde::Serialize;
+
 // =============================================================================
 // Query Structure
 // =============================================================================
@@ -78,7 +80,7 @@
 ///
 /// [`parse()`]: crate::gql::parse
 /// [`compile()`]: crate::gql::compile
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Query {
     /// The MATCH clause specifying graph patterns to find.
     pub match_clause: MatchClause,
@@ -110,7 +112,7 @@ pub struct Query {
 /// let query = parse("MATCH (n:Person) RETURN n").unwrap();
 /// assert_eq!(query.match_clause.patterns.len(), 1);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MatchClause {
     /// List of patterns to match. Currently only the first pattern is used.
     pub patterns: Vec<Pattern>,
@@ -151,7 +153,7 @@ pub struct MatchClause {
 /// assert!(matches!(&pattern.elements[1], PatternElement::Edge(_)));
 /// assert!(matches!(&pattern.elements[2], PatternElement::Node(_)));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Pattern {
     /// Alternating sequence of node and edge pattern elements.
     pub elements: Vec<PatternElement>,
@@ -161,7 +163,7 @@ pub struct Pattern {
 ///
 /// Patterns consist of alternating nodes and edges. A valid pattern
 /// always starts and ends with a node.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum PatternElement {
     /// A node pattern like `(n:Person {name: "Alice"})`.
     Node(NodePattern),
@@ -202,7 +204,7 @@ pub enum PatternElement {
 ///     assert_eq!(node.properties[0].0, "name");
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NodePattern {
     /// Optional variable name to bind the matched vertex.
     pub variable: Option<String>,
@@ -242,7 +244,7 @@ pub struct NodePattern {
 ///     assert_eq!(edge.direction, EdgeDirection::Outgoing);
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EdgePattern {
     /// Optional variable name to bind the matched edge.
     pub variable: Option<String>,
@@ -267,7 +269,7 @@ pub struct EdgePattern {
 /// | `Outgoing` | `-->` | Follow edges from source to target |
 /// | `Incoming` | `<--` | Follow edges from target to source |
 /// | `Both` | `--` | Follow edges in either direction |
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EdgeDirection {
     /// Outgoing edge: `-->`
     Outgoing,
@@ -304,7 +306,7 @@ pub enum EdgeDirection {
 ///     assert_eq!(q.max, Some(5));
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PathQuantifier {
     /// Minimum number of hops (None means 0).
     pub min: Option<u32>,
@@ -333,7 +335,7 @@ pub struct PathQuantifier {
 /// // The expression is a binary comparison: n.age > 21
 /// assert!(matches!(where_clause.expression, Expression::BinaryOp { .. }));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WhereClause {
     /// The filter expression to evaluate.
     pub expression: Expression,
@@ -362,7 +364,7 @@ pub struct WhereClause {
 /// let query = parse("MATCH (n) RETURN DISTINCT n.label").unwrap();
 /// assert!(query.return_clause.distinct);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ReturnClause {
     /// Whether to deduplicate results (RETURN DISTINCT).
     pub distinct: bool,
@@ -387,7 +389,7 @@ pub struct ReturnClause {
 /// assert!(matches!(&item.expression, Expression::Property { .. }));
 /// assert_eq!(item.alias, Some("personName".to_string()));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ReturnItem {
     /// The expression to evaluate.
     pub expression: Expression,
@@ -416,7 +418,7 @@ pub struct ReturnItem {
 /// assert!(order.items[0].descending);  // n.age DESC
 /// assert!(!order.items[1].descending); // n.name (ascending by default)
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrderClause {
     /// List of ordering specifications.
     pub items: Vec<OrderItem>,
@@ -426,7 +428,7 @@ pub struct OrderClause {
 ///
 /// Specifies an expression to sort by and whether to sort in
 /// descending order (ascending is the default).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrderItem {
     /// The expression to sort by.
     pub expression: Expression,
@@ -460,7 +462,7 @@ pub struct OrderItem {
 /// assert_eq!(limit.limit, 10);
 /// assert_eq!(limit.offset, Some(5));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LimitClause {
     /// Maximum number of results to return.
     pub limit: u64,
@@ -508,7 +510,7 @@ pub struct LimitClause {
 ///     assert_eq!(*op, BinaryOperator::And);
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Expression {
     /// Variable reference: `n`
     ///
@@ -607,7 +609,7 @@ pub enum Expression {
 /// Unary operators.
 ///
 /// Applied to a single operand expression.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum UnaryOperator {
     /// Logical NOT: `NOT x`
     Not,
@@ -627,7 +629,7 @@ pub enum UnaryOperator {
 /// | Logical | `AND`, `OR` |
 /// | Arithmetic | `+`, `-`, `*`, `/`, `%` |
 /// | String | `CONTAINS`, `STARTS WITH`, `ENDS WITH` |
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum BinaryOperator {
     // Comparison operators
     /// Equality: `=`
@@ -698,7 +700,7 @@ pub enum BinaryOperator {
 ///     assert!(*distinct);
 /// }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AggregateFunc {
     /// Count elements: `COUNT(*)`
     Count,
@@ -741,7 +743,7 @@ pub enum AggregateFunc {
 /// let query = parse("MATCH (n) WHERE n.name = 'Alice' RETURN n").unwrap();
 /// // The literal 'Alice' is parsed as Literal::String("Alice")
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Literal {
     /// Null value.
     Null,

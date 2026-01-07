@@ -1,0 +1,30 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Literal:
+          String: constant
+      alias: ~
+    - expression:
+        Literal:
+          Int: 42
+      alias: ~
+    - expression:
+        Literal:
+          Bool: true
+      alias: ~
+order_clause: ~
+limit_clause: ~

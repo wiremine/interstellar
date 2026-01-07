@@ -1,0 +1,32 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: a
+            labels: []
+            properties: []
+        - Edge:
+            variable: ~
+            labels: []
+            direction: Outgoing
+            quantifier:
+              min: ~
+              max: ~
+            properties: []
+        - Node:
+            variable: b
+            labels: []
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Variable: b
+      alias: ~
+order_clause: ~
+limit_clause: ~

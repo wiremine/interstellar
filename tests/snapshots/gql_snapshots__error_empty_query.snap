@@ -1,0 +1,5 @@
+---
+source: tests/gql_snapshots.rs
+expression: "format!(\"{}\", err)"
+---
+"Syntax error:  --> 1:1\n  |\n1 | \n  | ^---\n  |\n  = expected MATCH"

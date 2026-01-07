@@ -1,0 +1,27 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Aggregate:
+          func: Avg
+          distinct: false
+          expr:
+            Property:
+              variable: n
+              property: age
+      alias: ~
+order_clause: ~
+limit_clause: ~

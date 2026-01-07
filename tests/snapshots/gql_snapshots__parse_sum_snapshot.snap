@@ -1,0 +1,27 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Order
+            properties: []
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Aggregate:
+          func: Sum
+          distinct: false
+          expr:
+            Property:
+              variable: n
+              property: total
+      alias: ~
+order_clause: ~
+limit_clause: ~

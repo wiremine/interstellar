@@ -1,0 +1,39 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties: []
+where_clause:
+  expression:
+    BinaryOp:
+      left:
+        Property:
+          variable: n
+          property: age
+      op: Gt
+      right:
+        Literal:
+          Int: 21
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Variable: n
+      alias: ~
+order_clause:
+  items:
+    - expression:
+        Property:
+          variable: n
+          property: name
+      descending: false
+limit_clause:
+  limit: 10
+  offset: ~

@@ -1,0 +1,73 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - Person
+            properties:
+              - - name
+                - String: Alice
+        - Edge:
+            variable: ~
+            labels:
+              - KNOWS
+            direction: Outgoing
+            quantifier: ~
+            properties: []
+        - Node:
+            variable: friend
+            labels:
+              - Person
+            properties: []
+where_clause:
+  expression:
+    BinaryOp:
+      left:
+        BinaryOp:
+          left:
+            Property:
+              variable: friend
+              property: age
+          op: Gt
+          right:
+            Literal:
+              Int: 25
+      op: And
+      right:
+        BinaryOp:
+          left:
+            Property:
+              variable: friend
+              property: city
+          op: Eq
+          right:
+            Literal:
+              String: NYC
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Property:
+          variable: friend
+          property: name
+      alias: ~
+    - expression:
+        Property:
+          variable: friend
+          property: age
+      alias: ~
+order_clause:
+  items:
+    - expression:
+        Property:
+          variable: friend
+          property: age
+      descending: true
+limit_clause:
+  limit: 10
+  offset: ~

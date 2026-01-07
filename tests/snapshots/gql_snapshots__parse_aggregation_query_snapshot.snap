@@ -1,0 +1,67 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: o
+            labels:
+              - Order
+            properties: []
+        - Edge:
+            variable: ~
+            labels:
+              - CONTAINS
+            direction: Outgoing
+            quantifier: ~
+            properties: []
+        - Node:
+            variable: p
+            labels:
+              - Product
+            properties: []
+where_clause:
+  expression:
+    BinaryOp:
+      left:
+        Property:
+          variable: o
+          property: date
+      op: Gt
+      right:
+        Literal:
+          String: 2024-01-01
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Property:
+          variable: p
+          property: category
+      alias: ~
+    - expression:
+        Aggregate:
+          func: Count
+          distinct: false
+          expr:
+            Variable: "*"
+      alias: orderCount
+    - expression:
+        Aggregate:
+          func: Sum
+          distinct: false
+          expr:
+            Property:
+              variable: o
+              property: total
+      alias: revenue
+order_clause:
+  items:
+    - expression:
+        Variable: revenue
+      descending: true
+limit_clause:
+  limit: 10
+  offset: ~

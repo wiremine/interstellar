@@ -1,0 +1,23 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties:
+              - - name
+                - String: Alice
+where_clause: ~
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Variable: n
+      alias: ~
+order_clause: ~
+limit_clause: ~

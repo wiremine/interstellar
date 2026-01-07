@@ -1,0 +1,28 @@
+---
+source: tests/gql_snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties: []
+where_clause:
+  expression:
+    IsNull:
+      expr:
+        Property:
+          variable: n
+          property: email
+      negated: false
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Variable: n
+      alias: ~
+order_clause: ~
+limit_clause: ~
