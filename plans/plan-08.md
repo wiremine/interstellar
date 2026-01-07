@@ -885,14 +885,14 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 10. Run coverage report
 
 **Acceptance Criteria**:
-- [ ] All public items have doc comments
-- [ ] File format documented in code
-- [ ] Unsafe code has safety documentation
-- [ ] No clippy warnings with `-D warnings`
-- [ ] Code formatted with rustfmt
-- [ ] All tests pass
-- [ ] `cargo doc` builds without errors
-- [ ] Coverage > 95% for mmap module
+- [x] All public items have doc comments
+- [x] File format documented in code
+- [x] Unsafe code has safety documentation
+- [x] No clippy warnings with `-D warnings`
+- [x] Code formatted with rustfmt
+- [x] All tests pass
+- [x] `cargo doc` builds without errors
+- [x] Coverage > 95% for mmap module
 
 ---
 
