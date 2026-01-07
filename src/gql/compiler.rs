@@ -65,6 +65,7 @@
 //! [`CompileError`]: crate::gql::error::CompileError
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::gql::ast::*;
 use crate::gql::error::CompileError;
@@ -169,6 +170,84 @@ pub fn compile<'g>(
 ) -> Result<Vec<Value>, CompileError> {
     let mut compiler = Compiler::new(snapshot);
     compiler.compile(query)
+}
+
+/// Compile and execute a GQL statement (query or UNION) against a graph snapshot.
+///
+/// This function handles both single queries and UNION of multiple queries.
+/// For UNION statements, it executes each query and combines the results,
+/// deduplicating them unless UNION ALL is used.
+///
+/// # Arguments
+///
+/// * `stmt` - A parsed GQL statement from [`parse_statement()`]
+/// * `snapshot` - An immutable snapshot of the graph to query
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<Value>)` containing the statement results on success.
+///
+/// # Examples
+///
+/// ```
+/// use rustgremlin::gql::{parse_statement, compile_statement};
+/// use rustgremlin::Graph;
+///
+/// let graph = Graph::in_memory();
+/// let snapshot = graph.snapshot();
+///
+/// // Single query
+/// let stmt = parse_statement("MATCH (n:Person) RETURN n.name").unwrap();
+/// let results = compile_statement(&stmt, &snapshot).unwrap();
+///
+/// // UNION query
+/// let stmt = parse_statement(r#"
+///     MATCH (a:TypeA) RETURN a.name
+///     UNION
+///     MATCH (b:TypeB) RETURN b.name
+/// "#).unwrap();
+/// let results = compile_statement(&stmt, &snapshot).unwrap();
+/// ```
+///
+/// [`parse_statement()`]: crate::gql::parse_statement
+pub fn compile_statement<'g>(
+    stmt: &Statement,
+    snapshot: &'g GraphSnapshot<'g>,
+) -> Result<Vec<Value>, CompileError> {
+    match stmt {
+        Statement::Query(query) => compile(query, snapshot),
+        Statement::Union { queries, all } => compile_union(queries, *all, snapshot),
+    }
+}
+
+/// Execute a UNION of multiple queries.
+fn compile_union<'g>(
+    queries: &[Query],
+    keep_duplicates: bool,
+    snapshot: &'g GraphSnapshot<'g>,
+) -> Result<Vec<Value>, CompileError> {
+    let mut all_results = Vec::new();
+
+    for query in queries {
+        let results = compile(query, snapshot)?;
+        all_results.extend(results);
+    }
+
+    if keep_duplicates {
+        // UNION ALL - keep all results
+        Ok(all_results)
+    } else {
+        // UNION - deduplicate results
+        let mut seen: HashSet<ComparableValue> = HashSet::new();
+        let deduped: Vec<Value> = all_results
+            .into_iter()
+            .filter(|v| {
+                let key = ComparableValue::from(v.clone());
+                seen.insert(key)
+            })
+            .collect();
+        Ok(deduped)
+    }
 }
 
 struct Compiler<'a, 'g> {

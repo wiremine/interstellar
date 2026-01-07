@@ -45,6 +45,53 @@
 use serde::Serialize;
 
 // =============================================================================
+// Statement Structure
+// =============================================================================
+
+/// A GQL statement which may be a single query or a UNION of queries.
+///
+/// The `Statement` type is the top-level AST node produced by the parser.
+/// It can represent either a single query or multiple queries combined with
+/// UNION / UNION ALL.
+///
+/// # Examples
+///
+/// Single query:
+/// ```text
+/// MATCH (n:Person) RETURN n.name
+/// ```
+///
+/// UNION query (deduplicates results):
+/// ```text
+/// MATCH (p:Player)-[:played_for]->(t:Team) RETURN t.name
+/// UNION
+/// MATCH (p:Player)-[:won_championship_with]->(t:Team) RETURN t.name
+/// ```
+///
+/// UNION ALL query (keeps duplicates):
+/// ```text
+/// MATCH (p:Player)-[:played_for]->(t:Team) RETURN t.name
+/// UNION ALL
+/// MATCH (p:Player)-[:won_championship_with]->(t:Team) RETURN t.name
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub enum Statement {
+    /// A single query.
+    Query(Query),
+    /// A UNION of multiple queries.
+    ///
+    /// The `all` flag indicates whether duplicates should be kept:
+    /// - `false` (UNION): Results are deduplicated
+    /// - `true` (UNION ALL): All results are kept, including duplicates
+    Union {
+        /// The queries to union together.
+        queries: Vec<Query>,
+        /// True for UNION ALL (keep duplicates), false for UNION (deduplicate).
+        all: bool,
+    },
+}
+
+// =============================================================================
 // Query Structure
 // =============================================================================
 

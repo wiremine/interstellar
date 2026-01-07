@@ -245,10 +245,15 @@ impl<'g> GraphSnapshot<'g> {
         self.graph.storage.interner()
     }
 
-    /// Execute a GQL query against this snapshot.
+    /// Execute a GQL query or statement against this snapshot.
     ///
-    /// Parses and executes the GQL query, returning matching results as a
-    /// vector of [`Value`](crate::value::Value)s.
+    /// Parses and executes the GQL query or UNION statement, returning matching
+    /// results as a vector of [`Value`](crate::value::Value)s.
+    ///
+    /// Supports both single queries and UNION/UNION ALL statements:
+    /// - `MATCH (n:Person) RETURN n.name` - single query
+    /// - `MATCH (a:A) RETURN a.name UNION MATCH (b:B) RETURN b.name` - UNION (deduplicates)
+    /// - `MATCH (a:A) RETURN a.name UNION ALL MATCH (b:B) RETURN b.name` - UNION ALL (keeps dupes)
     ///
     /// # Example
     ///
@@ -277,8 +282,8 @@ impl<'g> GraphSnapshot<'g> {
     /// - The query has a syntax error ([`ParseError`](crate::gql::ParseError))
     /// - The query references undefined variables ([`CompileError`](crate::gql::CompileError))
     pub fn gql(&self, query: &str) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let ast = crate::gql::parse(query)?;
-        let results = crate::gql::compile(&ast, self)?;
+        let stmt = crate::gql::parse_statement(query)?;
+        let results = crate::gql::compile_statement(&stmt, self)?;
         Ok(results)
     }
 }

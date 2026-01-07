@@ -1,9 +1,10 @@
 //! Integration tests for GQL module.
 
-use rustgremlin::gql::{parse, GqlError};
+use rustgremlin::gql::{parse, parse_statement, GqlError, Statement};
 use rustgremlin::prelude::*;
 use rustgremlin::storage::InMemoryGraph;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Helper to create a test graph with sample data
@@ -7249,4 +7250,542 @@ fn test_gql_replace_function() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("hello there".to_string()));
+}
+
+// =============================================================================
+// UNION Clause Tests (Plan 11 - Week 1)
+// =============================================================================
+
+/// Helper to create a graph for UNION tests
+fn create_union_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create TypeA vertices
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alpha"));
+    storage.add_vertex("TypeA", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Beta"));
+    storage.add_vertex("TypeA", props);
+
+    // Create TypeB vertices
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Gamma"));
+    storage.add_vertex("TypeB", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Delta"));
+    storage.add_vertex("TypeB", props);
+
+    // Create a vertex that appears in both types (simulated - same name)
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Epsilon"));
+    storage.add_vertex("TypeA", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Epsilon"));
+    storage.add_vertex("TypeB", props);
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test parsing a single query returns Statement::Query
+#[test]
+fn test_gql_parse_statement_single_query() {
+    let stmt = parse_statement("MATCH (n:Person) RETURN n.name").unwrap();
+
+    assert!(
+        matches!(stmt, Statement::Query(_)),
+        "Single query should parse to Statement::Query"
+    );
+}
+
+/// Test parsing UNION returns Statement::Union
+#[test]
+fn test_gql_parse_statement_union() {
+    let stmt = parse_statement(
+        r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+    )
+    .unwrap();
+
+    match stmt {
+        Statement::Union { queries, all } => {
+            assert_eq!(queries.len(), 2, "UNION should have 2 queries");
+            assert!(!all, "UNION (not ALL) should have all=false");
+        }
+        _ => panic!("Expected Statement::Union"),
+    }
+}
+
+/// Test parsing UNION ALL
+#[test]
+fn test_gql_parse_statement_union_all() {
+    let stmt = parse_statement(
+        r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION ALL
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+    )
+    .unwrap();
+
+    match stmt {
+        Statement::Union { queries, all } => {
+            assert_eq!(queries.len(), 2, "UNION ALL should have 2 queries");
+            assert!(all, "UNION ALL should have all=true");
+        }
+        _ => panic!("Expected Statement::Union"),
+    }
+}
+
+/// Test parsing multiple UNIONs
+#[test]
+fn test_gql_parse_statement_multiple_unions() {
+    let stmt = parse_statement(
+        r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION
+        MATCH (b:TypeB) RETURN b.name
+        UNION
+        MATCH (c:TypeC) RETURN c.name
+    "#,
+    )
+    .unwrap();
+
+    match stmt {
+        Statement::Union { queries, all } => {
+            assert_eq!(queries.len(), 3, "Triple UNION should have 3 queries");
+            assert!(!all, "UNION should have all=false");
+        }
+        _ => panic!("Expected Statement::Union"),
+    }
+}
+
+/// Test basic UNION execution - combines and deduplicates
+#[test]
+fn test_gql_union_basic() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    // TypeA: Alpha, Beta, Epsilon (3)
+    // TypeB: Gamma, Delta, Epsilon (3)
+    // Union dedups Epsilon -> 5 unique names
+    let names: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(names.len(), 5, "UNION should have 5 unique names");
+    assert!(names.contains("Alpha"));
+    assert!(names.contains("Beta"));
+    assert!(names.contains("Gamma"));
+    assert!(names.contains("Delta"));
+    assert!(names.contains("Epsilon"));
+}
+
+/// Test UNION ALL keeps duplicates
+#[test]
+fn test_gql_union_all_keeps_duplicates() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION ALL
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    // TypeA: Alpha, Beta, Epsilon (3)
+    // TypeB: Gamma, Delta, Epsilon (3)
+    // UNION ALL keeps all 6 including duplicate Epsilon
+    assert_eq!(
+        results.len(),
+        6,
+        "UNION ALL should have all 6 results including duplicate Epsilon"
+    );
+
+    // Count Epsilon occurrences
+    let epsilon_count = results
+        .iter()
+        .filter(|v| matches!(v, Value::String(s) if s == "Epsilon"))
+        .count();
+
+    assert_eq!(epsilon_count, 2, "Epsilon should appear twice in UNION ALL");
+}
+
+/// Test UNION with WHERE clauses
+#[test]
+fn test_gql_union_with_where() {
+    let mut storage = InMemoryGraph::new();
+
+    // Add people with ages
+    let people = vec![
+        ("Alice", "Young", 20i64),
+        ("Bob", "Young", 25i64),
+        ("Carol", "Old", 60i64),
+        ("Dave", "Old", 65i64),
+    ];
+
+    for (name, group, age) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("age".to_string(), Value::from(age));
+        storage.add_vertex(group, props);
+    }
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (y:Young) WHERE y.age > 22 RETURN y.name
+        UNION
+        MATCH (o:Old) WHERE o.age > 62 RETURN o.name
+    "#,
+        )
+        .unwrap();
+
+    // Young with age > 22: Bob (25)
+    // Old with age > 62: Dave (65)
+    let names: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(names.len(), 2);
+    assert!(names.contains("Bob"));
+    assert!(names.contains("Dave"));
+}
+
+/// Test UNION with ORDER BY and LIMIT on combined results
+#[test]
+fn test_gql_union_combined_single_query_ordering() {
+    // Note: ORDER BY and LIMIT apply to each individual query in a UNION,
+    // not to the combined result. This is standard SQL behavior.
+    // If you need to sort the combined result, you'd need a subquery.
+    // For now, we test that each query in the UNION works correctly.
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name ORDER BY a.name LIMIT 2
+        UNION
+        MATCH (b:TypeB) RETURN b.name ORDER BY b.name LIMIT 2
+    "#,
+        )
+        .unwrap();
+
+    // TypeA sorted: Alpha, Beta, Epsilon -> LIMIT 2 -> Alpha, Beta
+    // TypeB sorted: Delta, Epsilon, Gamma -> LIMIT 2 -> Delta, Epsilon
+    // UNION dedupes Epsilon -> 3 unique: Alpha, Beta, Delta, Epsilon
+    // Wait - Epsilon is in both, so should be 4 unique results before dedup
+    // After dedup: Alpha, Beta, Delta, Epsilon = 4 unique
+
+    let names: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // LIMIT is applied per-query before UNION
+    assert!(names.len() <= 4, "Should have at most 4 unique names");
+    assert!(names.contains("Alpha"));
+    assert!(names.contains("Beta"));
+}
+
+/// Test UNION with multiple return columns
+#[test]
+fn test_gql_union_multiple_columns() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert("role".to_string(), Value::from("Engineer"));
+    storage.add_vertex("Employee", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Bob"));
+    props.insert("role".to_string(), Value::from("Contractor"));
+    storage.add_vertex("Contractor", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (e:Employee) RETURN e.name AS person, e.role AS type
+        UNION
+        MATCH (c:Contractor) RETURN c.name AS person, c.role AS type
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+
+    // Both should be maps with 'person' and 'type' keys
+    for result in &results {
+        if let Value::Map(map) = result {
+            assert!(map.contains_key("person"), "Should have 'person' key");
+            assert!(map.contains_key("type"), "Should have 'type' key");
+        } else {
+            panic!("Expected Map result");
+        }
+    }
+}
+
+/// Test UNION deduplication with identical rows
+#[test]
+fn test_gql_union_deduplicates_identical_rows() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create two vertices with the same name but different labels
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Shared"));
+    storage.add_vertex("TypeA", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Shared"));
+    storage.add_vertex("TypeB", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    // Both queries return "Shared", UNION should deduplicate to 1
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Shared".to_string()));
+}
+
+/// Test UNION ALL keeps identical rows
+#[test]
+fn test_gql_union_all_keeps_identical_rows() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create two vertices with the same name but different labels
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Shared"));
+    storage.add_vertex("TypeA", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Shared"));
+    storage.add_vertex("TypeB", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION ALL
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    // Both queries return "Shared", UNION ALL keeps both
+    assert_eq!(results.len(), 2);
+    assert!(results
+        .iter()
+        .all(|v| v == &Value::String("Shared".to_string())));
+}
+
+/// Test UNION with empty first query
+#[test]
+fn test_gql_union_empty_first_query() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (x:NonExistent) RETURN x.name
+        UNION
+        MATCH (a:TypeA) RETURN a.name
+    "#,
+        )
+        .unwrap();
+
+    // First query returns nothing, second returns TypeA names
+    assert_eq!(results.len(), 3); // Alpha, Beta, Epsilon
+}
+
+/// Test UNION with empty second query
+#[test]
+fn test_gql_union_empty_second_query() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION
+        MATCH (x:NonExistent) RETURN x.name
+    "#,
+        )
+        .unwrap();
+
+    // First query returns TypeA names, second returns nothing
+    assert_eq!(results.len(), 3); // Alpha, Beta, Epsilon
+}
+
+/// Test UNION with both queries empty
+#[test]
+fn test_gql_union_both_empty() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (x:NonExistent1) RETURN x.name
+        UNION
+        MATCH (y:NonExistent2) RETURN y.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 0);
+}
+
+/// Test triple UNION
+#[test]
+fn test_gql_triple_union() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create vertices with three labels
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("A1"));
+    storage.add_vertex("TypeA", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("B1"));
+    storage.add_vertex("TypeB", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("C1"));
+    storage.add_vertex("TypeC", props);
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        UNION
+        MATCH (b:TypeB) RETURN b.name
+        UNION
+        MATCH (c:TypeC) RETURN c.name
+    "#,
+        )
+        .unwrap();
+
+    let names: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(names.len(), 3);
+    assert!(names.contains("A1"));
+    assert!(names.contains("B1"));
+    assert!(names.contains("C1"));
+}
+
+/// Test UNION case insensitivity
+#[test]
+fn test_gql_union_case_insensitive() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Test lowercase 'union'
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        union
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    assert!(!results.is_empty(), "lowercase 'union' should work");
+
+    // Test mixed case 'Union'
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        Union
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    assert!(!results.is_empty(), "mixed case 'Union' should work");
+}
+
+/// Test UNION ALL case insensitivity
+#[test]
+fn test_gql_union_all_case_insensitive() {
+    let graph = create_union_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Test lowercase
+    let results = snapshot
+        .gql(
+            r#"
+        MATCH (a:TypeA) RETURN a.name
+        union all
+        MATCH (b:TypeB) RETURN b.name
+    "#,
+        )
+        .unwrap();
+
+    // TypeA has 3, TypeB has 3, UNION ALL = 6
+    assert_eq!(results.len(), 6, "lowercase 'union all' should work");
 }

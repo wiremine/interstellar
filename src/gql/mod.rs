@@ -300,6 +300,6 @@ mod error;
 mod parser;
 
 pub use ast::*;
-pub use compiler::compile;
+pub use compiler::{compile, compile_statement};
 pub use error::{CompileError, GqlError, ParseError, Span};
-pub use parser::parse;
+pub use parser::{parse, parse_statement};

@@ -34,7 +34,12 @@
 use pest::Parser;
 use pest_derive::Parser;
 
-use crate::gql::ast::*;
+use crate::gql::ast::{
+    AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
+    GroupByClause, LimitClause, Literal, MatchClause, NodePattern, OrderClause, OrderItem,
+    PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
+    UnaryOperator, WhereClause,
+};
 use crate::gql::error::{ParseError, Span};
 
 #[derive(Parser)]
@@ -97,12 +102,100 @@ fn span_from_pair(pair: &pest::iterators::Pair<Rule>) -> Span {
 /// assert!(parse("MATCH (n:Person RETURN n").is_err());
 /// ```
 pub fn parse(input: &str) -> Result<Query, ParseError> {
+    // Parse as a statement and extract the single query
+    let stmt = parse_statement(input)?;
+    match stmt {
+        Statement::Query(query) => Ok(query),
+        Statement::Union { .. } => {
+            // For backward compatibility, parse() returns Query
+            // Use parse_statement() for UNION queries
+            Err(ParseError::Syntax(
+                "Use parse_statement() for UNION queries".to_string(),
+            ))
+        }
+    }
+}
+
+/// Parse a GQL statement string into an AST.
+///
+/// This function parses GQL statements which may be single queries or
+/// UNION of multiple queries. Use this when you need to support UNION.
+///
+/// # Arguments
+///
+/// * `input` - A GQL statement string (single query or UNION)
+///
+/// # Returns
+///
+/// Returns `Ok(Statement)` on successful parse, or `Err(ParseError)` if the
+/// statement contains syntax errors.
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::gql::parse_statement;
+///
+/// // Single query
+/// let stmt = parse_statement("MATCH (n:Person) RETURN n").unwrap();
+///
+/// // UNION query
+/// let stmt = parse_statement(r#"
+///     MATCH (p:Player)-[:played_for]->(t:Team) RETURN t.name
+///     UNION
+///     MATCH (p:Player)-[:won_with]->(t:Team) RETURN t.name
+/// "#).unwrap();
+///
+/// // UNION ALL query
+/// let stmt = parse_statement(r#"
+///     MATCH (a:A) RETURN a.name
+///     UNION ALL
+///     MATCH (b:B) RETURN b.name
+/// "#).unwrap();
+/// ```
+pub fn parse_statement(input: &str) -> Result<Statement, ParseError> {
     let pairs =
-        GqlParser::parse(Rule::query, input).map_err(|e| ParseError::Syntax(e.to_string()))?;
+        GqlParser::parse(Rule::statement, input).map_err(|e| ParseError::Syntax(e.to_string()))?;
 
-    let query_pair = pairs.into_iter().next().ok_or(ParseError::Empty)?;
+    let stmt_pair = pairs.into_iter().next().ok_or(ParseError::Empty)?;
 
-    build_query(query_pair)
+    build_statement(stmt_pair)
+}
+
+/// Build a Statement from a pest pair.
+fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    let mut queries = Vec::new();
+    let mut union_all = false;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::query => {
+                queries.push(build_query(inner)?);
+            }
+            Rule::union_clause => {
+                // Check for ALL keyword in the union clause
+                for clause_inner in inner.into_inner() {
+                    if clause_inner.as_rule() == Rule::ALL {
+                        union_all = true;
+                    }
+                }
+            }
+            Rule::EOI => {}
+            _ => {}
+        }
+    }
+
+    if queries.is_empty() {
+        return Err(ParseError::Empty);
+    }
+
+    if queries.len() == 1 {
+        Ok(Statement::Query(queries.pop().unwrap()))
+    } else {
+        Ok(Statement::Union {
+            queries,
+            all: union_all,
+        })
+    }
 }
 
 fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
