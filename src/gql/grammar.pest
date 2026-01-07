@@ -178,7 +178,8 @@ keyword = {
 // RETURN clause - multiple items with optional aliases
 // ============================================================
 // e.g., RETURN n, n.name, n.age AS personAge
-return_clause = { RETURN ~ return_item ~ ("," ~ return_item)* }
+// e.g., RETURN DISTINCT n.city
+return_clause = { RETURN ~ DISTINCT? ~ return_item ~ ("," ~ return_item)* }
 return_item = { expression ~ (AS ~ identifier)? }
 
 // ============================================================

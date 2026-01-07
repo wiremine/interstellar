@@ -328,14 +328,17 @@ fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Literal, ParseErro
 
 fn build_return_clause(pair: pest::iterators::Pair<Rule>) -> Result<ReturnClause, ParseError> {
     let mut items = Vec::new();
+    let mut distinct = false;
 
     for inner in pair.into_inner() {
-        if inner.as_rule() == Rule::return_item {
-            items.push(build_return_item(inner)?);
+        match inner.as_rule() {
+            Rule::DISTINCT => distinct = true,
+            Rule::return_item => items.push(build_return_item(inner)?),
+            _ => {}
         }
     }
 
-    Ok(ReturnClause { items })
+    Ok(ReturnClause { distinct, items })
 }
 
 fn build_return_item(pair: pest::iterators::Pair<Rule>) -> Result<ReturnItem, ParseError> {
@@ -1991,5 +1994,87 @@ mod tests {
         } else {
             panic!("Expected function call expression");
         }
+    }
+
+    // ============================================
+    // Phase 5.3: RETURN DISTINCT Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_return_distinct_property() {
+        let query = parse("MATCH (p:Person) RETURN DISTINCT p.city").unwrap();
+        assert!(query.return_clause.distinct);
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "p");
+            assert_eq!(property, "city");
+        } else {
+            panic!("Expected property access expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_distinct_variable() {
+        let query = parse("MATCH (n:Person) RETURN DISTINCT n").unwrap();
+        assert!(query.return_clause.distinct);
+
+        if let Expression::Variable(v) = &query.return_clause.items[0].expression {
+            assert_eq!(v, "n");
+        } else {
+            panic!("Expected variable expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_distinct_multiple_items() {
+        let query = parse("MATCH (p:Person) RETURN DISTINCT p.city, p.country").unwrap();
+        assert!(query.return_clause.distinct);
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        if let Expression::Property { property, .. } = &query.return_clause.items[0].expression {
+            assert_eq!(property, "city");
+        }
+        if let Expression::Property { property, .. } = &query.return_clause.items[1].expression {
+            assert_eq!(property, "country");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_distinct_with_alias() {
+        let query = parse("MATCH (p:Person) RETURN DISTINCT p.city AS location").unwrap();
+        assert!(query.return_clause.distinct);
+        assert_eq!(
+            query.return_clause.items[0].alias,
+            Some("location".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_return_distinct_case_insensitive() {
+        // DISTINCT keyword is case insensitive
+        let queries = vec![
+            "MATCH (p:Person) RETURN DISTINCT p.city",
+            "MATCH (p:Person) RETURN distinct p.city",
+            "MATCH (p:Person) RETURN Distinct p.city",
+        ];
+
+        for query_str in queries {
+            let query = parse(query_str).unwrap();
+            assert!(
+                query.return_clause.distinct,
+                "DISTINCT flag should be true for: {}",
+                query_str
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_return_without_distinct() {
+        // Verify that queries without DISTINCT have distinct = false
+        let query = parse("MATCH (p:Person) RETURN p.city").unwrap();
+        assert!(!query.return_clause.distinct);
     }
 }

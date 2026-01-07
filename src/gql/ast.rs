@@ -68,6 +68,7 @@ pub struct WhereClause {
 /// RETURN clause
 #[derive(Debug, Clone)]
 pub struct ReturnClause {
+    pub distinct: bool,
     pub items: Vec<ReturnItem>,
 }
 

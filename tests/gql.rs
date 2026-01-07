@@ -2897,3 +2897,278 @@ fn test_gql_variable_path_single_hop() {
         "Single hop and *1 should return same names"
     );
 }
+
+// =============================================================================
+// Phase 5.3: RETURN DISTINCT Tests
+// =============================================================================
+
+/// Helper to create a graph with duplicate property values for DISTINCT tests
+fn create_distinct_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices with duplicate cities
+    let people = vec![
+        ("Alice", "New York"),
+        ("Bob", "Boston"),
+        ("Carol", "New York"),
+        ("Dave", "Boston"),
+        ("Eve", "Chicago"),
+        ("Frank", "New York"),
+        ("Grace", "Chicago"),
+    ];
+
+    for (name, city) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("city".to_string(), Value::from(city));
+        storage.add_vertex("Person", props);
+    }
+
+    Graph::new(Arc::new(storage))
+}
+
+/// Test RETURN DISTINCT on property - should deduplicate results
+#[test]
+fn test_gql_return_distinct_property() {
+    let graph = create_distinct_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Without DISTINCT - should return 7 cities (with duplicates)
+    let results_no_distinct = snapshot.gql("MATCH (p:Person) RETURN p.city").unwrap();
+    assert_eq!(
+        results_no_distinct.len(),
+        7,
+        "Should return all 7 city values"
+    );
+
+    // With DISTINCT - should return only 3 unique cities
+    let results_distinct = snapshot
+        .gql("MATCH (p:Person) RETURN DISTINCT p.city")
+        .unwrap();
+    assert_eq!(
+        results_distinct.len(),
+        3,
+        "Should return only 3 unique cities"
+    );
+
+    // Verify the unique cities
+    let cities: Vec<&str> = results_distinct
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(cities.contains(&"New York"));
+    assert!(cities.contains(&"Boston"));
+    assert!(cities.contains(&"Chicago"));
+}
+
+/// Test RETURN DISTINCT with multiple properties
+#[test]
+fn test_gql_return_distinct_multiple_properties() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create people with duplicate city/country combinations
+    let people = vec![
+        ("Alice", "NYC", "USA"),
+        ("Bob", "Boston", "USA"),
+        ("Carol", "NYC", "USA"), // Duplicate of Alice's city/country
+        ("Dave", "London", "UK"),
+        ("Eve", "London", "UK"), // Duplicate of Dave's city/country
+    ];
+
+    for (name, city, country) in people {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from(name));
+        props.insert("city".to_string(), Value::from(city));
+        props.insert("country".to_string(), Value::from(country));
+        storage.add_vertex("Person", props);
+    }
+
+    let graph = Graph::new(Arc::new(storage));
+    let snapshot = graph.snapshot();
+
+    // RETURN DISTINCT on multiple properties - deduplicates based on the combination
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN DISTINCT p.city, p.country")
+        .unwrap();
+
+    // Should return 3 unique city/country combinations:
+    // (NYC, USA), (Boston, USA), (London, UK)
+    assert_eq!(
+        results.len(),
+        3,
+        "Should return 3 unique city/country combinations"
+    );
+}
+
+/// Test RETURN DISTINCT with variable-length paths
+#[test]
+fn test_gql_return_distinct_with_variable_path() {
+    let graph = create_variable_length_path_graph();
+    let snapshot = graph.snapshot();
+
+    // Find all people reachable from Alice (paths may reach same person multiple ways)
+    // Without DISTINCT, if implementation doesn't dedup at traversal level, we might get duplicates
+    let results = snapshot
+        .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..4]->(target) RETURN DISTINCT target.name")
+        .unwrap();
+
+    // Each person should appear only once
+    let names: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Verify no duplicates
+    let unique_names: std::collections::HashSet<&str> = names.iter().copied().collect();
+    assert_eq!(
+        names.len(),
+        unique_names.len(),
+        "DISTINCT should eliminate any duplicate names"
+    );
+}
+
+/// Test RETURN DISTINCT with WHERE clause
+#[test]
+fn test_gql_return_distinct_with_where() {
+    let graph = create_distinct_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Get distinct cities, but only from the first 5 results (conceptually)
+    // Actually, we filter first then distinct
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.city <> 'Chicago' RETURN DISTINCT p.city")
+        .unwrap();
+
+    // Without Chicago, we have New York and Boston
+    assert_eq!(
+        results.len(),
+        2,
+        "Should return 2 unique cities after filtering"
+    );
+
+    let cities: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(cities.contains(&"New York"));
+    assert!(cities.contains(&"Boston"));
+    assert!(!cities.contains(&"Chicago"));
+}
+
+/// Test RETURN DISTINCT with ORDER BY and LIMIT
+#[test]
+fn test_gql_return_distinct_with_order_limit() {
+    let graph = create_distinct_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Get distinct cities, ordered alphabetically, limit to 2
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN DISTINCT p.city ORDER BY p.city LIMIT 2")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should return 2 results after LIMIT");
+
+    let cities: Vec<&str> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Alphabetically: Boston, Chicago, New York
+    // LIMIT 2: Boston, Chicago
+    assert_eq!(cities[0], "Boston");
+    assert_eq!(cities[1], "Chicago");
+}
+
+/// Test RETURN DISTINCT case insensitivity
+#[test]
+fn test_gql_return_distinct_case_insensitive() {
+    let graph = create_distinct_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Test that DISTINCT keyword is case insensitive
+    let results1 = snapshot
+        .gql("MATCH (p:Person) RETURN DISTINCT p.city")
+        .unwrap();
+    let results2 = snapshot
+        .gql("MATCH (p:Person) RETURN distinct p.city")
+        .unwrap();
+    let results3 = snapshot
+        .gql("MATCH (p:Person) RETURN Distinct p.city")
+        .unwrap();
+
+    assert_eq!(results1.len(), results2.len());
+    assert_eq!(results2.len(), results3.len());
+    assert_eq!(
+        results1.len(),
+        3,
+        "All variants should return 3 unique cities"
+    );
+}
+
+/// Test RETURN without DISTINCT returns duplicates
+#[test]
+fn test_gql_return_without_distinct_has_duplicates() {
+    let graph = create_distinct_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot.gql("MATCH (p:Person) RETURN p.city").unwrap();
+
+    // Should return all 7 values including duplicates
+    assert_eq!(results.len(), 7);
+
+    // Count occurrences of each city
+    let mut city_counts: HashMap<&str, usize> = HashMap::new();
+    for result in &results {
+        if let Value::String(city) = result {
+            *city_counts.entry(city.as_str()).or_insert(0) += 1;
+        }
+    }
+
+    assert_eq!(
+        city_counts.get("New York"),
+        Some(&3),
+        "New York should appear 3 times"
+    );
+    assert_eq!(
+        city_counts.get("Boston"),
+        Some(&2),
+        "Boston should appear 2 times"
+    );
+    assert_eq!(
+        city_counts.get("Chicago"),
+        Some(&2),
+        "Chicago should appear 2 times"
+    );
+}
+
+/// Test RETURN DISTINCT on vertex (deduplicates vertex IDs)
+#[test]
+fn test_gql_return_distinct_vertex() {
+    let graph = create_distinct_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Each person is unique, so DISTINCT shouldn't change the count
+    let results_no_distinct = snapshot.gql("MATCH (p:Person) RETURN p").unwrap();
+    let results_distinct = snapshot.gql("MATCH (p:Person) RETURN DISTINCT p").unwrap();
+
+    assert_eq!(
+        results_no_distinct.len(),
+        results_distinct.len(),
+        "DISTINCT on unique vertices should have same count"
+    );
+    assert_eq!(results_distinct.len(), 7);
+}

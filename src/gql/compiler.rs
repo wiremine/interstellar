@@ -351,7 +351,30 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             .filter_map(|element| self.evaluate_return_for_element(&return_clause.items, &element))
             .collect();
 
+        // Apply DISTINCT if requested
+        let results = if return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
         Ok(results)
+    }
+
+    /// Deduplicate results using ComparableValue for equality checking.
+    fn deduplicate_results(&self, results: Vec<Value>) -> Vec<Value> {
+        let mut seen: Vec<ComparableValue> = Vec::new();
+        let mut deduped = Vec::new();
+
+        for value in results {
+            let comparable = ComparableValue::from(value.clone());
+            if !seen.contains(&comparable) {
+                seen.push(comparable);
+                deduped.push(value);
+            }
+        }
+
+        deduped
     }
 
     /// Evaluate the RETURN clause for a single matched element.
