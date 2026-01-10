@@ -2144,6 +2144,54 @@ impl<In> Traversal<In, Value> {
     pub fn local(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
         self.add_step(branch::LocalStep::new(sub))
     }
+
+    // -------------------------------------------------------------------------
+    // Mutation Steps
+    // -------------------------------------------------------------------------
+
+    /// Add or update a property on the current element.
+    ///
+    /// This step modifies the current traverser's element (vertex or edge)
+    /// by setting a property value. For pending vertex/edge creations,
+    /// the property is accumulated. For existing elements, a pending
+    /// mutation is created.
+    ///
+    /// The actual property update happens when the traversal is executed
+    /// via `MutationExecutor`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Chain properties after add_v
+    /// let vertex = g.add_v("person")
+    ///     .property("name", "Alice")
+    ///     .property("age", 30);
+    ///
+    /// // Update properties on existing vertices
+    /// let updated = g.v_id(id).property("status", "active");
+    /// ```
+    pub fn property(self, key: impl Into<String>, value: impl Into<Value>) -> Traversal<In, Value> {
+        self.add_step(mutation::PropertyStep::new(key, value))
+    }
+
+    /// Delete the current element (vertex or edge).
+    ///
+    /// When a vertex is dropped, all its incident edges are also dropped.
+    /// The actual deletion happens when the traversal is executed via
+    /// `MutationExecutor`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Drop specific vertices
+    /// let deleted = g.v_id(id).drop();
+    ///
+    /// // Drop vertices matching criteria
+    /// let deleted = g.v().has_label("temp").drop();
+    /// ```
+    pub fn drop(self) -> Traversal<In, Value> {
+        self.add_step(mutation::DropStep::new())
+    }
 }
 
 // Re-export Predicate trait and p module
@@ -3312,6 +3360,91 @@ pub mod __ {
     pub fn local(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
         use crate::traversal::branch::LocalStep;
         Traversal::<Value, Value>::new().add_step(LocalStep::new(sub))
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation Steps
+    // -------------------------------------------------------------------------
+
+    /// Create a new vertex with the specified label.
+    ///
+    /// This is a **spawning step** - it produces a traverser for the newly
+    /// created vertex, ignoring any input traversers. The actual vertex
+    /// creation happens when the traversal is executed via `MutationExecutor`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Create a pending vertex (actual creation happens at execution time)
+    /// let vertex_traversal = __::add_v("person")
+    ///     .property("name", "Alice")
+    ///     .property("age", 30);
+    /// ```
+    pub fn add_v(label: impl Into<String>) -> Traversal<Value, Value> {
+        use crate::traversal::mutation::AddVStep;
+        Traversal::<Value, Value>::new().add_step(AddVStep::new(label))
+    }
+
+    /// Create a new edge with the specified label.
+    ///
+    /// This step requires both `from` and `to` endpoints to be specified
+    /// using the builder methods on the returned step. The actual edge
+    /// creation happens when the traversal is executed via `MutationExecutor`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    /// use rustgremlin::value::VertexId;
+    ///
+    /// // Create a pending edge between two vertices
+    /// let edge_step = __::add_e("knows")
+    ///     .from_vertex(VertexId(1))
+    ///     .to_vertex(VertexId(2))
+    ///     .property("since", 2020);
+    /// ```
+    pub fn add_e(label: impl Into<String>) -> crate::traversal::mutation::AddEStep {
+        crate::traversal::mutation::AddEStep::new(label)
+    }
+
+    /// Add or update a property on the current element.
+    ///
+    /// This step modifies the current traverser's element (vertex or edge)
+    /// by setting a property value. The actual property update happens
+    /// when the traversal is executed via `MutationExecutor`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Add a property to current element
+    /// let with_name = __::property("name", "Alice");
+    /// ```
+    pub fn property(key: impl Into<String>, value: impl Into<Value>) -> Traversal<Value, Value> {
+        use crate::traversal::mutation::PropertyStep;
+        Traversal::<Value, Value>::new().add_step(PropertyStep::new(key, value))
+    }
+
+    /// Delete the current element (vertex or edge).
+    ///
+    /// When a vertex is dropped, all its incident edges are also dropped.
+    /// The actual deletion happens when the traversal is executed via
+    /// `MutationExecutor`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Mark elements for deletion
+    /// let deleted = __::drop();
+    /// ```
+    pub fn drop() -> Traversal<Value, Value> {
+        use crate::traversal::mutation::DropStep;
+        Traversal::<Value, Value>::new().add_step(DropStep::new())
     }
 }
 
@@ -4682,6 +4815,86 @@ mod tests {
 
             assert_eq!(anon.step_count(), cloned.step_count());
             assert_eq!(anon.step_names(), cloned.step_names());
+        }
+
+        // ---------------------------------------------------------------------
+        // Mutation Factory Function Tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn add_v_creates_traversal_with_add_v_step() {
+            let anon = __::add_v("person");
+            assert_eq!(anon.step_count(), 1);
+            assert_eq!(anon.step_names(), vec!["addV"]);
+        }
+
+        #[test]
+        fn add_v_can_chain_property() {
+            let anon = __::add_v("person").property("name", "Alice");
+            assert_eq!(anon.step_count(), 2);
+            assert_eq!(anon.step_names(), vec!["addV", "property"]);
+        }
+
+        #[test]
+        fn add_v_can_chain_multiple_properties() {
+            let anon = __::add_v("person")
+                .property("name", "Alice")
+                .property("age", 30i64);
+            assert_eq!(anon.step_count(), 3);
+            assert_eq!(anon.step_names(), vec!["addV", "property", "property"]);
+        }
+
+        #[test]
+        fn add_e_creates_step_with_correct_label() {
+            let step = __::add_e("knows");
+            assert_eq!(step.label(), "knows");
+            assert!(step.from_endpoint().is_none());
+            assert!(step.to_endpoint().is_none());
+        }
+
+        #[test]
+        fn add_e_builder_chain() {
+            use crate::traversal::mutation::EdgeEndpoint;
+            use crate::value::VertexId;
+
+            let step = __::add_e("knows")
+                .from_vertex(VertexId(1))
+                .to_vertex(VertexId(2))
+                .property("since", 2020i64);
+
+            assert_eq!(step.label(), "knows");
+            assert!(matches!(
+                step.from_endpoint(),
+                Some(EdgeEndpoint::VertexId(VertexId(1)))
+            ));
+            assert!(matches!(
+                step.to_endpoint(),
+                Some(EdgeEndpoint::VertexId(VertexId(2)))
+            ));
+        }
+
+        #[test]
+        fn property_creates_traversal_with_property_step() {
+            let anon = __::property("name", "Alice");
+            assert_eq!(anon.step_count(), 1);
+            assert_eq!(anon.step_names(), vec!["property"]);
+        }
+
+        #[test]
+        fn drop_creates_traversal_with_drop_step() {
+            let anon = __::drop();
+            assert_eq!(anon.step_count(), 1);
+            assert_eq!(anon.step_names(), vec!["drop"]);
+        }
+
+        #[test]
+        fn mutation_traversals_can_be_used_in_combinations() {
+            // Ensure mutation traversals can be cloned and reused
+            let create_vertex = __::add_v("person").property("name", "test");
+            let cloned = create_vertex.clone();
+
+            assert_eq!(create_vertex.step_count(), cloned.step_count());
+            assert_eq!(create_vertex.step_names(), cloned.step_names());
         }
     }
 }
