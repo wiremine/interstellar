@@ -67,6 +67,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use mathexpr::Expression as MathExpr;
+
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
     GroupByClause, LimitClause, Literal, NodePattern, OptionalMatchClause, OrderClause,
@@ -693,6 +695,266 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     Value::Null
                 }
             }
+
+            // Extended math functions (Phase 2: Math-GQL Integration)
+
+            // Square root
+            "SQRT" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) if n >= 0 => Value::Float((n as f64).sqrt()),
+                        Value::Float(f) if f >= 0.0 => Value::Float(f.sqrt()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Power function (alternative to ^ operator)
+            "POW" | "POWER" => {
+                if args.len() >= 2 {
+                    let base = self.evaluate_expression_from_row(&args[0], row);
+                    let exp = self.evaluate_expression_from_row(&args[1], row);
+                    apply_binary_op(BinaryOperator::Pow, base, exp)
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Natural logarithm
+            "LOG" | "LN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) if n > 0 => Value::Float((n as f64).ln()),
+                        Value::Float(f) if f > 0.0 => Value::Float(f.ln()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Log base 10
+            "LOG10" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) if n > 0 => Value::Float((n as f64).log10()),
+                        Value::Float(f) if f > 0.0 => Value::Float(f.log10()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Exponential (e^x)
+            "EXP" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).exp()),
+                        Value::Float(f) => Value::Float(f.exp()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Trigonometric functions (input in radians)
+            "SIN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).sin()),
+                        Value::Float(f) => Value::Float(f.sin()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "COS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).cos()),
+                        Value::Float(f) => Value::Float(f.cos()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "TAN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).tan()),
+                        Value::Float(f) => Value::Float(f.tan()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Inverse trigonometric functions
+            "ASIN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => {
+                            let f = n as f64;
+                            if (-1.0..=1.0).contains(&f) {
+                                Value::Float(f.asin())
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Float(f) if (-1.0..=1.0).contains(&f) => Value::Float(f.asin()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ACOS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => {
+                            let f = n as f64;
+                            if (-1.0..=1.0).contains(&f) {
+                                Value::Float(f.acos())
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Float(f) if (-1.0..=1.0).contains(&f) => Value::Float(f.acos()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ATAN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).atan()),
+                        Value::Float(f) => Value::Float(f.atan()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Two-argument arctangent (atan2)
+            "ATAN2" => {
+                if args.len() >= 2 {
+                    let y = self.evaluate_expression_from_row(&args[0], row);
+                    let x = self.evaluate_expression_from_row(&args[1], row);
+                    match (y, x) {
+                        (Value::Int(y), Value::Int(x)) => Value::Float((y as f64).atan2(x as f64)),
+                        (Value::Float(y), Value::Float(x)) => Value::Float(y.atan2(x)),
+                        (Value::Int(y), Value::Float(x)) => Value::Float((y as f64).atan2(x)),
+                        (Value::Float(y), Value::Int(x)) => Value::Float(y.atan2(x as f64)),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Degree/radian conversion
+            "RADIANS" | "TORADIANS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).to_radians()),
+                        Value::Float(f) => Value::Float(f.to_radians()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "DEGREES" | "TODEGREES" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Float((n as f64).to_degrees()),
+                        Value::Float(f) => Value::Float(f.to_degrees()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Rounding functions (these might already exist, adding for completeness)
+            "CEIL" | "CEILING" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Float(f) => Value::Float(f.ceil()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "FLOOR" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Float(f) => Value::Float(f.floor()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ROUND" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Float(f) => Value::Float(f.round()),
+                        Value::Int(n) => Value::Int(n),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "SIGN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_expression_from_row(arg, row) {
+                        Value::Int(n) => Value::Int(n.signum()),
+                        Value::Float(f) => {
+                            if f > 0.0 {
+                                Value::Int(1)
+                            } else if f < 0.0 {
+                                Value::Int(-1)
+                            } else {
+                                Value::Int(0)
+                            }
+                        }
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Mathematical constants
+            "PI" => Value::Float(std::f64::consts::PI),
+            "E" => Value::Float(std::f64::consts::E),
+
+            // MATH() function - evaluate mathexpr expressions
+            "MATH" => self.evaluate_math_from_row(args, row),
+
             // Path function - returns the full traversal path stored in row
             "PATH" => row.get("__path__").cloned().unwrap_or(Value::List(vec![])),
 
@@ -1919,6 +2181,208 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 }
             }
 
+            // Extended math functions (Phase 2: Math-GQL Integration)
+
+            // Square root
+            "SQRT" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) if n >= 0 => Value::Float((n as f64).sqrt()),
+                        Value::Float(f) if f >= 0.0 => Value::Float(f.sqrt()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Power function (alternative to ^ operator)
+            "POW" | "POWER" => {
+                if args.len() >= 2 {
+                    let base = self.evaluate_value_from_path(&args[0], traverser);
+                    let exp = self.evaluate_value_from_path(&args[1], traverser);
+                    apply_binary_op(BinaryOperator::Pow, base, exp)
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Natural logarithm
+            "LOG" | "LN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) if n > 0 => Value::Float((n as f64).ln()),
+                        Value::Float(f) if f > 0.0 => Value::Float(f.ln()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Log base 10
+            "LOG10" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) if n > 0 => Value::Float((n as f64).log10()),
+                        Value::Float(f) if f > 0.0 => Value::Float(f.log10()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Exponential (e^x)
+            "EXP" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).exp()),
+                        Value::Float(f) => Value::Float(f.exp()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Trigonometric functions (input in radians)
+            "SIN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).sin()),
+                        Value::Float(f) => Value::Float(f.sin()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "COS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).cos()),
+                        Value::Float(f) => Value::Float(f.cos()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "TAN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).tan()),
+                        Value::Float(f) => Value::Float(f.tan()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Inverse trigonometric functions
+            "ASIN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => {
+                            let f = n as f64;
+                            if (-1.0..=1.0).contains(&f) {
+                                Value::Float(f.asin())
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Float(f) if (-1.0..=1.0).contains(&f) => Value::Float(f.asin()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ACOS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => {
+                            let f = n as f64;
+                            if (-1.0..=1.0).contains(&f) {
+                                Value::Float(f.acos())
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Float(f) if (-1.0..=1.0).contains(&f) => Value::Float(f.acos()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ATAN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).atan()),
+                        Value::Float(f) => Value::Float(f.atan()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Two-argument arctangent (atan2)
+            "ATAN2" => {
+                if args.len() >= 2 {
+                    let y = self.evaluate_value_from_path(&args[0], traverser);
+                    let x = self.evaluate_value_from_path(&args[1], traverser);
+                    match (y, x) {
+                        (Value::Int(y), Value::Int(x)) => Value::Float((y as f64).atan2(x as f64)),
+                        (Value::Float(y), Value::Float(x)) => Value::Float(y.atan2(x)),
+                        (Value::Int(y), Value::Float(x)) => Value::Float((y as f64).atan2(x)),
+                        (Value::Float(y), Value::Int(x)) => Value::Float(y.atan2(x as f64)),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Degree/radian conversion
+            "RADIANS" | "TORADIANS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).to_radians()),
+                        Value::Float(f) => Value::Float(f.to_radians()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "DEGREES" | "TODEGREES" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value_from_path(arg, traverser) {
+                        Value::Int(n) => Value::Float((n as f64).to_degrees()),
+                        Value::Float(f) => Value::Float(f.to_degrees()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Mathematical constants
+            "PI" => Value::Float(std::f64::consts::PI),
+            "E" => Value::Float(std::f64::consts::E),
+
+            // MATH() function - evaluate mathexpr expressions
+            "MATH" => self.evaluate_math_from_path(args, traverser),
+
             // Type conversion functions
             "TOSTRING" => {
                 if let Some(arg) = args.first() {
@@ -2573,6 +3037,208 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     Value::Null
                 }
             }
+
+            // Extended math functions (Phase 2: Math-GQL Integration)
+
+            // Square root
+            "SQRT" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) if n >= 0 => Value::Float((n as f64).sqrt()),
+                        Value::Float(f) if f >= 0.0 => Value::Float(f.sqrt()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Power function (alternative to ^ operator)
+            "POW" | "POWER" => {
+                if args.len() >= 2 {
+                    let base = self.evaluate_value(&args[0], element);
+                    let exp = self.evaluate_value(&args[1], element);
+                    apply_binary_op(BinaryOperator::Pow, base, exp)
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Natural logarithm
+            "LOG" | "LN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) if n > 0 => Value::Float((n as f64).ln()),
+                        Value::Float(f) if f > 0.0 => Value::Float(f.ln()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Log base 10
+            "LOG10" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) if n > 0 => Value::Float((n as f64).log10()),
+                        Value::Float(f) if f > 0.0 => Value::Float(f.log10()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Exponential (e^x)
+            "EXP" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).exp()),
+                        Value::Float(f) => Value::Float(f.exp()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Trigonometric functions (input in radians)
+            "SIN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).sin()),
+                        Value::Float(f) => Value::Float(f.sin()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "COS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).cos()),
+                        Value::Float(f) => Value::Float(f.cos()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "TAN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).tan()),
+                        Value::Float(f) => Value::Float(f.tan()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Inverse trigonometric functions
+            "ASIN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => {
+                            let f = n as f64;
+                            if (-1.0..=1.0).contains(&f) {
+                                Value::Float(f.asin())
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Float(f) if (-1.0..=1.0).contains(&f) => Value::Float(f.asin()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ACOS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => {
+                            let f = n as f64;
+                            if (-1.0..=1.0).contains(&f) {
+                                Value::Float(f.acos())
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Float(f) if (-1.0..=1.0).contains(&f) => Value::Float(f.acos()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "ATAN" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).atan()),
+                        Value::Float(f) => Value::Float(f.atan()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Two-argument arctangent (atan2)
+            "ATAN2" => {
+                if args.len() >= 2 {
+                    let y = self.evaluate_value(&args[0], element);
+                    let x = self.evaluate_value(&args[1], element);
+                    match (y, x) {
+                        (Value::Int(y), Value::Int(x)) => Value::Float((y as f64).atan2(x as f64)),
+                        (Value::Float(y), Value::Float(x)) => Value::Float(y.atan2(x)),
+                        (Value::Int(y), Value::Float(x)) => Value::Float((y as f64).atan2(x)),
+                        (Value::Float(y), Value::Int(x)) => Value::Float(y.atan2(x as f64)),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Degree/radian conversion
+            "RADIANS" | "TORADIANS" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).to_radians()),
+                        Value::Float(f) => Value::Float(f.to_radians()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            "DEGREES" | "TODEGREES" => {
+                if let Some(arg) = args.first() {
+                    match self.evaluate_value(arg, element) {
+                        Value::Int(n) => Value::Float((n as f64).to_degrees()),
+                        Value::Float(f) => Value::Float(f.to_degrees()),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+
+            // Mathematical constants
+            "PI" => Value::Float(std::f64::consts::PI),
+            "E" => Value::Float(std::f64::consts::E),
+
+            // MATH() function - evaluate mathexpr expressions
+            "MATH" => self.evaluate_math(args, element),
 
             // Type conversion functions
             "TOSTRING" => {
@@ -3835,6 +4501,165 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 
         results.into_iter().skip(offset).take(count).collect()
     }
+
+    // =========================================================================
+    // MATH() Function Implementation
+    // =========================================================================
+
+    /// Evaluate a MATH() expression from row context.
+    ///
+    /// Syntax: MATH(expression_string, arg1, arg2, ...)
+    fn evaluate_math_from_row(&self, args: &[Expression], row: &HashMap<String, Value>) -> Value {
+        if args.is_empty() {
+            return Value::Null;
+        }
+
+        // First argument must be the expression string
+        let expr_string = match self.evaluate_expression_from_row(&args[0], row) {
+            Value::String(s) => s,
+            _ => return Value::Null,
+        };
+
+        // Evaluate remaining arguments as numeric values
+        let mut var_values: Vec<f64> = Vec::new();
+        for arg in args.iter().skip(1) {
+            match self.evaluate_expression_from_row(arg, row) {
+                Value::Int(n) => var_values.push(n as f64),
+                Value::Float(f) => var_values.push(f),
+                _ => return Value::Null,
+            }
+        }
+
+        self.evaluate_math_expr_internal(&expr_string, &var_values)
+    }
+
+    /// Evaluate a MATH() expression from path/traverser context.
+    ///
+    /// Syntax: MATH(expression_string, arg1, arg2, ...)
+    fn evaluate_math_from_path(
+        &self,
+        args: &[Expression],
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        if args.is_empty() {
+            return Value::Null;
+        }
+
+        // First argument must be the expression string
+        let expr_string = match self.evaluate_value_from_path(&args[0], traverser) {
+            Value::String(s) => s,
+            _ => return Value::Null,
+        };
+
+        // Evaluate remaining arguments as numeric values
+        let mut var_values: Vec<f64> = Vec::new();
+        for arg in args.iter().skip(1) {
+            match self.evaluate_value_from_path(arg, traverser) {
+                Value::Int(n) => var_values.push(n as f64),
+                Value::Float(f) => var_values.push(f),
+                _ => return Value::Null,
+            }
+        }
+
+        self.evaluate_math_expr_internal(&expr_string, &var_values)
+    }
+
+    /// Evaluate a MATH() expression from element context.
+    ///
+    /// Syntax: MATH(expression_string, arg1, arg2, ...)
+    fn evaluate_math(&self, args: &[Expression], element: &Value) -> Value {
+        if args.is_empty() {
+            return Value::Null;
+        }
+
+        // First argument must be the expression string
+        let expr_string = match self.evaluate_value(&args[0], element) {
+            Value::String(s) => s,
+            _ => return Value::Null,
+        };
+
+        // Evaluate remaining arguments as numeric values
+        let mut var_values: Vec<f64> = Vec::new();
+        for arg in args.iter().skip(1) {
+            match self.evaluate_value(arg, element) {
+                Value::Int(n) => var_values.push(n as f64),
+                Value::Float(f) => var_values.push(f),
+                _ => return Value::Null,
+            }
+        }
+
+        self.evaluate_math_expr_internal(&expr_string, &var_values)
+    }
+
+    /// Internal helper to evaluate a mathexpr expression with given values.
+    ///
+    /// Variable bindings:
+    /// - First value is bound to `_` (current value in mathexpr) if expression uses `_`
+    /// - Additional values (or all values if no `_`) are bound to `a`, `b`, `c`, etc.
+    fn evaluate_math_expr_internal(&self, expr_string: &str, var_values: &[f64]) -> Value {
+        // Parse the expression first to check if it uses current value
+        let parsed = match MathExpr::parse(expr_string) {
+            Ok(p) => p,
+            Err(_) => return Value::Null,
+        };
+
+        // Determine variable names based on whether expression uses `_`
+        static VAR_NAMES: &[&str] = &["a", "b", "c", "d", "e", "f", "g", "h"];
+
+        // Compile with empty var names first to check if it uses current value
+        // If it does, the first arg is `_` and the rest are named variables
+        let uses_current = {
+            // Try compiling with no vars to see if only `_` is used
+            let test_compile = parsed.clone().compile(&[]);
+            test_compile.is_ok()
+                && test_compile
+                    .as_ref()
+                    .map(|c| c.uses_current_value())
+                    .unwrap_or(false)
+                && var_values.len() <= 1
+        };
+
+        if uses_current && !var_values.is_empty() {
+            // Expression uses `_` and we have a single value for it
+            let compiled = match parsed.compile(&[]) {
+                Ok(c) => c,
+                Err(_) => return Value::Null,
+            };
+
+            let result = compiled.eval_with_current(var_values[0], &[]);
+            return match result {
+                Ok(r) if !r.is_nan() && !r.is_infinite() => Value::Float(r),
+                _ => Value::Null,
+            };
+        }
+
+        // Expression uses named variables (a, b, c, ...) or a mix of `_` and named vars
+        // Build variable names based on count
+        let var_names: Vec<&str> = VAR_NAMES.iter().take(var_values.len()).copied().collect();
+
+        let compiled = match parsed.compile(&var_names) {
+            Ok(c) => c,
+            Err(_) => return Value::Null,
+        };
+
+        // Evaluate the expression
+        let result = if var_values.is_empty() {
+            // No arguments - just evaluate the expression (constants only)
+            compiled.eval(&[])
+        } else if compiled.uses_current_value() {
+            // Expression uses both `_` and named variables
+            // First arg is current, rest are named
+            compiled.eval_with_current(var_values[0], &var_values[1..])
+        } else {
+            // Expression uses only named variables
+            compiled.eval(var_values)
+        };
+
+        match result {
+            Ok(r) if !r.is_nan() && !r.is_infinite() => Value::Float(r),
+            _ => Value::Null,
+        }
+    }
 }
 
 // =============================================================================
@@ -4002,6 +4827,19 @@ fn apply_binary_op(op: BinaryOperator, left: Value, right: Value) -> Value {
             (Value::Int(a), Value::Int(b)) if b != 0 => Value::Int(a % b),
             _ => Value::Null,
         },
+        BinaryOperator::Pow => match (left, right) {
+            // Integer to non-negative integer power
+            (Value::Int(a), Value::Int(b)) if b >= 0 => Value::Int(a.pow(b as u32)),
+            // Integer to negative power becomes float
+            (Value::Int(a), Value::Int(b)) => Value::Float((a as f64).powi(b as i32)),
+            // Float to integer power
+            (Value::Float(a), Value::Int(b)) => Value::Float(a.powi(b as i32)),
+            // Float to float power
+            (Value::Float(a), Value::Float(b)) => Value::Float(a.powf(b)),
+            // Integer base with float exponent
+            (Value::Int(a), Value::Float(b)) => Value::Float((a as f64).powf(b)),
+            _ => Value::Null,
+        },
         // Comparison operators return Bool
         op => Value::Bool(apply_comparison(op, &left, &right)),
     }
@@ -4106,5 +4944,360 @@ mod tests {
             result,
             Err(CompileError::UndefinedVariable { .. })
         ));
+    }
+
+    // =========================================================================
+    // Math Function Tests (Phase 4: Math-GQL Integration)
+    // =========================================================================
+
+    fn create_math_test_graph() -> Graph {
+        let mut storage = InMemoryGraph::new();
+
+        let mut props = std::collections::HashMap::new();
+        props.insert("value".to_string(), Value::from(16));
+        props.insert("x".to_string(), Value::from(3));
+        props.insert("y".to_string(), Value::from(4));
+        storage.add_vertex("Number", props);
+
+        let mut props2 = std::collections::HashMap::new();
+        props2.insert("value".to_string(), Value::from(25));
+        props2.insert("x".to_string(), Value::from(5));
+        props2.insert("y".to_string(), Value::from(12));
+        storage.add_vertex("Number", props2);
+
+        Graph::new(Arc::new(storage))
+    }
+
+    #[test]
+    fn test_power_operator_integers() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN 2 ^ 3").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        // All results should be 8
+        for result in &results {
+            assert_eq!(*result, Value::Int(8));
+        }
+    }
+
+    #[test]
+    fn test_power_operator_with_property() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) WHERE n.x = 3 RETURN n.x ^ 2").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], Value::Int(9));
+    }
+
+    #[test]
+    fn test_sqrt_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) WHERE n.value = 16 RETURN sqrt(n.value)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], Value::Float(4.0));
+    }
+
+    #[test]
+    fn test_sqrt_negative_returns_null() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN sqrt(-1)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Null);
+        }
+    }
+
+    #[test]
+    fn test_pow_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN pow(2, 10)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Int(1024));
+        }
+    }
+
+    #[test]
+    fn test_log_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN log(e())").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - 1.0).abs() < 0.0001);
+            } else {
+                panic!("Expected Float, got {:?}", result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_log10_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN log10(100)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Float(2.0));
+        }
+    }
+
+    #[test]
+    fn test_exp_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN exp(0)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Float(1.0));
+        }
+    }
+
+    #[test]
+    fn test_sin_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN sin(0)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Float(0.0));
+        }
+    }
+
+    #[test]
+    fn test_cos_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN cos(0)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Float(1.0));
+        }
+    }
+
+    #[test]
+    fn test_tan_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN tan(0)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Float(0.0));
+        }
+    }
+
+    #[test]
+    fn test_pi_constant() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN pi()").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - std::f64::consts::PI).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
+    }
+
+    #[test]
+    fn test_e_constant() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN e()").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - std::f64::consts::E).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
+    }
+
+    #[test]
+    fn test_degrees_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN degrees(pi())").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - 180.0).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
+    }
+
+    #[test]
+    fn test_radians_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN radians(180)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - std::f64::consts::PI).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
+    }
+
+    #[test]
+    fn test_pythagorean_calculation() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        // sqrt(3^2 + 4^2) = sqrt(9 + 16) = sqrt(25) = 5
+        let query = parse("MATCH (n:Number) WHERE n.x = 3 RETURN sqrt(n.x ^ 2 + n.y ^ 2)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        assert_eq!(results.len(), 1);
+        if let Value::Float(f) = &results[0] {
+            assert!((f - 5.0).abs() < 0.0001);
+        } else {
+            panic!("Expected Float");
+        }
+    }
+
+    #[test]
+    fn test_math_function_basic() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN MATH('_ * 2', 21)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Float(42.0));
+        }
+    }
+
+    #[test]
+    fn test_math_function_with_variables() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN MATH('sqrt(a^2 + b^2)', 3, 4)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - 5.0).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
+    }
+
+    #[test]
+    fn test_math_function_with_properties() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        // For node with x=3, y=4: sqrt(3^2 + 4^2) = 5
+        let query =
+            parse("MATCH (n:Number) WHERE n.x = 3 RETURN MATH('sqrt(a^2 + b^2)', n.x, n.y)")
+                .unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        assert_eq!(results.len(), 1);
+        if let Value::Float(f) = &results[0] {
+            assert!((f - 5.0).abs() < 0.0001);
+        } else {
+            panic!("Expected Float");
+        }
+    }
+
+    #[test]
+    fn test_math_function_parse_error() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN MATH('invalid syntax +++', 1)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Null);
+        }
+    }
+
+    #[test]
+    fn test_math_function_domain_error() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        // log(0) is undefined
+        let query = parse("MATCH (n:Number) RETURN MATH('log(_)', 0)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Null);
+        }
+    }
+
+    #[test]
+    fn test_atan2_function() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        let query = parse("MATCH (n:Number) RETURN atan2(1, 1)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                // atan2(1, 1) = pi/4 ≈ 0.785
+                assert!((f - std::f64::consts::FRAC_PI_4).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
+    }
+
+    #[test]
+    fn test_asin_domain_check() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        // asin(2) is out of domain [-1, 1]
+        let query = parse("MATCH (n:Number) RETURN asin(2)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            assert_eq!(*result, Value::Null);
+        }
+    }
+
+    #[test]
+    fn test_combined_math_expression() {
+        let graph = create_math_test_graph();
+        let snapshot = graph.snapshot();
+        // sin(pi/2) = 1
+        let query = parse("MATCH (n:Number) RETURN sin(pi() / 2)").unwrap();
+        let results = compile(&query, &snapshot).unwrap();
+
+        for result in &results {
+            if let Value::Float(f) = result {
+                assert!((f - 1.0).abs() < 0.0001);
+            } else {
+                panic!("Expected Float");
+            }
+        }
     }
 }

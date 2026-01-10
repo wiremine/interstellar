@@ -892,9 +892,9 @@ fn build_multiplicative(pair: pest::iterators::Pair<Rule>) -> Result<Expression,
     }
 
     let first = children.remove(0);
-    let mut left = build_unary(first)?;
+    let mut left = build_power(first)?;
 
-    // Remaining children are: mul_op, unary, mul_op, unary, ...
+    // Remaining children are: mul_op, power, mul_op, power, ...
     let mut iter = children.into_iter();
     while let Some(op_pair) = iter.next() {
         if op_pair.as_rule() == Rule::mul_op {
@@ -912,10 +912,39 @@ fn build_multiplicative(pair: pest::iterators::Pair<Rule>) -> Result<Expression,
                 }
             };
             if let Some(right_pair) = iter.next() {
-                let right = build_unary(right_pair)?;
+                let right = build_power(right_pair)?;
                 left = Expression::BinaryOp {
                     left: Box::new(left),
                     op,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
+}
+
+fn build_power(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    if children.is_empty() {
+        return Err(ParseError::missing_clause("expression", pair_span));
+    }
+
+    let first = children.remove(0);
+    let mut left = build_unary(first)?;
+
+    // Remaining children are: pow_op, unary, pow_op, unary, ...
+    let mut iter = children.into_iter();
+    while let Some(op_pair) = iter.next() {
+        if op_pair.as_rule() == Rule::pow_op {
+            if let Some(right_pair) = iter.next() {
+                let right = build_unary(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::Pow,
                     right: Box::new(right),
                 };
             }

@@ -165,8 +165,12 @@ additive = { multiplicative ~ (add_op ~ multiplicative)* }
 add_op = { "+" | "-" }
 
 // Multiplicative operators: * / %
-multiplicative = { unary ~ (mul_op ~ unary)* }
+multiplicative = { power ~ (mul_op ~ power)* }
 mul_op = { "*" | "/" | "%" }
+
+// Power operator: ^ (higher precedence than *, /, %)
+power = { unary ~ (pow_op ~ unary)* }
+pow_op = { "^" }
 
 // Unary minus
 unary = { neg_op? ~ primary }

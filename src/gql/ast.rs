@@ -860,7 +860,7 @@ pub enum UnaryOperator {
 /// |----------|-----------|
 /// | Comparison | `=`, `<>`, `<`, `<=`, `>`, `>=` |
 /// | Logical | `AND`, `OR` |
-/// | Arithmetic | `+`, `-`, `*`, `/`, `%` |
+/// | Arithmetic | `+`, `-`, `*`, `/`, `%`, `^` |
 /// | String | `CONTAINS`, `STARTS WITH`, `ENDS WITH` |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum BinaryOperator {
@@ -895,6 +895,8 @@ pub enum BinaryOperator {
     Div,
     /// Modulo: `%`
     Mod,
+    /// Power/exponentiation: `^`
+    Pow,
 
     // String operators
     /// String contains: `CONTAINS`
