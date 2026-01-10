@@ -29,8 +29,8 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 |-----------------|---------------|--------|
 | `V()` | `v()`, `v_ids()` | `traversal::source` |
 | `E()` | `e()`, `e_ids()` | `traversal::source` |
-| `addV()` | - | - |
-| `addE()` | - | - |
+| `addV()` | `add_v()` | `traversal::source`, `traversal::mutation` |
+| `addE()` | `add_e()` | `traversal::source`, `traversal::mutation` |
 | `inject()` | `inject()` | `traversal::source` |
 
 ---
@@ -69,7 +69,7 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `simplePath()` | `simple_path()` | `traversal::filter` |
 | `cyclicPath()` | `cyclic_path()` | `traversal::filter` |
 | `timeLimit()` | - | - |
-| `drop()` | - | - |
+| `drop()` | `drop()` | `traversal::mutation` |
 
 ---
 
@@ -205,12 +205,12 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 
 | Gremlin Function | Rust Function | Module |
 |-----------------|---------------|--------|
-| `addV()` | - | - |
-| `addE()` | - | - |
-| `property()` | - | - |
-| `from()` | - | - |
-| `to()` | - | - |
-| `drop()` | - | - |
+| `addV()` | `add_v()` | `traversal::source`, `traversal::mutation` |
+| `addE()` | `add_e().from_vertex().to_vertex()` | `traversal::source`, `traversal::mutation` |
+| `property()` | `property()` | `traversal::mutation` |
+| `from()` | `.from_vertex()`, `.from_label()` | `traversal::mutation` |
+| `to()` | `.to_vertex()`, `.to_label()` | `traversal::mutation` |
+| `drop()` | `drop()` | `traversal::mutation` |
 | `mergeV()` | - | - |
 | `mergeE()` | - | - |
 
@@ -354,6 +354,9 @@ let names = __::values("name");
 - `__::where_()`, `__::not()`, `__::and_()`, `__::or_()`
 - `__::union()`, `__::coalesce()`, `__::choose()`, `__::optional()`, `__::local()`
 
+**Mutation:**
+- `__::add_v()`, `__::add_e()`, `__::property()`, `__::drop()`
+
 ---
 
 ## Unsupported Gremlin Features
@@ -380,16 +383,16 @@ The following Gremlin features are not currently planned for support:
 
 | Category | Implemented | Not Implemented |
 |----------|-------------|-----------------|
-| Source Steps | 3 | 2 |
-| Filter Steps | 18 | 10 |
+| Source Steps | 5 | 0 |
+| Filter Steps | 19 | 9 |
 | Navigation Steps | 16 | 0 |
 | Transform/Map Steps | 25 | 5 |
 | Aggregation Steps | 6 | 0 |
 | Branch Steps | 5 | 2 |
 | Repeat Steps | 5 | 1 |
 | Side Effect Steps | 1 | 5 |
-| Mutation Steps | 0 | 8 |
+| Mutation Steps | 6 | 2 |
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 3 | 4 |
-| **Total** | **~103** | **~41** |
+| **Total** | **~112** | **~32** |
