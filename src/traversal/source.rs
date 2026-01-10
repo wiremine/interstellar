@@ -1411,6 +1411,54 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         BoundOrderBuilder::new(self.snapshot, self.interner, source, steps, track_paths)
     }
 
+    /// Evaluate a mathematical expression.
+    ///
+    /// The expression can reference the current value using `_` and labeled
+    /// path values using their label names. Use `by()` to specify which
+    /// property to extract from labeled elements.
+    ///
+    /// Uses the `mathexpr` crate for full expression parsing and evaluation,
+    /// supporting:
+    /// - Operators: `+`, `-`, `*`, `/`, `%`, `^`
+    /// - Functions: `sqrt`, `abs`, `sin`, `cos`, `tan`, `log`, `exp`, `pow`, `min`, `max`, etc.
+    /// - Constants: `pi`, `e`
+    /// - Parentheses for grouping
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Double the current value
+    /// let doubled = g.v().values("age").math("_ * 2").build().to_list();
+    ///
+    /// // Calculate age difference between labeled vertices
+    /// let diff = g.v().as_("a").out("knows").as_("b")
+    ///     .math("a - b")
+    ///     .by("a", "age")
+    ///     .by("b", "age")
+    ///     .build()
+    ///     .to_list();
+    ///
+    /// // Complex expression with functions
+    /// let sqrt = g.v().values("x").math("sqrt(_ ^ 2 + 1)").build().to_list();
+    /// ```
+    pub fn math(self, expression: &str) -> crate::traversal::transform::BoundMathBuilder<'g, In> {
+        use crate::traversal::transform::BoundMathBuilder;
+
+        // Extract the steps and source from the traversal
+        let track_paths = self.track_paths;
+        let (source, steps) = self.traversal.into_steps();
+
+        // Create and return the builder with graph references
+        BoundMathBuilder::new(
+            self.snapshot,
+            self.interner,
+            source,
+            steps,
+            expression,
+            track_paths,
+        )
+    }
+
     /// Create a projection with named keys.
     ///
     /// The `project()` step creates a map with specific named keys. Each key's value

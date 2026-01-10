@@ -1065,6 +1065,364 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
     }
 }
 
+// -----------------------------------------------------------------------------
+// MathStep - mathematical expression evaluator
+// -----------------------------------------------------------------------------
+
+use mathexpr::Expression;
+
+/// Mathematical expression evaluator step.
+///
+/// Evaluates arithmetic expressions with variables from the traversal path.
+/// The special variable `_` represents the current traverser value.
+/// Other variables reference labeled path values from `as()` steps.
+///
+/// Uses the `mathexpr` crate for full expression parsing and evaluation,
+/// supporting:
+/// - Operators: `+`, `-`, `*`, `/`, `%`, `^`
+/// - Functions: `sqrt`, `abs`, `sin`, `cos`, `tan`, `log`, `exp`, `pow`, `min`, `max`, etc.
+/// - Constants: `pi`, `e`
+/// - Parentheses for grouping
+///
+/// # Examples
+///
+/// ```ignore
+/// // Double the current value
+/// g.v().values("age").math("_ * 2").build().to_list()
+///
+/// // Calculate age difference between labeled vertices
+/// g.v().as_("a").out("knows").as_("b")
+///     .math("a - b")
+///     .by("a", "age")
+///     .by("b", "age")
+///     .build()
+///     .to_list()
+///
+/// // Complex expression with functions
+/// g.v().values("x").math("sqrt(_ ^ 2 + 1)").build().to_list()
+/// ```
+#[derive(Clone)]
+pub struct MathStep {
+    /// The mathematical expression string
+    expression: String,
+    /// Variable name to property key mapping for labeled path values
+    variable_keys: HashMap<String, String>,
+}
+
+impl MathStep {
+    /// Create a new MathStep with the given expression.
+    ///
+    /// # Arguments
+    ///
+    /// * `expression` - The mathematical expression to evaluate
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = MathStep::new("_ * 2");
+    /// ```
+    pub fn new(expression: impl Into<String>) -> Self {
+        Self {
+            expression: expression.into(),
+            variable_keys: HashMap::new(),
+        }
+    }
+
+    /// Create a MathStep with pre-configured variable bindings.
+    ///
+    /// # Arguments
+    ///
+    /// * `expression` - The mathematical expression to evaluate
+    /// * `bindings` - Map of variable names to property keys
+    pub fn with_bindings(expression: impl Into<String>, bindings: HashMap<String, String>) -> Self {
+        Self {
+            expression: expression.into(),
+            variable_keys: bindings,
+        }
+    }
+
+    /// Evaluate the expression for a given traverser.
+    fn evaluate(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Option<Value> {
+        // Get current value as f64
+        let current_value = self.value_to_f64(&traverser.value)?;
+
+        // Collect variable names and values in order
+        let mut var_names: Vec<String> = Vec::new();
+        let mut var_values: Vec<f64> = Vec::new();
+
+        for (var, prop_key) in &self.variable_keys {
+            var_names.push(var.clone());
+            let value = self.get_labeled_value(ctx, traverser, var, prop_key)?;
+            var_values.push(value);
+        }
+
+        // Evaluate the expression
+        let result = self.evaluate_expression(current_value, &var_names, &var_values)?;
+
+        Some(Value::Float(result))
+    }
+
+    /// Helper to evaluate the expression with given variable bindings.
+    fn evaluate_expression(
+        &self,
+        current: f64,
+        var_names: &[String],
+        var_values: &[f64],
+    ) -> Option<f64> {
+        // Convert var_names to &str for mathexpr
+        let var_name_refs: Vec<&str> = var_names.iter().map(|s| s.as_str()).collect();
+
+        let parsed = Expression::parse(&self.expression).ok()?;
+        let compiled = parsed.compile(&var_name_refs).ok()?;
+
+        let result = if compiled.uses_current_value() {
+            compiled.eval_with_current(current, var_values).ok()?
+        } else {
+            compiled.eval(var_values).ok()?
+        };
+
+        // Check for NaN/Inf which indicate domain errors
+        if result.is_nan() || result.is_infinite() {
+            return None;
+        }
+
+        Some(result)
+    }
+
+    /// Convert a Value to f64.
+    fn value_to_f64(&self, value: &Value) -> Option<f64> {
+        match value {
+            Value::Int(n) => Some(*n as f64),
+            Value::Float(f) => Some(*f),
+            _ => None, // Non-numeric values cannot be used in math
+        }
+    }
+
+    /// Get a labeled value from the path, extracting the specified property.
+    fn get_labeled_value(
+        &self,
+        ctx: &ExecutionContext,
+        traverser: &Traverser,
+        label: &str,
+        prop_key: &str,
+    ) -> Option<f64> {
+        // Get the first value with this label from the path
+        let path_values = traverser.path.get(label)?;
+        let path_value = path_values.first()?;
+
+        // Convert PathValue to Value
+        let value = path_value.to_value();
+
+        // Extract the property from the element
+        self.extract_number(ctx, &value, prop_key)
+    }
+
+    /// Extract a numeric value from an element's property.
+    fn extract_number(&self, ctx: &ExecutionContext, value: &Value, key: &str) -> Option<f64> {
+        match value {
+            Value::Int(n) => Some(*n as f64),
+            Value::Float(f) => Some(*f),
+            Value::Vertex(id) => {
+                let vertex = ctx.snapshot().storage().get_vertex(*id)?;
+                match vertex.properties.get(key)? {
+                    Value::Int(n) => Some(*n as f64),
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                }
+            }
+            Value::Edge(id) => {
+                let edge = ctx.snapshot().storage().get_edge(*id)?;
+                match edge.properties.get(key)? {
+                    Value::Int(n) => Some(*n as f64),
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl crate::traversal::step::AnyStep for MathStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.filter_map(move |t| self.evaluate(ctx, &t).map(|value| t.with_value(value))))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "math"
+    }
+}
+
+impl std::fmt::Debug for MathStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MathStep")
+            .field("expression", &self.expression)
+            .field("variable_keys", &self.variable_keys)
+            .finish()
+    }
+}
+
+// -----------------------------------------------------------------------------
+// MathBuilder - fluent API for building MathStep
+// -----------------------------------------------------------------------------
+
+/// Builder for configuring math() step with by() modulators.
+///
+/// Each `by()` call binds a variable in the expression to a property key.
+/// Variables are bound explicitly by name.
+///
+/// # Example
+///
+/// ```ignore
+/// g.v().as_("a").out().as_("b")
+///     .math("a - b")
+///     .by("a", "age")  // Extract age from labeled "a"
+///     .by("b", "age")  // Extract age from labeled "b"
+///     .build()
+/// ```
+pub struct MathBuilder<In> {
+    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    expression: String,
+    variable_bindings: HashMap<String, String>,
+    _phantom: PhantomData<In>,
+}
+
+impl<In> MathBuilder<In> {
+    /// Create a new MathBuilder with existing steps and expression.
+    ///
+    /// # Arguments
+    ///
+    /// * `steps` - Existing traversal steps
+    /// * `expression` - The mathematical expression to evaluate
+    pub(crate) fn new(
+        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        expression: impl Into<String>,
+    ) -> Self {
+        Self {
+            steps,
+            expression: expression.into(),
+            variable_bindings: HashMap::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Bind a variable to a property key.
+    ///
+    /// # Arguments
+    ///
+    /// * `variable` - Variable name from expression (e.g., "a", "b")
+    /// * `key` - Property key to extract from labeled element
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// g.v().as_("a").out().as_("b")
+    ///     .math("a - b")
+    ///     .by("a", "age")  // Extract age from labeled "a"
+    ///     .by("b", "age")  // Extract age from labeled "b"
+    ///     .build()
+    /// ```
+    pub fn by(mut self, variable: &str, key: &str) -> Self {
+        self.variable_bindings
+            .insert(variable.to_string(), key.to_string());
+        self
+    }
+
+    /// Finalize the math() step and return the traversal.
+    pub fn build(mut self) -> Traversal<In, Value> {
+        let step = MathStep::with_bindings(self.expression, self.variable_bindings);
+        self.steps.push(Box::new(step));
+        Traversal {
+            steps: self.steps,
+            source: None,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// BoundMathBuilder - fluent API for bound traversals
+// -----------------------------------------------------------------------------
+
+/// Builder for configuring math() step for bound traversals.
+///
+/// This builder is returned from `BoundTraversal::math()` and allows chaining
+/// `by()` clauses before calling `build()` to get back a `BoundTraversal`.
+pub struct BoundMathBuilder<'g, In> {
+    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    interner: &'g crate::storage::interner::StringInterner,
+    source: Option<crate::traversal::TraversalSource>,
+    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    expression: String,
+    variable_bindings: HashMap<String, String>,
+    track_paths: bool,
+    _phantom: PhantomData<In>,
+}
+
+impl<'g, In> BoundMathBuilder<'g, In> {
+    /// Create a new BoundMathBuilder with existing steps, graph references, and expression.
+    pub(crate) fn new(
+        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        interner: &'g crate::storage::interner::StringInterner,
+        source: Option<crate::traversal::TraversalSource>,
+        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        expression: impl Into<String>,
+        track_paths: bool,
+    ) -> Self {
+        Self {
+            snapshot,
+            interner,
+            source,
+            steps,
+            expression: expression.into(),
+            variable_bindings: HashMap::new(),
+            track_paths,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Bind a variable to a property key.
+    ///
+    /// # Arguments
+    ///
+    /// * `variable` - Variable name from expression (e.g., "a", "b")
+    /// * `key` - Property key to extract from labeled element
+    pub fn by(mut self, variable: &str, key: &str) -> Self {
+        self.variable_bindings
+            .insert(variable.to_string(), key.to_string());
+        self
+    }
+
+    /// Finalize the math() step and return the bound traversal.
+    pub fn build(mut self) -> crate::traversal::source::BoundTraversal<'g, In, Value> {
+        let step = MathStep::with_bindings(self.expression, self.variable_bindings);
+        self.steps.push(Box::new(step));
+
+        let traversal = Traversal {
+            steps: self.steps,
+            source: self.source,
+            _phantom: PhantomData,
+        };
+
+        let mut bound =
+            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+
+        if self.track_paths {
+            bound = bound.with_path();
+        }
+
+        bound
+    }
+}
+
 #[cfg(test)]
 mod project_tests {
     use super::*;
@@ -1363,6 +1721,416 @@ mod project_tests {
             let builder =
                 ProjectBuilder::<Value>::new(vec![], vec!["name".to_string(), "count".to_string()]);
             let traversal = builder.by_key("name").by(sub_traversal).build();
+            assert_eq!(traversal.steps.len(), 1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod math_tests {
+    use super::*;
+    use crate::graph::Graph;
+    use crate::storage::InMemoryGraph;
+    use crate::traversal::context::ExecutionContext;
+    use crate::traversal::step::AnyStep;
+    use crate::traversal::Traverser;
+    use crate::value::Value;
+    use std::collections::HashMap;
+
+    fn create_math_test_graph() -> Graph {
+        let mut storage = InMemoryGraph::new();
+
+        // Vertex 0: Alice, age 30
+        let mut props0 = HashMap::new();
+        props0.insert("name".to_string(), Value::String("Alice".to_string()));
+        props0.insert("age".to_string(), Value::Int(30));
+        props0.insert("score".to_string(), Value::Float(85.5));
+        let alice = storage.add_vertex("person", props0);
+
+        // Vertex 1: Bob, age 25
+        let mut props1 = HashMap::new();
+        props1.insert("name".to_string(), Value::String("Bob".to_string()));
+        props1.insert("age".to_string(), Value::Int(25));
+        props1.insert("score".to_string(), Value::Float(92.0));
+        let bob = storage.add_vertex("person", props1);
+
+        // Alice knows Bob
+        let _ = storage.add_edge(alice, bob, "knows", HashMap::new());
+
+        Graph::new(std::sync::Arc::new(storage))
+    }
+
+    mod math_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_math_step() {
+            let step = MathStep::new("_ * 2");
+            assert_eq!(step.name(), "math");
+        }
+
+        #[test]
+        fn with_bindings_creates_step_with_variables() {
+            let mut bindings = HashMap::new();
+            bindings.insert("a".to_string(), "age".to_string());
+            let step = MathStep::with_bindings("a + 10", bindings);
+            assert_eq!(step.name(), "math");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = MathStep::new("_ + 1");
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "math");
+        }
+
+        #[test]
+        fn debug_format_works() {
+            let step = MathStep::new("_ * 3");
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("MathStep"));
+            assert!(debug_str.contains("_ * 3"));
+        }
+    }
+
+    mod math_step_basic_arithmetic {
+        use super::*;
+
+        #[test]
+        fn multiply_current_value() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * 2");
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Float(20.0));
+            assert_eq!(output[1].value, Value::Float(10.0));
+        }
+
+        #[test]
+        fn add_to_current_value() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ + 100");
+            let input = vec![Traverser::new(Value::Int(50))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(150.0));
+        }
+
+        #[test]
+        fn subtract_from_current_value() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ - 5");
+            let input = vec![Traverser::new(Value::Int(20))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(15.0));
+        }
+
+        #[test]
+        fn divide_current_value() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ / 2");
+            let input = vec![Traverser::new(Value::Int(10))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(5.0));
+        }
+
+        #[test]
+        fn modulo_current_value() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ % 7");
+            let input = vec![Traverser::new(Value::Int(15))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(1.0));
+        }
+
+        #[test]
+        fn power_current_value() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ ^ 2");
+            let input = vec![Traverser::new(Value::Int(5))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(25.0));
+        }
+
+        #[test]
+        fn works_with_float_input() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * 2");
+            let input = vec![Traverser::new(Value::Float(3.5))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(7.0));
+        }
+    }
+
+    mod math_step_functions {
+        use super::*;
+
+        #[test]
+        fn sqrt_function() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("sqrt(_)");
+            let input = vec![Traverser::new(Value::Int(16))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(4.0));
+        }
+
+        #[test]
+        fn abs_function() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("abs(_)");
+            let input = vec![Traverser::new(Value::Int(-42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(42.0));
+        }
+
+        #[test]
+        fn complex_expression_with_sqrt() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // sqrt(3^2 + 4^2) = sqrt(9 + 16) = sqrt(25) = 5
+            let step = MathStep::new("sqrt(_ ^ 2 + 16)");
+            let input = vec![Traverser::new(Value::Int(3))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(5.0));
+        }
+
+        #[test]
+        fn pi_constant() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * pi");
+            let input = vec![Traverser::new(Value::Int(2))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - 2.0 * std::f64::consts::PI).abs() < 1e-10);
+            } else {
+                panic!("Expected Float value");
+            }
+        }
+
+        #[test]
+        fn e_constant() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * e");
+            let input = vec![Traverser::new(Value::Int(1))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Float(f) = output[0].value {
+                assert!((f - std::f64::consts::E).abs() < 1e-10);
+            } else {
+                panic!("Expected Float value");
+            }
+        }
+    }
+
+    mod math_step_filtering {
+        use super::*;
+
+        #[test]
+        fn non_numeric_values_filtered_out() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * 2");
+            let input = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::String("hello".to_string())),
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Bool(true)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only numeric values should remain
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Float(20.0));
+            assert_eq!(output[1].value, Value::Float(10.0));
+        }
+
+        #[test]
+        fn division_by_zero_filtered_out() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("1 / _");
+            let input = vec![
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(0)), // Division by zero
+                Traverser::new(Value::Int(4)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Division by zero should be filtered (produces infinity)
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Float(0.5));
+            assert_eq!(output[1].value, Value::Float(0.25));
+        }
+
+        #[test]
+        fn sqrt_of_negative_filtered_out() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("sqrt(_)");
+            let input = vec![
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(-1)), // sqrt of negative
+                Traverser::new(Value::Int(9)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // sqrt of negative produces NaN, should be filtered
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Float(2.0));
+            assert_eq!(output[1].value, Value::Float(3.0));
+        }
+    }
+
+    mod math_step_metadata {
+        use super::*;
+
+        #[test]
+        fn preserves_path() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * 2");
+            let mut traverser = Traverser::new(Value::Int(10));
+            traverser.extend_path_labeled("start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ + 1");
+            let mut traverser = Traverser::new(Value::Int(5));
+            traverser.loops = 7;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 7);
+        }
+
+        #[test]
+        fn preserves_bulk() {
+            let graph = create_math_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = MathStep::new("_ * 3");
+            let mut traverser = Traverser::new(Value::Int(2));
+            traverser.bulk = 15;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 15);
+        }
+    }
+
+    mod math_builder_tests {
+        use super::*;
+
+        #[test]
+        fn builder_creates_basic_traversal() {
+            let builder = MathBuilder::<Value>::new(vec![], "_ * 2");
+            let traversal = builder.build();
+            assert_eq!(traversal.steps.len(), 1);
+        }
+
+        #[test]
+        fn builder_with_by_adds_variable_binding() {
+            let builder = MathBuilder::<Value>::new(vec![], "a + b");
+            let traversal = builder.by("a", "age").by("b", "score").build();
             assert_eq!(traversal.steps.len(), 1);
         }
     }

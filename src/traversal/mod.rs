@@ -1651,6 +1651,40 @@ impl<In> Traversal<In, Value> {
         transform::OrderBuilder::new(steps)
     }
 
+    /// Evaluate a mathematical expression (for anonymous traversals).
+    ///
+    /// The expression can reference the current value using `_` and labeled
+    /// path values using their label names. Use `by()` to specify which
+    /// property to extract from labeled elements.
+    ///
+    /// Uses the `mathexpr` crate for full expression parsing and evaluation,
+    /// supporting:
+    /// - Operators: `+`, `-`, `*`, `/`, `%`, `^`
+    /// - Functions: `sqrt`, `abs`, `sin`, `cos`, `tan`, `log`, `exp`, `pow`, `min`, `max`, etc.
+    /// - Constants: `pi`, `e`
+    /// - Parentheses for grouping
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Double current values
+    /// g.v().values("age").math("_ * 2").build()
+    ///
+    /// // Calculate difference between labeled values
+    /// g.v().as_("a").out("knows").as_("b")
+    ///     .math("a - b")
+    ///     .by("a", "age")
+    ///     .by("b", "age")
+    ///     .build()
+    ///
+    /// // Complex expression with functions
+    /// g.v().values("x").math("sqrt(_ ^ 2 + 1)").build()
+    /// ```
+    pub fn math(self, expression: &str) -> transform::MathBuilder<In> {
+        let (_, steps) = self.into_steps();
+        transform::MathBuilder::new(steps, expression)
+    }
+
     /// Create a projection with named keys (for anonymous traversals).
     ///
     /// The `project()` step creates a map with specific named keys. Each key's value
@@ -2856,6 +2890,40 @@ pub mod __ {
     /// ```
     pub fn order() -> OrderBuilder<Value> {
         OrderBuilder::new(vec![])
+    }
+
+    /// Evaluate a mathematical expression.
+    ///
+    /// The expression can reference the current value using `_` and labeled
+    /// path values using their label names. Use `by()` to specify which
+    /// property to extract from labeled elements.
+    ///
+    /// Uses the `mathexpr` crate for full expression parsing and evaluation,
+    /// supporting:
+    /// - Operators: `+`, `-`, `*`, `/`, `%`, `^`
+    /// - Functions: `sqrt`, `abs`, `sin`, `cos`, `tan`, `log`, `exp`, `pow`, `min`, `max`, etc.
+    /// - Constants: `pi`, `e`
+    /// - Parentheses for grouping
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Double current values
+    /// let doubled = __::math("_ * 2").build();
+    ///
+    /// // Calculate square root of sum
+    /// let sqrt = __::math("sqrt(_ ^ 2 + 1)").build();
+    ///
+    /// // With labeled path values (requires by() for each variable)
+    /// let diff = __::math("a - b")
+    ///     .by("a", "age")
+    ///     .by("b", "age")
+    ///     .build();
+    /// ```
+    pub fn math(expression: &str) -> crate::traversal::transform::MathBuilder<Value> {
+        crate::traversal::transform::MathBuilder::new(vec![], expression)
     }
 
     /// Create a projection with named keys.

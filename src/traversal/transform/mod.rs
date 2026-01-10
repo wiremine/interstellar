@@ -1,7 +1,8 @@
 pub use collection::{MeanStep, UnfoldStep};
 pub use constant::ConstantStep;
 pub use functional::{
-    BoundProjectBuilder, FlatMapStep, MapStep, ProjectBuilder, ProjectStep, Projection,
+    BoundMathBuilder, BoundProjectBuilder, FlatMapStep, MapStep, MathBuilder, MathStep,
+    ProjectBuilder, ProjectStep, Projection,
 };
 pub use metadata::{IdStep, LabelStep};
 pub use order::{BoundOrderBuilder, Order, OrderBuilder, OrderKey, OrderStep};
