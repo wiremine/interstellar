@@ -2960,6 +2960,116 @@ impl MmapGraph {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Property Update Operations
+    // =========================================================================
+
+    /// Sets or updates a property on a vertex.
+    ///
+    /// This method loads the existing properties, updates the specified key,
+    /// and writes all properties back to a new location in the arena.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The vertex ID
+    /// * `key` - The property key
+    /// * `value` - The new property value
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::VertexNotFound`] - Vertex doesn't exist
+    /// - [`StorageError::Io`] - I/O error during write
+    pub fn set_vertex_property(
+        &self,
+        id: VertexId,
+        key: &str,
+        value: crate::value::Value,
+    ) -> Result<(), StorageError> {
+        // Get existing node record
+        let record = self
+            .get_node_record(id)
+            .ok_or(StorageError::VertexNotFound(id))?;
+
+        // Load existing properties
+        let mut properties = self.load_properties(record.prop_head)?;
+
+        // Update/add the property
+        properties.insert(key.to_string(), value);
+
+        // Convert to std HashMap for allocate_properties
+        let std_props: std::collections::HashMap<String, crate::value::Value> =
+            properties.into_iter().collect();
+
+        // Allocate new properties in arena
+        let new_prop_head = self.allocate_properties(&std_props)?;
+
+        // Update node record with new prop_head
+        let mut new_record = record;
+        new_record.prop_head = new_prop_head;
+        self.write_node_record(id, &new_record)?;
+
+        // Persist string table (for new property keys)
+        self.persist_string_table()?;
+
+        // Update arena offset
+        self.update_arena_offset()?;
+
+        Ok(())
+    }
+
+    /// Sets or updates a property on an edge.
+    ///
+    /// This method loads the existing properties, updates the specified key,
+    /// and writes all properties back to a new location in the arena.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The edge ID
+    /// * `key` - The property key
+    /// * `value` - The new property value
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::EdgeNotFound`] - Edge doesn't exist
+    /// - [`StorageError::Io`] - I/O error during write
+    pub fn set_edge_property(
+        &self,
+        id: EdgeId,
+        key: &str,
+        value: crate::value::Value,
+    ) -> Result<(), StorageError> {
+        // Get existing edge record
+        let record = self
+            .get_edge_record(id)
+            .ok_or(StorageError::EdgeNotFound(id))?;
+
+        // Load existing properties
+        let mut properties = self.load_properties(record.prop_head)?;
+
+        // Update/add the property
+        properties.insert(key.to_string(), value);
+
+        // Convert to std HashMap for allocate_properties
+        let std_props: std::collections::HashMap<String, crate::value::Value> =
+            properties.into_iter().collect();
+
+        // Allocate new properties in arena
+        let new_prop_head = self.allocate_properties(&std_props)?;
+
+        // Update edge record with new prop_head
+        let mut new_record = record;
+        new_record.prop_head = new_prop_head;
+        self.write_edge_record(id, &new_record)?;
+
+        // Persist string table (for new property keys)
+        self.persist_string_table()?;
+
+        // Update arena offset
+        self.update_arena_offset()?;
+
+        Ok(())
+    }
 }
 
 // =========================================================================
@@ -3176,6 +3286,57 @@ impl GraphStorage for MmapGraph {
         std::mem::forget(guard);
         // SAFETY: The pointer is valid for the lifetime of MmapGraph
         unsafe { &*ptr }
+    }
+}
+
+// =========================================================================
+// GraphStorageMut Trait Implementation
+// =========================================================================
+
+impl crate::storage::GraphStorageMut for MmapGraph {
+    fn add_vertex(
+        &mut self,
+        label: &str,
+        properties: std::collections::HashMap<String, crate::value::Value>,
+    ) -> VertexId {
+        // MmapGraph uses interior mutability, so we delegate to the inherent method
+        MmapGraph::add_vertex(self, label, properties).expect("add_vertex failed")
+    }
+
+    fn add_edge(
+        &mut self,
+        src: VertexId,
+        dst: VertexId,
+        label: &str,
+        properties: std::collections::HashMap<String, crate::value::Value>,
+    ) -> Result<EdgeId, StorageError> {
+        MmapGraph::add_edge(self, src, dst, label, properties)
+    }
+
+    fn set_vertex_property(
+        &mut self,
+        id: VertexId,
+        key: &str,
+        value: crate::value::Value,
+    ) -> Result<(), StorageError> {
+        MmapGraph::set_vertex_property(self, id, key, value)
+    }
+
+    fn set_edge_property(
+        &mut self,
+        id: EdgeId,
+        key: &str,
+        value: crate::value::Value,
+    ) -> Result<(), StorageError> {
+        MmapGraph::set_edge_property(self, id, key, value)
+    }
+
+    fn remove_vertex(&mut self, id: VertexId) -> Result<(), StorageError> {
+        MmapGraph::remove_vertex(self, id)
+    }
+
+    fn remove_edge(&mut self, id: EdgeId) -> Result<(), StorageError> {
+        MmapGraph::remove_edge(self, id)
     }
 }
 

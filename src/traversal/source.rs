@@ -171,6 +171,54 @@ impl<'g> GraphTraversalSource<'g> {
     pub fn interner(&self) -> &'g StringInterner {
         self.interner
     }
+
+    // -------------------------------------------------------------------------
+    // Mutation steps (spawning traversals)
+    // -------------------------------------------------------------------------
+
+    /// Start a traversal that creates a new vertex.
+    ///
+    /// This is a **spawning step** - it produces a traverser for the newly
+    /// created vertex. The actual vertex creation happens when a terminal
+    /// step is called.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create a new person vertex
+    /// let vertex = g.add_v("person")
+    ///     .property("name", "Alice")
+    ///     .property("age", 30)
+    ///     .next();
+    /// ```
+    pub fn add_v(&self, label: impl Into<String>) -> BoundTraversal<'g, (), Value> {
+        use crate::traversal::mutation::AddVStep;
+
+        // Create a traversal that starts with add_v step
+        let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
+        traversal = traversal.add_step(AddVStep::new(label));
+        BoundTraversal::new(self.snapshot, self.interner, traversal)
+    }
+
+    /// Start a traversal that creates a new edge.
+    ///
+    /// This is a **spawning step** - it produces a traverser for the newly
+    /// created edge. Both `from` and `to` endpoints must be specified before
+    /// the terminal step is called.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an edge between two vertices
+    /// let edge = g.add_e("knows")
+    ///     .from_vertex(VertexId(1))
+    ///     .to_vertex(VertexId(2))
+    ///     .property("since", 2020)
+    ///     .next();
+    /// ```
+    pub fn add_e(&self, label: impl Into<String>) -> AddEdgeBuilder<'g> {
+        AddEdgeBuilder::new(self.snapshot, self.interner, label.into())
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1811,6 +1859,97 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     }
 
     // -------------------------------------------------------------------------
+    // Mutation steps
+    // -------------------------------------------------------------------------
+
+    /// Add a property to the current element (vertex or edge).
+    ///
+    /// This step adds or updates a property on the current element in the
+    /// traversal. The actual property modification happens when a terminal
+    /// step is called.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Add properties to a newly created vertex
+    /// let v = g.add_v("person")
+    ///     .property("name", "Alice")
+    ///     .property("age", 30)
+    ///     .next();
+    ///
+    /// // Update a property on an existing vertex
+    /// g.v_id(VertexId(1))
+    ///     .property("status", "active")
+    ///     .iterate();
+    /// ```
+    pub fn property(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::mutation::PropertyStep;
+        self.add_step(PropertyStep::new(key, value))
+    }
+
+    /// Delete the current element (vertex or edge).
+    ///
+    /// This step marks the current element for deletion. The actual deletion
+    /// happens when a terminal step is called. When a vertex is deleted, all
+    /// its incident edges are also deleted.
+    ///
+    /// # Behavior
+    ///
+    /// - Consumes the traverser (produces no output for non-mutation execution)
+    /// - Vertex deletion cascades to edge deletion
+    /// - Non-element values are silently ignored
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Delete a specific vertex
+    /// g.v_id(VertexId(1)).drop().iterate();
+    ///
+    /// // Delete all edges of a certain type
+    /// g.e().has_label("temp").drop().iterate();
+    ///
+    /// // Delete vertices matching a condition
+    /// g.v().has_value("status", "deleted").drop().iterate();
+    /// ```
+    pub fn drop(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::mutation::DropStep;
+        self.add_step(DropStep::new())
+    }
+
+    /// Create an edge from the current vertex.
+    ///
+    /// This step creates a new edge starting from the current traverser's
+    /// vertex. The `to` endpoint must be specified using the builder methods.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an edge from the current vertex to a specific vertex
+    /// let edge = g.v_id(VertexId(1))
+    ///     .add_e("knows")
+    ///     .to_vertex(VertexId(2))
+    ///     .property("since", 2020)
+    ///     .next();
+    ///
+    /// // Create an edge to a labeled step
+    /// let edges = g.v()
+    ///     .as_("a")
+    ///     .out("knows")
+    ///     .as_("b")
+    ///     .add_e("friend_of_friend")
+    ///     .from_label("a")
+    ///     .to_label("b")
+    ///     .to_list();
+    /// ```
+    pub fn add_e(self, label: impl Into<String>) -> BoundAddEdgeBuilder<'g, In> {
+        BoundAddEdgeBuilder::from_traversal(self, label.into())
+    }
+
+    // -------------------------------------------------------------------------
     // Repeat step
     // -------------------------------------------------------------------------
 
@@ -2198,6 +2337,259 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
         self.execute()
             .map(|t| t.value)
             .max_by(|a, b| a.to_comparable().cmp(&b.to_comparable()))
+    }
+}
+
+// -----------------------------------------------------------------------------
+// AddEdgeBuilder - Builder for creating edges from GraphTraversalSource
+// -----------------------------------------------------------------------------
+
+/// Builder for creating edges starting from `GraphTraversalSource`.
+///
+/// This builder is returned by `g.add_e(label)` and allows specifying both
+/// the source (`from`) and target (`to`) vertices before creating the edge.
+///
+/// # Example
+///
+/// ```ignore
+/// let edge = g.add_e("knows")
+///     .from_vertex(VertexId(1))
+///     .to_vertex(VertexId(2))
+///     .property("since", 2020)
+///     .next();
+/// ```
+pub struct AddEdgeBuilder<'g> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    label: String,
+    from: Option<crate::traversal::EdgeEndpoint>,
+    to: Option<crate::traversal::EdgeEndpoint>,
+    properties: std::collections::HashMap<String, Value>,
+}
+
+impl<'g> AddEdgeBuilder<'g> {
+    /// Create a new edge builder.
+    fn new(snapshot: &'g GraphSnapshot<'g>, interner: &'g StringInterner, label: String) -> Self {
+        Self {
+            snapshot,
+            interner,
+            label,
+            from: None,
+            to: None,
+            properties: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Set the source vertex by ID.
+    pub fn from_vertex(mut self, id: VertexId) -> Self {
+        self.from = Some(crate::traversal::EdgeEndpoint::VertexId(id));
+        self
+    }
+
+    /// Set the source vertex from a step label.
+    pub fn from_label(mut self, label: impl Into<String>) -> Self {
+        self.from = Some(crate::traversal::EdgeEndpoint::StepLabel(label.into()));
+        self
+    }
+
+    /// Set the target vertex by ID.
+    pub fn to_vertex(mut self, id: VertexId) -> Self {
+        self.to = Some(crate::traversal::EdgeEndpoint::VertexId(id));
+        self
+    }
+
+    /// Set the target vertex from a step label.
+    pub fn to_label(mut self, label: impl Into<String>) -> Self {
+        self.to = Some(crate::traversal::EdgeEndpoint::StepLabel(label.into()));
+        self
+    }
+
+    /// Add a property to the edge.
+    pub fn property(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.properties.insert(key.into(), value.into());
+        self
+    }
+
+    /// Build the traversal and return it.
+    pub fn build(self) -> BoundTraversal<'g, (), Value> {
+        use crate::traversal::mutation::AddEStep;
+
+        let mut step = AddEStep::new(&self.label);
+
+        // Set from endpoint
+        if let Some(from) = self.from {
+            step = match from {
+                crate::traversal::EdgeEndpoint::VertexId(id) => step.from_vertex(id),
+                crate::traversal::EdgeEndpoint::StepLabel(label) => step.from_label(label),
+                crate::traversal::EdgeEndpoint::Traverser => step.from_traverser(),
+            };
+        }
+
+        // Set to endpoint
+        if let Some(to) = self.to {
+            step = match to {
+                crate::traversal::EdgeEndpoint::VertexId(id) => step.to_vertex(id),
+                crate::traversal::EdgeEndpoint::StepLabel(label) => step.to_label(label),
+                crate::traversal::EdgeEndpoint::Traverser => step.to_traverser(),
+            };
+        }
+
+        // Add properties
+        for (key, value) in self.properties {
+            step = step.property(key, value);
+        }
+
+        // Create a traversal that starts with inject to provide input
+        let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
+        traversal = traversal.add_step(step);
+        BoundTraversal::new(self.snapshot, self.interner, traversal)
+    }
+
+    // Terminal methods
+
+    /// Execute and return the first result.
+    pub fn next(self) -> Option<Value> {
+        self.build().next()
+    }
+
+    /// Execute and collect all results into a list.
+    pub fn to_list(self) -> Vec<Value> {
+        self.build().to_list()
+    }
+
+    /// Execute and consume the traversal.
+    pub fn iterate(self) {
+        self.build().iterate()
+    }
+}
+
+// -----------------------------------------------------------------------------
+// BoundAddEdgeBuilder - Builder for creating edges from a traversal position
+// -----------------------------------------------------------------------------
+
+/// Builder for creating edges starting from a vertex in an ongoing traversal.
+///
+/// This builder is returned by `traversal.add_e(label)` and allows specifying
+/// the target (`to`) vertex. The source vertex is implicitly the current
+/// traverser's vertex.
+///
+/// # Example
+///
+/// ```ignore
+/// let edges = g.v_id(VertexId(1))
+///     .add_e("knows")
+///     .to_vertex(VertexId(2))
+///     .property("since", 2020)
+///     .to_list();
+/// ```
+pub struct BoundAddEdgeBuilder<'g, In> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    traversal: Traversal<In, Value>,
+    track_paths: bool,
+    label: String,
+    from: Option<crate::traversal::EdgeEndpoint>,
+    to: Option<crate::traversal::EdgeEndpoint>,
+    properties: std::collections::HashMap<String, Value>,
+}
+
+impl<'g, In> BoundAddEdgeBuilder<'g, In> {
+    /// Create a builder from an existing traversal.
+    fn from_traversal(bound: BoundTraversal<'g, In, Value>, label: String) -> Self {
+        Self {
+            snapshot: bound.snapshot,
+            interner: bound.interner,
+            traversal: bound.traversal,
+            track_paths: bound.track_paths,
+            label,
+            from: Some(crate::traversal::EdgeEndpoint::Traverser), // Default from current traverser
+            to: None,
+            properties: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Set the source vertex by ID (overrides the default current traverser).
+    pub fn from_vertex(mut self, id: VertexId) -> Self {
+        self.from = Some(crate::traversal::EdgeEndpoint::VertexId(id));
+        self
+    }
+
+    /// Set the source vertex from a step label (overrides the default current traverser).
+    pub fn from_label(mut self, label: impl Into<String>) -> Self {
+        self.from = Some(crate::traversal::EdgeEndpoint::StepLabel(label.into()));
+        self
+    }
+
+    /// Set the target vertex by ID.
+    pub fn to_vertex(mut self, id: VertexId) -> Self {
+        self.to = Some(crate::traversal::EdgeEndpoint::VertexId(id));
+        self
+    }
+
+    /// Set the target vertex from a step label.
+    pub fn to_label(mut self, label: impl Into<String>) -> Self {
+        self.to = Some(crate::traversal::EdgeEndpoint::StepLabel(label.into()));
+        self
+    }
+
+    /// Add a property to the edge.
+    pub fn property(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.properties.insert(key.into(), value.into());
+        self
+    }
+
+    /// Build the traversal and return it.
+    pub fn build(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::mutation::AddEStep;
+
+        let mut step = AddEStep::new(&self.label);
+
+        // Set from endpoint
+        if let Some(from) = self.from {
+            step = match from {
+                crate::traversal::EdgeEndpoint::VertexId(id) => step.from_vertex(id),
+                crate::traversal::EdgeEndpoint::StepLabel(label) => step.from_label(label),
+                crate::traversal::EdgeEndpoint::Traverser => step.from_traverser(),
+            };
+        }
+
+        // Set to endpoint
+        if let Some(to) = self.to {
+            step = match to {
+                crate::traversal::EdgeEndpoint::VertexId(id) => step.to_vertex(id),
+                crate::traversal::EdgeEndpoint::StepLabel(label) => step.to_label(label),
+                crate::traversal::EdgeEndpoint::Traverser => step.to_traverser(),
+            };
+        }
+
+        // Add properties
+        for (key, value) in self.properties {
+            step = step.property(key, value);
+        }
+
+        BoundTraversal {
+            snapshot: self.snapshot,
+            interner: self.interner,
+            traversal: self.traversal.add_step(step),
+            track_paths: self.track_paths,
+        }
+    }
+
+    // Terminal methods
+
+    /// Execute and return the first result.
+    pub fn next(self) -> Option<Value> {
+        self.build().next()
+    }
+
+    /// Execute and collect all results into a list.
+    pub fn to_list(self) -> Vec<Value> {
+        self.build().to_list()
+    }
+
+    /// Execute and consume the traversal.
+    pub fn iterate(self) {
+        self.build().iterate()
     }
 }
 

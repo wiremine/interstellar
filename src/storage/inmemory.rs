@@ -55,7 +55,7 @@ use roaring::RoaringBitmap;
 
 use crate::error::StorageError;
 use crate::storage::interner::StringInterner;
-use crate::storage::{Edge, GraphStorage, Vertex};
+use crate::storage::{Edge, GraphStorage, GraphStorageMut, Vertex};
 use crate::value::{EdgeId, Value, VertexId};
 
 /// In-memory graph storage with HashMap-based lookups.
@@ -469,6 +469,106 @@ impl InMemoryGraph {
 
         Ok(())
     }
+
+    /// Sets or updates a property on a vertex.
+    ///
+    /// If the property already exists, its value is replaced.
+    /// If it doesn't exist, it is created.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The vertex ID
+    /// * `key` - The property key
+    /// * `value` - The new property value
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::VertexNotFound`] if the vertex doesn't exist.
+    ///
+    /// # Complexity
+    ///
+    /// O(1) amortized.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use rustgremlin::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut graph = InMemoryGraph::new();
+    /// let id = graph.add_vertex("person", HashMap::new());
+    ///
+    /// graph.set_vertex_property(id, "name", Value::String("Alice".into())).unwrap();
+    ///
+    /// let vertex = graph.get_vertex(id).unwrap();
+    /// assert_eq!(vertex.properties.get("name"), Some(&Value::String("Alice".into())));
+    /// ```
+    pub fn set_vertex_property(
+        &mut self,
+        id: VertexId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError> {
+        let node = self
+            .nodes
+            .get_mut(&id)
+            .ok_or(StorageError::VertexNotFound(id))?;
+
+        node.properties.insert(key.to_string(), value);
+        Ok(())
+    }
+
+    /// Sets or updates a property on an edge.
+    ///
+    /// If the property already exists, its value is replaced.
+    /// If it doesn't exist, it is created.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The edge ID
+    /// * `key` - The property key
+    /// * `value` - The new property value
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::EdgeNotFound`] if the edge doesn't exist.
+    ///
+    /// # Complexity
+    ///
+    /// O(1) amortized.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use rustgremlin::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut graph = InMemoryGraph::new();
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// graph.set_edge_property(edge_id, "since", Value::Int(2020)).unwrap();
+    ///
+    /// let edge = graph.get_edge(edge_id).unwrap();
+    /// assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+    /// ```
+    pub fn set_edge_property(
+        &mut self,
+        id: EdgeId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError> {
+        let edge = self
+            .edges
+            .get_mut(&id)
+            .ok_or(StorageError::EdgeNotFound(id))?;
+
+        edge.properties.insert(key.to_string(), value);
+        Ok(())
+    }
 }
 
 impl Default for InMemoryGraph {
@@ -583,6 +683,48 @@ impl GraphStorage for InMemoryGraph {
     /// Get the string interner for label resolution
     fn interner(&self) -> &StringInterner {
         &self.string_table
+    }
+}
+
+impl GraphStorageMut for InMemoryGraph {
+    fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId {
+        InMemoryGraph::add_vertex(self, label, properties)
+    }
+
+    fn add_edge(
+        &mut self,
+        src: VertexId,
+        dst: VertexId,
+        label: &str,
+        properties: HashMap<String, Value>,
+    ) -> Result<EdgeId, StorageError> {
+        InMemoryGraph::add_edge(self, src, dst, label, properties)
+    }
+
+    fn set_vertex_property(
+        &mut self,
+        id: VertexId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError> {
+        InMemoryGraph::set_vertex_property(self, id, key, value)
+    }
+
+    fn set_edge_property(
+        &mut self,
+        id: EdgeId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError> {
+        InMemoryGraph::set_edge_property(self, id, key, value)
+    }
+
+    fn remove_vertex(&mut self, id: VertexId) -> Result<(), StorageError> {
+        InMemoryGraph::remove_vertex(self, id)
+    }
+
+    fn remove_edge(&mut self, id: EdgeId) -> Result<(), StorageError> {
+        InMemoryGraph::remove_edge(self, id)
     }
 }
 

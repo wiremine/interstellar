@@ -171,6 +171,87 @@ pub enum TraversalError {
     /// This wraps a [`StorageError`] that occurred while executing the traversal.
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+
+    /// A mutation operation failed during traversal.
+    ///
+    /// This wraps a [`MutationError`] that occurred while executing a mutation step.
+    #[error("mutation error: {0}")]
+    Mutation(#[from] MutationError),
+}
+
+/// Errors that can occur during mutation operations.
+///
+/// `MutationError` represents failures during graph mutation steps such as
+/// `addV()`, `addE()`, `property()`, and `drop()`.
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::prelude::*;
+/// use rustgremlin::storage::InMemoryGraph;
+/// use std::collections::HashMap;
+///
+/// let mut storage = InMemoryGraph::new();
+/// let alice = storage.add_vertex("person", HashMap::new());
+///
+/// // Creating an edge with a non-existent target would fail
+/// // with MutationError::EdgeTargetNotFound
+/// ```
+#[derive(Debug, thiserror::Error)]
+pub enum MutationError {
+    /// The source vertex for edge creation was not found.
+    ///
+    /// This occurs when attempting to create an edge from a vertex
+    /// that doesn't exist in the graph.
+    #[error("edge source vertex not found: {0:?}")]
+    EdgeSourceNotFound(VertexId),
+
+    /// The target vertex for edge creation was not found.
+    ///
+    /// This occurs when attempting to create an edge to a vertex
+    /// that doesn't exist in the graph.
+    #[error("edge target vertex not found: {0:?}")]
+    EdgeTargetNotFound(VertexId),
+
+    /// A required edge endpoint (from or to) was not specified.
+    ///
+    /// The contained string indicates which endpoint is missing:
+    /// "from" or "to".
+    #[error("missing edge endpoint: {0}")]
+    MissingEdgeEndpoint(&'static str),
+
+    /// A traversal used as an edge endpoint yielded no vertices.
+    ///
+    /// When using a traversal to specify an edge endpoint (via `from_traversal`
+    /// or `to_traversal`), the traversal must yield exactly one vertex.
+    #[error("traversal yielded no vertices for edge endpoint")]
+    EmptyTraversalEndpoint,
+
+    /// A traversal used as an edge endpoint yielded multiple vertices.
+    ///
+    /// When using a traversal to specify an edge endpoint (via `from_traversal`
+    /// or `to_traversal`), the traversal must yield exactly one vertex.
+    #[error("traversal yielded multiple vertices for edge endpoint")]
+    AmbiguousTraversalEndpoint,
+
+    /// A step label referenced in edge creation was not found in the path.
+    ///
+    /// When using `from_label` or `to_label` to reference a previously labeled
+    /// step via `as_()`, the label must exist in the traverser's path.
+    #[error("step label not found: {0}")]
+    StepLabelNotFound(String),
+
+    /// The labeled step value is not a vertex.
+    ///
+    /// When using `from_label` or `to_label`, the labeled value must be a vertex.
+    #[error("step label '{0}' does not reference a vertex")]
+    StepLabelNotVertex(String),
+
+    /// A storage operation failed during mutation.
+    ///
+    /// This wraps a [`StorageError`] that occurred during the mutation.
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
 }
 
 #[cfg(test)]

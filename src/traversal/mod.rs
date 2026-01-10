@@ -21,6 +21,7 @@ pub mod aggregate;
 pub mod branch;
 pub mod context;
 pub mod filter;
+pub mod mutation;
 pub mod navigation;
 pub mod predicate;
 pub mod repeat;
@@ -40,6 +41,10 @@ pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
     CyclicPathStep, DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep,
     HasValueStep, HasWhereStep, IsStep, LimitStep, RangeStep, SimplePathStep, SkipStep,
+};
+pub use mutation::{
+    AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
+    PropertyStep,
 };
 pub use navigation::{
     BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,

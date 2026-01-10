@@ -2264,3 +2264,442 @@ fn test_error_remove_nonexistent_edge() {
         Ok(_) => panic!("Expected error, got success"),
     }
 }
+
+// =============================================================================
+// Phase 10: Mutation Tests for MmapGraph
+// =============================================================================
+
+use rustgremlin::traversal::{MutationExecutor, PendingMutation};
+
+/// Test that set_vertex_property adds a new property to an existing vertex.
+#[test]
+fn test_set_vertex_property_adds_new_property() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a vertex with initial properties
+    let v = graph
+        .add_vertex(
+            "person",
+            HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+        )
+        .expect("add vertex");
+
+    // Add a new property
+    graph
+        .set_vertex_property(v, "age", Value::Int(30))
+        .expect("set property");
+
+    // Verify both properties exist
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+}
+
+/// Test that set_vertex_property updates an existing property.
+#[test]
+fn test_set_vertex_property_updates_existing() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a vertex with initial properties
+    let v = graph
+        .add_vertex(
+            "person",
+            HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+        )
+        .expect("add vertex");
+
+    // Update the existing property
+    graph
+        .set_vertex_property(v, "name", Value::String("Bob".to_string()))
+        .expect("set property");
+
+    // Verify property was updated
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Bob".to_string()))
+    );
+}
+
+/// Test that set_edge_property adds a new property to an existing edge.
+#[test]
+fn test_set_edge_property_adds_new_property() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create vertices and edge
+    let v1 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let v2 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let e = graph
+        .add_edge(
+            v1,
+            v2,
+            "knows",
+            HashMap::from([("since".to_string(), Value::Int(2020))]),
+        )
+        .expect("add edge");
+
+    // Add a new property
+    graph
+        .set_edge_property(e, "weight", Value::Float(0.8))
+        .expect("set property");
+
+    // Verify both properties exist
+    let edge = graph.get_edge(e).expect("get edge");
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+    assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.8)));
+}
+
+/// Test that set_edge_property updates an existing property.
+#[test]
+fn test_set_edge_property_updates_existing() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create vertices and edge
+    let v1 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let v2 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let e = graph
+        .add_edge(
+            v1,
+            v2,
+            "knows",
+            HashMap::from([("since".to_string(), Value::Int(2020))]),
+        )
+        .expect("add edge");
+
+    // Update the existing property
+    graph
+        .set_edge_property(e, "since", Value::Int(2021))
+        .expect("set property");
+
+    // Verify property was updated
+    let edge = graph.get_edge(e).expect("get edge");
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2021)));
+}
+
+/// Test that property updates persist across checkpoint and reopen.
+#[test]
+fn test_property_updates_persist_across_reopen() {
+    let (_dir, db_path) = temp_db();
+
+    let (v, e) = {
+        let graph = MmapGraph::open(&db_path).expect("open graph");
+
+        // Create vertex and edge
+        let v = graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+            )
+            .expect("add vertex");
+        let v2 = graph
+            .add_vertex("person", HashMap::new())
+            .expect("add vertex");
+        let e = graph
+            .add_edge(v, v2, "knows", HashMap::new())
+            .expect("add edge");
+
+        // Update properties
+        graph
+            .set_vertex_property(v, "age", Value::Int(30))
+            .expect("set vertex property");
+        graph
+            .set_edge_property(e, "weight", Value::Float(0.5))
+            .expect("set edge property");
+
+        graph.checkpoint().expect("checkpoint");
+        (v, e)
+    };
+
+    // Reopen and verify
+    let graph = MmapGraph::open(&db_path).expect("reopen graph");
+
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+
+    let edge = graph.get_edge(e).expect("get edge");
+    assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.5)));
+}
+
+/// Test that MmapGraph implements GraphStorageMut and works with MutationExecutor.
+#[test]
+fn test_mmap_graph_storage_mut_trait() {
+    let (_dir, db_path) = temp_db();
+    let mut graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create pending add_v mutation
+    let add_v = PendingMutation::AddVertex {
+        label: "person".to_string(),
+        properties: HashMap::from([
+            ("name".to_string(), Value::String("Charlie".to_string())),
+            ("age".to_string(), Value::Int(35)),
+        ]),
+    };
+
+    // Execute mutation using MutationExecutor with MmapGraph
+    let mut executor = MutationExecutor::new(&mut graph);
+    let result = executor.execute_mutation(add_v);
+
+    // Verify vertex was created
+    assert!(result.is_some());
+    if let Some(Value::Vertex(id)) = result {
+        let vertex = graph.get_vertex(id).expect("Vertex should exist");
+        assert_eq!(vertex.label, "person");
+        assert_eq!(
+            vertex.properties.get("name"),
+            Some(&Value::String("Charlie".to_string()))
+        );
+        assert_eq!(vertex.properties.get("age"), Some(&Value::Int(35)));
+    } else {
+        panic!("Expected Value::Vertex");
+    }
+}
+
+/// Test that MutationExecutor can add edges with MmapGraph.
+#[test]
+fn test_mmap_mutation_executor_adds_edge() {
+    let (_dir, db_path) = temp_db();
+    let mut graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // First create vertices
+    let v1 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let v2 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+
+    // Create pending add_e mutation
+    let add_e = PendingMutation::AddEdge {
+        label: "knows".to_string(),
+        from: v1,
+        to: v2,
+        properties: HashMap::from([("since".to_string(), Value::Int(2024))]),
+    };
+
+    // Execute mutation
+    let mut executor = MutationExecutor::new(&mut graph);
+    let result = executor.execute_mutation(add_e);
+
+    // Verify edge was created
+    assert!(result.is_some());
+    if let Some(Value::Edge(id)) = result {
+        let edge = graph.get_edge(id).expect("Edge should exist");
+        assert_eq!(edge.label, "knows");
+        assert_eq!(edge.src, v1);
+        assert_eq!(edge.dst, v2);
+        assert_eq!(edge.properties.get("since"), Some(&Value::Int(2024)));
+    } else {
+        panic!("Expected Value::Edge");
+    }
+}
+
+/// Test that MutationExecutor can update vertex properties with MmapGraph.
+#[test]
+fn test_mmap_mutation_executor_sets_vertex_property() {
+    let (_dir, db_path) = temp_db();
+    let mut graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a vertex
+    let v = graph
+        .add_vertex(
+            "person",
+            HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+        )
+        .expect("add vertex");
+
+    // Create pending property mutation
+    let set_prop = PendingMutation::SetVertexProperty {
+        id: v,
+        key: "email".to_string(),
+        value: Value::String("alice@example.com".to_string()),
+    };
+
+    // Execute mutation
+    let mut executor = MutationExecutor::new(&mut graph);
+    executor.execute_mutation(set_prop);
+
+    // Verify property was set
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("email"),
+        Some(&Value::String("alice@example.com".to_string()))
+    );
+}
+
+/// Test that MutationExecutor can update edge properties with MmapGraph.
+#[test]
+fn test_mmap_mutation_executor_sets_edge_property() {
+    let (_dir, db_path) = temp_db();
+    let mut graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create vertices and edge
+    let v1 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let v2 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let e = graph
+        .add_edge(v1, v2, "knows", HashMap::new())
+        .expect("add edge");
+
+    // Create pending property mutation
+    let set_prop = PendingMutation::SetEdgeProperty {
+        id: e,
+        key: "strength".to_string(),
+        value: Value::Float(0.9),
+    };
+
+    // Execute mutation
+    let mut executor = MutationExecutor::new(&mut graph);
+    executor.execute_mutation(set_prop);
+
+    // Verify property was set
+    let edge = graph.get_edge(e).expect("get edge");
+    assert_eq!(edge.properties.get("strength"), Some(&Value::Float(0.9)));
+}
+
+/// Test that MutationExecutor can remove vertices with MmapGraph.
+#[test]
+fn test_mmap_mutation_executor_removes_vertex() {
+    let (_dir, db_path) = temp_db();
+    let mut graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create a vertex
+    let v = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    assert!(graph.get_vertex(v).is_some());
+
+    // Create pending drop mutation
+    let drop_v = PendingMutation::DropVertex { id: v };
+
+    // Execute mutation
+    let mut executor = MutationExecutor::new(&mut graph);
+    executor.execute_mutation(drop_v);
+
+    // Verify vertex was removed
+    assert!(graph.get_vertex(v).is_none());
+}
+
+/// Test that MutationExecutor can remove edges with MmapGraph.
+#[test]
+fn test_mmap_mutation_executor_removes_edge() {
+    let (_dir, db_path) = temp_db();
+    let mut graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Create vertices and edge
+    let v1 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let v2 = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+    let e = graph
+        .add_edge(v1, v2, "knows", HashMap::new())
+        .expect("add edge");
+    assert!(graph.get_edge(e).is_some());
+
+    // Create pending drop mutation
+    let drop_e = PendingMutation::DropEdge { id: e };
+
+    // Execute mutation
+    let mut executor = MutationExecutor::new(&mut graph);
+    executor.execute_mutation(drop_e);
+
+    // Verify edge was removed
+    assert!(graph.get_edge(e).is_none());
+}
+
+/// Test set_vertex_property on non-existent vertex returns error.
+#[test]
+fn test_set_vertex_property_nonexistent_vertex() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Try to set property on non-existent vertex
+    let result = graph.set_vertex_property(VertexId(999), "key", Value::Int(1));
+
+    assert!(result.is_err());
+    match result {
+        Err(StorageError::VertexNotFound(id)) => {
+            assert_eq!(id, VertexId(999));
+        }
+        Err(e) => panic!("Expected VertexNotFound, got {:?}", e),
+        Ok(_) => panic!("Expected error"),
+    }
+}
+
+/// Test set_edge_property on non-existent edge returns error.
+#[test]
+fn test_set_edge_property_nonexistent_edge() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Try to set property on non-existent edge
+    let result = graph.set_edge_property(EdgeId(999), "key", Value::Int(1));
+
+    assert!(result.is_err());
+    match result {
+        Err(StorageError::EdgeNotFound(id)) => {
+            assert_eq!(id, EdgeId(999));
+        }
+        Err(e) => panic!("Expected EdgeNotFound, got {:?}", e),
+        Ok(_) => panic!("Expected error"),
+    }
+}
+
+/// Test multiple property updates on same vertex.
+#[test]
+fn test_multiple_property_updates_same_vertex() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let v = graph
+        .add_vertex("person", HashMap::new())
+        .expect("add vertex");
+
+    // Add multiple properties
+    graph
+        .set_vertex_property(v, "name", Value::String("Alice".to_string()))
+        .expect("set name");
+    graph
+        .set_vertex_property(v, "age", Value::Int(30))
+        .expect("set age");
+    graph
+        .set_vertex_property(v, "active", Value::Bool(true))
+        .expect("set active");
+
+    // Update one of them
+    graph
+        .set_vertex_property(v, "age", Value::Int(31))
+        .expect("update age");
+
+    // Verify all properties
+    let vertex = graph.get_vertex(v).expect("get vertex");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(31)));
+    assert_eq!(vertex.properties.get("active"), Some(&Value::Bool(true)));
+}
