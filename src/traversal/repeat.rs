@@ -1013,6 +1013,27 @@ impl<'g, In> RepeatTraversal<'g, In> {
     pub fn identity(self) -> BoundTraversal<'g, In, Value> {
         self.finalize()
     }
+
+    /// Get the loop count for each traverser.
+    ///
+    /// Returns the number of times the repeat loop has iterated for each
+    /// traverser. This is particularly useful for understanding how many
+    /// hops were required to reach a particular vertex.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get loop counts for vertices reached in repeat
+    /// g.v().has_value("name", "Alice")
+    ///     .repeat(__.out_labels(&["knows"]))
+    ///     .times(2)
+    ///     .emit()
+    ///     .loops()
+    ///     .to_list()
+    /// ```
+    pub fn loops(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().loops()
+    }
 }
 
 impl<'g, In> std::fmt::Debug for RepeatTraversal<'g, In> {

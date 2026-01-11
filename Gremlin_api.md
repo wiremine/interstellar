@@ -124,14 +124,15 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `properties(key...)` | `properties_keys(keys)` | `traversal::transform` |
 | `values(key)` | `values(key)` | `traversal::transform` |
 | `values(key...)` | `values_multi(keys)` | `traversal::transform` |
-| `propertyMap()` | - | - |
+| `propertyMap()` | `property_map()` | `traversal::transform` |
+| `propertyMap(key...)` | `property_map_keys(keys)` | `traversal::transform` |
 | `valueMap()` | `value_map()` | `traversal::transform` |
 | `valueMap(key...)` | `value_map_keys(keys)` | `traversal::transform` |
 | `valueMap(true)` | `value_map_with_tokens()` | `traversal::transform` |
 | `elementMap()` | `element_map()` | `traversal::transform` |
 | `elementMap(key...)` | `element_map_keys(keys)` | `traversal::transform` |
-| `key()` | - | - |
-| `value()` | - | - |
+| `key()` | `key()` | `traversal::transform` |
+| `value()` | `value()` | `traversal::transform` |
 | `path()` | `path()` | `traversal::transform` |
 | `select(labels...)` | `select(labels)` | `traversal::transform` |
 | `select(label)` | `select_one(label)` | `traversal::transform` |
@@ -147,8 +148,8 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `order().by(key)` | `order().by_key_asc(key).build()` | `traversal::transform` |
 | `order().by(key, desc)` | `order().by_key_desc(key).build()` | `traversal::transform` |
 | `math(expression)` | `math(expression).build()` | `traversal::transform` |
-| `index()` | - | - |
-| `loops()` | - | - |
+| `index()` | `index()` | `traversal::transform` |
+| `loops()` | `loops()` | `traversal::transform` |
 
 ---
 
@@ -188,7 +189,7 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `repeat().until(traversal)` | `repeat().until(traversal)` | `traversal::repeat` |
 | `repeat().emit()` | `repeat().emit()` | `traversal::repeat` |
 | `repeat().emit(traversal)` | `repeat().emit_if(traversal)` | `traversal::repeat` |
-| `loops()` | - | - |
+| `loops()` | `loops()` | `traversal::repeat` |
 
 ---
 
@@ -347,7 +348,9 @@ let names = __::values("name");
 - `__::properties()`, `__::properties_keys()`
 - `__::value_map()`, `__::value_map_keys()`, `__::value_map_with_tokens()`
 - `__::element_map()`, `__::element_map_keys()`
+- `__::property_map()`, `__::property_map_keys()`
 - `__::id()`, `__::label()`, `__::constant()`, `__::path()`
+- `__::key()`, `__::value()`, `__::index()`, `__::loops()`
 - `__::unfold()`, `__::mean()`, `__::order()`, `__::math()`, `__::project()`
 - `__::map()`, `__::flat_map()`
 
@@ -557,13 +560,13 @@ The following Gremlin features are not currently planned for support:
 | Source Steps | 5 | 0 |
 | Filter Steps | 34 | 1 |
 | Navigation Steps | 16 | 0 |
-| Transform/Map Steps | 25 | 5 |
+| Transform/Map Steps | 30 | 0 |
 | Aggregation Steps | 6 | 0 |
 | Branch Steps | 5 | 2 |
-| Repeat Steps | 5 | 1 |
+| Repeat Steps | 6 | 0 |
 | Side Effect Steps | 1 | 5 |
 | Mutation Steps | 6 | 2 |
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 7 | 0 |
-| **Total** | **~131** | **~20** |
+| **Total** | **~137** | **~14** |
