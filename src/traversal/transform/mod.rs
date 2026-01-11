@@ -4,7 +4,7 @@ pub use functional::{
     BoundMathBuilder, BoundProjectBuilder, FlatMapStep, MapStep, MathBuilder, MathStep,
     ProjectBuilder, ProjectStep, Projection,
 };
-pub use metadata::{IdStep, LabelStep};
+pub use metadata::{IdStep, KeyStep, LabelStep, LoopsStep, ValueStep};
 pub use order::{BoundOrderBuilder, Order, OrderBuilder, OrderKey, OrderStep};
 pub use path::{AsStep, PathStep, SelectStep};
 pub use properties::{ElementMapStep, PropertiesStep, ValueMapStep};

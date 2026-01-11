@@ -1363,6 +1363,77 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(LabelStep::new())
     }
 
+    /// Extract the key from property map objects.
+    ///
+    /// For each input property map (from `properties()` step), extracts the "key" field.
+    /// Non-map values and maps without a "key" field are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all property keys for person vertices
+    /// let keys = g.v().has_label("person").properties().key().to_list();
+    ///
+    /// // Get unique property keys
+    /// let unique_keys = g.v().properties().key().dedup().to_list();
+    /// ```
+    pub fn key(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::KeyStep;
+        self.add_step(KeyStep::new())
+    }
+
+    /// Extract the value from property map objects.
+    ///
+    /// For each input property map (from `properties()` step), extracts the "value" field.
+    /// Non-map values and maps without a "value" field are filtered out.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get all property values for person vertices
+    /// let values = g.v().has_label("person").properties().value().to_list();
+    ///
+    /// // Get property values for specific keys
+    /// let ages = g.v().properties_keys(&["age"]).value().to_list();
+    /// ```
+    pub fn value(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::ValueStep;
+        self.add_step(ValueStep::new())
+    }
+
+    /// Extract the current loop depth from traversers.
+    ///
+    /// Returns the loop count stored in each traverser as `Value::Int`.
+    /// Outside of a repeat loop, this returns 0.
+    ///
+    /// # Note
+    ///
+    /// Uses 0-based indexing (first iteration = 0), which differs from
+    /// Gremlin's 1-based indexing.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get loop depth at each emit
+    /// let depths = g.v()
+    ///     .has_label("person")
+    ///     .repeat(__::out())
+    ///     .times(3)
+    ///     .emit()
+    ///     .loops()
+    ///     .to_list();
+    ///
+    /// // Use in until condition
+    /// let vertices = g.v()
+    ///     .repeat(__::out())
+    ///     .until(__::loops().is_(p::gte(3)))
+    ///     .to_list();
+    /// ```
+    pub fn loops(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::LoopsStep;
+        self.add_step(LoopsStep::new())
+    }
+
     /// Extract all properties from vertices/edges.
     ///
     /// For each input element, extracts all properties as Maps containing

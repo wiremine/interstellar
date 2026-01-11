@@ -56,9 +56,10 @@ pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
-    AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep,
-    MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep, PathStep, ProjectBuilder,
-    ProjectStep, Projection, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep, ValuesStep,
+    AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, KeyStep,
+    LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep, PathStep,
+    ProjectBuilder, ProjectStep, Projection, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep,
+    ValueStep, ValuesStep,
 };
 
 // Re-export macros
@@ -2515,9 +2516,9 @@ pub mod __ {
     use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
-        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, LabelStep, MapStep,
-        OrderBuilder, PathStep, ProjectBuilder, PropertiesStep, SelectStep, UnfoldStep,
-        ValueMapStep, ValuesStep,
+        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, KeyStep, LabelStep, LoopsStep,
+        MapStep, OrderBuilder, PathStep, ProjectBuilder, PropertiesStep, SelectStep, UnfoldStep,
+        ValueMapStep, ValueStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -3562,6 +3563,46 @@ pub mod __ {
     #[inline]
     pub fn label() -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(LabelStep::new())
+    }
+
+    /// Extract the key from property map objects.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let keys = __::key();
+    /// ```
+    #[inline]
+    pub fn key() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(KeyStep::new())
+    }
+
+    /// Extract the value from property map objects.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let values = __::value();
+    /// ```
+    #[inline]
+    pub fn value() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(ValueStep::new())
+    }
+
+    /// Extract the current loop depth.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Use in until condition
+    /// let vertices = g.v()
+    ///     .repeat(__::out())
+    ///     .until(__::loops().is_(p::gte(3)))
+    ///     .to_list();
+    /// ```
+    #[inline]
+    pub fn loops() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(LoopsStep::new())
     }
 
     /// Replace values with a constant.

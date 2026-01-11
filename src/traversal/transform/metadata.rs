@@ -135,6 +135,202 @@ impl crate::traversal::step::AnyStep for LabelStep {
     }
 }
 
+// -----------------------------------------------------------------------------
+// KeyStep - extract property key from property objects
+// -----------------------------------------------------------------------------
+
+/// Transform step that extracts the key from property map objects.
+///
+/// This step is designed to work with the output of `properties()`, which produces
+/// `Value::Map` objects containing "key" and "value" entries. `KeyStep` extracts
+/// the "key" field from these property objects.
+///
+/// # Behavior
+///
+/// - For `Value::Map` with a "key" field: returns the value of the "key" field
+/// - For all other values: filtered out (produces no output)
+///
+/// # Example
+///
+/// ```ignore
+/// // Get all property keys for person vertices
+/// let keys = g.v().has_label("person").properties().key().to_list();
+/// // Returns: ["name", "age", "name", "age", ...]
+///
+/// // Get unique property keys
+/// let unique_keys = g.v().properties().key().dedup().to_list();
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct KeyStep;
+
+impl KeyStep {
+    /// Create a new KeyStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::AnyStep for KeyStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.filter_map(|traverser| {
+            match &traverser.value {
+                Value::Map(map) => {
+                    // Extract the "key" field from property objects
+                    map.get("key").cloned().map(|key| traverser.split(key))
+                }
+                // Non-map values are filtered out
+                _ => None,
+            }
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "key"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ValueStep - extract property value from property objects
+// -----------------------------------------------------------------------------
+
+/// Transform step that extracts the value from property map objects.
+///
+/// This step is designed to work with the output of `properties()`, which produces
+/// `Value::Map` objects containing "key" and "value" entries. `ValueStep` extracts
+/// the "value" field from these property objects.
+///
+/// # Behavior
+///
+/// - For `Value::Map` with a "value" field: returns the value of the "value" field
+/// - For all other values: filtered out (produces no output)
+///
+/// # Example
+///
+/// ```ignore
+/// // Get all property values for person vertices
+/// let values = g.v().has_label("person").properties().value().to_list();
+/// // Returns: ["Alice", 30, "Bob", 25, ...]
+///
+/// // Get property values for specific keys
+/// let ages = g.v().properties_keys(&["age"]).value().to_list();
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ValueStep;
+
+impl ValueStep {
+    /// Create a new ValueStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::AnyStep for ValueStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.filter_map(|traverser| {
+            match &traverser.value {
+                Value::Map(map) => {
+                    // Extract the "value" field from property objects
+                    map.get("value").cloned().map(|val| traverser.split(val))
+                }
+                // Non-map values are filtered out
+                _ => None,
+            }
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "value"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// LoopsStep - get current loop depth from traverser
+// -----------------------------------------------------------------------------
+
+/// Transform step that extracts the current loop depth from traversers.
+///
+/// This step returns the loop count stored in each traverser, which is incremented
+/// by `repeat()` operations. Outside of a repeat loop, the value is 0.
+///
+/// # Behavior
+///
+/// - Returns `Value::Int` representing the current loop iteration count
+/// - Uses 0-based indexing (first iteration = 0, second = 1, etc.)
+/// - Outside of repeat: returns 0
+/// - 1:1 mapping, no filtering - every input produces exactly one output
+///
+/// # Example
+///
+/// ```ignore
+/// // Get loop depth at each emit
+/// let depths = g.v()
+///     .has_label("person")
+///     .repeat(__::out())
+///     .times(3)
+///     .emit()
+///     .loops()
+///     .to_list();
+/// // Returns: [0, 0, 0, 1, 1, 2, ...] (loop depths when emitted)
+///
+/// // Use in until condition
+/// let vertices = g.v()
+///     .repeat(__::out())
+///     .until(__::loops().is_(p::gte(3)))
+///     .to_list();
+/// ```
+///
+/// # Note
+///
+/// This uses 0-based indexing which differs from Gremlin's 1-based indexing.
+/// In Gremlin, `loops()` returns 1 on the first iteration, while here it returns 0.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LoopsStep;
+
+impl LoopsStep {
+    /// Create a new LoopsStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::AnyStep for LoopsStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.map(|traverser| {
+            // Extract the loops count and convert to Value::Int
+            let loops = traverser.loops as i64;
+            traverser.split(Value::Int(loops))
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "loops"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -832,6 +1028,1047 @@ mod tests {
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
+        }
+    }
+
+    // =========================================================================
+    // KeyStep Tests
+    // =========================================================================
+
+    /// Helper to create a property map object (mimics properties() step output)
+    fn create_property_map(key: &str, value: Value) -> Value {
+        let mut map = std::collections::HashMap::new();
+        map.insert("key".to_string(), Value::String(key.to_string()));
+        map.insert("value".to_string(), value);
+        Value::Map(map)
+    }
+
+    mod key_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step() {
+            let step = KeyStep::new();
+            assert_eq!(step.name(), "key");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = KeyStep::default();
+            assert_eq!(step.name(), "key");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = KeyStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "key");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = KeyStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("KeyStep"));
+        }
+    }
+
+    mod key_step_property_map_tests {
+        use super::*;
+
+        #[test]
+        fn extracts_key_from_property_map() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let prop_map = create_property_map("name", Value::String("Alice".to_string()));
+            let input = vec![Traverser::new(prop_map)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("name".to_string()));
+        }
+
+        #[test]
+        fn extracts_keys_from_multiple_property_maps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::new(create_property_map("active", Value::Bool(true))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::String("name".to_string()));
+            assert_eq!(output[1].value, Value::String("age".to_string()));
+            assert_eq!(output[2].value, Value::String("active".to_string()));
+        }
+
+        #[test]
+        fn handles_map_without_key_field() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            // Map without "key" field
+            let mut map = std::collections::HashMap::new();
+            map.insert("value".to_string(), Value::String("test".to_string()));
+            let input = vec![Traverser::new(Value::Map(map))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn handles_empty_map() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::new(Value::Map(std::collections::HashMap::new()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    mod key_step_non_map_tests {
+        use super::*;
+
+        #[test]
+        fn filters_out_vertex_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_edge_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_integer_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_string_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::new(Value::String("hello".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_null_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::new(Value::Null)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_list_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![Traverser::new(Value::List(vec![
+                Value::Int(1),
+                Value::Int(2),
+            ]))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn mixed_maps_and_non_maps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(Value::Int(42)), // filtered out
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::from_vertex(VertexId(0)), // filtered out
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("name".to_string()));
+            assert_eq!(output[1].value, Value::String("age".to_string()));
+        }
+    }
+
+    mod key_step_metadata_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_path_from_input_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.extend_path_labeled("start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod key_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = KeyStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    // =========================================================================
+    // ValueStep Tests
+    // =========================================================================
+
+    mod value_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step() {
+            let step = ValueStep::new();
+            assert_eq!(step.name(), "value");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = ValueStep::default();
+            assert_eq!(step.name(), "value");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = ValueStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "value");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = ValueStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("ValueStep"));
+        }
+    }
+
+    mod value_step_property_map_tests {
+        use super::*;
+
+        #[test]
+        fn extracts_value_from_property_map() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let prop_map = create_property_map("name", Value::String("Alice".to_string()));
+            let input = vec![Traverser::new(prop_map)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::String("Alice".to_string()));
+        }
+
+        #[test]
+        fn extracts_integer_value() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let prop_map = create_property_map("age", Value::Int(30));
+            let input = vec![Traverser::new(prop_map)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(30));
+        }
+
+        #[test]
+        fn extracts_float_value() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let prop_map = create_property_map("weight", Value::Float(0.8));
+            let input = vec![Traverser::new(prop_map)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Float(0.8));
+        }
+
+        #[test]
+        fn extracts_boolean_value() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let prop_map = create_property_map("active", Value::Bool(true));
+            let input = vec![Traverser::new(prop_map)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Bool(true));
+        }
+
+        #[test]
+        fn extracts_values_from_multiple_property_maps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::new(create_property_map("active", Value::Bool(true))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::String("Alice".to_string()));
+            assert_eq!(output[1].value, Value::Int(30));
+            assert_eq!(output[2].value, Value::Bool(true));
+        }
+
+        #[test]
+        fn handles_null_value_in_property_map() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let prop_map = create_property_map("nothing", Value::Null);
+            let input = vec![Traverser::new(prop_map)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Null);
+        }
+
+        #[test]
+        fn handles_map_without_value_field() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            // Map without "value" field
+            let mut map = std::collections::HashMap::new();
+            map.insert("key".to_string(), Value::String("test".to_string()));
+            let input = vec![Traverser::new(Value::Map(map))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn handles_empty_map() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::new(Value::Map(std::collections::HashMap::new()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    mod value_step_non_map_tests {
+        use super::*;
+
+        #[test]
+        fn filters_out_vertex_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_edge_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_integer_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_string_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::new(Value::String("hello".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_null_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::new(Value::Null)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn filters_out_list_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![Traverser::new(Value::List(vec![
+                Value::Int(1),
+                Value::Int(2),
+            ]))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn mixed_maps_and_non_maps() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(Value::Int(42)), // filtered out
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::from_vertex(VertexId(0)), // filtered out
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("Alice".to_string()));
+            assert_eq!(output[1].value, Value::Int(30));
+        }
+    }
+
+    mod value_step_metadata_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_path_from_input_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.extend_path_labeled("start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod value_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = ValueStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    // =========================================================================
+    // LoopsStep Tests
+    // =========================================================================
+
+    mod loops_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step() {
+            let step = LoopsStep::new();
+            assert_eq!(step.name(), "loops");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = LoopsStep::default();
+            assert_eq!(step.name(), "loops");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = LoopsStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "loops");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = LoopsStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("LoopsStep"));
+        }
+    }
+
+    mod loops_step_basic_tests {
+        use super::*;
+
+        #[test]
+        fn returns_zero_for_default_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(0));
+        }
+
+        #[test]
+        fn returns_loops_count_from_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(5));
+        }
+
+        #[test]
+        fn handles_multiple_traversers_with_different_loops() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut t1 = Traverser::from_vertex(VertexId(0));
+            t1.loops = 0;
+
+            let mut t2 = Traverser::from_vertex(VertexId(1));
+            t2.loops = 3;
+
+            let mut t3 = Traverser::from_vertex(VertexId(2));
+            t3.loops = 10;
+
+            let input = vec![t1, t2, t3];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(0));
+            assert_eq!(output[1].value, Value::Int(3));
+            assert_eq!(output[2].value, Value::Int(10));
+        }
+
+        #[test]
+        fn handles_large_loop_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 1_000_000;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(1_000_000));
+        }
+    }
+
+    mod loops_step_value_type_tests {
+        use super::*;
+
+        #[test]
+        fn works_with_vertex_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 2;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(2));
+        }
+
+        #[test]
+        fn works_with_edge_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_edge(EdgeId(0));
+            traverser.loops = 4;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(4));
+        }
+
+        #[test]
+        fn works_with_integer_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.loops = 1;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(1));
+        }
+
+        #[test]
+        fn works_with_string_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::new(Value::String("test".to_string()));
+            traverser.loops = 7;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(7));
+        }
+
+        #[test]
+        fn works_with_null_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::new(Value::Null);
+            traverser.loops = 3;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(3));
+        }
+    }
+
+    mod loops_step_metadata_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_path_from_input_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 2;
+            traverser.extend_path_labeled("start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops_count_in_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            // The loops metadata should be preserved even though value is now the loops count
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 3;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod loops_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    mod loops_step_one_to_one_tests {
+        use super::*;
+
+        #[test]
+        fn produces_exactly_one_output_per_input() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            // Create 5 traversers with different loop counts
+            let input: Vec<Traverser> = (0..5usize)
+                .map(|i| {
+                    let mut t = Traverser::from_vertex(VertexId((i % 4) as u64));
+                    t.loops = i;
+                    t
+                })
+                .collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Should have exactly 5 outputs
+            assert_eq!(output.len(), 5);
+
+            // Verify each output has correct loops value
+            for (i, t) in output.iter().enumerate() {
+                assert_eq!(t.value, Value::Int(i as i64));
+            }
+        }
+
+        #[test]
+        fn no_filtering_occurs() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = LoopsStep::new();
+
+            // Mix of different value types - all should produce output
+            let mut t1 = Traverser::from_vertex(VertexId(0));
+            t1.loops = 1;
+
+            let mut t2 = Traverser::from_edge(EdgeId(0));
+            t2.loops = 2;
+
+            let mut t3 = Traverser::new(Value::Int(42));
+            t3.loops = 3;
+
+            let mut t4 = Traverser::new(Value::Null);
+            t4.loops = 4;
+
+            let mut t5 = Traverser::new(Value::List(vec![]));
+            t5.loops = 5;
+
+            let input = vec![t1, t2, t3, t4, t5];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All 5 inputs should produce outputs
+            assert_eq!(output.len(), 5);
         }
     }
 }
