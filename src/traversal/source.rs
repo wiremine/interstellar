@@ -999,6 +999,38 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(HasPropValueStep::any(values))
     }
 
+    /// Filter traversers by testing their current value against a predicate.
+    ///
+    /// This step is the predicate-based variant of `where()`, complementing the
+    /// traversal-based `where_(traversal)` step. It tests the current traverser
+    /// value directly against the predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `predicate` - The predicate to test values against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter values greater than 25
+    /// let adults = g.v().values("age").where_p(p::gt(25)).to_list();
+    ///
+    /// // Filter values within a set
+    /// let selected = g.v().values("name").where_p(p::within(["Alice", "Bob"])).to_list();
+    ///
+    /// // Combined predicates
+    /// let range = g.v().values("age").where_p(p::and(p::gte(18), p::lt(65))).to_list();
+    /// ```
+    pub fn where_p(
+        self,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::WherePStep;
+        self.add_step(WherePStep::new(predicate))
+    }
+
     // -------------------------------------------------------------------------
     // Navigation steps
     // -------------------------------------------------------------------------

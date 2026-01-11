@@ -47,25 +47,29 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `hasId(id)` | `has_id(id)` | `traversal::filter` |
 | `hasId(id...)` | `has_ids(ids)` | `traversal::filter` |
 | `hasNot(key)` | `has_not(key)` | `traversal::filter` |
-| `hasKey()` | - | - |
-| `hasValue()` | - | - |
+| `hasKey()` | `has_key(key)` | `traversal::filter` |
+| `hasKey(key...)` | `has_key_any(keys)` | `traversal::filter` |
+| `hasValue()` | `has_prop_value(value)` | `traversal::filter` |
+| `hasValue(value...)` | `has_prop_value_any(values)` | `traversal::filter` |
 | `filter(traversal)` | `filter(closure)` | `traversal::filter` |
 | `where(traversal)` | `where_(traversal)` | `traversal::branch` |
-| `where(predicate)` | - | - |
+| `where(predicate)` | `where_p(predicate)` | `traversal::filter` |
 | `not(traversal)` | `not(traversal)` | `traversal::branch` |
 | `and(traversal...)` | `and_(traversals)` | `traversal::branch` |
 | `or(traversal...)` | `or_(traversals)` | `traversal::branch` |
 | `is(value)` | `is_eq(value)` | `traversal::filter` |
 | `is(predicate)` | `is_(predicate)` | `traversal::filter` |
 | `dedup()` | `dedup()` | `traversal::filter` |
-| `dedup(by)` | - | - |
+| `dedup().by(key)` | `dedup_by_key(key)` | `traversal::filter` |
+| `dedup().by(label)` | `dedup_by_label()` | `traversal::filter` |
+| `dedup().by(traversal)` | `dedup_by(traversal)` | `traversal::filter` |
 | `limit(n)` | `limit(n)` | `traversal::filter` |
 | `skip(n)` | `skip(n)` | `traversal::filter` |
 | `range(start, end)` | `range(start, end)` | `traversal::filter` |
-| `tail()` | - | - |
-| `tail(n)` | - | - |
-| `coin(probability)` | - | - |
-| `sample(n)` | - | - |
+| `tail()` | `tail()` | `traversal::filter` |
+| `tail(n)` | `tail_n(n)` | `traversal::filter` |
+| `coin(probability)` | `coin(probability)` | `traversal::filter` |
+| `sample(n)` | `sample(n)` | `traversal::filter` |
 | `simplePath()` | `simple_path()` | `traversal::filter` |
 | `cyclicPath()` | `cyclic_path()` | `traversal::filter` |
 | `timeLimit()` | - | - |
@@ -331,8 +335,11 @@ let names = __::values("name");
 - `__::has_label()`, `__::has_label_any()`
 - `__::has()`, `__::has_not()`, `__::has_value()`, `__::has_where()`
 - `__::has_id()`, `__::has_ids()`
+- `__::has_key()`, `__::has_key_any()`, `__::has_prop_value()`, `__::has_prop_value_any()`
 - `__::is_()`, `__::is_eq()`, `__::filter()`
-- `__::dedup()`, `__::limit()`, `__::skip()`, `__::range()`
+- `__::dedup()`, `__::dedup_by_key()`, `__::dedup_by_label()`, `__::dedup_by()`
+- `__::limit()`, `__::skip()`, `__::range()`
+- `__::tail()`, `__::tail_n()`, `__::coin()`, `__::sample()`
 - `__::simple_path()`, `__::cyclic_path()`
 
 **Transform:**
@@ -351,7 +358,7 @@ let names = __::values("name");
 - `__::as_()`, `__::select()`, `__::select_one()`
 
 **Branch/Filter with Sub-traversals:**
-- `__::where_()`, `__::not()`, `__::and_()`, `__::or_()`
+- `__::where_()`, `__::where_p()`, `__::not()`, `__::and_()`, `__::or_()`
 - `__::union()`, `__::coalesce()`, `__::choose()`, `__::optional()`, `__::local()`
 
 **Mutation:**
@@ -548,7 +555,7 @@ The following Gremlin features are not currently planned for support:
 | Category | Implemented | Not Implemented |
 |----------|-------------|-----------------|
 | Source Steps | 5 | 0 |
-| Filter Steps | 19 | 9 |
+| Filter Steps | 28 | 2 |
 | Navigation Steps | 16 | 0 |
 | Transform/Map Steps | 25 | 5 |
 | Aggregation Steps | 6 | 0 |
@@ -559,4 +566,4 @@ The following Gremlin features are not currently planned for support:
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 3 | 4 |
-| **Total** | **~112** | **~32** |
+| **Total** | **~121** | **~25** |

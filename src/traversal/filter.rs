@@ -1866,6 +1866,92 @@ impl HasPropValueStep {
 // Use the macro to implement AnyStep for HasPropValueStep
 impl_filter_step!(HasPropValueStep, "hasValue");
 
+// WherePStep - filter current value against a predicate
+// -----------------------------------------------------------------------------
+
+/// Filter step that tests the current traverser value against a predicate.
+///
+/// `WherePStep` filters traversers by applying a predicate to their current value.
+/// This is the predicate-based variant of `where()`, complementing the traversal-based
+/// `where_(traversal)` step.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").where(P.gt(25))
+/// g.V().values("name").where(P.within("Alice", "Bob"))
+/// ```
+///
+/// # Behavior
+///
+/// - Tests the traverser's current value against the predicate
+/// - Passes traversers where the predicate returns `true`
+/// - Filters out traversers where the predicate returns `false`
+///
+/// # Note
+///
+/// This step is similar to `IsStep`, but named to align with Gremlin's `where(predicate)`
+/// syntax. Use `is_()` for value filtering or `where_p()` for Gremlin compatibility.
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_graph_database::traversal::filter::WherePStep;
+/// use rust_graph_database::traversal::p;
+///
+/// // Filter values greater than 25
+/// let step = WherePStep::new(p::gt(25));
+///
+/// // Filter values within a set
+/// let step = WherePStep::new(p::within([1, 2, 3]));
+///
+/// // Usage in traversal
+/// g.v().values("age").where_p(p::gt(25)).to_list()
+/// ```
+#[derive(Clone)]
+pub struct WherePStep {
+    /// The predicate to test the current value against
+    predicate: Box<dyn crate::traversal::predicate::Predicate>,
+}
+
+impl WherePStep {
+    /// Create a new WherePStep with the given predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `predicate` - The predicate to test the traverser's value against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let step = WherePStep::new(p::gt(25));
+    /// let step = WherePStep::new(p::within(["Alice", "Bob"]));
+    /// ```
+    pub fn new(predicate: impl crate::traversal::predicate::Predicate + 'static) -> Self {
+        Self {
+            predicate: Box::new(predicate),
+        }
+    }
+
+    /// Check if the traverser's current value satisfies the predicate.
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        self.predicate.test(&traverser.value)
+    }
+}
+
+impl std::fmt::Debug for WherePStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WherePStep")
+            .field("predicate", &"<predicate>")
+            .finish()
+    }
+}
+
+// Use the macro to implement AnyStep for WherePStep
+impl_filter_step!(WherePStep, "where");
+
 // -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
@@ -8009,6 +8095,397 @@ mod tests {
             assert!(output[0].path.has_label("end"));
             assert_eq!(output[0].loops, 5);
             assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod where_p_step_tests {
+        use super::*;
+        use crate::traversal::predicate::p;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_where_p_step() {
+            let step = WherePStep::new(p::gt(25));
+            assert_eq!(step.name(), "where");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = WherePStep::new(p::gt(25));
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "where");
+        }
+
+        #[test]
+        fn filters_with_gt_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gt(25));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(30)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(25)),
+                Traverser::new(Value::Int(40)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(30));
+            assert_eq!(output[1].value, Value::Int(40));
+        }
+
+        #[test]
+        fn filters_with_lt_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::lt(25));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(30)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(15)),
+                Traverser::new(Value::Int(25)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(15));
+        }
+
+        #[test]
+        fn filters_with_eq_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::eq(42));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::Int(41)),
+                Traverser::new(Value::Int(43)),
+                Traverser::new(Value::Int(42)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(42));
+            assert_eq!(output[1].value, Value::Int(42));
+        }
+
+        #[test]
+        fn filters_with_neq_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::neq(42));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::Int(41)),
+                Traverser::new(Value::Int(43)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(41));
+            assert_eq!(output[1].value, Value::Int(43));
+        }
+
+        #[test]
+        fn filters_with_gte_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gte(25));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(30)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(25)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(30));
+            assert_eq!(output[1].value, Value::Int(25));
+        }
+
+        #[test]
+        fn filters_with_lte_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::lte(25));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(30)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(25)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(25));
+        }
+
+        #[test]
+        fn filters_with_within_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::within([1, 2, 3]));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn filters_with_without_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::without([1, 2, 3]));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(4));
+            assert_eq!(output[1].value, Value::Int(5));
+        }
+
+        #[test]
+        fn filters_with_between_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::between(10, 20));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(15)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(25)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // between is [start, end) - inclusive start, exclusive end
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(10));
+            assert_eq!(output[1].value, Value::Int(15));
+        }
+
+        #[test]
+        fn filters_with_and_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Filter values > 10 AND < 30
+            let step = WherePStep::new(p::and(p::gt(10), p::lt(30)));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(15)),
+                Traverser::new(Value::Int(25)),
+                Traverser::new(Value::Int(35)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(15));
+            assert_eq!(output[1].value, Value::Int(25));
+        }
+
+        #[test]
+        fn filters_with_or_predicate() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Filter values < 10 OR > 30
+            let step = WherePStep::new(p::or(p::lt(10), p::gt(30)));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(5)),
+                Traverser::new(Value::Int(15)),
+                Traverser::new(Value::Int(25)),
+                Traverser::new(Value::Int(35)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Int(5));
+            assert_eq!(output[1].value, Value::Int(35));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gt(25));
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gt(25));
+
+            let mut traverser = Traverser::new(Value::Int(30));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn works_with_string_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::within(["Alice", "Bob"]));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::String("Alice".to_string())),
+                Traverser::new(Value::String("Carol".to_string())),
+                Traverser::new(Value::String("Bob".to_string())),
+                Traverser::new(Value::String("Dave".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::String("Alice".to_string()));
+            assert_eq!(output[1].value, Value::String("Bob".to_string()));
+        }
+
+        #[test]
+        fn works_with_float_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gt(2.5));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Float(1.5)),
+                Traverser::new(Value::Float(2.5)),
+                Traverser::new(Value::Float(3.5)),
+                Traverser::new(Value::Float(4.5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Float(3.5));
+            assert_eq!(output[1].value, Value::Float(4.5));
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = WherePStep::new(p::gt(25));
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("WherePStep"));
+            assert!(debug_str.contains("predicate"));
+        }
+
+        #[test]
+        fn filters_all_when_none_match() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gt(100));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn passes_all_when_all_match() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = WherePStep::new(p::gt(0));
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(30)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
         }
     }
 }

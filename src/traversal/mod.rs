@@ -42,7 +42,7 @@ pub use filter::{
     CoinStep, CyclicPathStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep,
     FilterStep, HasIdStep, HasKeyStep, HasLabelStep, HasNotStep, HasPropValueStep, HasStep,
     HasValueStep, HasWhereStep, IsStep, LimitStep, RangeStep, SampleStep, SimplePathStep, SkipStep,
-    TailStep,
+    TailStep, WherePStep,
 };
 pub use mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
@@ -1387,6 +1387,35 @@ impl<In> Traversal<In, Value> {
         self.add_step(filter::HasPropValueStep::any(values))
     }
 
+    /// Filter traversers by testing their current value against a predicate (for anonymous traversals).
+    ///
+    /// This step is the predicate-based variant of `where()`, complementing the
+    /// traversal-based `where_(traversal)` step. It tests the current traverser
+    /// value directly against the predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `predicate` - The predicate to test values against
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Create an anonymous traversal that filters values > 25
+    /// let anon = Traversal::<Value, Value>::new().where_p(p::gt(25));
+    /// let adults = g.v().values("age").append(anon).to_list();
+    ///
+    /// // Filter to values within a set
+    /// let anon = Traversal::<Value, Value>::new().where_p(p::within(["Alice", "Bob"]));
+    /// ```
+    pub fn where_p(
+        self,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> Traversal<In, Value> {
+        self.add_step(filter::WherePStep::new(predicate))
+    }
+
     /// Filter elements by a single ID (for anonymous traversals).
     ///
     /// Keeps only vertices/edges whose ID matches the given ID.
@@ -2477,7 +2506,7 @@ pub mod __ {
     use crate::traversal::filter::{
         CoinStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep,
         HasIdStep, HasKeyStep, HasLabelStep, HasNotStep, HasPropValueStep, HasStep, HasValueStep,
-        HasWhereStep, LimitStep, RangeStep, SampleStep, SkipStep, TailStep,
+        HasWhereStep, LimitStep, RangeStep, SampleStep, SkipStep, TailStep, WherePStep,
     };
     use crate::traversal::navigation::{
         BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,
@@ -3150,6 +3179,29 @@ pub mod __ {
         V: Into<Value>,
     {
         Traversal::<Value, Value>::new().add_step(HasPropValueStep::any(values))
+    }
+
+    /// Filter traversers by testing their current value against a predicate.
+    ///
+    /// This step is the predicate-based variant of `where()`, complementing the
+    /// traversal-based `where_(traversal)` step.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter values greater than 25
+    /// let adults = __::where_p(p::gt(25));
+    ///
+    /// // Filter values within a set
+    /// let selected = __::where_p(p::within(["Alice", "Bob"]));
+    /// ```
+    #[inline]
+    pub fn where_p(
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(WherePStep::new(predicate))
     }
 
     // -------------------------------------------------------------------------
