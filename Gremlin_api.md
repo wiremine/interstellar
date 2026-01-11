@@ -291,10 +291,10 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `TextP.containing(str)` | `p::containing(str)` | `traversal::predicate` |
 | `TextP.startingWith(str)` | `p::starting_with(str)` | `traversal::predicate` |
 | `TextP.endingWith(str)` | `p::ending_with(str)` | `traversal::predicate` |
-| `TextP.notContaining(str)` | - | - |
-| `TextP.notStartingWith(str)` | - | - |
-| `TextP.notEndingWith(str)` | - | - |
-| `TextP.regex(pattern)` | - | - |
+| `TextP.notContaining(str)` | `p::not_containing(str)` | `traversal::predicate` |
+| `TextP.notStartingWith(str)` | `p::not_starting_with(str)` | `traversal::predicate` |
+| `TextP.notEndingWith(str)` | `p::not_ending_with(str)` | `traversal::predicate` |
+| `TextP.regex(pattern)` | `p::regex(pattern)` | `traversal::predicate` |
 
 ---
 
@@ -565,5 +565,5 @@ The following Gremlin features are not currently planned for support:
 | Mutation Steps | 6 | 2 |
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
-| Text Predicates | 3 | 4 |
-| **Total** | **~127** | **~24** |
+| Text Predicates | 7 | 0 |
+| **Total** | **~131** | **~20** |

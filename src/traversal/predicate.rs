@@ -859,6 +859,168 @@ pub mod p {
         EndingWith(suffix.into())
     }
 
+    /// String does NOT contain substring predicate.
+    ///
+    /// Tests if the value is a string that does NOT contain the given substring.
+    /// Returns false for non-string values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::not_containing("spam");
+    /// assert!(pred.test(&Value::String("hello world".to_string())));
+    /// assert!(!pred.test(&Value::String("this is spam".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct NotContaining(String);
+
+    impl Predicate for NotContaining {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => !s.contains(&self.0),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a string NOT contains predicate.
+    ///
+    /// Tests if the value is a string that does NOT contain the given substring.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `substring` - The substring to check for absence
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for messages without spam keywords
+    /// g.v().has_label("message")
+    ///     .has_where("content", p::not_containing("spam"))
+    ///     .to_list();
+    /// ```
+    pub fn not_containing(substring: impl Into<String>) -> NotContaining {
+        NotContaining(substring.into())
+    }
+
+    /// String does NOT start with prefix predicate.
+    ///
+    /// Tests if the value is a string that does NOT start with the given prefix.
+    /// Returns false for non-string values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::not_starting_with("test_");
+    /// assert!(pred.test(&Value::String("production_data".to_string())));
+    /// assert!(!pred.test(&Value::String("test_data".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct NotStartingWith(String);
+
+    impl Predicate for NotStartingWith {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => !s.starts_with(&self.0),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a string NOT starts-with predicate.
+    ///
+    /// Tests if the value is a string that does NOT start with the given prefix.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - The prefix to check for absence
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for non-test items
+    /// g.v().has_label("item")
+    ///     .has_where("name", p::not_starting_with("test_"))
+    ///     .to_list();
+    /// ```
+    pub fn not_starting_with(prefix: impl Into<String>) -> NotStartingWith {
+        NotStartingWith(prefix.into())
+    }
+
+    /// String does NOT end with suffix predicate.
+    ///
+    /// Tests if the value is a string that does NOT end with the given suffix.
+    /// Returns false for non-string values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// let pred = p::not_ending_with(".tmp");
+    /// assert!(pred.test(&Value::String("document.pdf".to_string())));
+    /// assert!(!pred.test(&Value::String("cache.tmp".to_string())));
+    /// assert!(!pred.test(&Value::Int(42))); // Non-string returns false
+    /// ```
+    #[derive(Clone)]
+    pub struct NotEndingWith(String);
+
+    impl Predicate for NotEndingWith {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::String(s) => !s.ends_with(&self.0),
+                _ => false,
+            }
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a string NOT ends-with predicate.
+    ///
+    /// Tests if the value is a string that does NOT end with the given suffix.
+    /// Non-string values always return false.
+    ///
+    /// # Arguments
+    ///
+    /// * `suffix` - The suffix to check for absence
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::p;
+    ///
+    /// // Filter for non-temporary files
+    /// g.v().has_label("file")
+    ///     .has_where("name", p::not_ending_with(".tmp"))
+    ///     .to_list();
+    /// ```
+    pub fn not_ending_with(suffix: impl Into<String>) -> NotEndingWith {
+        NotEndingWith(suffix.into())
+    }
+
     // -------------------------------------------------------------------------
     // Regex Predicate (Phase 1.6)
     // -------------------------------------------------------------------------
@@ -2561,9 +2723,12 @@ mod tests {
                 Box::new(p::containing("foo")),
                 Box::new(p::starting_with("foo")),
                 Box::new(p::ending_with("foo")),
+                Box::new(p::not_containing("foo")),
+                Box::new(p::not_starting_with("foo")),
+                Box::new(p::not_ending_with("foo")),
             ];
 
-            assert_eq!(predicates.len(), 3);
+            assert_eq!(predicates.len(), 6);
             for pred in &predicates {
                 let _ = pred.test(&Value::String("foo".to_string()));
             }
@@ -2575,6 +2740,9 @@ mod tests {
             assert_send_sync::<p::Containing>();
             assert_send_sync::<p::StartingWith>();
             assert_send_sync::<p::EndingWith>();
+            assert_send_sync::<p::NotContaining>();
+            assert_send_sync::<p::NotStartingWith>();
+            assert_send_sync::<p::NotEndingWith>();
         }
 
         #[test]
@@ -2638,6 +2806,318 @@ mod tests {
             assert!(!p::containing("x").test(&empty));
             assert!(!p::starting_with("x").test(&empty));
             assert!(!p::ending_with("x").test(&empty));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1.5.1: Negated String Predicates Tests
+    // -------------------------------------------------------------------------
+
+    mod negated_string_predicates {
+        use super::*;
+
+        // -------------------------------------------------------------------
+        // not_containing() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn not_containing_matches_missing_substring() {
+            let pred = p::not_containing("spam");
+            assert!(pred.test(&Value::String("hello world".to_string())));
+            assert!(pred.test(&Value::String("legitimate message".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn not_containing_does_not_match_present_substring() {
+            let pred = p::not_containing("spam");
+            assert!(!pred.test(&Value::String("this is spam".to_string())));
+            assert!(!pred.test(&Value::String("spam message".to_string())));
+            assert!(!pred.test(&Value::String("message spam".to_string())));
+            assert!(!pred.test(&Value::String("spam".to_string())));
+        }
+
+        #[test]
+        fn not_containing_is_case_sensitive() {
+            let pred = p::not_containing("foo");
+            assert!(pred.test(&Value::String("FOO".to_string())));
+            assert!(pred.test(&Value::String("Foo".to_string())));
+            assert!(pred.test(&Value::String("FOOBAR".to_string())));
+        }
+
+        #[test]
+        fn not_containing_empty_substring_matches_nothing() {
+            let pred = p::not_containing("");
+            // Empty string is contained in every string, so NOT containing it matches nothing
+            assert!(!pred.test(&Value::String("anything".to_string())));
+            assert!(!pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn not_containing_returns_false_for_non_string() {
+            let pred = p::not_containing("foo");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn not_containing_with_special_characters() {
+            let pred = p::not_containing("@");
+            assert!(pred.test(&Value::String("user.example.com".to_string())));
+            assert!(!pred.test(&Value::String("user@example.com".to_string())));
+        }
+
+        #[test]
+        fn not_containing_is_clonable() {
+            let pred = p::not_containing("foo");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("bar".to_string())));
+            assert!(!cloned.test(&Value::String("foobar".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // not_starting_with() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn not_starting_with_matches_non_prefix() {
+            let pred = p::not_starting_with("test_");
+            assert!(pred.test(&Value::String("production_data".to_string())));
+            assert!(pred.test(&Value::String("data_test".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn not_starting_with_does_not_match_prefix() {
+            let pred = p::not_starting_with("test_");
+            assert!(!pred.test(&Value::String("test_data".to_string())));
+            assert!(!pred.test(&Value::String("test_".to_string())));
+            assert!(!pred.test(&Value::String("test_foo_bar".to_string())));
+        }
+
+        #[test]
+        fn not_starting_with_is_case_sensitive() {
+            let pred = p::not_starting_with("foo");
+            assert!(pred.test(&Value::String("FOObar".to_string())));
+            assert!(pred.test(&Value::String("Foobar".to_string())));
+        }
+
+        #[test]
+        fn not_starting_with_empty_prefix_matches_nothing() {
+            let pred = p::not_starting_with("");
+            // Every string starts with empty string, so NOT starting with it matches nothing
+            assert!(!pred.test(&Value::String("anything".to_string())));
+            assert!(!pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn not_starting_with_returns_false_for_non_string() {
+            let pred = p::not_starting_with("foo");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn not_starting_with_longer_prefix_than_string() {
+            let pred = p::not_starting_with("foobar");
+            // "foo" doesn't start with "foobar", so NOT starting with returns true
+            assert!(pred.test(&Value::String("foo".to_string())));
+        }
+
+        #[test]
+        fn not_starting_with_is_clonable() {
+            let pred = p::not_starting_with("foo");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("barfoo".to_string())));
+            assert!(!cloned.test(&Value::String("foobar".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // not_ending_with() tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn not_ending_with_matches_non_suffix() {
+            let pred = p::not_ending_with(".tmp");
+            assert!(pred.test(&Value::String("document.pdf".to_string())));
+            assert!(pred.test(&Value::String("tmp.file".to_string())));
+            assert!(pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn not_ending_with_does_not_match_suffix() {
+            let pred = p::not_ending_with(".tmp");
+            assert!(!pred.test(&Value::String("cache.tmp".to_string())));
+            assert!(!pred.test(&Value::String(".tmp".to_string())));
+            assert!(!pred.test(&Value::String("foo.bar.tmp".to_string())));
+        }
+
+        #[test]
+        fn not_ending_with_is_case_sensitive() {
+            let pred = p::not_ending_with("bar");
+            assert!(pred.test(&Value::String("fooBAR".to_string())));
+            assert!(pred.test(&Value::String("fooBar".to_string())));
+        }
+
+        #[test]
+        fn not_ending_with_empty_suffix_matches_nothing() {
+            let pred = p::not_ending_with("");
+            // Every string ends with empty string, so NOT ending with it matches nothing
+            assert!(!pred.test(&Value::String("anything".to_string())));
+            assert!(!pred.test(&Value::String("".to_string())));
+        }
+
+        #[test]
+        fn not_ending_with_returns_false_for_non_string() {
+            let pred = p::not_ending_with("bar");
+            assert!(!pred.test(&Value::Int(42)));
+            assert!(!pred.test(&Value::Float(42.0)));
+            assert!(!pred.test(&Value::Bool(true)));
+            assert!(!pred.test(&Value::Null));
+        }
+
+        #[test]
+        fn not_ending_with_longer_suffix_than_string() {
+            let pred = p::not_ending_with("foobar");
+            // "bar" doesn't end with "foobar", so NOT ending with returns true
+            assert!(pred.test(&Value::String("bar".to_string())));
+        }
+
+        #[test]
+        fn not_ending_with_is_clonable() {
+            let pred = p::not_ending_with("bar");
+            let boxed: Box<dyn Predicate> = Box::new(pred);
+            let cloned = boxed.clone();
+            assert!(cloned.test(&Value::String("barfoo".to_string())));
+            assert!(!cloned.test(&Value::String("foobar".to_string())));
+        }
+
+        // -------------------------------------------------------------------
+        // Combined/edge case tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn negated_string_predicates_implement_predicate_trait() {
+            let predicates: Vec<Box<dyn Predicate>> = vec![
+                Box::new(p::not_containing("foo")),
+                Box::new(p::not_starting_with("foo")),
+                Box::new(p::not_ending_with("foo")),
+            ];
+
+            assert_eq!(predicates.len(), 3);
+            for pred in &predicates {
+                let _ = pred.test(&Value::String("bar".to_string()));
+            }
+        }
+
+        #[test]
+        fn negated_string_predicates_are_send_sync() {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<p::NotContaining>();
+            assert_send_sync::<p::NotStartingWith>();
+            assert_send_sync::<p::NotEndingWith>();
+        }
+
+        #[test]
+        fn negated_predicates_are_complementary_to_positive() {
+            // For any string value, exactly one of containing/not_containing should match
+            let test_values = [
+                Value::String("foobar".to_string()),
+                Value::String("bar".to_string()),
+                Value::String("xfoox".to_string()),
+                Value::String("".to_string()),
+            ];
+
+            for value in &test_values {
+                assert_ne!(
+                    p::containing("foo").test(value),
+                    p::not_containing("foo").test(value),
+                    "containing and not_containing should be complementary for {:?}",
+                    value
+                );
+                assert_ne!(
+                    p::starting_with("foo").test(value),
+                    p::not_starting_with("foo").test(value),
+                    "starting_with and not_starting_with should be complementary for {:?}",
+                    value
+                );
+                assert_ne!(
+                    p::ending_with("foo").test(value),
+                    p::not_ending_with("foo").test(value),
+                    "ending_with and not_ending_with should be complementary for {:?}",
+                    value
+                );
+            }
+        }
+
+        #[test]
+        fn negated_predicates_with_unicode() {
+            let pred = p::not_containing("日本");
+            assert!(pred.test(&Value::String("中文".to_string())));
+            assert!(!pred.test(&Value::String("日本語".to_string())));
+
+            let pred = p::not_starting_with("🚀");
+            assert!(pred.test(&Value::String("launch 🚀".to_string())));
+            assert!(!pred.test(&Value::String("🚀 launch".to_string())));
+
+            let pred = p::not_ending_with("😊");
+            assert!(pred.test(&Value::String("😊 hello".to_string())));
+            assert!(!pred.test(&Value::String("hello 😊".to_string())));
+        }
+
+        #[test]
+        fn negated_predicates_with_whitespace() {
+            let pred = p::not_containing(" ");
+            assert!(pred.test(&Value::String("helloworld".to_string())));
+            assert!(!pred.test(&Value::String("hello world".to_string())));
+
+            let pred = p::not_starting_with("  ");
+            assert!(pred.test(&Value::String(" single".to_string())));
+            assert!(!pred.test(&Value::String("  indented".to_string())));
+
+            let pred = p::not_ending_with("\n");
+            assert!(pred.test(&Value::String("line".to_string())));
+            assert!(!pred.test(&Value::String("line\n".to_string())));
+        }
+
+        #[test]
+        fn negated_predicates_logical_consistency() {
+            // Test that p::not(p::containing("x")) behaves equivalently to p::not_containing("x")
+            // for string values (non-string values behave differently due to implementation)
+            let test_values = [
+                Value::String("hello".to_string()),
+                Value::String("xhello".to_string()),
+                Value::String("hellox".to_string()),
+                Value::String("x".to_string()),
+                Value::String("".to_string()),
+            ];
+
+            for value in &test_values {
+                assert_eq!(
+                    p::not(p::containing("x")).test(value),
+                    p::not_containing("x").test(value),
+                    "not(containing) should equal not_containing for {:?}",
+                    value
+                );
+                assert_eq!(
+                    p::not(p::starting_with("x")).test(value),
+                    p::not_starting_with("x").test(value),
+                    "not(starting_with) should equal not_starting_with for {:?}",
+                    value
+                );
+                assert_eq!(
+                    p::not(p::ending_with("x")).test(value),
+                    p::not_ending_with("x").test(value),
+                    "not(ending_with) should equal not_ending_with for {:?}",
+                    value
+                );
+            }
         }
     }
 
