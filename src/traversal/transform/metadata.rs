@@ -331,6 +331,85 @@ impl crate::traversal::step::AnyStep for LoopsStep {
     }
 }
 
+// -----------------------------------------------------------------------------
+// IndexStep - annotate stream with position index
+// -----------------------------------------------------------------------------
+
+use std::cell::Cell;
+
+/// Transform step that annotates each traverser with its position in the stream.
+///
+/// This step wraps each value in a `[value, index]` list, where the index is
+/// the 0-based position of the element in the stream.
+///
+/// # Behavior
+///
+/// - Wraps each value in a `Value::List` with `[original_value, index]`
+/// - Index is 0-based `Value::Int` (first element = 0, second = 1, etc.)
+/// - Stateful step: tracks position counter across iteration
+/// - Preserves all traverser metadata (path, loops, bulk)
+/// - 1:1 mapping - every input produces exactly one output
+///
+/// # Example
+///
+/// ```ignore
+/// // Get elements with their indices
+/// let indexed = g.v()
+///     .index()
+///     .to_list();
+/// // Returns: [[v[0], 0], [v[1], 1], [v[2], 2], ...]
+///
+/// // Get names with indices
+/// let indexed_names = g.v()
+///     .values("name")
+///     .index()
+///     .to_list();
+/// // Returns: [["Alice", 0], ["Bob", 1], ...]
+///
+/// // Extract just values or indices with unfold
+/// let with_indices = g.v()
+///     .index()
+///     .unfold()
+///     .to_list();
+/// // Returns: [v[0], 0, v[1], 1, v[2], 2, ...]
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct IndexStep;
+
+impl IndexStep {
+    /// Create a new IndexStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::AnyStep for IndexStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let counter = Cell::new(0usize);
+
+        Box::new(input.map(move |traverser| {
+            let idx = counter.get();
+            counter.set(idx + 1);
+
+            // Wrap the value in a [value, index] list
+            let indexed = Value::List(vec![traverser.value.clone(), Value::Int(idx as i64)]);
+            traverser.split(indexed)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(Self)
+    }
+
+    fn name(&self) -> &'static str {
+        "index"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2069,6 +2148,438 @@ mod tests {
 
             // All 5 inputs should produce outputs
             assert_eq!(output.len(), 5);
+        }
+    }
+
+    // =========================================================================
+    // IndexStep Tests
+    // =========================================================================
+
+    mod index_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step() {
+            let step = IndexStep::new();
+            assert_eq!(step.name(), "index");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = IndexStep::default();
+            assert_eq!(step.name(), "index");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = IndexStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "index");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = IndexStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("IndexStep"));
+        }
+    }
+
+    mod index_step_basic_tests {
+        use super::*;
+
+        #[test]
+        fn first_element_gets_index_zero() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list.len(), 2);
+                assert_eq!(list[0], Value::Vertex(VertexId(0)));
+                assert_eq!(list[1], Value::Int(0));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn indices_increment_sequentially() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 4);
+            for (i, t) in output.iter().enumerate() {
+                if let Value::List(list) = &t.value {
+                    assert_eq!(list[1], Value::Int(i as i64));
+                } else {
+                    panic!("Expected Value::List at index {}", i);
+                }
+            }
+        }
+
+        #[test]
+        fn output_format_is_value_index_list() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input = vec![Traverser::new(Value::String("test".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list.len(), 2);
+                assert_eq!(list[0], Value::String("test".to_string()));
+                assert_eq!(list[1], Value::Int(0));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn preserves_original_value_in_list() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            // Test with various value types
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_edge(EdgeId(0)),
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::String("hello".to_string())),
+                Traverser::new(Value::Float(3.14)),
+                Traverser::new(Value::Bool(true)),
+                Traverser::new(Value::Null),
+            ];
+
+            let expected_values = vec![
+                Value::Vertex(VertexId(0)),
+                Value::Edge(EdgeId(0)),
+                Value::Int(42),
+                Value::String("hello".to_string()),
+                Value::Float(3.14),
+                Value::Bool(true),
+                Value::Null,
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 7);
+            for (i, t) in output.iter().enumerate() {
+                if let Value::List(list) = &t.value {
+                    assert_eq!(list[0], expected_values[i]);
+                    assert_eq!(list[1], Value::Int(i as i64));
+                } else {
+                    panic!("Expected Value::List at index {}", i);
+                }
+            }
+        }
+    }
+
+    mod index_step_value_type_tests {
+        use super::*;
+
+        #[test]
+        fn works_with_vertex_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list[0], Value::Vertex(VertexId(0)));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn works_with_edge_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list[0], Value::Edge(EdgeId(0)));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn works_with_list_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let inner_list = Value::List(vec![Value::Int(1), Value::Int(2)]);
+            let input = vec![Traverser::new(inner_list.clone())];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list[0], inner_list);
+                assert_eq!(list[1], Value::Int(0));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn works_with_map_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let mut inner_map = std::collections::HashMap::new();
+            inner_map.insert("key".to_string(), Value::String("value".to_string()));
+            let map_value = Value::Map(inner_map.clone());
+            let input = vec![Traverser::new(map_value.clone())];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list[0], map_value);
+                assert_eq!(list[1], Value::Int(0));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+    }
+
+    mod index_step_metadata_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_path_from_input_traverser() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.extend_path_labeled("start");
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.loops = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod index_step_empty_tests {
+        use super::*;
+
+        #[test]
+        fn empty_input_returns_empty_output() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+    }
+
+    mod index_step_one_to_one_tests {
+        use super::*;
+
+        #[test]
+        fn produces_exactly_one_output_per_input() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            let input: Vec<Traverser> = (0..10).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 10);
+        }
+
+        #[test]
+        fn no_filtering_occurs() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            // Mix of different value types - all should produce output
+            let input = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_edge(EdgeId(0)),
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::Null),
+                Traverser::new(Value::List(vec![])),
+                Traverser::new(Value::Map(std::collections::HashMap::new())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 6);
+
+            // Verify indices are sequential
+            for (i, t) in output.iter().enumerate() {
+                if let Value::List(list) = &t.value {
+                    assert_eq!(list[1], Value::Int(i as i64));
+                } else {
+                    panic!("Expected Value::List at index {}", i);
+                }
+            }
+        }
+    }
+
+    mod index_step_counter_tests {
+        use super::*;
+
+        #[test]
+        fn counter_starts_at_zero() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+            let input = vec![Traverser::new(Value::Int(100))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list[1], Value::Int(0));
+            } else {
+                panic!("Expected Value::List");
+            }
+        }
+
+        #[test]
+        fn counter_handles_large_streams() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            // Create a large input stream
+            let input: Vec<Traverser> = (0..1000).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1000);
+
+            // Verify first and last indices
+            if let Value::List(list) = &output[0].value {
+                assert_eq!(list[1], Value::Int(0));
+            }
+            if let Value::List(list) = &output[999].value {
+                assert_eq!(list[1], Value::Int(999));
+            }
+        }
+
+        #[test]
+        fn new_apply_resets_counter() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = IndexStep::new();
+
+            // First traversal
+            let input1 = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
+            let output1: Vec<Traverser> = step.apply(&ctx, Box::new(input1.into_iter())).collect();
+
+            // Second traversal with same step instance
+            let input2 = vec![Traverser::new(Value::Int(3)), Traverser::new(Value::Int(4))];
+            let output2: Vec<Traverser> = step.apply(&ctx, Box::new(input2.into_iter())).collect();
+
+            // Both should start at index 0
+            if let Value::List(list) = &output1[0].value {
+                assert_eq!(list[1], Value::Int(0));
+            }
+            if let Value::List(list) = &output2[0].value {
+                assert_eq!(list[1], Value::Int(0));
+            }
         }
     }
 }

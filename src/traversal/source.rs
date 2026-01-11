@@ -1434,6 +1434,32 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(LoopsStep::new())
     }
 
+    /// Annotate each element with its position index in the stream.
+    ///
+    /// Returns a `[value, index]` list for each input element, where index
+    /// is the 0-based position in the stream.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get elements with their indices
+    /// let indexed = g.v()
+    ///     .index()
+    ///     .to_list();
+    /// // Returns: [[v[0], 0], [v[1], 1], [v[2], 2], ...]
+    ///
+    /// // Get names with indices
+    /// let indexed_names = g.v()
+    ///     .values("name")
+    ///     .index()
+    ///     .to_list();
+    /// // Returns: [["Alice", 0], ["Bob", 1], ...]
+    /// ```
+    pub fn index(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::IndexStep;
+        self.add_step(IndexStep::new())
+    }
+
     /// Extract all properties from vertices/edges.
     ///
     /// For each input element, extracts all properties as Maps containing

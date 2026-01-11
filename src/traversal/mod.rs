@@ -56,10 +56,10 @@ pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
 pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
-    AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, KeyStep,
-    LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep, PathStep,
-    ProjectBuilder, ProjectStep, Projection, PropertiesStep, SelectStep, UnfoldStep, ValueMapStep,
-    ValueStep, ValuesStep,
+    AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, IndexStep,
+    KeyStep, LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep,
+    PathStep, ProjectBuilder, ProjectStep, Projection, PropertiesStep, SelectStep, UnfoldStep,
+    ValueMapStep, ValueStep, ValuesStep,
 };
 
 // Re-export macros
@@ -2516,9 +2516,9 @@ pub mod __ {
     use crate::traversal::predicate::Predicate;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
-        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, KeyStep, LabelStep, LoopsStep,
-        MapStep, OrderBuilder, PathStep, ProjectBuilder, PropertiesStep, SelectStep, UnfoldStep,
-        ValueMapStep, ValueStep, ValuesStep,
+        AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, IndexStep, KeyStep, LabelStep,
+        LoopsStep, MapStep, OrderBuilder, PathStep, ProjectBuilder, PropertiesStep, SelectStep,
+        UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -3603,6 +3603,21 @@ pub mod __ {
     #[inline]
     pub fn loops() -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(LoopsStep::new())
+    }
+
+    /// Annotate each element with its position index.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get elements with indices
+    /// let indexed = g.v()
+    ///     .flat_map(__::index())
+    ///     .to_list();
+    /// ```
+    #[inline]
+    pub fn index() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(IndexStep::new())
     }
 
     /// Replace values with a constant.
