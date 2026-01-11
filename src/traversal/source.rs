@@ -2767,6 +2767,429 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             .map(|t| t.value)
             .max_by(|a, b| a.to_comparable().cmp(&b.to_comparable()))
     }
+
+    // -------------------------------------------------------------------------
+    // Multi-way Branch Steps
+    // -------------------------------------------------------------------------
+
+    /// Start a branch step with the given branch traversal.
+    ///
+    /// The branch traversal is evaluated for each input traverser to produce
+    /// a key. The key is then matched against option branches. Use `.option()`
+    /// to define branches for specific keys and `.option_none()` for a default
+    /// fallback.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Route based on vertex label
+    /// let results = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::out_labels(&["knows"]))
+    ///     .option("software", __::in_labels(&["created"]))
+    ///     .option_none(__::identity())
+    ///     .to_list();
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `BranchBuilder` that allows configuring option branches.
+    pub fn branch(self, branch_traversal: Traversal<Value, Value>) -> BranchBuilder<'g, In> {
+        let track_paths = self.track_paths;
+        let (source, steps) = self.traversal.into_steps();
+
+        BranchBuilder::new(
+            self.snapshot,
+            self.interner,
+            source,
+            steps,
+            branch_traversal,
+            track_paths,
+        )
+    }
+
+    /// Start a choose-option step with the given branch traversal.
+    ///
+    /// This is an alias for `branch()` that provides the `choose().option()`
+    /// pattern from Gremlin. It evaluates the branch traversal for each input
+    /// traverser to produce a key, then routes to the matching option branch.
+    ///
+    /// Note: This is distinct from the binary `choose(condition, if_true, if_false)`
+    /// which takes a condition traversal and two branches.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Route based on property value
+    /// let results = g.v()
+    ///     .choose_by(__::values("status"))
+    ///     .option("active", __::out())
+    ///     .option("inactive", __::identity())
+    ///     .option_none(__::constant("unknown"))
+    ///     .to_list();
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A `BranchBuilder` that allows configuring option branches.
+    pub fn choose_by(self, branch_traversal: Traversal<Value, Value>) -> BranchBuilder<'g, In> {
+        self.branch(branch_traversal)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// BranchBuilder - Builder for multi-way branch steps
+// -----------------------------------------------------------------------------
+
+/// Fluent builder for creating multi-way branch steps in bound traversals.
+///
+/// This builder is returned from `BoundTraversal::branch()` or `choose_by()`
+/// and allows configuring option branches before completing the traversal.
+///
+/// # Example
+///
+/// ```ignore
+/// use rustgremlin::traversal::__;
+///
+/// // Route based on vertex label
+/// let results = g.v()
+///     .branch(__::label())
+///     .option("person", __::out_labels(&["knows"]))
+///     .option("software", __::in_labels(&["created"]))
+///     .option_none(__::identity())
+///     .to_list();
+/// ```
+pub struct BranchBuilder<'g, In> {
+    snapshot: &'g GraphSnapshot<'g>,
+    interner: &'g StringInterner,
+    source: Option<TraversalSource>,
+    steps: Vec<Box<dyn AnyStep>>,
+    branch_traversal: Traversal<Value, Value>,
+    options: std::collections::HashMap<
+        crate::traversal::branch::OptionKeyWrapper,
+        Traversal<Value, Value>,
+    >,
+    none_branch: Option<Traversal<Value, Value>>,
+    track_paths: bool,
+    _phantom: PhantomData<In>,
+}
+
+impl<'g, In> BranchBuilder<'g, In> {
+    /// Create a new BranchBuilder with existing steps and graph references.
+    pub(crate) fn new(
+        snapshot: &'g GraphSnapshot<'g>,
+        interner: &'g StringInterner,
+        source: Option<TraversalSource>,
+        steps: Vec<Box<dyn AnyStep>>,
+        branch_traversal: Traversal<Value, Value>,
+        track_paths: bool,
+    ) -> Self {
+        Self {
+            snapshot,
+            interner,
+            source,
+            steps,
+            branch_traversal,
+            options: std::collections::HashMap::new(),
+            none_branch: None,
+            track_paths,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Add an option branch for a specific key.
+    ///
+    /// When the branch traversal produces a value matching `key`, the `branch`
+    /// traversal will be executed for that traverser.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to match against (can be string, int, bool, etc.)
+    /// * `branch` - The traversal to execute when the key matches
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// let results = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::values("name"))
+    ///     .option("software", __::values("version"))
+    ///     .to_list();
+    /// ```
+    pub fn option<K: Into<crate::traversal::branch::OptionKey>>(
+        mut self,
+        key: K,
+        branch: Traversal<Value, Value>,
+    ) -> Self {
+        use crate::traversal::branch::{OptionKey, OptionKeyWrapper};
+
+        let key = key.into();
+        match key {
+            OptionKey::None => {
+                self.none_branch = Some(branch);
+            }
+            OptionKey::Value(_) => {
+                self.options.insert(OptionKeyWrapper(key), branch);
+            }
+        }
+        self
+    }
+
+    /// Add a default branch for when no option key matches.
+    ///
+    /// This branch is executed when the branch traversal produces a value
+    /// that doesn't match any registered option, or when it produces no value.
+    ///
+    /// # Arguments
+    ///
+    /// * `branch` - The traversal to execute as the default
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// let results = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::values("name"))
+    ///     .option_none(__::constant("unknown"))
+    ///     .to_list();
+    /// ```
+    pub fn option_none(mut self, branch: Traversal<Value, Value>) -> Self {
+        self.none_branch = Some(branch);
+        self
+    }
+
+    /// Finalize the builder and return a BoundTraversal.
+    fn finalize(mut self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::BranchStep;
+
+        let mut step = BranchStep::new(self.branch_traversal);
+        step.options = self.options;
+        step.none_branch = self.none_branch;
+
+        self.steps.push(Box::new(step));
+
+        let traversal = Traversal {
+            steps: self.steps,
+            source: self.source,
+            _phantom: PhantomData,
+        };
+
+        let mut bound = BoundTraversal::new(self.snapshot, self.interner, traversal);
+
+        if self.track_paths {
+            bound = bound.with_path();
+        }
+
+        bound
+    }
+
+    // -------------------------------------------------------------------------
+    // Terminal Methods
+    // -------------------------------------------------------------------------
+
+    /// Execute and collect all results into a list.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let results = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::values("name"))
+    ///     .to_list();
+    /// ```
+    pub fn to_list(self) -> Vec<Value> {
+        self.finalize().to_list()
+    }
+
+    /// Count the number of traversers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let count = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::identity())
+    ///     .count();
+    /// ```
+    pub fn count(self) -> u64 {
+        self.finalize().count()
+    }
+
+    /// Return the next result, if any.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let first = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::values("name"))
+    ///     .next();
+    /// ```
+    pub fn next(self) -> Option<Value> {
+        self.finalize().next()
+    }
+
+    /// Return exactly one result, or an error if zero or multiple.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let single = g.v_id(VertexId(0))
+    ///     .branch(__::label())
+    ///     .option("person", __::values("name"))
+    ///     .one();
+    /// ```
+    pub fn one(self) -> Result<Value, crate::error::TraversalError> {
+        self.finalize().one()
+    }
+
+    /// Execute and discard all results.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::drop())
+    ///     .iterate();
+    /// ```
+    pub fn iterate(self) {
+        self.finalize().iterate()
+    }
+
+    /// Check if there are any results.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let has_people = g.v()
+    ///     .branch(__::label())
+    ///     .option("person", __::identity())
+    ///     .has_next();
+    /// ```
+    pub fn has_next(self) -> bool {
+        self.finalize().has_next()
+    }
+
+    // -------------------------------------------------------------------------
+    // Continuation Methods (delegate to finalize().method())
+    // -------------------------------------------------------------------------
+
+    /// Navigate to outgoing adjacent vertices.
+    pub fn out(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().out()
+    }
+
+    /// Navigate to incoming adjacent vertices.
+    pub fn in_(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().in_()
+    }
+
+    /// Navigate to adjacent vertices in both directions.
+    pub fn both(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().both()
+    }
+
+    /// Navigate to outgoing edges.
+    pub fn out_e(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().out_e()
+    }
+
+    /// Navigate to incoming edges.
+    pub fn in_e(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().in_e()
+    }
+
+    /// Navigate to edges in both directions.
+    pub fn both_e(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().both_e()
+    }
+
+    /// Filter by element label.
+    pub fn has_label(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has_label(label)
+    }
+
+    /// Filter by any of the given labels.
+    pub fn has_label_any<I, S>(self, labels: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.finalize().has_label_any(labels)
+    }
+
+    /// Filter by property existence.
+    pub fn has(self, key: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has(key)
+    }
+
+    /// Filter by property value.
+    pub fn has_value(self, key: &str, value: impl Into<Value>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has_value(key, value)
+    }
+
+    /// Filter by predicate on property.
+    pub fn has_where(
+        self,
+        key: impl Into<String>,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> BoundTraversal<'g, In, Value> {
+        self.finalize().has_where(key, predicate)
+    }
+
+    /// Remove duplicate traversers.
+    pub fn dedup(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().dedup()
+    }
+
+    /// Limit the number of traversers.
+    pub fn limit(self, n: usize) -> BoundTraversal<'g, In, Value> {
+        self.finalize().limit(n)
+    }
+
+    /// Extract property values.
+    pub fn values(self, key: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().values(key)
+    }
+
+    /// Extract element ID.
+    pub fn id(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().id()
+    }
+
+    /// Extract element label.
+    pub fn label(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().label()
+    }
+
+    /// Label the current position for later reference.
+    pub fn as_(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().as_(label)
+    }
+
+    /// Select labeled values from path.
+    pub fn select_one(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        self.finalize().select_one(label)
+    }
+
+    /// Get the path of elements traversed.
+    pub fn path(self) -> BoundTraversal<'g, In, Value> {
+        self.finalize().path()
+    }
+
+    /// Replace with a constant value.
+    pub fn constant(self, value: impl Into<Value>) -> BoundTraversal<'g, In, Value> {
+        self.finalize().constant(value)
+    }
 }
 
 // -----------------------------------------------------------------------------

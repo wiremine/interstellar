@@ -20,10 +20,135 @@
 //! g.v().union(vec![__.out(), __.in_()]).to_list()
 //! ```
 
+use std::collections::HashMap;
+
 use crate::traversal::context::ExecutionContext;
 use crate::traversal::step::{execute_traversal_from, AnyStep};
 use crate::traversal::{Traversal, Traverser};
 use crate::value::Value;
+
+// =============================================================================
+// Option Key Types for Multi-way Branching
+// =============================================================================
+
+/// Key for matching option branches in `BranchStep`.
+///
+/// `OptionKey` is used to route traversers to specific branches based on
+/// computed values. It supports two variants:
+///
+/// - `Value(Value)` - Match a specific value
+/// - `None` - Default fallback when no other option matches
+///
+/// # Example
+///
+/// ```rust
+/// use rustgremlin::traversal::branch::OptionKey;
+///
+/// // Create keys from various types
+/// let key1 = OptionKey::from("person");
+/// let key2 = OptionKey::from(42i64);
+/// let key3 = OptionKey::none();
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub enum OptionKey {
+    /// Match a specific value.
+    Value(Value),
+    /// Default fallback (Pick.none in Gremlin).
+    None,
+}
+
+impl OptionKey {
+    /// Create an `OptionKey` from any type that can be converted to `Value`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::traversal::branch::OptionKey;
+    ///
+    /// let key = OptionKey::value("person");
+    /// ```
+    pub fn value<T: Into<Value>>(v: T) -> Self {
+        OptionKey::Value(v.into())
+    }
+
+    /// Create a `None` option key (default fallback).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::traversal::branch::OptionKey;
+    ///
+    /// let key = OptionKey::none();
+    /// ```
+    pub fn none() -> Self {
+        OptionKey::None
+    }
+}
+
+impl From<&str> for OptionKey {
+    fn from(s: &str) -> Self {
+        OptionKey::Value(Value::String(s.to_string()))
+    }
+}
+
+impl From<String> for OptionKey {
+    fn from(s: String) -> Self {
+        OptionKey::Value(Value::String(s))
+    }
+}
+
+impl From<i64> for OptionKey {
+    fn from(n: i64) -> Self {
+        OptionKey::Value(Value::Int(n))
+    }
+}
+
+impl From<i32> for OptionKey {
+    fn from(n: i32) -> Self {
+        OptionKey::Value(Value::Int(n as i64))
+    }
+}
+
+impl From<bool> for OptionKey {
+    fn from(b: bool) -> Self {
+        OptionKey::Value(Value::Bool(b))
+    }
+}
+
+impl From<Value> for OptionKey {
+    fn from(v: Value) -> Self {
+        OptionKey::Value(v)
+    }
+}
+
+/// Wrapper around `OptionKey` that implements `Hash` and `Eq` for use in `HashMap`.
+///
+/// This wrapper is necessary because `OptionKey` contains `Value`, and we need
+/// consistent hashing behavior for use as HashMap keys.
+#[derive(Clone, Debug)]
+pub struct OptionKeyWrapper(pub OptionKey);
+
+impl std::hash::Hash for OptionKeyWrapper {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match &self.0 {
+            OptionKey::Value(v) => {
+                0u8.hash(state);
+                v.hash(state);
+            }
+            OptionKey::None => {
+                1u8.hash(state);
+            }
+        }
+    }
+}
+
+impl PartialEq for OptionKeyWrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for OptionKeyWrapper {}
 
 // =============================================================================
 // Filter Steps
@@ -502,6 +627,184 @@ impl AnyStep for LocalStep {
     }
 }
 
+// =============================================================================
+// Multi-way Branch Step
+// =============================================================================
+
+/// Multi-way branching step that routes traversers based on computed values.
+///
+/// `BranchStep` evaluates a branch traversal for each input traverser to produce
+/// a key value. The key is then matched against registered options to determine
+/// which branch to execute. If no option matches and a `none_branch` is set,
+/// that branch is executed. If no option matches and no `none_branch` exists,
+/// the traverser is filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// use rustgremlin::traversal::__;
+///
+/// // Route based on vertex label
+/// g.v()
+///     .branch(__::label())
+///     .option("person", __::out_labels(&["knows"]))
+///     .option("software", __::in_labels(&["created"]))
+///     .option_none(__::identity())
+///     .to_list()
+/// ```
+#[derive(Clone)]
+pub struct BranchStep {
+    /// The traversal that computes the branch key for each input traverser.
+    branch_traversal: Traversal<Value, Value>,
+    /// Map of option keys to their corresponding branch traversals.
+    pub(crate) options: HashMap<OptionKeyWrapper, Traversal<Value, Value>>,
+    /// Optional default branch when no option key matches.
+    pub(crate) none_branch: Option<Traversal<Value, Value>>,
+}
+
+impl BranchStep {
+    /// Create a new `BranchStep` with the given branch traversal.
+    ///
+    /// The branch traversal is evaluated for each input traverser to produce
+    /// a key value that is used to select the appropriate option branch.
+    ///
+    /// # Arguments
+    ///
+    /// * `branch_traversal` - The traversal that computes the branch key
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::traversal::{Traversal, branch::BranchStep};
+    /// use rustgremlin::value::Value;
+    ///
+    /// let label_traversal = Traversal::<Value, Value>::new();
+    /// let step = BranchStep::new(label_traversal);
+    /// ```
+    pub fn new(branch_traversal: Traversal<Value, Value>) -> Self {
+        Self {
+            branch_traversal,
+            options: HashMap::new(),
+            none_branch: None,
+        }
+    }
+
+    /// Add an option branch for a specific key.
+    ///
+    /// When the branch traversal produces a value matching `key`, the `branch`
+    /// traversal will be executed for that traverser.
+    ///
+    /// If `key` is `OptionKey::None`, this sets the default branch instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to match against (can be converted from string, int, bool, etc.)
+    /// * `branch` - The traversal to execute when the key matches
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::traversal::{Traversal, branch::BranchStep};
+    /// use rustgremlin::value::Value;
+    ///
+    /// let label_traversal = Traversal::<Value, Value>::new();
+    /// let step = BranchStep::new(label_traversal)
+    ///     .add_option("person", Traversal::<Value, Value>::new())
+    ///     .add_option("software", Traversal::<Value, Value>::new());
+    /// ```
+    pub fn add_option<K: Into<OptionKey>>(
+        mut self,
+        key: K,
+        branch: Traversal<Value, Value>,
+    ) -> Self {
+        let key = key.into();
+        match key {
+            OptionKey::None => {
+                self.none_branch = Some(branch);
+            }
+            OptionKey::Value(_) => {
+                self.options.insert(OptionKeyWrapper(key), branch);
+            }
+        }
+        self
+    }
+
+    /// Add a default branch for when no option key matches.
+    ///
+    /// This branch is executed when the branch traversal produces a value
+    /// that doesn't match any registered option, or when it produces no value.
+    ///
+    /// # Arguments
+    ///
+    /// * `branch` - The traversal to execute as the default
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rustgremlin::traversal::{Traversal, branch::BranchStep};
+    /// use rustgremlin::value::Value;
+    ///
+    /// let label_traversal = Traversal::<Value, Value>::new();
+    /// let step = BranchStep::new(label_traversal)
+    ///     .add_option("person", Traversal::<Value, Value>::new())
+    ///     .add_none_option(Traversal::<Value, Value>::new());
+    /// ```
+    pub fn add_none_option(mut self, branch: Traversal<Value, Value>) -> Self {
+        self.none_branch = Some(branch);
+        self
+    }
+}
+
+impl AnyStep for BranchStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let branch_traversal = self.branch_traversal.clone();
+        let options = self.options.clone();
+        let none_branch = self.none_branch.clone();
+
+        Box::new(input.flat_map(move |t| {
+            // Evaluate branch traversal to get the key
+            let branch_input = Box::new(std::iter::once(t.clone()));
+            let mut branch_results = execute_traversal_from(ctx, &branch_traversal, branch_input);
+
+            // Get the first result as the branch key
+            let key_value = branch_results
+                .next()
+                .map(|key_traverser| key_traverser.value);
+
+            // Find matching option
+            let branch = match key_value {
+                Some(key) => {
+                    let option_key = OptionKeyWrapper(OptionKey::Value(key));
+                    options.get(&option_key).or(none_branch.as_ref())
+                }
+                None => none_branch.as_ref(),
+            };
+
+            match branch {
+                Some(branch) => {
+                    let sub_input = Box::new(std::iter::once(t));
+                    execute_traversal_from(ctx, branch, sub_input)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                }
+                None => Vec::new().into_iter(),
+            }
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "branch"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -630,5 +933,238 @@ mod tests {
         let _: Box<dyn AnyStep> = Box::new(ChooseStep::new(sub.clone(), sub.clone(), sub.clone()));
         let _: Box<dyn AnyStep> = Box::new(OptionalStep::new(sub.clone()));
         let _: Box<dyn AnyStep> = Box::new(LocalStep::new(sub));
+    }
+
+    // ==========================================================================
+    // OptionKey Tests
+    // ==========================================================================
+
+    #[test]
+    fn option_key_value_from_string() {
+        let key = OptionKey::value("person");
+        assert_eq!(key, OptionKey::Value(Value::String("person".to_string())));
+    }
+
+    #[test]
+    fn option_key_value_from_integer() {
+        let key = OptionKey::value(42i64);
+        assert_eq!(key, OptionKey::Value(Value::Int(42)));
+    }
+
+    #[test]
+    fn option_key_value_from_bool() {
+        let key = OptionKey::value(true);
+        assert_eq!(key, OptionKey::Value(Value::Bool(true)));
+    }
+
+    #[test]
+    fn option_key_none_creates_none_variant() {
+        let key = OptionKey::none();
+        assert_eq!(key, OptionKey::None);
+    }
+
+    #[test]
+    fn option_key_from_str() {
+        let key: OptionKey = "person".into();
+        assert_eq!(key, OptionKey::Value(Value::String("person".to_string())));
+    }
+
+    #[test]
+    fn option_key_from_string() {
+        let key: OptionKey = String::from("software").into();
+        assert_eq!(key, OptionKey::Value(Value::String("software".to_string())));
+    }
+
+    #[test]
+    fn option_key_from_i64() {
+        let key: OptionKey = 42i64.into();
+        assert_eq!(key, OptionKey::Value(Value::Int(42)));
+    }
+
+    #[test]
+    fn option_key_from_i32() {
+        let key: OptionKey = 42i32.into();
+        assert_eq!(key, OptionKey::Value(Value::Int(42)));
+    }
+
+    #[test]
+    fn option_key_from_bool() {
+        let key: OptionKey = true.into();
+        assert_eq!(key, OptionKey::Value(Value::Bool(true)));
+    }
+
+    #[test]
+    fn option_key_from_value() {
+        let key: OptionKey = Value::Float(3.14).into();
+        assert_eq!(key, OptionKey::Value(Value::Float(3.14)));
+    }
+
+    // ==========================================================================
+    // OptionKeyWrapper Tests
+    // ==========================================================================
+
+    #[test]
+    fn option_key_wrapper_hash_consistency() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_key(key: &OptionKeyWrapper) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            key.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Same keys should produce same hash
+        let key1 = OptionKeyWrapper(OptionKey::from("person"));
+        let key2 = OptionKeyWrapper(OptionKey::from("person"));
+        assert_eq!(hash_key(&key1), hash_key(&key2));
+
+        // Different keys should (generally) produce different hashes
+        let key3 = OptionKeyWrapper(OptionKey::from("software"));
+        assert_ne!(hash_key(&key1), hash_key(&key3));
+
+        // None keys should have consistent hash
+        let none1 = OptionKeyWrapper(OptionKey::None);
+        let none2 = OptionKeyWrapper(OptionKey::None);
+        assert_eq!(hash_key(&none1), hash_key(&none2));
+
+        // None should differ from value keys
+        assert_ne!(hash_key(&key1), hash_key(&none1));
+    }
+
+    #[test]
+    fn option_key_wrapper_equality() {
+        let key1 = OptionKeyWrapper(OptionKey::from("person"));
+        let key2 = OptionKeyWrapper(OptionKey::from("person"));
+        let key3 = OptionKeyWrapper(OptionKey::from("software"));
+        let none = OptionKeyWrapper(OptionKey::None);
+
+        assert_eq!(key1, key2);
+        assert_ne!(key1, key3);
+        assert_ne!(key1, none);
+    }
+
+    #[test]
+    fn option_key_wrapper_in_hashmap() {
+        let mut map: HashMap<OptionKeyWrapper, &str> = HashMap::new();
+        map.insert(OptionKeyWrapper(OptionKey::from("person")), "people branch");
+        map.insert(
+            OptionKeyWrapper(OptionKey::from("software")),
+            "software branch",
+        );
+        map.insert(OptionKeyWrapper(OptionKey::None), "default branch");
+
+        assert_eq!(
+            map.get(&OptionKeyWrapper(OptionKey::from("person"))),
+            Some(&"people branch")
+        );
+        assert_eq!(
+            map.get(&OptionKeyWrapper(OptionKey::from("software"))),
+            Some(&"software branch")
+        );
+        assert_eq!(
+            map.get(&OptionKeyWrapper(OptionKey::None)),
+            Some(&"default branch")
+        );
+        assert_eq!(map.get(&OptionKeyWrapper(OptionKey::from("unknown"))), None);
+    }
+
+    // ==========================================================================
+    // BranchStep Tests
+    // ==========================================================================
+
+    #[test]
+    fn branch_step_new_creates_empty_options() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let step = BranchStep::new(branch_traversal);
+
+        assert!(step.options.is_empty());
+        assert!(step.none_branch.is_none());
+    }
+
+    #[test]
+    fn branch_step_add_option_adds_to_map() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let option_traversal = Traversal::<Value, Value>::new();
+
+        let step = BranchStep::new(branch_traversal).add_option("person", option_traversal);
+
+        assert_eq!(step.options.len(), 1);
+        assert!(step
+            .options
+            .contains_key(&OptionKeyWrapper(OptionKey::from("person"))));
+        assert!(step.none_branch.is_none());
+    }
+
+    #[test]
+    fn branch_step_add_option_with_none_key_sets_none_branch() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let option_traversal = Traversal::<Value, Value>::new();
+
+        let step = BranchStep::new(branch_traversal).add_option(OptionKey::None, option_traversal);
+
+        assert!(step.options.is_empty());
+        assert!(step.none_branch.is_some());
+    }
+
+    #[test]
+    fn branch_step_add_none_option_sets_none_branch() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let option_traversal = Traversal::<Value, Value>::new();
+
+        let step = BranchStep::new(branch_traversal).add_none_option(option_traversal);
+
+        assert!(step.options.is_empty());
+        assert!(step.none_branch.is_some());
+    }
+
+    #[test]
+    fn branch_step_multiple_options() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let option1 = Traversal::<Value, Value>::new();
+        let option2 = Traversal::<Value, Value>::new();
+        let default = Traversal::<Value, Value>::new();
+
+        let step = BranchStep::new(branch_traversal)
+            .add_option("person", option1)
+            .add_option("software", option2)
+            .add_none_option(default);
+
+        assert_eq!(step.options.len(), 2);
+        assert!(step
+            .options
+            .contains_key(&OptionKeyWrapper(OptionKey::from("person"))));
+        assert!(step
+            .options
+            .contains_key(&OptionKeyWrapper(OptionKey::from("software"))));
+        assert!(step.none_branch.is_some());
+    }
+
+    #[test]
+    fn branch_step_compiles() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let step = BranchStep::new(branch_traversal);
+        assert_eq!(step.name(), "branch");
+    }
+
+    #[test]
+    fn branch_step_is_clonable() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let option_traversal = Traversal::<Value, Value>::new();
+
+        let step = BranchStep::new(branch_traversal)
+            .add_option("person", option_traversal.clone())
+            .add_none_option(option_traversal);
+
+        let cloned = step.clone();
+        assert_eq!(cloned.options.len(), step.options.len());
+        assert_eq!(cloned.none_branch.is_some(), step.none_branch.is_some());
+    }
+
+    #[test]
+    fn branch_step_implements_any_step() {
+        let branch_traversal = Traversal::<Value, Value>::new();
+        let step = BranchStep::new(branch_traversal);
+        let _: Box<dyn AnyStep> = Box::new(step);
     }
 }

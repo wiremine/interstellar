@@ -170,9 +170,9 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 
 | Gremlin Function | Rust Function | Module |
 |-----------------|---------------|--------|
-| `branch()` | - | - |
+| `branch(traversal)` | `branch(traversal).option()` | `traversal::branch` |
 | `choose(cond, true, false)` | `choose(condition, if_true, if_false)` | `traversal::branch` |
-| `choose(traversal).option()` | - | - |
+| `choose(traversal).option()` | `choose_by(traversal).option()` | `traversal::branch` |
 | `union(traversal...)` | `union(traversals)` | `traversal::branch` |
 | `coalesce(traversal...)` | `coalesce(traversals)` | `traversal::branch` |
 | `optional(traversal)` | `optional(traversal)` | `traversal::branch` |
@@ -228,7 +228,8 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `as(label)` | `as_(label)` | `traversal::transform` |
 | `by()` | `.by_*()` methods on builders | Various |
 | `with()` | - | - |
-| `option()` | - | - |
+| `option(key, traversal)` | `.option(key, traversal)` on `BranchBuilder` | `traversal::source` |
+| `option(none)` | `.option_none(traversal)` on `BranchBuilder` | `traversal::source` |
 | `from()` | - | - |
 | `to()` | - | - |
 | `read()` | - | - |
@@ -363,6 +364,7 @@ let names = __::values("name");
 **Branch/Filter with Sub-traversals:**
 - `__::where_()`, `__::where_p()`, `__::not()`, `__::and_()`, `__::or_()`
 - `__::union()`, `__::coalesce()`, `__::choose()`, `__::optional()`, `__::local()`
+- `__::branch()`
 
 **Mutation:**
 - `__::add_v()`, `__::add_e()`, `__::property()`, `__::drop()`
@@ -562,11 +564,12 @@ The following Gremlin features are not currently planned for support:
 | Navigation Steps | 16 | 0 |
 | Transform/Map Steps | 30 | 0 |
 | Aggregation Steps | 6 | 0 |
-| Branch Steps | 5 | 2 |
+| Branch Steps | 7 | 0 |
 | Repeat Steps | 6 | 0 |
 | Side Effect Steps | 1 | 5 |
 | Mutation Steps | 6 | 2 |
+| Modulator Steps | 4 | 4 |
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 7 | 0 |
-| **Total** | **~137** | **~14** |
+| **Total** | **~143** | **~16** |

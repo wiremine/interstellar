@@ -346,11 +346,8 @@ fn match_pattern<S: GraphStorage + GraphStorageMut>(
 
     for vertex in ctx.storage().all_vertices() {
         // Check label filter
-        if !first_node.labels.is_empty() {
-            let has_label = first_node.labels.iter().any(|l| vertex.label == *l);
-            if !has_label {
-                continue;
-            }
+        if !first_node.labels.is_empty() && !first_node.labels.contains(&vertex.label) {
+            continue;
         }
 
         // Check property filters
@@ -409,11 +406,8 @@ fn match_pattern<S: GraphStorage + GraphStorageMut>(
 
                     for edge_ref in edges {
                         // Check edge label filter
-                        if !edge.labels.is_empty() {
-                            let has_label = edge.labels.iter().any(|l| edge_ref.label == *l);
-                            if !has_label {
-                                continue;
-                            }
+                        if !edge.labels.is_empty() && !edge.labels.contains(&edge_ref.label) {
+                            continue;
                         }
 
                         // Check edge property filters
@@ -451,12 +445,10 @@ fn match_pattern<S: GraphStorage + GraphStorageMut>(
                         };
 
                         // Check target label filter
-                        if !target_node.labels.is_empty() {
-                            let has_label =
-                                target_node.labels.iter().any(|l| target_vertex.label == *l);
-                            if !has_label {
-                                continue;
-                            }
+                        if !target_node.labels.is_empty()
+                            && !target_node.labels.contains(&target_vertex.label)
+                        {
+                            continue;
                         }
 
                         // Check target property filters

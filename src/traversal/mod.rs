@@ -34,8 +34,8 @@ pub use aggregate::{
     GroupKey, GroupStep, GroupValue,
 };
 pub use branch::{
-    AndStep, ChooseStep, CoalesceStep, LocalStep, NotStep, OptionalStep, OrStep, UnionStep,
-    WhereStep,
+    AndStep, BranchStep, ChooseStep, CoalesceStep, LocalStep, NotStep, OptionKey, OptionalStep,
+    OrStep, UnionStep, WhereStep,
 };
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
@@ -53,7 +53,7 @@ pub use navigation::{
     OutVStep,
 };
 pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
-pub use source::{BoundTraversal, GraphTraversalSource, TraversalExecutor};
+pub use source::{BoundTraversal, BranchBuilder, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
     AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, IndexStep,
@@ -4041,6 +4041,33 @@ pub mod __ {
     pub fn drop() -> Traversal<Value, Value> {
         use crate::traversal::mutation::DropStep;
         Traversal::<Value, Value>::new().add_step(DropStep::new())
+    }
+
+    // -------------------------------------------------------------------------
+    // Branch Steps
+    // -------------------------------------------------------------------------
+
+    /// Create a branch step for anonymous traversals.
+    ///
+    /// This creates a `Traversal` with a `BranchStep` that evaluates the given
+    /// branch traversal for each input and routes to option branches based on
+    /// the resulting key.
+    ///
+    /// Note: This returns a traversal with a BranchStep that has no options.
+    /// For full branch/option functionality in anonymous traversals, you typically
+    /// configure options when using `BoundTraversal::branch()` instead.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Create a basic branch step (options added via bound traversal)
+    /// let branch_traversal = __::branch(__::label());
+    /// ```
+    pub fn branch(branch_traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        use crate::traversal::branch::BranchStep;
+        Traversal::<Value, Value>::new().add_step(BranchStep::new(branch_traversal))
     }
 }
 
