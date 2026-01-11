@@ -471,6 +471,252 @@ impl AnyStep for DedupStep {
 }
 
 // -----------------------------------------------------------------------------
+// DedupByKeyStep - deduplicate traversers by property value
+// -----------------------------------------------------------------------------
+
+/// Deduplication step that removes duplicates based on a property value.
+///
+/// Extracts the specified property from vertices/edges and uses it as the
+/// deduplication key. Only the first occurrence of each unique property value
+/// passes through; subsequent duplicates are filtered out.
+///
+/// For elements without the property, `Value::Null` is used as the key,
+/// so only one element without the property will pass.
+///
+/// # Example
+///
+/// ```ignore
+/// // Keep only one person per age
+/// let unique_ages = g.v().has_label("person").dedup_by_key("age").to_list();
+///
+/// // Keep only one edge per weight
+/// let unique_weights = g.e().dedup_by_key("weight").to_list();
+/// ```
+#[derive(Clone, Debug)]
+pub struct DedupByKeyStep {
+    /// The property key to use for deduplication
+    key: String,
+}
+
+impl DedupByKeyStep {
+    /// Create a new DedupByKeyStep with the given property key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to extract and use for deduplication
+    pub fn new(key: impl Into<String>) -> Self {
+        Self { key: key.into() }
+    }
+
+    /// Extract the property value from a traverser's element.
+    ///
+    /// Returns `Value::Null` if the element doesn't have the property
+    /// or if the traverser value is not an element.
+    fn extract_key(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
+        match &traverser.value {
+            Value::Vertex(id) => ctx
+                .snapshot()
+                .storage()
+                .get_vertex(*id)
+                .and_then(|v| v.properties.get(&self.key).cloned())
+                .unwrap_or(Value::Null),
+            Value::Edge(id) => ctx
+                .snapshot()
+                .storage()
+                .get_edge(*id)
+                .and_then(|e| e.properties.get(&self.key).cloned())
+                .unwrap_or(Value::Null),
+            // Non-element values don't have properties, use Null
+            _ => Value::Null,
+        }
+    }
+}
+
+impl AnyStep for DedupByKeyStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let mut seen = std::collections::HashSet::new();
+        Box::new(input.filter(move |t| {
+            let key = self.extract_key(ctx, t);
+            seen.insert(key)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "dedup"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// DedupByLabelStep - deduplicate traversers by element label
+// -----------------------------------------------------------------------------
+
+/// Deduplication step that removes duplicates based on element label.
+///
+/// Extracts the label from vertices/edges and uses it as the deduplication key.
+/// Only the first occurrence of each unique label passes through.
+///
+/// For non-element values, an empty string is used as the key.
+///
+/// # Example
+///
+/// ```ignore
+/// // Keep only one element per label
+/// let one_per_label = g.v().dedup_by_label().to_list();
+/// ```
+#[derive(Clone, Debug, Copy)]
+pub struct DedupByLabelStep;
+
+impl DedupByLabelStep {
+    /// Create a new DedupByLabelStep.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Extract the label from a traverser's element.
+    ///
+    /// Returns an empty string if the traverser value is not an element.
+    fn extract_label(&self, ctx: &ExecutionContext, traverser: &Traverser) -> String {
+        match &traverser.value {
+            Value::Vertex(id) => ctx
+                .snapshot()
+                .storage()
+                .get_vertex(*id)
+                .map(|v| v.label.clone())
+                .unwrap_or_default(),
+            Value::Edge(id) => ctx
+                .snapshot()
+                .storage()
+                .get_edge(*id)
+                .map(|e| e.label.clone())
+                .unwrap_or_default(),
+            // Non-element values don't have labels
+            _ => String::new(),
+        }
+    }
+}
+
+impl Default for DedupByLabelStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AnyStep for DedupByLabelStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let mut seen = std::collections::HashSet::new();
+        Box::new(input.filter(move |t| {
+            let label = self.extract_label(ctx, t);
+            seen.insert(label)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "dedup"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// DedupByTraversalStep - deduplicate traversers by sub-traversal result
+// -----------------------------------------------------------------------------
+
+/// Deduplication step that removes duplicates based on sub-traversal result.
+///
+/// Executes the given sub-traversal for each element and uses the first result
+/// as the deduplication key. Only the first occurrence of each unique key
+/// passes through; subsequent duplicates are filtered out.
+///
+/// If the sub-traversal produces no results for an element, `Value::Null`
+/// is used as the key.
+///
+/// # Example
+///
+/// ```ignore
+/// // Keep only one vertex per out-degree (number of outgoing edges)
+/// let unique_outdegree = g.v()
+///     .dedup_by(__::out().count())
+///     .to_list();
+///
+/// // Keep only one person per first known friend's name
+/// let unique_friend_name = g.v()
+///     .has_label("person")
+///     .dedup_by(__::out_labels(&["knows"]).limit(1).values("name"))
+///     .to_list();
+/// ```
+#[derive(Clone)]
+pub struct DedupByTraversalStep {
+    /// The sub-traversal to execute for each element to get the dedup key
+    sub: crate::traversal::Traversal<Value, Value>,
+}
+
+impl DedupByTraversalStep {
+    /// Create a new DedupByTraversalStep with the given sub-traversal.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub` - The sub-traversal to execute for each element
+    pub fn new(sub: crate::traversal::Traversal<Value, Value>) -> Self {
+        Self { sub }
+    }
+
+    /// Execute the sub-traversal and get the first result as the dedup key.
+    ///
+    /// Returns `Value::Null` if the sub-traversal produces no results.
+    fn extract_key(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
+        use crate::traversal::step::execute_traversal_from;
+
+        let sub_input = Box::new(std::iter::once(traverser.clone()));
+        let mut results = execute_traversal_from(ctx, &self.sub, sub_input);
+        results.next().map(|t| t.value).unwrap_or(Value::Null)
+    }
+}
+
+impl std::fmt::Debug for DedupByTraversalStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DedupByTraversalStep")
+            .field("sub", &"<traversal>")
+            .finish()
+    }
+}
+
+impl AnyStep for DedupByTraversalStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        let mut seen = std::collections::HashSet::new();
+        Box::new(input.filter(move |t| {
+            let key = self.extract_key(ctx, t);
+            seen.insert(key)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "dedup"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // LimitStep - limit the number of traversers
 // -----------------------------------------------------------------------------
 
@@ -1082,6 +1328,98 @@ impl Default for CyclicPathStep {
 
 // Use the macro to implement AnyStep for CyclicPathStep
 impl_filter_step!(CyclicPathStep, "cyclicPath");
+
+// -----------------------------------------------------------------------------
+// TailStep - returns the last n elements from the traversal
+// -----------------------------------------------------------------------------
+
+/// Filter step that returns only the last n elements from the traversal.
+///
+/// This is a **barrier step** - it must collect all elements to determine
+/// which are the last n. The elements are returned in their original order.
+///
+/// # Behavior
+///
+/// - `tail()` (or `tail_n(1)`) returns only the last element
+/// - `tail_n(n)` returns the last n elements in order
+/// - If fewer than n elements exist, all elements are returned
+/// - Empty traversal returns empty result
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("name").tail()      // Last element only
+/// g.V().values("name").tail(3)     // Last 3 elements
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use rustgremlin::prelude::*;
+///
+/// // Get the last vertex
+/// let last = g.v().tail().to_list();
+///
+/// // Get the last 5 vertices
+/// let last_five = g.v().tail_n(5).to_list();
+///
+/// // Works with values too
+/// let last_names = g.v().values("name").tail_n(3).to_list();
+/// ```
+#[derive(Clone, Debug, Copy)]
+pub struct TailStep {
+    /// Number of elements to return from the end
+    count: usize,
+}
+
+impl TailStep {
+    /// Create a new TailStep that returns the last n elements.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of elements to return from the end
+    pub fn new(count: usize) -> Self {
+        Self { count }
+    }
+
+    /// Create a TailStep that returns only the last element.
+    ///
+    /// Equivalent to `TailStep::new(1)`.
+    pub fn last() -> Self {
+        Self::new(1)
+    }
+}
+
+impl Default for TailStep {
+    fn default() -> Self {
+        Self::last()
+    }
+}
+
+impl AnyStep for TailStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        // Collect all traversers - this is a barrier step
+        let all: Vec<Traverser> = input.collect();
+
+        // Calculate how many to skip to get the last `count` elements
+        let skip_count = all.len().saturating_sub(self.count);
+
+        // Return iterator over the last `count` elements
+        Box::new(all.into_iter().skip(skip_count))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "tail"
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -2909,6 +3247,496 @@ mod tests {
         }
     }
 
+    mod dedup_by_key_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        fn create_test_graph_with_ages() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Add vertices with age property
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props.insert("age".to_string(), Value::Int(25));
+                props
+            });
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Charlie".to_string()));
+                props.insert("age".to_string(), Value::Int(30)); // Same age as Alice
+                props
+            });
+            storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Diana".to_string()));
+                // No age property
+                props
+            });
+
+            Graph::new(Arc::new(storage))
+        }
+
+        #[test]
+        fn new_creates_dedup_by_key_step() {
+            let step = DedupByKeyStep::new("age");
+            assert_eq!(step.key, "age");
+        }
+
+        #[test]
+        fn name_returns_dedup() {
+            let step = DedupByKeyStep::new("age");
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = DedupByKeyStep::new("age");
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "dedup");
+        }
+
+        #[test]
+        fn dedup_by_property_keeps_first_occurrence() {
+            let graph = create_test_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("age");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Alice, age 30
+                Traverser::from_vertex(VertexId(1)), // Bob, age 25
+                Traverser::from_vertex(VertexId(2)), // Charlie, age 30 (duplicate)
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Should keep Alice (age 30) and Bob (age 25), filter out Charlie
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0))); // Alice
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(1))); // Bob
+        }
+
+        #[test]
+        fn missing_property_treated_as_null() {
+            let graph = create_test_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("age");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(3)), // Diana, no age
+                Traverser::from_vertex(VertexId(0)), // Alice, age 30
+                Traverser::from_vertex(VertexId(1)), // Bob, age 25
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All three have unique keys: Null, 30, 25
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn multiple_elements_without_property_deduplicated() {
+            let graph = create_test_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("nonexistent");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All elements have Null as the key, so only first passes
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+        }
+
+        #[test]
+        fn works_with_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("weight");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Edge(EdgeId(0))),
+                Traverser::new(Value::Edge(EdgeId(1))),
+                Traverser::new(Value::Edge(EdgeId(2))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All edges have no weight property, so treated as Null
+            assert_eq!(output.len(), 1);
+        }
+
+        #[test]
+        fn non_element_values_use_null_key() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("age");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All non-elements use Null key, so only first passes
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(1));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("age");
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph_with_ages();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByKeyStep::new("age");
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = DedupByKeyStep::new("age");
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("DedupByKeyStep"));
+            assert!(debug_str.contains("age"));
+        }
+    }
+
+    mod dedup_by_label_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_dedup_by_label_step() {
+            let step = DedupByLabelStep::new();
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn default_creates_step() {
+            let step = DedupByLabelStep::default();
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = DedupByLabelStep::new();
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "dedup");
+        }
+
+        #[test]
+        fn dedup_by_label_keeps_first_per_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByLabelStep::new();
+
+            // Our test graph has: person(0), person(1), software(2), company(3)
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // person
+                Traverser::from_vertex(VertexId(1)), // person (duplicate label)
+                Traverser::from_vertex(VertexId(2)), // software
+                Traverser::from_vertex(VertexId(3)), // company
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Should keep first of each label: person(0), software(2), company(3)
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(2)));
+            assert_eq!(output[2].as_vertex_id(), Some(VertexId(3)));
+        }
+
+        #[test]
+        fn works_with_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByLabelStep::new();
+
+            // Test graph edges: knows(0), uses(1), works_at(2)
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Edge(EdgeId(0))), // knows
+                Traverser::new(Value::Edge(EdgeId(1))), // uses
+                Traverser::new(Value::Edge(EdgeId(2))), // works_at
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All edges have different labels
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn non_element_values_use_empty_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByLabelStep::new();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::String("hello".to_string())),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All non-elements use empty string as label
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(1));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByLabelStep::new();
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = DedupByLabelStep::new();
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn dedup_by_label_step_is_copy() {
+            let step1 = DedupByLabelStep::new();
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.name(), "dedup");
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = DedupByLabelStep::new();
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("DedupByLabelStep"));
+        }
+    }
+
+    mod dedup_by_traversal_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+        use crate::traversal::Traversal;
+
+        #[test]
+        fn name_returns_dedup() {
+            let sub = Traversal::<Value, Value>::new();
+            let step = DedupByTraversalStep::new(sub);
+            assert_eq!(step.name(), "dedup");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let sub = Traversal::<Value, Value>::new();
+            let step = DedupByTraversalStep::new(sub);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "dedup");
+        }
+
+        #[test]
+        fn dedup_by_traversal_uses_first_result() {
+            use crate::traversal::transform::ValuesStep;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Dedup by the "name" property value
+            let sub = Traversal::<Value, Value>::new().add_step(ValuesStep::new("name"));
+            let step = DedupByTraversalStep::new(sub);
+
+            // All test vertices have unique names, so all should pass
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // Alice
+                Traverser::from_vertex(VertexId(1)), // Bob
+                Traverser::from_vertex(VertexId(2)), // Graph DB
+                Traverser::from_vertex(VertexId(3)), // TechCorp
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 4);
+        }
+
+        #[test]
+        fn dedup_by_traversal_with_no_results_uses_null() {
+            use crate::traversal::transform::ValuesStep;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Dedup by non-existent property
+            let sub = Traversal::<Value, Value>::new().add_step(ValuesStep::new("nonexistent"));
+            let step = DedupByTraversalStep::new(sub);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All have Null as key, so only first passes
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
+        }
+
+        #[test]
+        fn dedup_by_label_traversal() {
+            use crate::traversal::transform::LabelStep;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Dedup by label using a traversal
+            let sub = Traversal::<Value, Value>::new().add_step(LabelStep::new());
+            let step = DedupByTraversalStep::new(sub);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)), // person
+                Traverser::from_vertex(VertexId(1)), // person (duplicate label)
+                Traverser::from_vertex(VertexId(2)), // software
+                Traverser::from_vertex(VertexId(3)), // company
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Should deduplicate by label
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let sub = Traversal::<Value, Value>::new();
+            let step = DedupByTraversalStep::new(sub);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let sub = Traversal::<Value, Value>::new();
+            let step = DedupByTraversalStep::new(sub);
+
+            let mut traverser = Traverser::from_vertex(VertexId(0));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let sub = Traversal::<Value, Value>::new();
+            let step = DedupByTraversalStep::new(sub);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("DedupByTraversalStep"));
+            assert!(debug_str.contains("<traversal>"));
+        }
+    }
+
     mod limit_step_tests {
         use super::*;
         use crate::traversal::step::AnyStep;
@@ -3288,6 +4116,272 @@ mod tests {
             assert_eq!(output.len(), 2);
             assert_eq!(output[0].as_vertex_id(), Some(VertexId(2)));
             assert_eq!(output[1].as_vertex_id(), Some(VertexId(3)));
+        }
+    }
+
+    mod tail_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_tail_step() {
+            let step = TailStep::new(3);
+            assert_eq!(step.count, 3);
+        }
+
+        #[test]
+        fn last_creates_tail_step_with_count_one() {
+            let step = TailStep::last();
+            assert_eq!(step.count, 1);
+        }
+
+        #[test]
+        fn default_creates_last() {
+            let step = TailStep::default();
+            assert_eq!(step.count, 1);
+        }
+
+        #[test]
+        fn name_returns_tail() {
+            let step = TailStep::new(3);
+            assert_eq!(step.name(), "tail");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = TailStep::new(3);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "tail");
+        }
+
+        #[test]
+        fn tail_returns_last_n_elements() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(3));
+            assert_eq!(output[1].value, Value::Int(4));
+            assert_eq!(output[2].value, Value::Int(5));
+        }
+
+        #[test]
+        fn tail_last_returns_single_element() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::last();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(5));
+        }
+
+        #[test]
+        fn tail_zero_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn tail_greater_than_input_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(100);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+            assert_eq!(output[1].value, Value::Int(2));
+            assert_eq!(output[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn tail_equal_to_input_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(3);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+            assert_eq!(output[0].value, Value::Int(1));
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(5);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(1);
+
+            let t1 = Traverser::new(Value::Int(1));
+            let mut t2 = Traverser::new(Value::Int(2));
+            t2.extend_path_labeled("kept");
+            t2.loops = 5;
+            t2.bulk = 10;
+
+            let input = vec![t1, t2];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("kept"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn tail_step_is_copy() {
+            let step1 = TailStep::new(3);
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.count, 3);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = TailStep::new(3);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("TailStep"));
+            assert!(debug_str.contains("3"));
+        }
+
+        #[test]
+        fn works_with_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+                Traverser::from_vertex(VertexId(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].as_vertex_id(), Some(VertexId(2)));
+            assert_eq!(output[1].as_vertex_id(), Some(VertexId(3)));
+        }
+
+        #[test]
+        fn works_with_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Edge(EdgeId(0))),
+                Traverser::new(Value::Edge(EdgeId(1))),
+                Traverser::new(Value::Edge(EdgeId(2))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].value, Value::Edge(EdgeId(1)));
+            assert_eq!(output[1].value, Value::Edge(EdgeId(2)));
+        }
+
+        #[test]
+        fn preserves_order() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = TailStep::new(4);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(10)),
+                Traverser::new(Value::Int(20)),
+                Traverser::new(Value::Int(30)),
+                Traverser::new(Value::Int(40)),
+                Traverser::new(Value::Int(50)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 4);
+            // Elements should be in original order (20, 30, 40, 50)
+            assert_eq!(output[0].value, Value::Int(20));
+            assert_eq!(output[1].value, Value::Int(30));
+            assert_eq!(output[2].value, Value::Int(40));
+            assert_eq!(output[3].value, Value::Int(50));
         }
     }
 

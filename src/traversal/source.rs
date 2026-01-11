@@ -551,6 +551,78 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(DedupStep::new())
     }
 
+    /// Deduplicate traversers by property value.
+    ///
+    /// Removes duplicates based on a property value extracted from elements.
+    /// Only the first occurrence of each unique property value passes through.
+    /// Elements without the property use `Null` as the key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to use for deduplication
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Keep only one person per age
+    /// let unique_ages = g.v().has_label("person").dedup_by_key("age").to_list();
+    ///
+    /// // Keep only one edge per weight
+    /// let unique_weights = g.e().dedup_by_key("weight").to_list();
+    /// ```
+    pub fn dedup_by_key(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::DedupByKeyStep;
+        self.add_step(DedupByKeyStep::new(key))
+    }
+
+    /// Deduplicate traversers by element label.
+    ///
+    /// Removes duplicates based on element label. Only the first occurrence
+    /// of each unique label passes through.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Keep only one vertex per label type
+    /// let one_per_label = g.v().dedup_by_label().to_list();
+    /// ```
+    pub fn dedup_by_label(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::DedupByLabelStep;
+        self.add_step(DedupByLabelStep::new())
+    }
+
+    /// Deduplicate traversers by sub-traversal result.
+    ///
+    /// Executes the given sub-traversal for each element and uses the first
+    /// result as the deduplication key. If the sub-traversal produces no
+    /// results, `Null` is used as the key.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub` - The sub-traversal to execute for each element
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Keep only one vertex per out-degree
+    /// let unique_outdegree = g.v()
+    ///     .dedup_by(__::out().count())
+    ///     .to_list();
+    ///
+    /// // Keep one person per first friend's name
+    /// let unique_friend = g.v()
+    ///     .has_label("person")
+    ///     .dedup_by(__::out_labels(&["knows"]).limit(1).values("name"))
+    ///     .to_list();
+    /// ```
+    pub fn dedup_by(
+        self,
+        sub: crate::traversal::Traversal<crate::value::Value, crate::value::Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::DedupByTraversalStep;
+        self.add_step(DedupByTraversalStep::new(sub))
+    }
+
     /// Limit the number of traversers passing through.
     ///
     /// Returns at most the specified number of traversers, stopping iteration
@@ -737,6 +809,42 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     pub fn cyclic_path(self) -> BoundTraversal<'g, In, Value> {
         use crate::traversal::filter::CyclicPathStep;
         self.add_step(CyclicPathStep::new())
+    }
+
+    /// Return only the last element from the traversal.
+    ///
+    /// This is a **barrier step** - it must collect all elements to determine
+    /// which is the last. Equivalent to `tail_n(1)`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get the last vertex
+    /// let last = g.v().tail().to_list();
+    /// ```
+    pub fn tail(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::TailStep;
+        self.add_step(TailStep::last())
+    }
+
+    /// Return only the last n elements from the traversal.
+    ///
+    /// This is a **barrier step** - it must collect all elements to determine
+    /// which are the last n. Elements are returned in their original order.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of elements to return from the end
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get the last 5 vertices
+    /// let last_five = g.v().tail_n(5).to_list();
+    /// ```
+    pub fn tail_n(self, count: usize) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::TailStep;
+        self.add_step(TailStep::new(count))
     }
 
     // -------------------------------------------------------------------------

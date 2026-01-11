@@ -39,8 +39,9 @@ pub use branch::{
 };
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
-    CyclicPathStep, DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep,
-    HasValueStep, HasWhereStep, IsStep, LimitStep, RangeStep, SimplePathStep, SkipStep,
+    CyclicPathStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep,
+    HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, IsStep, LimitStep,
+    RangeStep, SimplePathStep, SkipStep, TailStep,
 };
 pub use mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
@@ -1060,6 +1061,63 @@ impl<In> Traversal<In, Value> {
         self.add_step(filter::DedupStep::new())
     }
 
+    /// Deduplicate traversers by property value (for anonymous traversals).
+    ///
+    /// Removes duplicates based on a property value extracted from elements.
+    /// Only the first occurrence of each unique property value passes through.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to use for deduplication
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that deduplicates by age
+    /// let anon = Traversal::<Value, Value>::new().dedup_by_key("age");
+    /// let unique_ages = g.v().has_label("person").append(anon).to_list();
+    /// ```
+    pub fn dedup_by_key(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(filter::DedupByKeyStep::new(key))
+    }
+
+    /// Deduplicate traversers by element label (for anonymous traversals).
+    ///
+    /// Removes duplicates based on element label. Only the first occurrence
+    /// of each unique label passes through.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that keeps one per label
+    /// let anon = Traversal::<Value, Value>::new().dedup_by_label();
+    /// let one_per_label = g.v().append(anon).to_list();
+    /// ```
+    pub fn dedup_by_label(self) -> Traversal<In, Value> {
+        self.add_step(filter::DedupByLabelStep::new())
+    }
+
+    /// Deduplicate traversers by sub-traversal result (for anonymous traversals).
+    ///
+    /// Executes the given sub-traversal for each element and uses the first
+    /// result as the deduplication key.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub` - The sub-traversal to execute for each element
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that deduplicates by out-degree
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .dedup_by(__::out().count());
+    /// let unique_outdegree = g.v().append(anon).to_list();
+    /// ```
+    pub fn dedup_by(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
+        self.add_step(filter::DedupByTraversalStep::new(sub))
+    }
+
     /// Limit the number of traversers passing through (for anonymous traversals).
     ///
     /// Returns at most the specified number of traversers, stopping iteration
@@ -1155,6 +1213,43 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn cyclic_path(self) -> Traversal<In, Value> {
         self.add_step(filter::CyclicPathStep::new())
+    }
+
+    /// Return only the last element (for anonymous traversals).
+    ///
+    /// This is a **barrier step** - it collects ALL input before returning
+    /// only the last element. Equivalent to `tail_n(1)`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that returns only the last element
+    /// let anon = Traversal::<Value, Value>::new().tail();
+    /// let last = g.v().append(anon).to_list();
+    /// ```
+    pub fn tail(self) -> Traversal<In, Value> {
+        self.add_step(filter::TailStep::last())
+    }
+
+    /// Return only the last n elements (for anonymous traversals).
+    ///
+    /// This is a **barrier step** - it collects ALL input before returning
+    /// the last n elements. Elements are returned in their original order.
+    ///
+    /// # Behavior
+    ///
+    /// - If fewer than n elements exist, all elements are returned
+    /// - Empty traversal returns empty result
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that returns the last 5 elements
+    /// let anon = Traversal::<Value, Value>::new().tail_n(5);
+    /// let last_five = g.v().append(anon).to_list();
+    /// ```
+    pub fn tail_n(self, count: usize) -> Traversal<In, Value> {
+        self.add_step(filter::TailStep::new(count))
     }
 
     /// Filter elements by a single ID (for anonymous traversals).
@@ -2245,8 +2340,9 @@ pub use predicate::Predicate;
 pub mod __ {
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::filter::{
-        DedupStep, FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep,
-        HasWhereStep, LimitStep, RangeStep, SkipStep,
+        DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep, HasIdStep,
+        HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, LimitStep, RangeStep,
+        SkipStep, TailStep,
     };
     use crate::traversal::navigation::{
         BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,
@@ -2674,6 +2770,52 @@ pub mod __ {
         Traversal::<Value, Value>::new().add_step(DedupStep::new())
     }
 
+    /// Deduplicate traversers by property value.
+    ///
+    /// Removes duplicates based on a property value extracted from elements.
+    /// Only the first occurrence of each unique property value passes through.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let unique_ages = __::dedup_by_key("age");
+    /// ```
+    #[inline]
+    pub fn dedup_by_key(key: impl Into<String>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(DedupByKeyStep::new(key))
+    }
+
+    /// Deduplicate traversers by element label.
+    ///
+    /// Removes duplicates based on element label. Only the first occurrence
+    /// of each unique label passes through.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let one_per_label = __::dedup_by_label();
+    /// ```
+    #[inline]
+    pub fn dedup_by_label() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(DedupByLabelStep::new())
+    }
+
+    /// Deduplicate traversers by sub-traversal result.
+    ///
+    /// Executes the given sub-traversal for each element and uses the first
+    /// result as the deduplication key.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Dedup by out-degree
+    /// let unique_outdegree = __::dedup_by(__::out().count());
+    /// ```
+    #[inline]
+    pub fn dedup_by(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(DedupByTraversalStep::new(sub))
+    }
+
     /// Limit the number of traversers.
     ///
     /// # Example
@@ -2738,6 +2880,36 @@ pub mod __ {
     pub fn cyclic_path() -> Traversal<Value, Value> {
         use crate::traversal::filter::CyclicPathStep;
         Traversal::<Value, Value>::new().add_step(CyclicPathStep::new())
+    }
+
+    /// Return only the last element from the traversal.
+    ///
+    /// This is a **barrier step** - it must collect all elements to determine
+    /// which is the last. Equivalent to `tail_n(1)`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let last = __::tail();
+    /// ```
+    #[inline]
+    pub fn tail() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(TailStep::last())
+    }
+
+    /// Return only the last n elements from the traversal.
+    ///
+    /// This is a **barrier step** - it must collect all elements to determine
+    /// which are the last n. Elements are returned in their original order.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let last_three = __::tail_n(3);
+    /// ```
+    #[inline]
+    pub fn tail_n(count: usize) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(TailStep::new(count))
     }
 
     // -------------------------------------------------------------------------
