@@ -58,8 +58,8 @@ pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep,
 pub use transform::{
     AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, IndexStep,
     KeyStep, LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep,
-    PathStep, ProjectBuilder, ProjectStep, Projection, PropertiesStep, SelectStep, UnfoldStep,
-    ValueMapStep, ValueStep, ValuesStep,
+    PathStep, ProjectBuilder, ProjectStep, Projection, PropertiesStep, PropertyMapStep, SelectStep,
+    UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
 };
 
 // Re-export macros
@@ -1823,6 +1823,46 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::ElementMapStep::from_keys(keys))
     }
 
+    /// Get all properties as a map of property objects (for anonymous traversals).
+    ///
+    /// Transforms each element into a `Value::Map` where keys are property names
+    /// and values are lists of property objects (maps with "key" and "value" entries).
+    ///
+    /// # Difference from valueMap
+    ///
+    /// - `value_map()`: Returns `{name: ["Alice"], age: [30]}` (just values in lists)
+    /// - `property_map()`: Returns `{name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}` (property objects in lists)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().property_map();
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}]
+    /// ```
+    pub fn property_map(self) -> Traversal<In, Value> {
+        self.add_step(transform::PropertyMapStep::new())
+    }
+
+    /// Get specific properties as a map of property objects (for anonymous traversals).
+    ///
+    /// Like `property_map()`, but includes only the specified properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let anon = Traversal::<Value, Value>::new().property_map_keys(&["name"]);
+    /// let maps = g.v().append(anon).to_list();
+    /// // Returns: [{name: [{key: "name", value: "Alice"}]}]
+    /// ```
+    pub fn property_map_keys<I, S>(self, keys: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(transform::PropertyMapStep::from_keys(keys))
+    }
+
     /// Unroll collections into individual elements (for anonymous traversals).
     ///
     /// This step expands `Value::List` and `Value::Map` into separate traversers:
@@ -2517,8 +2557,8 @@ pub mod __ {
     use crate::traversal::step::IdentityStep;
     use crate::traversal::transform::{
         AsStep, ConstantStep, ElementMapStep, FlatMapStep, IdStep, IndexStep, KeyStep, LabelStep,
-        LoopsStep, MapStep, OrderBuilder, PathStep, ProjectBuilder, PropertiesStep, SelectStep,
-        UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
+        LoopsStep, MapStep, OrderBuilder, PathStep, ProjectBuilder, PropertiesStep,
+        PropertyMapStep, SelectStep, UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
     };
     use crate::traversal::Traversal;
     use crate::value::Value;
@@ -3345,6 +3385,42 @@ pub mod __ {
     pub fn element_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
         let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
         Traversal::<Value, Value>::new().add_step(ElementMapStep::with_keys(keys))
+    }
+
+    /// Get all properties as a map of property objects.
+    ///
+    /// Transforms each element into a `Value::Map` where keys are property names
+    /// and values are lists of property objects (maps with "key" and "value" entries).
+    ///
+    /// # Difference from valueMap
+    ///
+    /// - `value_map()`: Returns `{name: ["Alice"], age: [30]}` (just values in lists)
+    /// - `property_map()`: Returns `{name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}` (property objects in lists)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::property_map();
+    /// // Returns: {name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}
+    /// ```
+    #[inline]
+    pub fn property_map() -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(PropertyMapStep::new())
+    }
+
+    /// Get specific properties as a map of property objects.
+    ///
+    /// Like `property_map()`, but includes only the specified properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = __::property_map_keys(&["name"]);
+    /// // Returns: {name: [{key: "name", value: "Alice"}]}
+    /// ```
+    pub fn property_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
+        let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+        Traversal::<Value, Value>::new().add_step(PropertyMapStep::with_keys(keys))
     }
 
     /// Unroll collections into individual elements.

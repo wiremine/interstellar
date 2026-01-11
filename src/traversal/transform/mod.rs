@@ -7,7 +7,7 @@ pub use functional::{
 pub use metadata::{IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, ValueStep};
 pub use order::{BoundOrderBuilder, Order, OrderBuilder, OrderKey, OrderStep};
 pub use path::{AsStep, PathStep, SelectStep};
-pub use properties::{ElementMapStep, PropertiesStep, ValueMapStep};
+pub use properties::{ElementMapStep, PropertiesStep, PropertyMapStep, ValueMapStep};
 pub use values::ValuesStep;
 
 pub mod collection;

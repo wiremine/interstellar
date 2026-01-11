@@ -84,7 +84,7 @@ impl PropertiesStep {
 
     /// Create a property value map with "key" and "value" entries.
     #[inline]
-    fn make_property_map(key: String, value: Value) -> Value {
+    pub(crate) fn make_property_map(key: String, value: Value) -> Value {
         let mut map = std::collections::HashMap::new();
         map.insert("key".to_string(), Value::String(key));
         map.insert("value".to_string(), value);
@@ -581,6 +581,180 @@ impl crate::traversal::step::AnyStep for ElementMapStep {
     }
 }
 
+// -----------------------------------------------------------------------------
+// PropertyMapStep - extract properties as map of property objects
+// -----------------------------------------------------------------------------
+
+/// Transform step that extracts a map of property objects from elements.
+///
+/// This step is similar to `valueMap`, but instead of returning just the values,
+/// it returns property objects with "key" and "value" entries wrapped in lists.
+///
+/// # Difference from valueMap
+///
+/// - `valueMap()`: Returns `{name: ["Alice"], age: [30]}` (just values in lists)
+/// - `propertyMap()`: Returns `{name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}` (property objects in lists)
+///
+/// # Behavior
+///
+/// - Each input element produces exactly one output `Value::Map`
+/// - Keys are property names
+/// - Values are lists of property objects (for multi-property compatibility)
+/// - Each property object is a map with "key" and "value" entries
+/// - Non-elements return empty map
+///
+/// # Example
+///
+/// ```ignore
+/// // Get all properties as property objects
+/// let props = g.v().property_map().to_list();
+/// // Returns: [{"name": [{"key": "name", "value": "Alice"}], "age": [{"key": "age", "value": 30}]}]
+///
+/// // Get specific properties only
+/// let props = g.v().property_map_keys(&["name"]).to_list();
+/// // Returns: [{"name": [{"key": "name", "value": "Alice"}]}]
+/// ```
+#[derive(Clone, Debug)]
+pub struct PropertyMapStep {
+    /// Property keys to include. None means all properties.
+    keys: Option<Vec<String>>,
+}
+
+impl Default for PropertyMapStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PropertyMapStep {
+    /// Create a PropertyMapStep that extracts all properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = PropertyMapStep::new();
+    /// ```
+    pub fn new() -> Self {
+        Self { keys: None }
+    }
+
+    /// Create a PropertyMapStep for specific property keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The property keys to extract
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = PropertyMapStep::with_keys(vec!["name".to_string(), "age".to_string()]);
+    /// ```
+    pub fn with_keys(keys: Vec<String>) -> Self {
+        Self { keys: Some(keys) }
+    }
+
+    /// Create a PropertyMapStep from an iterator of keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - Iterator of property keys to extract
+    pub fn from_keys<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            keys: Some(keys.into_iter().map(Into::into).collect()),
+        }
+    }
+
+    /// Transform a traverser's value into a property map.
+    fn transform(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
+        let mut map = std::collections::HashMap::new();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                    match &self.keys {
+                        None => {
+                            // Include all properties
+                            for (key, value) in &vertex.properties {
+                                let prop_obj =
+                                    PropertiesStep::make_property_map(key.clone(), value.clone());
+                                map.insert(key.clone(), Value::List(vec![prop_obj]));
+                            }
+                        }
+                        Some(key_list) => {
+                            // Include only specified properties
+                            for key in key_list {
+                                if let Some(value) = vertex.properties.get(key) {
+                                    let prop_obj = PropertiesStep::make_property_map(
+                                        key.clone(),
+                                        value.clone(),
+                                    );
+                                    map.insert(key.clone(), Value::List(vec![prop_obj]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                    match &self.keys {
+                        None => {
+                            // Include all properties
+                            for (key, value) in &edge.properties {
+                                let prop_obj =
+                                    PropertiesStep::make_property_map(key.clone(), value.clone());
+                                map.insert(key.clone(), Value::List(vec![prop_obj]));
+                            }
+                        }
+                        Some(key_list) => {
+                            // Include only specified properties
+                            for key in key_list {
+                                if let Some(value) = edge.properties.get(key) {
+                                    let prop_obj = PropertiesStep::make_property_map(
+                                        key.clone(),
+                                        value.clone(),
+                                    );
+                                    map.insert(key.clone(), Value::List(vec![prop_obj]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Non-elements return empty map
+            }
+        }
+
+        Value::Map(map)
+    }
+}
+
+impl crate::traversal::step::AnyStep for PropertyMapStep {
+    fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(input.map(move |t| {
+            let result = self.transform(ctx, &t);
+            t.with_value(result)
+        }))
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
+        "propertyMap"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -961,6 +1135,343 @@ mod tests {
 
             let step = ElementMapStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    // =========================================================================
+    // PropertyMapStep Tests
+    // =========================================================================
+
+    mod property_map_step_construction {
+        use super::*;
+
+        #[test]
+        fn new_creates_step_with_no_keys() {
+            let step = PropertyMapStep::new();
+            assert_eq!(step.name(), "propertyMap");
+        }
+
+        #[test]
+        fn default_creates_step_with_no_keys() {
+            let step = PropertyMapStep::default();
+            assert_eq!(step.name(), "propertyMap");
+        }
+
+        #[test]
+        fn with_keys_creates_step_with_specified_keys() {
+            let step = PropertyMapStep::with_keys(vec!["name".to_string(), "age".to_string()]);
+            assert_eq!(step.name(), "propertyMap");
+        }
+
+        #[test]
+        fn from_keys_creates_step_from_iterator() {
+            let step = PropertyMapStep::from_keys(["name", "age"]);
+            assert_eq!(step.name(), "propertyMap");
+        }
+
+        #[test]
+        fn clone_works() {
+            let step = PropertyMapStep::with_keys(vec!["name".to_string()]);
+            let cloned = step.clone();
+            assert_eq!(cloned.name(), "propertyMap");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = PropertyMapStep::new();
+            let boxed = step.clone_box();
+            assert_eq!(boxed.name(), "propertyMap");
+        }
+    }
+
+    mod property_map_step_vertex_transform {
+        use super::*;
+
+        #[test]
+        fn extracts_all_vertex_properties_as_property_objects() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                // Check "name" property
+                let name_list = map.get("name").expect("name key should exist");
+                if let Value::List(list) = name_list {
+                    assert_eq!(list.len(), 1);
+                    if let Value::Map(prop_obj) = &list[0] {
+                        assert_eq!(
+                            prop_obj.get("key"),
+                            Some(&Value::String("name".to_string()))
+                        );
+                        assert_eq!(
+                            prop_obj.get("value"),
+                            Some(&Value::String("Alice".to_string()))
+                        );
+                    } else {
+                        panic!("Expected property object to be a Map");
+                    }
+                } else {
+                    panic!("Expected name value to be a List");
+                }
+
+                // Check "age" property
+                let age_list = map.get("age").expect("age key should exist");
+                if let Value::List(list) = age_list {
+                    assert_eq!(list.len(), 1);
+                    if let Value::Map(prop_obj) = &list[0] {
+                        assert_eq!(prop_obj.get("key"), Some(&Value::String("age".to_string())));
+                        assert_eq!(prop_obj.get("value"), Some(&Value::Int(30)));
+                    } else {
+                        panic!("Expected property object to be a Map");
+                    }
+                } else {
+                    panic!("Expected age value to be a List");
+                }
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn extracts_specific_vertex_properties() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::with_keys(vec!["name".to_string()]);
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                // Only "name" should be present
+                assert!(map.contains_key("name"));
+                assert!(!map.contains_key("age"));
+                assert_eq!(map.len(), 1);
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn missing_keys_are_omitted() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::with_keys(vec!["name".to_string(), "missing".to_string()]);
+            let input = vec![Traverser::from_vertex(VertexId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.contains_key("name"));
+                assert!(!map.contains_key("missing"));
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod property_map_step_edge_transform {
+        use super::*;
+
+        #[test]
+        fn extracts_edge_properties_as_property_objects() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                let weight_list = map.get("weight").expect("weight key should exist");
+                if let Value::List(list) = weight_list {
+                    assert_eq!(list.len(), 1);
+                    if let Value::Map(prop_obj) = &list[0] {
+                        assert_eq!(
+                            prop_obj.get("key"),
+                            Some(&Value::String("weight".to_string()))
+                        );
+                        assert_eq!(prop_obj.get("value"), Some(&Value::Float(1.0)));
+                    } else {
+                        panic!("Expected property object to be a Map");
+                    }
+                } else {
+                    panic!("Expected weight value to be a List");
+                }
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn extracts_specific_edge_properties() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::with_keys(vec!["weight".to_string()]);
+            let input = vec![Traverser::from_edge(EdgeId(0))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.contains_key("weight"));
+                assert_eq!(map.len(), 1);
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod property_map_step_non_element {
+        use super::*;
+
+        #[test]
+        fn returns_empty_map_for_non_element() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let input = vec![Traverser::new(Value::Int(42))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn returns_empty_map_for_string() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let input = vec![Traverser::new(Value::String("test".to_string()))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+    }
+
+    mod property_map_step_metadata {
+        use super::*;
+
+        #[test]
+        fn preserves_path() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let mut t = Traverser::from_vertex(VertexId(0));
+            t.path
+                .push_labeled(crate::traversal::PathValue::Vertex(VertexId(99)), "start");
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::once(t))).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+        }
+
+        #[test]
+        fn preserves_loops() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let mut t = Traverser::from_vertex(VertexId(0));
+            t.loops = 5;
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::once(t))).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].loops, 5);
+        }
+
+        #[test]
+        fn preserves_bulk() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let mut t = Traverser::from_vertex(VertexId(0));
+            t.bulk = 10;
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::once(t))).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].bulk, 10);
+        }
+    }
+
+    mod property_map_step_missing_element {
+        use super::*;
+
+        #[test]
+        fn returns_empty_map_for_missing_vertex() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let input = vec![Traverser::from_vertex(VertexId(999))]; // Non-existent vertex
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.is_empty());
+            } else {
+                panic!("Expected Value::Map");
+            }
+        }
+
+        #[test]
+        fn returns_empty_map_for_missing_edge() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = PropertyMapStep::new();
+            let input = vec![Traverser::from_edge(EdgeId(999))]; // Non-existent edge
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 

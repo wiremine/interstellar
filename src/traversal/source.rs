@@ -1592,6 +1592,46 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(ElementMapStep::from_keys(keys))
     }
 
+    /// Get all properties as a map of property objects.
+    ///
+    /// Transforms each element into a `Value::Map` where keys are property names
+    /// and values are lists of property objects (maps with "key" and "value" entries).
+    ///
+    /// # Difference from valueMap
+    ///
+    /// - `value_map()`: Returns `{name: ["Alice"], age: [30]}` (just values in lists)
+    /// - `property_map()`: Returns `{name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}` (property objects in lists)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = g.v().property_map().to_list();
+    /// // Returns: [{name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}]
+    /// ```
+    pub fn property_map(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::PropertyMapStep;
+        self.add_step(PropertyMapStep::new())
+    }
+
+    /// Get specific properties as a map of property objects.
+    ///
+    /// Like `property_map()`, but includes only the specified properties.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let maps = g.v().property_map_keys(&["name"]).to_list();
+    /// // Returns: [{name: [{key: "name", value: "Alice"}]}]
+    /// ```
+    pub fn property_map_keys<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::transform::PropertyMapStep;
+        self.add_step(PropertyMapStep::from_keys(keys))
+    }
+
     /// Transform each value using a closure.
     ///
     /// The closure receives the execution context and the current value,
