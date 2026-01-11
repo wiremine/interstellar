@@ -1,22 +1,23 @@
-//! # GQL Parser and Compiler
+//! # GQL Parser, Compiler, and Mutation Executor
 //!
 //! This module provides GQL (Graph Query Language) support for RustGremlin.
 //! GQL is a declarative query language for property graphs, offering a
-//! SQL-like syntax for pattern matching and data retrieval.
+//! SQL-like syntax for pattern matching, data retrieval, and mutations.
 //!
 //! ## Overview
 //!
 //! The GQL implementation follows a pipeline architecture:
 //!
 //! ```text
-//! GQL Query Text → Parser → AST → Compiler → Traversal Results
+//! GQL Query Text → Parser → AST → Compiler/Executor → Results
 //! ```
 //!
-//! 1. **Parser** ([`parse`]): Converts GQL text into a typed AST
-//! 2. **Compiler** ([`compile`]): Transforms AST into traversal operations
-//! 3. **Execution**: The traversal engine evaluates the query against the graph
+//! 1. **Parser** ([`parse`], [`parse_statement`]): Converts GQL text into a typed AST
+//! 2. **Compiler** ([`compile`]): Transforms read-only AST into traversal operations
+//! 3. **Mutation Executor** ([`execute_mutation`]): Executes mutation statements
+//! 4. **Execution**: The traversal engine or mutation executor processes the query
 //!
-//! ## Quick Start
+//! ## Quick Start - Read Queries
 //!
 //! The simplest way to execute a GQL query is through [`GraphSnapshot::gql()`](crate::graph::GraphSnapshot::gql):
 //!
@@ -38,6 +39,33 @@
 //! // Execute GQL query
 //! let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
 //! assert_eq!(results.len(), 1);
+//! ```
+//!
+//! ## Quick Start - Mutations
+//!
+//! For mutations (CREATE, SET, DELETE, etc.), use [`execute_mutation`] with mutable storage:
+//!
+//! ```rust
+//! use rustgremlin::gql::{parse_statement, execute_mutation};
+//! use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+//!
+//! let mut storage = InMemoryGraph::new();
+//!
+//! // CREATE a new vertex
+//! let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
+//! execute_mutation(&stmt, &mut storage).unwrap();
+//!
+//! assert_eq!(storage.vertex_count(), 1);
+//!
+//! // UPDATE with SET
+//! let stmt = parse_statement("MATCH (n:Person {name: 'Alice'}) SET n.age = 31").unwrap();
+//! execute_mutation(&stmt, &mut storage).unwrap();
+//!
+//! // DELETE
+//! let stmt = parse_statement("MATCH (n:Person {name: 'Alice'}) DELETE n").unwrap();
+//! execute_mutation(&stmt, &mut storage).unwrap();
+//!
+//! assert_eq!(storage.vertex_count(), 0);
 //! ```
 //!
 //! ## Supported Features
@@ -268,17 +296,69 @@
 //! }
 //! ```
 //!
+//! ## Mutation Clauses
+//!
+//! GQL mutations allow you to modify the graph declaratively.
+//!
+//! ### CREATE - Add New Elements
+//!
+//! ```text
+//! CREATE (n:Person {name: 'Alice', age: 30})
+//! CREATE (a:Person)-[:KNOWS]->(b:Person)
+//! CREATE (n:Person {name: 'Alice'}) RETURN n
+//! ```
+//!
+//! ### SET - Update Properties
+//!
+//! ```text
+//! MATCH (n:Person {name: 'Alice'}) SET n.age = 31
+//! MATCH (n:Person) SET n.updated = true, n.timestamp = 123
+//! ```
+//!
+//! ### REMOVE - Remove Properties
+//!
+//! ```text
+//! MATCH (n:Person) REMOVE n.temporary_field
+//! ```
+//!
+//! ### DELETE - Remove Elements
+//!
+//! ```text
+//! MATCH (n:Person {status: 'inactive'}) DELETE n
+//! MATCH ()-[r:OLD_RELATION]->() DELETE r
+//! ```
+//!
+//! Note: DELETE fails if a vertex has connected edges. Use DETACH DELETE instead.
+//!
+//! ### DETACH DELETE - Remove Vertices with Edges
+//!
+//! ```text
+//! MATCH (n:Person {name: 'Alice'}) DETACH DELETE n
+//! ```
+//!
+//! DETACH DELETE removes the vertex and all connected edges automatically.
+//!
+//! ### MERGE - Upsert Operation
+//!
+//! ```text
+//! MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = true
+//! MERGE (n:Person {name: 'Alice'}) ON MATCH SET n.lastSeen = 123
+//! MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.new = true ON MATCH SET n.existing = true
+//! ```
+//!
+//! MERGE creates the pattern if it doesn't exist, or matches existing elements.
+//!
 //! ## Limitations
 //!
 //! The current implementation does not support:
 //!
-//! - **Mutations**: No `CREATE`, `DELETE`, `SET`, or `MERGE` clauses.
-//!   Use the Rust API for mutations.
-//! - **UNWIND**: No list unpacking in queries.
-//! - **Subqueries**: No nested queries or `CALL` procedures.
-//! - **Multiple graphs**: Single graph queries only.
+//! - **UNWIND**: No list unpacking in queries
+//! - **Subqueries**: No nested queries or `CALL` procedures
+//! - **Multiple graphs**: Single graph queries only
 //! - **Path expressions**: Cannot return paths directly (use variable-length
-//!   patterns and return endpoints).
+//!   patterns and return endpoints)
+//! - **Comma-separated MATCH patterns**: Use edge patterns instead of `MATCH (a), (b)`
+//! - **Anonymous endpoint patterns**: `MATCH ()-[r]->()` requires explicit labels
 //!
 //! ## Architecture
 //!
@@ -286,18 +366,24 @@
 //!
 //! - [`ast`](ast) - AST type definitions ([`Query`], [`Pattern`], [`Expression`], etc.)
 //! - [`parser`](parser) - pest-based parser (grammar in `grammar.pest`)
-//! - [`compiler`](compiler) - AST to traversal compiler
+//! - [`compiler`](compiler) - AST to traversal compiler for read queries
+//! - [`mutation`](mutation) - Mutation execution engine ([`execute_mutation`], [`MutationContext`])
 //! - [`error`](error) - Error types with source span information
 //!
 //! The parser uses the [pest](https://pest.rs) parsing library with a PEG grammar.
-//! The compiler transforms AST nodes into calls to the traversal API.
+//! The compiler transforms read AST nodes into calls to the traversal API.
+//! The mutation executor directly modifies storage via [`GraphStorageMut`](crate::storage::GraphStorageMut).
 
 mod ast;
 mod compiler;
 mod error;
+mod mutation;
 mod parser;
 
 pub use ast::*;
 pub use compiler::{compile, compile_statement};
 pub use error::{CompileError, GqlError, ParseError, Span};
+pub use mutation::{
+    execute_mutation, execute_mutation_query, Element, MutationContext, MutationError,
+};
 pub use parser::{parse, parse_statement};

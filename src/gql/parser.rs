@@ -35,10 +35,12 @@ use pest::Parser;
 use pest_derive::Parser;
 
 use crate::gql::ast::{
-    AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
-    GroupByClause, LimitClause, Literal, MatchClause, NodePattern, OptionalMatchClause,
-    OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, Query, ReturnClause,
-    ReturnItem, Statement, UnaryOperator, UnwindClause, WhereClause, WithPathClause,
+    AggregateFunc, BinaryOperator, CaseExpression, CreateClause, DeleteClause, DetachDeleteClause,
+    EdgeDirection, EdgePattern, Expression, GroupByClause, LimitClause, Literal, MatchClause,
+    MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause,
+    OrderItem, PathQuantifier, Pattern, PatternElement, PropertyRef, Query, RemoveClause,
+    ReturnClause, ReturnItem, SetClause, SetItem, Statement, UnaryOperator, UnwindClause,
+    WhereClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -113,6 +115,13 @@ pub fn parse(input: &str) -> Result<Query, ParseError> {
                 "Use parse_statement() for UNION queries".to_string(),
             ))
         }
+        Statement::Mutation(_) => {
+            // For backward compatibility, parse() returns Query
+            // Use parse_statement() for mutation statements
+            Err(ParseError::Syntax(
+                "Use parse_statement() for mutation statements".to_string(),
+            ))
+        }
     }
 }
 
@@ -163,6 +172,24 @@ pub fn parse_statement(input: &str) -> Result<Statement, ParseError> {
 
 /// Build a Statement from a pest pair.
 fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::read_statement => {
+                return build_read_statement(inner);
+            }
+            Rule::mutation_statement => {
+                return build_mutation_statement(inner);
+            }
+            Rule::EOI => {}
+            _ => {}
+        }
+    }
+
+    Err(ParseError::Empty)
+}
+
+/// Build a Statement from a read_statement pest pair.
+fn build_read_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
     let mut queries = Vec::new();
     let mut union_all = false;
 
@@ -179,7 +206,6 @@ fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, Parse
                     }
                 }
             }
-            Rule::EOI => {}
             _ => {}
         }
     }
@@ -196,6 +222,291 @@ fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, Parse
             all: union_all,
         })
     }
+}
+
+/// Build a Statement from a mutation_statement pest pair.
+fn build_mutation_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    match inner.as_rule() {
+        Rule::create_only_statement => build_create_only_statement(inner),
+        Rule::match_mutation_statement => build_match_mutation_statement(inner),
+        Rule::merge_statement => build_merge_statement(inner),
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected mutation statement type: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a CREATE-only statement (without MATCH).
+fn build_create_only_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    let mut mutations = Vec::new();
+    let mut return_clause = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::create_clause => {
+                mutations.push(MutationClause::Create(build_create_clause(inner)?));
+            }
+            Rule::return_clause => {
+                return_clause = Some(build_return_clause(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(Statement::Mutation(Box::new(MutationQuery {
+        match_clause: None,
+        optional_match_clauses: vec![],
+        where_clause: None,
+        mutations,
+        return_clause,
+    })))
+}
+
+/// Build a MATCH + mutation statement.
+fn build_match_mutation_statement(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Statement, ParseError> {
+    let mut match_clause = None;
+    let mut optional_match_clauses = Vec::new();
+    let mut where_clause = None;
+    let mut mutations = Vec::new();
+    let mut return_clause = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::match_clause => {
+                match_clause = Some(build_match_clause(inner)?);
+            }
+            Rule::optional_match_clause => {
+                optional_match_clauses.push(build_optional_match_clause(inner)?);
+            }
+            Rule::where_clause => {
+                where_clause = Some(build_where_clause(inner)?);
+            }
+            Rule::mutation_clause => {
+                mutations.push(build_mutation_clause(inner)?);
+            }
+            Rule::return_clause => {
+                return_clause = Some(build_return_clause(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(Statement::Mutation(Box::new(MutationQuery {
+        match_clause,
+        optional_match_clauses,
+        where_clause,
+        mutations,
+        return_clause,
+    })))
+}
+
+/// Build a MERGE statement.
+fn build_merge_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut pattern = None;
+    let mut on_create = None;
+    let mut on_match = None;
+    let mut return_clause = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::merge_clause => {
+                // Extract pattern from merge_clause
+                for merge_inner in inner.into_inner() {
+                    if merge_inner.as_rule() == Rule::pattern {
+                        pattern = Some(build_pattern(merge_inner)?);
+                    }
+                }
+            }
+            Rule::merge_action => {
+                // Parse ON CREATE or ON MATCH action
+                for action_inner in inner.into_inner() {
+                    match action_inner.as_rule() {
+                        Rule::on_create_action => {
+                            on_create = Some(build_set_items_from_action(action_inner)?);
+                        }
+                        Rule::on_match_action => {
+                            on_match = Some(build_set_items_from_action(action_inner)?);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Rule::return_clause => {
+                return_clause = Some(build_return_clause(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    let pattern = pattern.ok_or_else(|| ParseError::missing_clause("MERGE pattern", pair_span))?;
+
+    Ok(Statement::Mutation(Box::new(MutationQuery {
+        match_clause: None,
+        optional_match_clauses: vec![],
+        where_clause: None,
+        mutations: vec![MutationClause::Merge(MergeClause {
+            pattern,
+            on_create,
+            on_match,
+        })],
+        return_clause,
+    })))
+}
+
+/// Build a mutation clause (CREATE, SET, REMOVE, DELETE, DETACH DELETE).
+fn build_mutation_clause(pair: pest::iterators::Pair<Rule>) -> Result<MutationClause, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    match inner.as_rule() {
+        Rule::create_clause => Ok(MutationClause::Create(build_create_clause(inner)?)),
+        Rule::set_clause => Ok(MutationClause::Set(build_set_clause(inner)?)),
+        Rule::remove_clause => Ok(MutationClause::Remove(build_remove_clause(inner)?)),
+        Rule::delete_clause => Ok(MutationClause::Delete(build_delete_clause(inner)?)),
+        Rule::detach_delete_clause => Ok(MutationClause::DetachDelete(build_detach_delete_clause(
+            inner,
+        )?)),
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected mutation clause type: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a CREATE clause.
+fn build_create_clause(pair: pest::iterators::Pair<Rule>) -> Result<CreateClause, ParseError> {
+    let mut patterns = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::pattern {
+            patterns.push(build_pattern(inner)?);
+        }
+    }
+
+    Ok(CreateClause { patterns })
+}
+
+/// Build a SET clause.
+fn build_set_clause(pair: pest::iterators::Pair<Rule>) -> Result<SetClause, ParseError> {
+    let mut items = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::set_item {
+            items.push(build_set_item(inner)?);
+        }
+    }
+
+    Ok(SetClause { items })
+}
+
+/// Build a single SET item (property_access = expression).
+fn build_set_item(pair: pest::iterators::Pair<Rule>) -> Result<SetItem, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut target = None;
+    let mut value = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::property_access => {
+                target = Some(build_property_ref(inner)?);
+            }
+            Rule::expression => {
+                value = Some(build_expression(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(SetItem {
+        target: target.ok_or_else(|| ParseError::missing_clause("SET target", pair_span))?,
+        value: value.ok_or_else(|| ParseError::missing_clause("SET value", pair_span))?,
+    })
+}
+
+/// Build a PropertyRef from a property_access rule.
+fn build_property_ref(pair: pest::iterators::Pair<Rule>) -> Result<PropertyRef, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut iter = pair.into_inner();
+
+    let variable = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("variable", pair_span))?
+        .as_str()
+        .to_string();
+
+    let property = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("property", pair_span))?
+        .as_str()
+        .to_string();
+
+    Ok(PropertyRef { variable, property })
+}
+
+/// Build set items from an ON CREATE or ON MATCH action.
+fn build_set_items_from_action(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Vec<SetItem>, ParseError> {
+    let mut items = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::set_item {
+            items.push(build_set_item(inner)?);
+        }
+    }
+
+    Ok(items)
+}
+
+/// Build a REMOVE clause.
+fn build_remove_clause(pair: pest::iterators::Pair<Rule>) -> Result<RemoveClause, ParseError> {
+    let mut properties = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::remove_item {
+            // remove_item contains property_access
+            for item_inner in inner.into_inner() {
+                if item_inner.as_rule() == Rule::property_access {
+                    properties.push(build_property_ref(item_inner)?);
+                }
+            }
+        }
+    }
+
+    Ok(RemoveClause { properties })
+}
+
+/// Build a DELETE clause.
+fn build_delete_clause(pair: pest::iterators::Pair<Rule>) -> Result<DeleteClause, ParseError> {
+    let mut variables = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::variable {
+            variables.push(inner.as_str().to_string());
+        }
+    }
+
+    Ok(DeleteClause { variables })
+}
+
+/// Build a DETACH DELETE clause.
+fn build_detach_delete_clause(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<DetachDeleteClause, ParseError> {
+    let mut variables = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::variable {
+            variables.push(inner.as_str().to_string());
+        }
+    }
+
+    Ok(DetachDeleteClause { variables })
 }
 
 fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {

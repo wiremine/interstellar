@@ -359,6 +359,170 @@ let names = __::values("name");
 
 ---
 
+## GQL (Graph Query Language) Mutations
+
+RustGremlin also supports GQL, a declarative SQL-like query language for graphs. GQL mutations provide an alternative to the Gremlin fluent API for modifying graphs.
+
+### Using GQL Mutations
+
+GQL mutations are executed via `execute_mutation()` with mutable storage:
+
+```rust
+use rustgremlin::gql::{parse_statement, execute_mutation};
+use rustgremlin::storage::InMemoryGraph;
+
+let mut storage = InMemoryGraph::new();
+
+// Parse and execute a mutation
+let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
+execute_mutation(&stmt, &mut storage).unwrap();
+```
+
+### GQL Mutation Clauses
+
+| GQL Clause | Gremlin Equivalent | Description |
+|------------|-------------------|-------------|
+| `CREATE (n:Label {props})` | `g.addV("Label").property(...)` | Create a new vertex |
+| `CREATE (a)-[:REL]->(b)` | `g.addE("REL").from(a).to(b)` | Create an edge |
+| `SET n.prop = value` | `g.V(id).property("prop", value)` | Update properties |
+| `REMOVE n.prop` | - | Remove a property (set to null) |
+| `DELETE n` | `g.V(id).drop()` | Delete element (vertex must have no edges) |
+| `DETACH DELETE n` | `g.V(id).drop()` with edge cleanup | Delete vertex and all connected edges |
+| `MERGE (n:Label {key: value})` | `g.mergeV()` (not implemented) | Match or create (upsert) |
+
+### CREATE - Adding Elements
+
+```sql
+-- Create a vertex
+CREATE (n:Person {name: 'Alice', age: 30})
+
+-- Create multiple vertices
+CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+
+-- Create vertex and edge pattern
+CREATE (a:Person {name: 'Alice'})-[:KNOWS {since: 2020}]->(b:Person {name: 'Bob'})
+
+-- Create chain of relationships
+CREATE (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person)
+
+-- Create with RETURN to get the created element
+CREATE (n:Person {name: 'Alice'}) RETURN n
+CREATE (n:Person {name: 'Alice'}) RETURN n.name
+```
+
+### SET - Updating Properties
+
+```sql
+-- Update single property
+MATCH (n:Person {name: 'Alice'}) SET n.age = 31
+
+-- Update multiple properties
+MATCH (n:Person {name: 'Alice'}) SET n.age = 31, n.status = 'active'
+
+-- Computed values
+MATCH (n:Person {name: 'Alice'}) SET n.next_age = n.age + 1
+
+-- Update with WHERE clause filtering
+MATCH (n:Person) WHERE n.age > 30 SET n.senior = true
+
+-- Update with RETURN
+MATCH (n:Person {name: 'Alice'}) SET n.age = 31 RETURN n.age
+```
+
+### REMOVE - Removing Properties
+
+```sql
+-- Remove a property (sets to null)
+MATCH (n:Person {name: 'Alice'}) REMOVE n.temporary_field
+
+-- Remove multiple properties
+MATCH (n:Person) REMOVE n.cache, n.temp_data
+```
+
+### DELETE - Removing Elements
+
+```sql
+-- Delete a vertex (must have no edges)
+MATCH (n:Person {name: 'Alice'}) DELETE n
+
+-- Delete an edge
+MATCH (a:Person)-[r:KNOWS]->(b:Person) DELETE r
+
+-- Delete multiple elements
+MATCH (n:Temp) DELETE n
+```
+
+**Note:** `DELETE` will fail with `VertexHasEdges` error if you try to delete a vertex that has connected edges. Use `DETACH DELETE` instead.
+
+### DETACH DELETE - Removing Vertices with Edges
+
+```sql
+-- Delete vertex and all its connected edges
+MATCH (n:Person {name: 'Alice'}) DETACH DELETE n
+
+-- Delete multiple vertices with edges
+MATCH (n:Inactive) DETACH DELETE n
+```
+
+### MERGE - Upsert Operations
+
+```sql
+-- Match or create
+MERGE (n:Person {name: 'Alice'})
+
+-- With ON CREATE action (runs if created)
+MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created_at = 1234567890
+
+-- With ON MATCH action (runs if matched existing)
+MERGE (n:Person {name: 'Alice'}) ON MATCH SET n.last_seen = 1234567890
+
+-- With both actions
+MERGE (n:Person {name: 'Alice'}) 
+ON CREATE SET n.status = 'new', n.created = true
+ON MATCH SET n.status = 'existing', n.visits = n.visits + 1
+```
+
+### GQL vs Gremlin Comparison
+
+| Operation | GQL | Gremlin |
+|-----------|-----|---------|
+| Create vertex | `CREATE (n:Person {name: 'Alice'})` | `g.addV("Person").property("name", "Alice")` |
+| Create edge | `CREATE (a)-[:KNOWS]->(b)` | `g.addE("KNOWS").from(a).to(b)` |
+| Update property | `MATCH (n) SET n.age = 31` | `g.V(id).property("age", 31)` |
+| Delete vertex | `MATCH (n) DELETE n` | `g.V(id).drop()` |
+| Delete with edges | `MATCH (n) DETACH DELETE n` | Manual edge cleanup + drop |
+| Upsert | `MERGE (n:Person {name: 'Alice'})` | Not directly available |
+
+### Error Handling
+
+GQL mutations can fail with `MutationError`:
+
+```rust
+use rustgremlin::gql::MutationError;
+
+match execute_mutation(&stmt, &mut storage) {
+    Ok(results) => println!("Success: {:?}", results),
+    Err(MutationError::VertexHasEdges(id)) => {
+        println!("Cannot delete vertex {:?}: has edges", id);
+    }
+    Err(MutationError::UnboundVariable(var)) => {
+        println!("Variable '{}' not found in MATCH", var);
+    }
+    Err(e) => println!("Error: {}", e),
+}
+```
+
+### Current Limitations
+
+GQL mutations do not currently support:
+- Comma-separated MATCH patterns (`MATCH (a), (b)`)
+- Anonymous endpoint patterns (`MATCH ()-[r]->()`)
+- Label mutations (`SET n:Label`, `REMOVE n:Label`)
+- Map property assignment (`SET n += {key: value}`)
+- FOREACH clause
+
+---
+
 ## Unsupported Gremlin Features
 
 The following Gremlin features are not currently planned for support:

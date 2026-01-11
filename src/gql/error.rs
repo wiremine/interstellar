@@ -267,6 +267,10 @@ pub enum CompileError {
         "Expression '{expr}' must appear in GROUP BY clause or be used in an aggregate function"
     )]
     ExpressionNotInGroupBy { expr: String },
+
+    /// Unsupported feature (e.g., mutations on immutable snapshot)
+    #[error("Unsupported: {0}")]
+    UnsupportedFeature(String),
 }
 
 impl CompileError {

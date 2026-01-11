@@ -50,8 +50,87 @@ OPTIONAL = @{ ^"optional" ~ !ASCII_ALPHANUMERIC }
 PATH     = @{ ^"path" ~ !ASCII_ALPHANUMERIC }
 UNWIND   = @{ ^"unwind" ~ !ASCII_ALPHANUMERIC }
 
-// Entry point - statement which may be a single query or UNION of queries
-statement = { SOI ~ query ~ (union_clause ~ query)* ~ EOI }
+// Mutation keywords
+CREATE   = @{ ^"create" ~ !ASCII_ALPHANUMERIC }
+SET      = @{ ^"set" ~ !ASCII_ALPHANUMERIC }
+REMOVE   = @{ ^"remove" ~ !ASCII_ALPHANUMERIC }
+DELETE   = @{ ^"delete" ~ !ASCII_ALPHANUMERIC }
+DETACH   = @{ ^"detach" ~ !ASCII_ALPHANUMERIC }
+MERGE    = @{ ^"merge" ~ !ASCII_ALPHANUMERIC }
+ON       = @{ ^"on" ~ !ASCII_ALPHANUMERIC }
+
+// Entry point - statement which may be a read query, UNION, or mutation
+statement = { SOI ~ (mutation_statement | read_statement) ~ EOI }
+
+// Read-only statement (existing query structure with UNION support)
+read_statement = { query ~ (union_clause ~ query)* }
+
+// ============================================================
+// Mutation Statements
+// ============================================================
+// GQL supports three forms of mutation statements:
+// 1. CREATE-only: CREATE (n:Label) [RETURN ...]
+// 2. MATCH + mutations: MATCH (n) SET n.prop = val [RETURN ...]
+// 3. MERGE: MERGE (n:Label) ON CREATE SET ... ON MATCH SET ... [RETURN ...]
+mutation_statement = {
+    create_only_statement
+    | match_mutation_statement
+    | merge_statement
+}
+
+// CREATE without preceding MATCH
+// e.g., CREATE (n:Person {name: 'Alice'}) RETURN n
+create_only_statement = { create_clause+ ~ return_clause? }
+
+// MATCH followed by mutation clauses
+// e.g., MATCH (n:Person) WHERE n.name = 'Alice' SET n.age = 31 RETURN n
+match_mutation_statement = {
+    match_clause ~
+    optional_match_clause* ~
+    where_clause? ~
+    mutation_clause+ ~
+    return_clause?
+}
+
+// MERGE statement - upsert operation
+// e.g., MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = 123
+merge_statement = { merge_clause ~ merge_action* ~ return_clause? }
+
+// ============================================================
+// Mutation Clauses
+// ============================================================
+mutation_clause = { create_clause | set_clause | remove_clause | delete_clause | detach_delete_clause }
+
+// CREATE clause - creates new patterns (vertices and edges)
+// e.g., CREATE (n:Person {name: 'Alice'}), (m:Person {name: 'Bob'})
+create_clause = { CREATE ~ pattern ~ ("," ~ pattern)* }
+
+// SET clause - updates properties
+// e.g., SET n.age = 31, n.status = 'active'
+set_clause = { SET ~ set_item ~ ("," ~ set_item)* }
+set_item = { property_access ~ "=" ~ expression }
+
+// REMOVE clause - removes properties
+// e.g., REMOVE n.age, n.status
+remove_clause = { REMOVE ~ remove_item ~ ("," ~ remove_item)* }
+remove_item = { property_access }
+
+// DELETE clause - deletes elements (fails if vertex has edges)
+// e.g., DELETE n, m
+delete_clause = { DELETE ~ variable ~ ("," ~ variable)* }
+
+// DETACH DELETE clause - deletes vertices with automatic edge removal
+// e.g., DETACH DELETE n
+detach_delete_clause = { DETACH ~ DELETE ~ variable ~ ("," ~ variable)* }
+
+// MERGE clause - upsert pattern (match or create)
+// e.g., MERGE (n:Person {name: 'Alice'})
+merge_clause = { MERGE ~ pattern }
+
+// MERGE actions - what to do on create or match
+merge_action = { on_create_action | on_match_action }
+on_create_action = { ON ~ CREATE ~ SET ~ set_item ~ ("," ~ set_item)* }
+on_match_action = { ON ~ MATCH ~ SET ~ set_item ~ ("," ~ set_item)* }
 
 // UNION clause - combines results from multiple queries
 // UNION (without ALL) deduplicates results, UNION ALL keeps duplicates
@@ -223,7 +302,7 @@ keyword = {
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
     CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL |
-    PATH | UNWIND
+    PATH | UNWIND | CREATE | SET | REMOVE | DELETE | DETACH | MERGE | ON
 }
 
 // ============================================================

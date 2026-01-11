@@ -1,0 +1,32 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Mutation:
+  match_clause: ~
+  optional_match_clauses: []
+  where_clause: ~
+  mutations:
+    - Create:
+        patterns:
+          - elements:
+              - Node:
+                  variable: a
+                  labels:
+                    - Person
+                  properties: []
+              - Edge:
+                  variable: ~
+                  labels:
+                    - KNOWS
+                  direction: Outgoing
+                  quantifier: ~
+                  properties:
+                    - - since
+                      - Int: 2020
+              - Node:
+                  variable: b
+                  labels:
+                    - Person
+                  properties: []
+  return_clause: ~

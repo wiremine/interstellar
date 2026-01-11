@@ -4,7 +4,7 @@
 //! and error messages, ensuring stability across changes.
 
 use insta::assert_yaml_snapshot;
-use rustgremlin::gql::parse;
+use rustgremlin::gql::{parse, parse_statement};
 
 // =============================================================================
 // Basic Query Parsing Snapshots
@@ -16,10 +16,210 @@ fn test_parse_simple_match_snapshot() {
     assert_yaml_snapshot!(ast);
 }
 
+// =============================================================================
+// Mutation Clause Parsing Snapshots (Plan 13)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// CREATE Clause Tests
+// -----------------------------------------------------------------------------
+
 #[test]
-fn test_parse_match_no_label_snapshot() {
-    let ast = parse("MATCH (n) RETURN n").unwrap();
-    assert_yaml_snapshot!(ast);
+fn test_parse_create_single_vertex_snapshot() {
+    let stmt = parse_statement("CREATE (p:Person {name: 'Alice', age: 30})").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_vertex_no_properties_snapshot() {
+    let stmt = parse_statement("CREATE (n:Node)").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_multiple_vertices_snapshot() {
+    let stmt =
+        parse_statement("CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_edge_pattern_snapshot() {
+    let stmt = parse_statement("CREATE (a:Person)-[:KNOWS {since: 2020}]->(b:Person)").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_with_return_snapshot() {
+    let stmt = parse_statement("CREATE (p:Person {name: 'Alice'}) RETURN p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// SET Clause Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_match_set_single_property_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person {name: 'Alice'}) SET p.age = 31").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_set_multiple_properties_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) SET p.age = 25, p.city = 'NYC'").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_set_with_return_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person {name: 'Alice'}) SET p.age = 31 RETURN p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_set_expression_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) SET p.score = p.score + 10").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// REMOVE Clause Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_match_remove_single_property_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) REMOVE p.tempField").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_remove_multiple_properties_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) REMOVE p.temp1, p.temp2").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_remove_with_return_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) REMOVE p.tempField RETURN p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// DELETE Clause Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_match_delete_single_vertex_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person {name: 'Alice'}) DELETE p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_delete_multiple_vertices_snapshot() {
+    let stmt = parse_statement("MATCH (a:Person)-[r:KNOWS]->(b:Person) DELETE r").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_delete_with_where_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) WHERE p.age < 18 DELETE p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// DETACH DELETE Clause Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_match_detach_delete_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person {name: 'Alice'}) DETACH DELETE p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_detach_delete_multiple_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person) WHERE p.inactive = true DETACH DELETE p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// MERGE Clause Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_merge_simple_snapshot() {
+    let stmt = parse_statement("MERGE (p:Person {name: 'Alice'})").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_merge_with_on_create_snapshot() {
+    let stmt =
+        parse_statement("MERGE (p:Person {name: 'Alice'}) ON CREATE SET p.created = true").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_merge_with_on_match_snapshot() {
+    let stmt = parse_statement("MERGE (p:Person {name: 'Alice'}) ON MATCH SET p.lastSeen = 'now'")
+        .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_merge_with_both_actions_snapshot() {
+    let stmt = parse_statement(
+        "MERGE (p:Person {name: 'Alice'}) ON CREATE SET p.created = true ON MATCH SET p.updated = true"
+    ).unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_merge_with_return_snapshot() {
+    let stmt = parse_statement("MERGE (p:Person {name: 'Alice'}) RETURN p").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_merge_edge_pattern_snapshot() {
+    let stmt =
+        parse_statement("MERGE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})")
+            .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// Combined Mutation Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_match_set_delete_combined_snapshot() {
+    let stmt = parse_statement("MATCH (p:Person)-[r:TEMP_LINK]->() SET p.cleaned = true DELETE r")
+        .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_match_create_set_snapshot() {
+    let stmt = parse_statement(
+        "MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}) CREATE (a)-[:KNOWS]->(b) SET a.friendCount = a.friendCount + 1"
+    ).unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_mutation_full_pipeline_snapshot() {
+    let stmt = parse_statement(
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        WHERE p.active = true
+        SET p.lastLogin = 'today'
+        RETURN p.name, p.lastLogin
+        "#,
+    )
+    .unwrap();
+    assert_yaml_snapshot!(stmt);
 }
 
 #[test]

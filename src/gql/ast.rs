@@ -89,6 +89,237 @@ pub enum Statement {
         /// True for UNION ALL (keep duplicates), false for UNION (deduplicate).
         all: bool,
     },
+    /// A mutation statement (CREATE, SET, DELETE, MERGE, etc.)
+    ///
+    /// Represents a GQL statement that modifies the graph.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// CREATE (n:Person {name: 'Alice'})
+    ///
+    /// MATCH (n:Person {name: 'Alice'}) SET n.age = 31 RETURN n
+    ///
+    /// MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = 123
+    /// ```
+    Mutation(Box<MutationQuery>),
+}
+
+// =============================================================================
+// Mutation Statement Types
+// =============================================================================
+
+/// A mutation query (CREATE, SET, DELETE, MERGE, etc.)
+///
+/// Represents a GQL statement that modifies the graph. A mutation query
+/// can optionally start with a MATCH clause (for pattern-based mutations),
+/// followed by one or more mutation clauses, and optionally end with a RETURN.
+///
+/// # Variants
+///
+/// 1. **CREATE-only**: `CREATE (n:Person {name: 'Alice'}) RETURN n`
+/// 2. **MATCH + mutations**: `MATCH (n:Person) SET n.age = 31 RETURN n`
+/// 3. **MERGE**: `MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = 123`
+///
+/// # Examples
+///
+/// ```text
+/// // Create a new vertex
+/// CREATE (n:Person {name: 'Alice', age: 30})
+///
+/// // Update properties on matched vertices
+/// MATCH (n:Person {name: 'Alice'}) SET n.age = 31 RETURN n
+///
+/// // Delete vertices (must have no edges)
+/// MATCH (n:Person {status: 'inactive'}) DELETE n
+///
+/// // Delete vertices and their edges
+/// MATCH (n:Person {name: 'Alice'}) DETACH DELETE n
+///
+/// // Upsert: create if not exists, update if exists
+/// MERGE (n:Person {name: 'Alice'})
+/// ON CREATE SET n.created = 123
+/// ON MATCH SET n.updated = 456
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct MutationQuery {
+    /// Optional MATCH clause for pattern-based mutations.
+    pub match_clause: Option<MatchClause>,
+    /// Optional MATCH clauses that produce nulls if not found.
+    pub optional_match_clauses: Vec<OptionalMatchClause>,
+    /// Optional WHERE clause for filtering matched patterns.
+    pub where_clause: Option<WhereClause>,
+    /// List of mutation clauses (CREATE, SET, DELETE, etc.)
+    pub mutations: Vec<MutationClause>,
+    /// Optional RETURN clause for returning results.
+    pub return_clause: Option<ReturnClause>,
+}
+
+/// A mutation clause (CREATE, SET, DELETE, etc.)
+///
+/// Represents a single mutation operation in a mutation query.
+/// Multiple mutation clauses can be combined in a single query.
+#[derive(Debug, Clone, Serialize)]
+pub enum MutationClause {
+    /// CREATE clause - creates new vertices and edges.
+    Create(CreateClause),
+    /// SET clause - updates properties on vertices or edges.
+    Set(SetClause),
+    /// REMOVE clause - removes properties from vertices or edges.
+    Remove(RemoveClause),
+    /// DELETE clause - deletes elements (fails if vertex has edges).
+    Delete(DeleteClause),
+    /// DETACH DELETE clause - deletes vertices with automatic edge removal.
+    DetachDelete(DetachDeleteClause),
+    /// MERGE clause - upsert operation (match or create).
+    Merge(MergeClause),
+}
+
+/// CREATE clause - creates new vertices and edges.
+///
+/// Creates new graph elements from the specified patterns.
+/// Each pattern describes the structure to create.
+///
+/// # Examples
+///
+/// ```text
+/// // Create a single vertex
+/// CREATE (n:Person {name: 'Alice', age: 30})
+///
+/// // Create multiple vertices
+/// CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+///
+/// // Create vertices with edges
+/// CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateClause {
+    /// Patterns to create.
+    pub patterns: Vec<Pattern>,
+}
+
+/// SET clause - updates properties on vertices or edges.
+///
+/// Sets property values on elements bound to variables.
+///
+/// # Examples
+///
+/// ```text
+/// SET n.age = 31
+/// SET n.age = 31, n.status = 'active'
+/// SET n.updated = n.count + 1
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct SetClause {
+    /// Property assignments.
+    pub items: Vec<SetItem>,
+}
+
+/// A single SET assignment (e.g., n.age = 31).
+///
+/// Assigns a value to a property on a variable.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetItem {
+    /// The property to set (variable.property).
+    pub target: PropertyRef,
+    /// The value expression to assign.
+    pub value: Expression,
+}
+
+/// Reference to a property (variable.property).
+///
+/// Identifies a specific property on a variable.
+#[derive(Debug, Clone, Serialize)]
+pub struct PropertyRef {
+    /// Variable name (must be bound in MATCH or CREATE).
+    pub variable: String,
+    /// Property name on the variable.
+    pub property: String,
+}
+
+/// REMOVE clause - removes properties from vertices or edges.
+///
+/// Removes properties from elements bound to variables.
+///
+/// # Examples
+///
+/// ```text
+/// REMOVE n.age
+/// REMOVE n.age, n.status
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoveClause {
+    /// Properties to remove.
+    pub properties: Vec<PropertyRef>,
+}
+
+/// DELETE clause - deletes elements.
+///
+/// Deletes vertices or edges. If deleting a vertex that has
+/// connected edges, the operation will fail unless DETACH DELETE is used.
+///
+/// # Examples
+///
+/// ```text
+/// DELETE n
+/// DELETE n, m
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct DeleteClause {
+    /// Variables referencing elements to delete.
+    pub variables: Vec<String>,
+}
+
+/// DETACH DELETE clause - deletes vertices with automatic edge removal.
+///
+/// Similar to DELETE, but automatically removes any edges connected
+/// to the deleted vertices before deletion.
+///
+/// # Examples
+///
+/// ```text
+/// DETACH DELETE n
+/// DETACH DELETE n, m
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct DetachDeleteClause {
+    /// Variables referencing vertices to delete.
+    pub variables: Vec<String>,
+}
+
+/// MERGE clause - upsert operation.
+///
+/// MERGE is an "upsert" operation: it matches an existing pattern if found,
+/// or creates it if not. Optional ON CREATE and ON MATCH clauses specify
+/// what properties to set in each case.
+///
+/// # Examples
+///
+/// ```text
+/// // Simple merge (create if not exists)
+/// MERGE (n:Person {name: 'Alice'})
+///
+/// // Merge with ON CREATE action
+/// MERGE (n:Person {name: 'Alice'})
+/// ON CREATE SET n.created = timestamp()
+///
+/// // Merge with ON MATCH action  
+/// MERGE (n:Person {name: 'Alice'})
+/// ON MATCH SET n.lastSeen = timestamp()
+///
+/// // Merge with both actions
+/// MERGE (n:Person {name: 'Alice'})
+/// ON CREATE SET n.created = 123
+/// ON MATCH SET n.updated = 456
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeClause {
+    /// Pattern to merge (match or create).
+    pub pattern: Pattern,
+    /// Actions to perform when creating (ON CREATE SET).
+    pub on_create: Option<Vec<SetItem>>,
+    /// Actions to perform when matching (ON MATCH SET).
+    pub on_match: Option<Vec<SetItem>>,
 }
 
 // =============================================================================

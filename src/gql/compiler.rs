@@ -224,6 +224,13 @@ pub fn compile_statement<'g>(
     match stmt {
         Statement::Query(query) => compile(query.as_ref(), snapshot),
         Statement::Union { queries, all } => compile_union(queries, *all, snapshot),
+        Statement::Mutation(_) => {
+            // Mutation compilation requires mutable access to the graph
+            // Use compile_mutation() with a GraphMut instead
+            Err(CompileError::UnsupportedFeature(
+                "Mutation statements require mutable graph access. Use compile_mutation() with GraphMut.".to_string(),
+            ))
+        }
     }
 }
 
