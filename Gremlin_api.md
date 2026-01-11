@@ -555,7 +555,7 @@ The following Gremlin features are not currently planned for support:
 | Category | Implemented | Not Implemented |
 |----------|-------------|-----------------|
 | Source Steps | 5 | 0 |
-| Filter Steps | 28 | 2 |
+| Filter Steps | 34 | 1 |
 | Navigation Steps | 16 | 0 |
 | Transform/Map Steps | 25 | 5 |
 | Aggregation Steps | 6 | 0 |
@@ -566,4 +566,4 @@ The following Gremlin features are not currently planned for support:
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 3 | 4 |
-| **Total** | **~121** | **~25** |
+| **Total** | **~127** | **~24** |

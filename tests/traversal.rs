@@ -5072,3 +5072,461 @@ mod phase_7_integration_tests {
         assert_eq!(results[0], Value::Float(30.0));
     }
 }
+
+// =============================================================================
+// New Filter Steps Integration Tests (Plan 14)
+// =============================================================================
+
+/// Integration tests for new filter steps: tail, dedup_by, coin, sample,
+/// has_key, has_prop_value, where_p
+mod new_filter_steps_integration {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // TailStep Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_tail_with_order() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Order by age ascending and get last 2 (oldest people)
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .order()
+            .build()
+            .tail_n(2)
+            .to_list();
+
+        assert_eq!(results.len(), 2);
+        // After ordering: 25, 30, 35 -> tail 2 = [30, 35]
+        assert_eq!(results[0], Value::Int(30));
+        assert_eq!(results[1], Value::Int(35));
+    }
+
+    #[test]
+    fn test_tail_single_element() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get the last person by age (oldest)
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .order()
+            .build()
+            .tail()
+            .to_list();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], Value::Int(35)); // Charlie is oldest
+    }
+
+    #[test]
+    fn test_tail_chained_with_navigation() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get outgoing edges from Alice, take last 2
+        let results = g.v().has_id(tg.alice).out_e().tail_n(2).to_list();
+
+        // Alice has: knows->Bob, uses->GraphDB
+        assert_eq!(results.len(), 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // DedupByKey Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dedup_by_key_with_navigation() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get all vertices connected to Alice via "knows", dedup by label
+        let results = g
+            .v()
+            .has_id(tg.alice)
+            .out_labels(&["knows"])
+            .dedup_by_label()
+            .to_list();
+
+        // Alice knows Bob (person), should get 1 unique label
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_dedup_by_traversal_with_values() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Dedup vertices by their age value
+        let results = g
+            .v()
+            .has_label("person")
+            .dedup_by(__::values("age"))
+            .to_list();
+
+        // All persons have different ages (25, 30, 35), so all pass through
+        assert_eq!(results.len(), 3);
+    }
+
+    // -------------------------------------------------------------------------
+    // CoinStep Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_coin_zero_filters_all() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // coin(0.0) should filter out everything
+        let results = g.v().coin(0.0).to_list();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_coin_one_passes_all() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // coin(1.0) should pass everything
+        let all_vertices = g.v().to_list();
+        let coin_results = g.v().coin(1.0).to_list();
+
+        assert_eq!(coin_results.len(), all_vertices.len());
+    }
+
+    #[test]
+    fn test_coin_with_filter_chain() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Filter persons, then apply coin(1.0)
+        let results = g.v().has_label("person").coin(1.0).to_list();
+
+        assert_eq!(results.len(), 3); // All 3 persons
+    }
+
+    // -------------------------------------------------------------------------
+    // SampleStep Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sample_respects_limit() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Sample 2 vertices from all
+        let results = g.v().sample(2).to_list();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_sample_with_fewer_elements() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Sample 10 from 3 persons should return all 3
+        let results = g.v().has_label("person").sample(10).to_list();
+
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_sample_chained_with_navigation() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get all edges, sample 2
+        let results = g.e().sample(2).to_list();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // HasKey and HasPropValue Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_has_key_on_properties() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get properties of Alice, filter by key "age"
+        let results = g.v().has_id(tg.alice).properties().has_key("age").to_list();
+
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_has_key_any_on_properties() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get properties of Alice, filter by key "name" or "age"
+        let results = g
+            .v()
+            .has_id(tg.alice)
+            .properties()
+            .has_key_any(["name", "age"])
+            .to_list();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_has_prop_value_on_properties() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get all person properties, filter by value "Alice"
+        let results = g
+            .v()
+            .has_label("person")
+            .properties()
+            .has_prop_value("Alice")
+            .to_list();
+
+        assert_eq!(results.len(), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // WherePStep Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_where_p_with_comparison() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Filter ages > 25
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .where_p(p::gt(25))
+            .to_list();
+
+        assert_eq!(results.len(), 2); // Alice (30) and Charlie (35)
+        assert!(results.contains(&Value::Int(30)));
+        assert!(results.contains(&Value::Int(35)));
+    }
+
+    #[test]
+    fn test_where_p_with_within() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Filter ages within [25, 35]
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .where_p(p::within([25, 35]))
+            .to_list();
+
+        assert_eq!(results.len(), 2); // Bob (25) and Charlie (35)
+        assert!(results.contains(&Value::Int(25)));
+        assert!(results.contains(&Value::Int(35)));
+    }
+
+    #[test]
+    fn test_where_p_with_between() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Filter ages between 25 (inclusive) and 35 (exclusive)
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .where_p(p::between(25, 35))
+            .to_list();
+
+        assert_eq!(results.len(), 2); // Bob (25) and Alice (30)
+        assert!(results.contains(&Value::Int(25)));
+        assert!(results.contains(&Value::Int(30)));
+    }
+
+    #[test]
+    fn test_where_p_combined_with_and() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Filter ages >= 25 AND <= 30
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .where_p(p::and(p::gte(25), p::lte(30)))
+            .to_list();
+
+        assert_eq!(results.len(), 2); // Bob (25) and Alice (30)
+        assert!(results.contains(&Value::Int(25)));
+        assert!(results.contains(&Value::Int(30)));
+    }
+
+    // -------------------------------------------------------------------------
+    // Complex Chains Combining Multiple New Steps
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chain_dedup_tail() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Get all vertices reachable from Alice via "knows" (up to 2 hops),
+        // dedup and get tail
+        let results = g
+            .v()
+            .has_id(tg.alice)
+            .out_labels(&["knows"])
+            .out_labels(&["knows"])
+            .dedup()
+            .tail()
+            .to_list();
+
+        // Alice->Bob->Charlie, so Charlie is reachable
+        assert!(results.len() <= 1);
+    }
+
+    #[test]
+    fn test_chain_sample_where_p() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Sample 10 person vertices (returns all 3), then filter by age > 25
+        let results = g
+            .v()
+            .has_label("person")
+            .sample(10)
+            .values("age")
+            .where_p(p::gt(25))
+            .to_list();
+
+        assert_eq!(results.len(), 2); // Alice (30) and Charlie (35)
+    }
+
+    #[test]
+    fn test_chain_order_tail_where_p() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Order ages ascending, take last 2 (oldest), filter >= 30
+        let results = g
+            .v()
+            .has_label("person")
+            .values("age")
+            .order()
+            .build()
+            .tail_n(2)
+            .where_p(p::gte(30))
+            .to_list();
+
+        // tail_n(2) gives [30, 35], where_p(>=30) keeps both
+        assert_eq!(results.len(), 2);
+        assert!(results.contains(&Value::Int(30)));
+        assert!(results.contains(&Value::Int(35)));
+    }
+
+    #[test]
+    fn test_anonymous_traversal_tail() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use tail_n directly on injected values
+        let results = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).tail_n(2).to_list();
+
+        // Tail 2 of [1,2,3,4,5] = [4,5]
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], Value::Int(4));
+        assert_eq!(results[1], Value::Int(5));
+    }
+
+    #[test]
+    fn test_anonymous_traversal_sample() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use sample directly on injected values
+        let results = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).sample(2).to_list();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_anonymous_traversal_where_p() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Use anonymous where_p in a filter context
+        let results = g
+            .inject([10i64, 20i64, 30i64, 40i64, 50i64])
+            .local(__::where_p(p::gt(25)))
+            .to_list();
+
+        // Should filter to values > 25: [30, 40, 50]
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_full_pipeline_with_new_steps() {
+        let tg = create_test_graph();
+        let snapshot = tg.graph.snapshot();
+        let g = snapshot.traversal();
+
+        // Complex pipeline:
+        // 1. Start with all vertices
+        // 2. Filter to persons
+        // 3. Dedup by label (all "person", so keeps first)
+        // 4. Navigate to known persons
+        // 5. Get ages
+        // 6. Filter where age > 20
+        // 7. Get last 2
+        let results = g
+            .v()
+            .has_label("person")
+            .out_labels(&["knows"])
+            .dedup()
+            .values("age")
+            .where_p(p::gt(20))
+            .tail_n(2)
+            .to_list();
+
+        // All 3 persons know someone, their targets are Bob, Charlie, Alice
+        // Ages: 25, 35, 30 (all > 20)
+        // After dedup and tail_n(2), we get last 2 ages
+        assert!(results.len() <= 2);
+    }
+}

@@ -6,12 +6,20 @@
 //! - `has_id()`, `has_ids()` - Filter by element ID
 //! - `filter()` - Custom predicate filtering
 //! - `dedup()` - Remove duplicates
+//! - `dedup_by_key()`, `dedup_by_label()`, `dedup_by()` - Dedup with custom key
 //! - `limit()`, `skip()`, `range()` - Pagination/slicing
+//! - `tail()`, `tail_n()` - Get last elements
+//! - `coin()` - Probabilistic filtering
+//! - `sample()` - Random sampling
+//! - `has_key()`, `has_prop_value()` - Property map filtering
+//! - `where_p()` - Predicate-based filtering
 //!
 //! Run with: `cargo run --example filter_steps`
 
 use rustgremlin::graph::Graph;
+use rustgremlin::p;
 use rustgremlin::storage::InMemoryGraph;
+use rustgremlin::traversal::__;
 use rustgremlin::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -150,6 +158,31 @@ fn main() {
     println!();
 
     // -------------------------------------------------------------------------
+    // dedup_by_key(), dedup_by_label(), dedup_by() - Dedup with custom key
+    // -------------------------------------------------------------------------
+    println!("--- dedup_by_*() - Dedup with custom key ---");
+
+    // Dedup by label
+    let dedup_by_label = g.v().dedup_by_label().to_list();
+    println!(
+        "Vertices dedup by label (one per label): {} vertices",
+        dedup_by_label.len()
+    );
+
+    // Dedup by property key
+    let dedup_by_name = g.v().has_label("person").dedup_by_key("name").to_list();
+    println!("Persons dedup by name: {} vertices", dedup_by_name.len());
+
+    // Dedup by traversal (e.g., by age value)
+    let dedup_by_age = g
+        .v()
+        .has_label("person")
+        .dedup_by(__::values("age"))
+        .to_list();
+    println!("Persons dedup by age: {} vertices", dedup_by_age.len());
+    println!();
+
+    // -------------------------------------------------------------------------
     // limit() - Take first N
     // -------------------------------------------------------------------------
     println!("--- limit() - Take first N ---");
@@ -195,6 +228,154 @@ fn main() {
     println!();
 
     // -------------------------------------------------------------------------
+    // tail() / tail_n() - Get last elements
+    // -------------------------------------------------------------------------
+    println!("--- tail() / tail_n() - Get last elements ---");
+
+    let last_one = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).tail().to_list();
+    println!("tail(): {:?}", last_one);
+
+    let last_three = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).tail_n(3).to_list();
+    println!("tail_n(3): {:?}", last_three);
+
+    // Tail with ordering - get oldest person
+    let oldest = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .order()
+        .build()
+        .tail()
+        .to_list();
+    println!("Oldest person's age: {:?}", oldest);
+    println!();
+
+    // -------------------------------------------------------------------------
+    // coin() - Probabilistic filtering
+    // -------------------------------------------------------------------------
+    println!("--- coin() - Probabilistic filtering ---");
+
+    // coin(0.0) filters everything
+    let coin_zero = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).coin(0.0).to_list();
+    println!("coin(0.0): {:?} (filters all)", coin_zero);
+
+    // coin(1.0) passes everything
+    let coin_one = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).coin(1.0).to_list();
+    println!("coin(1.0): {:?} (passes all)", coin_one);
+
+    // coin(0.5) passes approximately half (non-deterministic)
+    let coin_half = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).coin(0.5).to_list();
+    println!("coin(0.5): {:?} (approximately half)", coin_half);
+    println!();
+
+    // -------------------------------------------------------------------------
+    // sample() - Random sampling
+    // -------------------------------------------------------------------------
+    println!("--- sample() - Random sampling ---");
+
+    let sample_2 = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).sample(2).to_list();
+    println!("sample(2) from 5 elements: {:?}", sample_2);
+
+    // Sample more than available returns all
+    let sample_10 = g.inject([1i64, 2i64, 3i64]).sample(10).to_list();
+    println!("sample(10) from 3 elements: {:?}", sample_10);
+
+    // Sample from graph vertices
+    let sample_vertices = g.v().sample(2).to_list();
+    println!("sample(2) vertices: {} vertices", sample_vertices.len());
+    println!();
+
+    // -------------------------------------------------------------------------
+    // has_key() / has_prop_value() - Property map filtering
+    // -------------------------------------------------------------------------
+    println!("--- has_key() / has_prop_value() - Property filtering ---");
+
+    // Filter properties by key
+    let age_props = g
+        .v()
+        .has_label("person")
+        .properties()
+        .has_key("age")
+        .to_list();
+    println!("Properties with key 'age': {} properties", age_props.len());
+
+    // Filter properties by multiple keys
+    let name_or_age = g
+        .v()
+        .has_label("person")
+        .properties()
+        .has_key_any(["name", "age"])
+        .to_list();
+    println!(
+        "Properties with key 'name' or 'age': {} properties",
+        name_or_age.len()
+    );
+
+    // Filter properties by value
+    let alice_props = g
+        .v()
+        .has_label("person")
+        .properties()
+        .has_prop_value("Alice")
+        .to_list();
+    println!(
+        "Properties with value 'Alice': {} properties",
+        alice_props.len()
+    );
+    println!();
+
+    // -------------------------------------------------------------------------
+    // where_p() - Predicate-based filtering
+    // -------------------------------------------------------------------------
+    println!("--- where_p() - Predicate-based filtering ---");
+
+    // Filter by comparison predicate
+    let ages_gt_25 = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .where_p(p::gt(25))
+        .to_list();
+    println!("Ages > 25: {:?}", ages_gt_25);
+
+    // Filter by within predicate
+    let ages_within = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .where_p(p::within([25, 35]))
+        .to_list();
+    println!("Ages within [25, 35]: {:?}", ages_within);
+
+    // Filter by between predicate
+    let ages_between = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .where_p(p::between(25, 35))
+        .to_list();
+    println!("Ages between 25 and 35 (exclusive): {:?}", ages_between);
+
+    // Filter by combined predicate (AND)
+    let ages_range = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .where_p(p::and(p::gte(25), p::lte(30)))
+        .to_list();
+    println!("Ages >= 25 AND <= 30: {:?}", ages_range);
+
+    // Filter by combined predicate (OR)
+    let ages_or = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .where_p(p::or(p::lt(26), p::gt(34)))
+        .to_list();
+    println!("Ages < 26 OR > 34: {:?}", ages_or);
+    println!();
+
+    // -------------------------------------------------------------------------
     // Chaining multiple filters
     // -------------------------------------------------------------------------
     println!("--- Chaining filters ---");
@@ -212,6 +393,18 @@ fn main() {
         "Complex chain (dedup, filter>1, skip 1, limit 2): {:?}",
         complex
     );
+
+    // Chain with new filter steps
+    let new_chain = g
+        .v()
+        .has_label("person")
+        .values("age")
+        .order()
+        .build()
+        .tail_n(2)
+        .where_p(p::gte(30))
+        .to_list();
+    println!("Oldest 2 persons with age >= 30: {:?}", new_chain);
     println!();
 
     println!("=== Example Complete ===");
