@@ -1661,6 +1661,211 @@ impl AnyStep for SampleStep {
     }
 }
 
+// HasKeyStep - filter property maps by key
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only property objects with specific key names.
+///
+/// This step is designed to work with the output of `properties()`, which returns
+/// `Value::Map` objects with "key" and "value" entries. It filters to keep only
+/// properties whose "key" field matches one of the specified keys.
+///
+/// # Behavior
+///
+/// - For `Value::Map` with a "key" entry: passes if the key matches any specified key
+/// - For other values: filters them out
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_graph_database::traversal::filter::HasKeyStep;
+///
+/// // Filter to only "name" properties
+/// let step = HasKeyStep::new("name");
+///
+/// // Filter to properties with key "name" or "age"
+/// let step = HasKeyStep::any(["name", "age"]);
+///
+/// // Usage in traversal
+/// g.v().properties().has_key("name").to_list()
+/// ```
+#[derive(Clone, Debug)]
+pub struct HasKeyStep {
+    /// The property keys to match against
+    keys: Vec<String>,
+}
+
+impl HasKeyStep {
+    /// Create a new HasKeyStep that filters to a single key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = HasKeyStep::new("name");
+    /// ```
+    pub fn new(key: impl Into<String>) -> Self {
+        Self {
+            keys: vec![key.into()],
+        }
+    }
+
+    /// Create a HasKeyStep that filters to any of the specified keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The property keys to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = HasKeyStep::any(["name", "age", "email"]);
+    /// ```
+    pub fn any<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            keys: keys.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Get the keys this step filters for.
+    pub fn keys(&self) -> &[String] {
+        &self.keys
+    }
+
+    /// Check if a traverser's value matches the filter criteria.
+    ///
+    /// Returns `true` if the value is a Map with a "key" entry that matches
+    /// any of the specified keys.
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        match &traverser.value {
+            Value::Map(map) => {
+                // Check if this is a property map with a "key" entry
+                if let Some(Value::String(key)) = map.get("key") {
+                    self.keys.iter().any(|k| k == key)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
+// Use the macro to implement AnyStep for HasKeyStep
+impl_filter_step!(HasKeyStep, "hasKey");
+
+// HasPropValueStep - filter property maps by value
+// -----------------------------------------------------------------------------
+
+/// Filter step that keeps only property objects with specific values.
+///
+/// This step is designed to work with the output of `properties()`, which returns
+/// `Value::Map` objects with "key" and "value" entries. It filters to keep only
+/// properties whose "value" field matches one of the specified values.
+///
+/// **Note**: This is different from `HasValueStep`, which filters vertices/edges
+/// by property values. This step filters property objects themselves.
+///
+/// # Behavior
+///
+/// - For `Value::Map` with a "value" entry: passes if the value matches any specified value
+/// - For other values: filters them out
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_graph_database::traversal::filter::HasPropValueStep;
+///
+/// // Filter to properties with value "Alice"
+/// let step = HasPropValueStep::new("Alice");
+///
+/// // Filter to properties with value 30 or 40
+/// let step = HasPropValueStep::any([30i64, 40i64]);
+///
+/// // Usage in traversal
+/// g.v().properties().has_prop_value("Alice").to_list()
+/// ```
+#[derive(Clone, Debug)]
+pub struct HasPropValueStep {
+    /// The property values to match against
+    values: Vec<Value>,
+}
+
+impl HasPropValueStep {
+    /// Create a new HasPropValueStep that filters to a single value.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The property value to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = HasPropValueStep::new("Alice");
+    /// let step = HasPropValueStep::new(30i64);
+    /// ```
+    pub fn new(value: impl Into<Value>) -> Self {
+        Self {
+            values: vec![value.into()],
+        }
+    }
+
+    /// Create a HasPropValueStep that filters to any of the specified values.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - The property values to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = HasPropValueStep::any(["Alice", "Bob"]);
+    /// let step = HasPropValueStep::any([30i64, 40i64, 50i64]);
+    /// ```
+    pub fn any<I, V>(values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        Self {
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Get the values this step filters for.
+    pub fn values(&self) -> &[Value] {
+        &self.values
+    }
+
+    /// Check if a traverser's value matches the filter criteria.
+    ///
+    /// Returns `true` if the value is a Map with a "value" entry that matches
+    /// any of the specified values.
+    fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+        match &traverser.value {
+            Value::Map(map) => {
+                // Check if this is a property map with a "value" entry
+                if let Some(value) = map.get("value") {
+                    self.values.iter().any(|v| v == value)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
+// Use the macro to implement AnyStep for HasPropValueStep
+impl_filter_step!(HasPropValueStep, "hasValue");
+
 // -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
@@ -5227,6 +5432,416 @@ mod tests {
                 within_range >= (input_size as f64 * 0.8) as usize,
                 "Expected at least 80% of values to be sampled with approximately uniform frequency"
             );
+        }
+    }
+
+    mod has_key_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        fn create_property_map(key: &str, value: Value) -> Value {
+            let mut map = HashMap::new();
+            map.insert("key".to_string(), Value::String(key.to_string()));
+            map.insert("value".to_string(), value);
+            Value::Map(map)
+        }
+
+        #[test]
+        fn new_creates_has_key_step() {
+            let step = HasKeyStep::new("name");
+            assert_eq!(step.keys(), &["name".to_string()]);
+        }
+
+        #[test]
+        fn any_creates_multi_key_step() {
+            let step = HasKeyStep::any(["name", "age", "email"]);
+            assert_eq!(step.keys().len(), 3);
+        }
+
+        #[test]
+        fn name_returns_has_key() {
+            let step = HasKeyStep::new("name");
+            assert_eq!(step.name(), "hasKey");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = HasKeyStep::new("name");
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "hasKey");
+        }
+
+        #[test]
+        fn filters_property_map_by_single_key() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasKeyStep::new("name");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Bob".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "email",
+                    Value::String("test@test.com".to_string()),
+                )),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+            // Check that all results have key "name"
+            for t in &output {
+                if let Value::Map(map) = &t.value {
+                    assert_eq!(map.get("key"), Some(&Value::String("name".to_string())));
+                } else {
+                    panic!("Expected Map value");
+                }
+            }
+        }
+
+        #[test]
+        fn filters_property_map_by_multiple_keys() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasKeyStep::any(["name", "age"]);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::new(create_property_map(
+                    "email",
+                    Value::String("test@test.com".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "city",
+                    Value::String("NYC".to_string()),
+                )),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn non_map_values_filtered_out() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasKeyStep::new("name");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::String("hello".to_string())),
+                Traverser::from_vertex(VertexId(0)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn map_without_key_field_filtered_out() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasKeyStep::new("name");
+
+            // Create a map without a "key" field
+            let mut map = HashMap::new();
+            map.insert("value".to_string(), Value::String("Alice".to_string()));
+
+            let input: Vec<Traverser> = vec![Traverser::new(Value::Map(map))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasKeyStep::new("name");
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasKeyStep::new("name");
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = HasKeyStep::new("name");
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("HasKeyStep"));
+            assert!(debug_str.contains("name"));
+        }
+    }
+
+    mod has_prop_value_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        fn create_property_map(key: &str, value: Value) -> Value {
+            let mut map = HashMap::new();
+            map.insert("key".to_string(), Value::String(key.to_string()));
+            map.insert("value".to_string(), value);
+            Value::Map(map)
+        }
+
+        #[test]
+        fn new_creates_has_prop_value_step() {
+            let step = HasPropValueStep::new("Alice");
+            assert_eq!(step.values().len(), 1);
+        }
+
+        #[test]
+        fn any_creates_multi_value_step() {
+            let step = HasPropValueStep::any(["Alice", "Bob", "Carol"]);
+            assert_eq!(step.values().len(), 3);
+        }
+
+        #[test]
+        fn name_returns_has_value() {
+            let step = HasPropValueStep::new("Alice");
+            assert_eq!(step.name(), "hasValue");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = HasPropValueStep::new("Alice");
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "hasValue");
+        }
+
+        #[test]
+        fn filters_property_map_by_single_string_value() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::new("Alice");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Bob".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn filters_property_map_by_single_int_value() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::new(30i64);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                Traverser::new(create_property_map("age", Value::Int(25))),
+                Traverser::new(create_property_map("age", Value::Int(30))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn filters_property_map_by_multiple_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::any(["Alice", "Carol"]);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Alice".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Bob".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Carol".to_string()),
+                )),
+                Traverser::new(create_property_map(
+                    "name",
+                    Value::String("Dave".to_string()),
+                )),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn non_map_values_filtered_out() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::new("Alice");
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(42)),
+                Traverser::new(Value::String("Alice".to_string())),
+                Traverser::from_vertex(VertexId(0)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn map_without_value_field_filtered_out() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::new("Alice");
+
+            // Create a map without a "value" field
+            let mut map = HashMap::new();
+            map.insert("key".to_string(), Value::String("name".to_string()));
+
+            let input: Vec<Traverser> = vec![Traverser::new(Value::Map(map))];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::new("Alice");
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = HasPropValueStep::new("Alice");
+
+            let mut traverser = Traverser::new(create_property_map(
+                "name",
+                Value::String("Alice".to_string()),
+            ));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = HasPropValueStep::new("Alice");
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("HasPropValueStep"));
+        }
+
+        #[test]
+        fn works_with_mixed_value_types() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Create step that matches Int(30)
+            let step = HasPropValueStep::new(30i64);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(create_property_map("age", Value::Int(30))),
+                // This shouldn't match because "30" string != 30 int
+                Traverser::new(create_property_map("id", Value::String("30".to_string()))),
+                Traverser::new(create_property_map("count", Value::Int(30))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // Only the Int(30) values should match
+            assert_eq!(output.len(), 2);
         }
     }
 

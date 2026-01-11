@@ -40,8 +40,9 @@ pub use branch::{
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
     CoinStep, CyclicPathStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep,
-    FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, IsStep,
-    LimitStep, RangeStep, SampleStep, SimplePathStep, SkipStep, TailStep,
+    FilterStep, HasIdStep, HasKeyStep, HasLabelStep, HasNotStep, HasPropValueStep, HasStep,
+    HasValueStep, HasWhereStep, IsStep, LimitStep, RangeStep, SampleStep, SimplePathStep, SkipStep,
+    TailStep,
 };
 pub use mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
@@ -1298,6 +1299,94 @@ impl<In> Traversal<In, Value> {
         self.add_step(filter::SampleStep::new(count))
     }
 
+    /// Filter property objects by key name (for anonymous traversals).
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a matching "key" field.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to "name" properties
+    /// let anon = Traversal::<Value, Value>::new().has_key("name");
+    /// let names = g.v().properties().append(anon).to_list();
+    /// ```
+    pub fn has_key(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(filter::HasKeyStep::new(key))
+    }
+
+    /// Filter property objects by any of the specified key names (for anonymous traversals).
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a "key" field matching any of the specified keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The property keys to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to "name" or "age" properties
+    /// let anon = Traversal::<Value, Value>::new().has_key_any(["name", "age"]);
+    /// let props = g.v().properties().append(anon).to_list();
+    /// ```
+    pub fn has_key_any<I, S>(self, keys: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(filter::HasKeyStep::any(keys))
+    }
+
+    /// Filter property objects by value (for anonymous traversals).
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a matching "value" field.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The property value to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to properties with value "Alice"
+    /// let anon = Traversal::<Value, Value>::new().has_prop_value("Alice");
+    /// let alice_props = g.v().properties().append(anon).to_list();
+    /// ```
+    pub fn has_prop_value(self, value: impl Into<Value>) -> Traversal<In, Value> {
+        self.add_step(filter::HasPropValueStep::new(value))
+    }
+
+    /// Filter property objects by any of the specified values (for anonymous traversals).
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a "value" field matching any of the specified values.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - The property values to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that filters to properties with value "Alice" or "Bob"
+    /// let anon = Traversal::<Value, Value>::new().has_prop_value_any(["Alice", "Bob"]);
+    /// let props = g.v().properties().append(anon).to_list();
+    /// ```
+    pub fn has_prop_value_any<I, V>(self, values: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        self.add_step(filter::HasPropValueStep::any(values))
+    }
+
     /// Filter elements by a single ID (for anonymous traversals).
     ///
     /// Keeps only vertices/edges whose ID matches the given ID.
@@ -2387,8 +2476,8 @@ pub mod __ {
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::filter::{
         CoinStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep,
-        HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, LimitStep,
-        RangeStep, SampleStep, SkipStep, TailStep,
+        HasIdStep, HasKeyStep, HasLabelStep, HasNotStep, HasPropValueStep, HasStep, HasValueStep,
+        HasWhereStep, LimitStep, RangeStep, SampleStep, SkipStep, TailStep,
     };
     use crate::traversal::navigation::{
         BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,
@@ -2989,6 +3078,78 @@ pub mod __ {
     #[inline]
     pub fn sample(count: usize) -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(SampleStep::new(count))
+    }
+
+    /// Filter property objects by key name.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a matching "key" field.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to only "name" properties
+    /// let names = __::has_key("name");
+    /// ```
+    #[inline]
+    pub fn has_key(key: impl Into<String>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasKeyStep::new(key))
+    }
+
+    /// Filter property objects by any of the specified key names.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a "key" field matching any of the specified keys.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to "name" or "age" properties
+    /// let props = __::has_key_any(["name", "age"]);
+    /// ```
+    #[inline]
+    pub fn has_key_any<I, S>(keys: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Traversal::<Value, Value>::new().add_step(HasKeyStep::any(keys))
+    }
+
+    /// Filter property objects by value.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a matching "value" field.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to properties with value "Alice"
+    /// let alice_props = __::has_prop_value("Alice");
+    /// ```
+    #[inline]
+    pub fn has_prop_value(value: impl Into<Value>) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(HasPropValueStep::new(value))
+    }
+
+    /// Filter property objects by any of the specified values.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a "value" field matching any of the specified values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Filter to properties with value "Alice" or "Bob"
+    /// let props = __::has_prop_value_any(["Alice", "Bob"]);
+    /// ```
+    #[inline]
+    pub fn has_prop_value_any<I, V>(values: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        Traversal::<Value, Value>::new().add_step(HasPropValueStep::any(values))
     }
 
     // -------------------------------------------------------------------------

@@ -911,6 +911,94 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(SampleStep::new(count))
     }
 
+    /// Filter property objects by key name.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a matching "key" field.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The property key to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get only "name" properties
+    /// let names = g.v().properties().has_key("name").to_list();
+    /// ```
+    pub fn has_key(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasKeyStep;
+        self.add_step(HasKeyStep::new(key))
+    }
+
+    /// Filter property objects by any of the specified key names.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a "key" field matching any of the specified keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - The property keys to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get "name" or "age" properties
+    /// let props = g.v().properties().has_key_any(["name", "age"]).to_list();
+    /// ```
+    pub fn has_key_any<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::filter::HasKeyStep;
+        self.add_step(HasKeyStep::any(keys))
+    }
+
+    /// Filter property objects by value.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a matching "value" field.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The property value to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get properties with value "Alice"
+    /// let alice_props = g.v().properties().has_prop_value("Alice").to_list();
+    /// ```
+    pub fn has_prop_value(self, value: impl Into<Value>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::HasPropValueStep;
+        self.add_step(HasPropValueStep::new(value))
+    }
+
+    /// Filter property objects by any of the specified values.
+    ///
+    /// This step filters property maps (from `properties()`) to keep only those
+    /// with a "value" field matching any of the specified values.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - The property values to filter for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get properties with value "Alice" or "Bob"
+    /// let props = g.v().properties().has_prop_value_any(["Alice", "Bob"]).to_list();
+    /// ```
+    pub fn has_prop_value_any<I, V>(self, values: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        use crate::traversal::filter::HasPropValueStep;
+        self.add_step(HasPropValueStep::any(values))
+    }
+
     // -------------------------------------------------------------------------
     // Navigation steps
     // -------------------------------------------------------------------------
