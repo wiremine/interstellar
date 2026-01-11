@@ -25,6 +25,7 @@ pub mod mutation;
 pub mod navigation;
 pub mod predicate;
 pub mod repeat;
+pub mod sideeffect;
 pub mod source;
 pub mod step;
 pub mod transform;
@@ -53,6 +54,7 @@ pub use navigation::{
     OutVStep,
 };
 pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
+pub use sideeffect::StoreStep;
 pub use source::{BoundTraversal, BranchBuilder, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
