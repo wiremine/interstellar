@@ -39,9 +39,9 @@ pub use branch::{
 };
 pub use context::{ExecutionContext, SideEffects};
 pub use filter::{
-    CyclicPathStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep,
-    HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, IsStep, LimitStep,
-    RangeStep, SimplePathStep, SkipStep, TailStep,
+    CoinStep, CyclicPathStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep,
+    FilterStep, HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, IsStep,
+    LimitStep, RangeStep, SampleStep, SimplePathStep, SkipStep, TailStep,
 };
 pub use mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
@@ -1252,6 +1252,52 @@ impl<In> Traversal<In, Value> {
         self.add_step(filter::TailStep::new(count))
     }
 
+    /// Probabilistic filter using random coin flip (for anonymous traversals).
+    ///
+    /// Each traverser has a probability `p` of passing through. Useful for
+    /// random sampling or probabilistic traversals.
+    ///
+    /// # Arguments
+    ///
+    /// * `probability` - Probability of passing (0.0 to 1.0, clamped)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that randomly samples ~50%
+    /// let anon = Traversal::<Value, Value>::new().coin(0.5);
+    /// let sample = g.v().append(anon).to_list();
+    /// ```
+    pub fn coin(self, probability: f64) -> Traversal<In, Value> {
+        self.add_step(filter::CoinStep::new(probability))
+    }
+
+    /// Randomly sample n elements using reservoir sampling (for anonymous traversals).
+    ///
+    /// This is a **barrier step** that collects all input elements and returns
+    /// a random sample of exactly n elements. If the input has fewer than n
+    /// elements, all elements are returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of elements to sample
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that samples 5 random elements
+    /// let anon = Traversal::<Value, Value>::new().sample(5);
+    /// let sampled = g.v().append(anon).to_list();
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// Results are non-deterministic. For reproducible results in tests,
+    /// use statistical tolerances.
+    pub fn sample(self, count: usize) -> Traversal<In, Value> {
+        self.add_step(filter::SampleStep::new(count))
+    }
+
     /// Filter elements by a single ID (for anonymous traversals).
     ///
     /// Keeps only vertices/edges whose ID matches the given ID.
@@ -2340,9 +2386,9 @@ pub use predicate::Predicate;
 pub mod __ {
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::filter::{
-        DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep, HasIdStep,
-        HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, LimitStep, RangeStep,
-        SkipStep, TailStep,
+        CoinStep, DedupByKeyStep, DedupByLabelStep, DedupByTraversalStep, DedupStep, FilterStep,
+        HasIdStep, HasLabelStep, HasNotStep, HasStep, HasValueStep, HasWhereStep, LimitStep,
+        RangeStep, SampleStep, SkipStep, TailStep,
     };
     use crate::traversal::navigation::{
         BothEStep, BothStep, BothVStep, InEStep, InStep, InVStep, OtherVStep, OutEStep, OutStep,
@@ -2910,6 +2956,39 @@ pub mod __ {
     #[inline]
     pub fn tail_n(count: usize) -> Traversal<Value, Value> {
         Traversal::<Value, Value>::new().add_step(TailStep::new(count))
+    }
+
+    /// Probabilistic filter using random coin flip.
+    ///
+    /// Each traverser has a probability `p` of passing through. Useful for
+    /// random sampling or probabilistic traversals.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Random sample of approximately 50%
+    /// let sample = __::coin(0.5);
+    /// ```
+    #[inline]
+    pub fn coin(probability: f64) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(CoinStep::new(probability))
+    }
+
+    /// Randomly sample n elements using reservoir sampling.
+    ///
+    /// This is a **barrier step** that collects all input elements and returns
+    /// a random sample of exactly n elements. If the input has fewer than n
+    /// elements, all elements are returned.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sample 5 random elements
+    /// let sampled = __::sample(5);
+    /// ```
+    #[inline]
+    pub fn sample(count: usize) -> Traversal<Value, Value> {
+        Traversal::<Value, Value>::new().add_step(SampleStep::new(count))
     }
 
     // -------------------------------------------------------------------------

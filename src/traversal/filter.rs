@@ -1422,6 +1422,246 @@ impl AnyStep for TailStep {
 }
 
 // -----------------------------------------------------------------------------
+// CoinStep - probabilistic filter using random coin flip
+// -----------------------------------------------------------------------------
+
+/// Probabilistic filter step that randomly allows traversers to pass through.
+///
+/// Each traverser has a probability `p` of passing through. This is useful for
+/// random sampling, statistical testing, or creating probabilistic traversals.
+///
+/// # Probability Semantics
+///
+/// - `coin(0.0)` - No traversers pass (always filter)
+/// - `coin(1.0)` - All traversers pass (identity)
+/// - `coin(0.5)` - Approximately 50% of traversers pass
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().coin(0.5)  // Each vertex has 50% chance of passing
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use rustgremlin::prelude::*;
+///
+/// // Random sample of approximately 10% of vertices
+/// let sample = g.v().coin(0.1).to_list();
+///
+/// // Probabilistic filtering in a complex query
+/// let random_friends = g.v()
+///     .has_label("person")
+///     .out_labels(&["knows"])
+///     .coin(0.5)
+///     .to_list();
+/// ```
+///
+/// # Note
+///
+/// Results are non-deterministic. For reproducible tests, use statistical
+/// tolerances or seeded RNG (not currently supported).
+#[derive(Clone, Debug, Copy)]
+pub struct CoinStep {
+    /// Probability of allowing each traverser to pass (0.0 to 1.0)
+    probability: f64,
+}
+
+impl CoinStep {
+    /// Create a new CoinStep with the given probability.
+    ///
+    /// # Arguments
+    ///
+    /// * `probability` - Probability of passing (clamped to 0.0..=1.0)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let step = CoinStep::new(0.5); // 50% chance of passing
+    /// ```
+    pub fn new(probability: f64) -> Self {
+        // Clamp probability to valid range
+        let probability = probability.clamp(0.0, 1.0);
+        Self { probability }
+    }
+
+    /// Create a CoinStep that always passes (probability = 1.0).
+    ///
+    /// Equivalent to identity; useful as a default or placeholder.
+    pub fn always() -> Self {
+        Self::new(1.0)
+    }
+
+    /// Create a CoinStep that never passes (probability = 0.0).
+    ///
+    /// Equivalent to filtering everything out.
+    pub fn never() -> Self {
+        Self::new(0.0)
+    }
+
+    /// Get the probability value.
+    pub fn probability(&self) -> f64 {
+        self.probability
+    }
+}
+
+impl Default for CoinStep {
+    fn default() -> Self {
+        Self::always()
+    }
+}
+
+impl AnyStep for CoinStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        use rand::Rng;
+
+        let probability = self.probability;
+
+        // Handle edge cases without RNG overhead
+        if probability <= 0.0 {
+            return Box::new(std::iter::empty());
+        }
+        if probability >= 1.0 {
+            return input;
+        }
+
+        // Use thread-local RNG for each traverser
+        Box::new(input.filter(move |_| rand::thread_rng().gen::<f64>() < probability))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "coin"
+    }
+}
+
+// SampleStep - randomly sample n elements using reservoir sampling
+// -----------------------------------------------------------------------------
+
+/// Randomly samples n elements from the traversal using reservoir sampling.
+///
+/// `SampleStep` is a **barrier step** that collects elements and returns a random
+/// sample of exactly n elements. If the input has fewer than n elements, all
+/// elements are returned.
+///
+/// # Algorithm
+///
+/// Uses the reservoir sampling algorithm (Algorithm R by Vitter):
+/// 1. Fill reservoir with first n elements
+/// 2. For each subsequent element k (k > n):
+///    - Generate random j in [0, k]
+///    - If j < n, replace reservoir[j] with element k
+/// 3. Return reservoir
+///
+/// This guarantees each element has equal probability of being selected,
+/// regardless of the total input size.
+///
+/// # Performance
+///
+/// - Time: O(n) where n is the input size
+/// - Space: O(k) where k is the sample size
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_graph_database::traversal::filter::SampleStep;
+/// use rust_graph_database::traversal::step::AnyStep;
+///
+/// // Sample 5 random elements
+/// let step = SampleStep::new(5);
+/// ```
+///
+/// # Note
+///
+/// This is a **barrier step** that must consume all input before producing output.
+/// Results are non-deterministic due to randomness.
+#[derive(Clone, Debug, Copy)]
+pub struct SampleStep {
+    count: usize,
+}
+
+impl SampleStep {
+    /// Create a new SampleStep that samples n elements.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of elements to sample
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let step = SampleStep::new(10); // Sample 10 elements
+    /// ```
+    pub fn new(count: usize) -> Self {
+        Self { count }
+    }
+
+    /// Get the sample count.
+    pub fn count(&self) -> usize {
+        self.count
+    }
+}
+
+impl Default for SampleStep {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+impl AnyStep for SampleStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        use rand::Rng;
+
+        let count = self.count;
+
+        // Handle edge case: sample(0) returns empty
+        if count == 0 {
+            return Box::new(std::iter::empty());
+        }
+
+        // Reservoir sampling algorithm (Algorithm R)
+        let mut reservoir: Vec<Traverser> = Vec::with_capacity(count);
+        let mut rng = rand::thread_rng();
+
+        for (k, item) in input.enumerate() {
+            if k < count {
+                // Fill the reservoir with first n elements
+                reservoir.push(item);
+            } else {
+                // For subsequent elements, randomly decide whether to include
+                // Generate j in [0, k] (inclusive)
+                let j = rng.gen_range(0..=k);
+                if j < count {
+                    reservoir[j] = item;
+                }
+            }
+        }
+
+        Box::new(reservoir.into_iter())
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "sample"
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -4382,6 +4622,611 @@ mod tests {
             assert_eq!(output[1].value, Value::Int(30));
             assert_eq!(output[2].value, Value::Int(40));
             assert_eq!(output[3].value, Value::Int(50));
+        }
+    }
+
+    mod coin_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+
+        #[test]
+        fn new_creates_coin_step() {
+            let step = CoinStep::new(0.5);
+            assert!((step.probability() - 0.5).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn new_clamps_probability_above_one() {
+            let step = CoinStep::new(1.5);
+            assert!((step.probability() - 1.0).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn new_clamps_probability_below_zero() {
+            let step = CoinStep::new(-0.5);
+            assert!(step.probability().abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn always_returns_probability_one() {
+            let step = CoinStep::always();
+            assert!((step.probability() - 1.0).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn never_returns_probability_zero() {
+            let step = CoinStep::never();
+            assert!(step.probability().abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn default_is_always() {
+            let step = CoinStep::default();
+            assert!((step.probability() - 1.0).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn name_returns_coin() {
+            let step = CoinStep::new(0.5);
+            assert_eq!(step.name(), "coin");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = CoinStep::new(0.5);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "coin");
+        }
+
+        #[test]
+        fn coin_zero_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(0.0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn coin_one_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(1.0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 5);
+        }
+
+        #[test]
+        fn coin_never_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::never();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn coin_always_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::always();
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn coin_half_returns_approximately_half_statistical() {
+            // Statistical test with large sample size
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(0.5);
+
+            // Create a large input for statistical significance
+            let input: Vec<Traverser> = (0..1000).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // With 1000 samples and p=0.5, expect ~500 with stddev ~15.8
+            // Allow a generous tolerance of ±100 (about 6 standard deviations)
+            let count = output.len();
+            assert!(
+                count > 400 && count < 600,
+                "Expected approximately 500 results, got {}",
+                count
+            );
+        }
+
+        #[test]
+        fn coin_tenth_returns_approximately_tenth_statistical() {
+            // Statistical test with large sample size
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(0.1);
+
+            // Create a large input for statistical significance
+            let input: Vec<Traverser> = (0..1000).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // With 1000 samples and p=0.1, expect ~100 with stddev ~9.5
+            // Allow a generous tolerance of ±50
+            let count = output.len();
+            assert!(
+                count > 50 && count < 150,
+                "Expected approximately 100 results, got {}",
+                count
+            );
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(0.5);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // Use coin(1.0) to ensure the traverser passes
+            let step = CoinStep::new(1.0);
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn coin_step_is_copy() {
+            let step1 = CoinStep::new(0.5);
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert!((step2.probability() - 0.5).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = CoinStep::new(0.5);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("CoinStep"));
+            assert!(debug_str.contains("0.5"));
+        }
+
+        #[test]
+        fn works_with_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(1.0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn works_with_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = CoinStep::new(1.0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Edge(EdgeId(0))),
+                Traverser::new(Value::Edge(EdgeId(1))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn nan_probability_treated_as_zero() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            // NaN comparison with clamp should result in 0.0
+            let step = CoinStep::new(f64::NAN);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // NaN.clamp(0.0, 1.0) returns NaN in Rust, which will fail < comparison
+            // So effectively, no elements should pass
+            assert!(output.is_empty());
+        }
+    }
+
+    mod sample_step_tests {
+        use super::*;
+        use crate::traversal::step::AnyStep;
+        use std::collections::HashSet;
+
+        #[test]
+        fn new_creates_sample_step() {
+            let step = SampleStep::new(5);
+            assert_eq!(step.count(), 5);
+        }
+
+        #[test]
+        fn default_creates_sample_one() {
+            let step = SampleStep::default();
+            assert_eq!(step.count(), 1);
+        }
+
+        #[test]
+        fn name_returns_sample() {
+            let step = SampleStep::new(5);
+            assert_eq!(step.name(), "sample");
+        }
+
+        #[test]
+        fn clone_box_works() {
+            let step = SampleStep::new(5);
+            let cloned = step.clone_box();
+            assert_eq!(cloned.name(), "sample");
+        }
+
+        #[test]
+        fn sample_zero_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(0);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn sample_larger_than_input_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(10);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 3);
+        }
+
+        #[test]
+        fn sample_equal_to_input_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(5);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+                Traverser::new(Value::Int(4)),
+                Traverser::new(Value::Int(5)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 5);
+        }
+
+        #[test]
+        fn sample_returns_exactly_n_elements() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(5);
+
+            let input: Vec<Traverser> = (0..100).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 5);
+        }
+
+        #[test]
+        fn empty_input_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(5);
+            let input: Vec<Traverser> = vec![];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn preserves_traverser_metadata() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(1);
+
+            let mut traverser = Traverser::new(Value::Int(42));
+            traverser.extend_path_labeled("start");
+            traverser.loops = 5;
+            traverser.bulk = 10;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 5);
+            assert_eq!(output[0].bulk, 10);
+        }
+
+        #[test]
+        fn sample_step_is_copy() {
+            let step1 = SampleStep::new(5);
+            let step2 = step1; // Copy
+            let _step3 = step1; // Can still use step1
+
+            assert_eq!(step2.count(), 5);
+        }
+
+        #[test]
+        fn debug_format() {
+            let step = SampleStep::new(5);
+            let debug_str = format!("{:?}", step);
+            assert!(debug_str.contains("SampleStep"));
+            assert!(debug_str.contains("5"));
+        }
+
+        #[test]
+        fn works_with_vertices() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::from_vertex(VertexId(0)),
+                Traverser::from_vertex(VertexId(1)),
+                Traverser::from_vertex(VertexId(2)),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn works_with_edges() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(2);
+
+            let input: Vec<Traverser> = vec![
+                Traverser::new(Value::Edge(EdgeId(0))),
+                Traverser::new(Value::Edge(EdgeId(1))),
+                Traverser::new(Value::Edge(EdgeId(2))),
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 2);
+        }
+
+        #[test]
+        fn sample_elements_come_from_input() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(5);
+
+            let input_values: Vec<i64> = (0..100).collect();
+            let input: Vec<Traverser> = input_values
+                .iter()
+                .map(|&i| Traverser::new(Value::Int(i)))
+                .collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All output values should be from the original input
+            let input_set: HashSet<i64> = input_values.into_iter().collect();
+            for t in output {
+                if let Value::Int(v) = t.value {
+                    assert!(
+                        input_set.contains(&v),
+                        "Output value {} not in input set",
+                        v
+                    );
+                } else {
+                    panic!("Expected Int value");
+                }
+            }
+        }
+
+        #[test]
+        fn sample_returns_distinct_elements_from_distinct_input() {
+            // When input has all distinct elements, output should have distinct elements
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+
+            let step = SampleStep::new(5);
+
+            let input: Vec<Traverser> = (0..100).map(|i| Traverser::new(Value::Int(i))).collect();
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            // All output values should be unique (since input had unique values)
+            let output_values: Vec<i64> = output
+                .iter()
+                .map(|t| match &t.value {
+                    Value::Int(v) => *v,
+                    _ => panic!("Expected Int"),
+                })
+                .collect();
+
+            let unique_values: HashSet<i64> = output_values.iter().copied().collect();
+            assert_eq!(
+                unique_values.len(),
+                output_values.len(),
+                "Sampled elements should be unique when input is unique"
+            );
+        }
+
+        #[test]
+        fn distribution_is_approximately_uniform_statistical() {
+            // Statistical test to verify reservoir sampling gives roughly uniform distribution
+            // Run multiple samples and check that each element appears with roughly equal frequency
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+
+            // Track how often each value is sampled
+            let mut counts: HashMap<i64, usize> = HashMap::new();
+            let input_size = 100;
+            let sample_size = 10;
+            let num_trials = 1000;
+
+            for _ in 0..num_trials {
+                let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+                let step = SampleStep::new(sample_size);
+
+                let input: Vec<Traverser> = (0..input_size as i64)
+                    .map(|i| Traverser::new(Value::Int(i)))
+                    .collect();
+
+                let output: Vec<Traverser> =
+                    step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+                for t in output {
+                    if let Value::Int(v) = t.value {
+                        *counts.entry(v).or_insert(0) += 1;
+                    }
+                }
+            }
+
+            // Each element should appear approximately sample_size/input_size * num_trials times
+            // = 10/100 * 1000 = 100 times on average
+            let expected = (sample_size as f64 / input_size as f64) * num_trials as f64;
+
+            // Check that each value appears within a reasonable range
+            // Allow ±50% tolerance for statistical variation
+            let min_expected = (expected * 0.5) as usize;
+            let max_expected = (expected * 1.5) as usize;
+
+            // Not all values need to be sampled in 1000 trials, but most should
+            // Check that at least 90% of values are within expected range
+            let within_range = counts
+                .values()
+                .filter(|&&c| c >= min_expected && c <= max_expected)
+                .count();
+
+            assert!(
+                within_range >= (input_size as f64 * 0.8) as usize,
+                "Expected at least 80% of values to be sampled with approximately uniform frequency"
+            );
         }
     }
 

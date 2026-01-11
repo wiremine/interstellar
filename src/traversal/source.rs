@@ -847,6 +847,70 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(TailStep::new(count))
     }
 
+    /// Probabilistic filter using random coin flip.
+    ///
+    /// Each traverser has a probability `p` of passing through. Useful for
+    /// random sampling or probabilistic traversals.
+    ///
+    /// # Arguments
+    ///
+    /// * `probability` - Probability of passing (0.0 to 1.0, clamped)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Randomly sample approximately 10% of vertices
+    /// let sample = g.v().coin(0.1).to_list();
+    ///
+    /// // Probabilistic filtering in a traversal
+    /// let random_friends = g.v()
+    ///     .has_label("person")
+    ///     .out_labels(&["knows"])
+    ///     .coin(0.5)
+    ///     .to_list();
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// Results are non-deterministic. For reproducible results in tests,
+    /// use statistical tolerances.
+    pub fn coin(self, probability: f64) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::CoinStep;
+        self.add_step(CoinStep::new(probability))
+    }
+
+    /// Randomly sample n elements using reservoir sampling.
+    ///
+    /// This is a **barrier step** that collects all input elements and returns
+    /// a random sample of exactly n elements. If the input has fewer than n
+    /// elements, all elements are returned.
+    ///
+    /// Uses reservoir sampling algorithm to ensure each element has equal
+    /// probability of being selected, regardless of total input size.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of elements to sample
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sample 5 random vertices
+    /// let sampled = g.v().sample(5).to_list();
+    ///
+    /// // Combined with filter
+    /// let sampled_people = g.v().has_label("person").sample(3).to_list();
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// Results are non-deterministic. For reproducible results in tests,
+    /// use statistical tolerances.
+    pub fn sample(self, count: usize) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::filter::SampleStep;
+        self.add_step(SampleStep::new(count))
+    }
+
     // -------------------------------------------------------------------------
     // Navigation steps
     // -------------------------------------------------------------------------
