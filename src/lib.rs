@@ -19,28 +19,26 @@
 //! ```rust
 //! use intersteller::prelude::*;
 //! use intersteller::storage::InMemoryGraph;
-//! use std::collections::HashMap;
-//! use std::sync::Arc;
 //!
 //! // Create an in-memory graph
 //! let mut storage = InMemoryGraph::new();
 //!
 //! // Add vertices with properties
-//! let alice = storage.add_vertex("person", HashMap::from([
-//!     ("name".to_string(), Value::String("Alice".to_string())),
-//!     ("age".to_string(), Value::Int(30)),
-//! ]));
+//! let alice = storage.add_vertex("person", props! {
+//!     "name" => "Alice",
+//!     "age" => 30i64,
+//! });
 //!
-//! let bob = storage.add_vertex("person", HashMap::from([
-//!     ("name".to_string(), Value::String("Bob".to_string())),
-//!     ("age".to_string(), Value::Int(25)),
-//! ]));
+//! let bob = storage.add_vertex("person", props! {
+//!     "name" => "Bob",
+//!     "age" => 25i64,
+//! });
 //!
 //! // Add an edge
-//! storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+//! storage.add_edge(alice, bob, "knows", props! {}).unwrap();
 //!
 //! // Wrap storage in a Graph for traversal
-//! let graph = Graph::new(Arc::new(storage));
+//! let graph = Graph::new(storage);
 //!
 //! // Create a snapshot for read access
 //! let snapshot = graph.snapshot();
@@ -185,15 +183,13 @@
 //! ```rust
 //! use intersteller::prelude::*;
 //! use intersteller::storage::InMemoryGraph;
-//! use std::collections::HashMap;
-//! use std::sync::Arc;
 //!
 //! let mut storage = InMemoryGraph::new();
-//! storage.add_vertex("Person", HashMap::from([
-//!     ("name".to_string(), Value::String("Alice".to_string())),
-//! ]));
+//! storage.add_vertex("Person", props! {
+//!     "name" => "Alice",
+//! });
 //!
-//! let graph = Graph::new(Arc::new(storage));
+//! let graph = Graph::new(storage);
 //! let snapshot = graph.snapshot();
 //!
 //! // Execute a GQL query
@@ -307,6 +303,69 @@
 //! cargo run --example british_royals
 //! ```
 
+/// Creates a property map for vertices and edges.
+///
+/// This macro provides a convenient way to construct `HashMap<String, Value>`
+/// for use with [`InMemoryGraph::add_vertex`](storage::InMemoryGraph::add_vertex)
+/// and [`InMemoryGraph::add_edge`](storage::InMemoryGraph::add_edge).
+///
+/// Values are automatically converted using [`Into<Value>`](Value), so you can
+/// use native Rust types directly.
+///
+/// # Example
+///
+/// ```rust
+/// use intersteller::prelude::*;
+/// use intersteller::storage::InMemoryGraph;
+///
+/// let mut storage = InMemoryGraph::new();
+///
+/// // Create a vertex with properties
+/// let alice = storage.add_vertex("person", props! {
+///     "name" => "Alice",
+///     "age" => 30i64,
+///     "active" => true,
+/// });
+///
+/// // Empty properties
+/// let bob = storage.add_vertex("person", props! {});
+///
+/// // Edge with properties
+/// storage.add_edge(alice, bob, "knows", props! {
+///     "since" => 2020i64,
+///     "weight" => 0.95,
+/// }).unwrap();
+/// ```
+///
+/// # Supported Types
+///
+/// Any type that implements `Into<Value>` can be used:
+/// - `&str` and `String` → `Value::String`
+/// - `i64` → `Value::Int`
+/// - `f64` → `Value::Float`
+/// - `bool` → `Value::Bool`
+/// - `Vec<Value>` → `Value::List`
+/// - `HashMap<String, Value>` → `Value::Map`
+///
+/// **Note**: For integers, use `i64` explicitly (e.g., `30i64`) since Rust's
+/// default integer type is `i32` which doesn't implement `Into<Value>`.
+#[macro_export]
+macro_rules! props {
+    // Empty case
+    () => {
+        ::std::collections::HashMap::new()
+    };
+    // Key-value pairs with trailing comma support
+    ($($key:expr => $value:expr),* $(,)?) => {{
+        #[allow(unused_mut)]
+        let mut map = ::std::collections::HashMap::new();
+        $(
+            map.insert($key.to_string(), $crate::Value::from($value));
+        )*
+        map
+    }};
+}
+
 pub mod algorithms;
 pub mod error;
 pub mod gql;
@@ -336,9 +395,11 @@ pub mod value;
 /// - Values: [`Value`], [`VertexId`], [`EdgeId`], [`ElementId`]
 /// - Paths: [`Path`], [`PathElement`], [`PathValue`], [`Traverser`]
 /// - Errors: [`StorageError`], [`TraversalError`]
+/// - Macros: [`props!`]
 pub mod prelude {
     pub use crate::error::{StorageError, TraversalError};
     pub use crate::graph::{Graph, GraphMut, GraphSnapshot};
+    pub use crate::props;
     pub use crate::traversal::{
         p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,
         Path, PathElement, PathValue, Traversal, Traverser, __,

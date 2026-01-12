@@ -792,7 +792,7 @@ mod tests {
             })
             .unwrap();
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod properties_step_vertex_tests {

@@ -176,7 +176,7 @@ fn load_royals_graph() -> Graph {
     }
 
     let storage = Arc::new(storage);
-    Graph::new(storage)
+    Graph::from_arc(storage)
 }
 
 // =============================================================================

@@ -132,7 +132,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     TestGraph {
-        graph: Graph::new(Arc::new(storage)),
+        graph: Graph::new(storage),
         alice,
         bob,
         charlie,
@@ -419,7 +419,7 @@ fn test_branch_with_boolean_key() {
         props
     });
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 

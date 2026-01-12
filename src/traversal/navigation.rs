@@ -1056,7 +1056,7 @@ mod tests {
             .add_edge(bob, graphdb, "uses", HashMap::new())
             .unwrap();
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod out_step_tests {

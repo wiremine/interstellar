@@ -5005,7 +5005,7 @@ mod tests {
             use std::sync::Arc;
 
             let storage = InMemoryGraph::new();
-            let graph = Graph::new(Arc::new(storage));
+            let graph = Graph::new(storage);
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
 
@@ -5039,7 +5039,7 @@ mod tests {
 
         fn create_test_graph() -> Graph {
             let storage = InMemoryGraph::new();
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -5102,7 +5102,7 @@ mod tests {
             let _ = storage.add_edge(alice_id, bob_id, "knows", HashMap::new());
             let _ = storage.add_edge(alice_id, company_id, "works_at", HashMap::new());
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         // -------------------------------------------------------------------------

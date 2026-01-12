@@ -341,5 +341,5 @@ fn create_sample_graph() -> Graph {
         .add_edge(diana, alice, "knows", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }

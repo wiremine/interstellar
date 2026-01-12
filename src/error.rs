@@ -102,7 +102,7 @@
 //!     // The `?` propagates any error up to the caller
 //!     storage.add_edge(alice, bob, "knows", HashMap::new())?;
 //!     
-//!     Ok(Graph::new(Arc::new(storage)))
+//!     Ok(Graph::new(storage))
 //! }
 //! ```
 //!
@@ -143,7 +143,7 @@
 //!     ("name".to_string(), Value::from("Bob")),
 //! ]));
 //!
-//! let graph = Graph::new(Arc::new(storage));
+//! let graph = Graph::new(storage);
 //! let snapshot = graph.snapshot();
 //! let g = snapshot.traversal();
 //!
@@ -602,7 +602,7 @@ pub enum TraversalError {
     ///     ("name".to_string(), Value::from("Bob")),
     /// ]));
     ///
-    /// let graph = Graph::new(Arc::new(storage));
+    /// let graph = Graph::new(storage);
     /// let snapshot = graph.snapshot();
     /// let g = snapshot.traversal();
     ///

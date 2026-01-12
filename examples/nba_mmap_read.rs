@@ -126,7 +126,7 @@ fn main() {
         }
     };
 
-    let graph = Graph::new(storage.clone());
+    let graph = Graph::from_arc(storage.clone());
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 

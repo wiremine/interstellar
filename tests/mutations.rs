@@ -69,7 +69,7 @@ fn execute_mutations<'a>(
 #[test]
 fn add_v_creates_pending_vertex() {
     let storage = InMemoryGraph::new();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -90,7 +90,7 @@ fn add_v_creates_pending_vertex() {
 #[test]
 fn add_v_with_properties_creates_pending_vertex() {
     let storage = InMemoryGraph::new();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -159,7 +159,7 @@ fn mutation_executor_from_traversal() {
 
     // First run the traversal to get pending mutations
     {
-        let graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let graph = Graph::in_memory();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -196,7 +196,7 @@ fn mutation_executor_from_traversal() {
 #[test]
 fn add_e_creates_pending_edge() {
     let storage = create_test_graph();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -224,7 +224,7 @@ fn add_e_creates_pending_edge() {
 #[test]
 fn add_e_from_bound_traversal() {
     let storage = create_test_graph();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -313,7 +313,7 @@ fn mutation_executor_creates_edge() {
 #[test]
 fn property_on_vertex_creates_pending_update() {
     let storage = create_test_graph();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -400,7 +400,7 @@ fn mutation_executor_sets_edge_property() {
 #[test]
 fn drop_vertex_creates_pending_deletion() {
     let storage = create_test_graph();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 

@@ -198,7 +198,7 @@ mod tests {
             .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
             .unwrap();
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod values_step_construction {

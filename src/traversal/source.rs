@@ -3641,7 +3641,7 @@ mod tests {
     use std::sync::Arc;
 
     fn create_empty_graph() -> Graph {
-        Graph::new(Arc::new(InMemoryGraph::new()))
+        Graph::in_memory()
     }
 
     fn create_test_graph() -> Graph {
@@ -3689,7 +3689,7 @@ mod tests {
             })
             .unwrap();
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod graph_traversal_source_tests {

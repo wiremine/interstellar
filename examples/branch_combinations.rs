@@ -294,7 +294,7 @@ fn create_test_graph() -> (Graph, Arc<InMemoryGraph>, VertexIds) {
 
     let storage = Arc::new(storage);
     (
-        Graph::new(storage.clone()),
+        Graph::from_arc(storage.clone()),
         storage,
         VertexIds {
             alice,

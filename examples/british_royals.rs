@@ -173,7 +173,7 @@ fn load_royals_graph() -> (Graph, Arc<InMemoryGraph>, HashMap<String, VertexId>)
     }
 
     let storage = Arc::new(storage);
-    let graph = Graph::new(storage.clone());
+    let graph = Graph::from_arc(storage.clone());
 
     (graph, storage, person_ids)
 }

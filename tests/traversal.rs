@@ -137,7 +137,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     TestGraph {
-        graph: Graph::new(Arc::new(storage)),
+        graph: Graph::new(storage),
         alice,
         bob,
         charlie,
@@ -152,7 +152,7 @@ fn create_test_graph() -> TestGraph {
 
 /// Creates an empty graph for testing edge cases.
 fn create_empty_graph() -> Graph {
-    Graph::new(Arc::new(InMemoryGraph::new()))
+    Graph::in_memory()
 }
 
 // =============================================================================
@@ -1987,7 +1987,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         .unwrap();
 
     SpecTestGraph {
-        graph: Graph::new(Arc::new(storage)),
+        graph: Graph::new(storage),
         alice,
         bob,
         carol,

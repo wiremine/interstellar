@@ -411,7 +411,7 @@ mod tests {
                 props
             });
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]

@@ -831,7 +831,7 @@ mod tests {
         props4.insert("name".to_string(), Value::String("lop".to_string()));
         storage.add_vertex("software", props4);
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     #[test]
@@ -1238,7 +1238,7 @@ mod tests {
             )
             .unwrap();
 
-        let graph = Graph::new(std::sync::Arc::new(storage));
+        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -1300,7 +1300,7 @@ mod tests {
             )
             .unwrap();
 
-        let graph = Graph::new(std::sync::Arc::new(storage));
+        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -1446,7 +1446,7 @@ mod tests {
             )
             .unwrap();
 
-        let graph = Graph::new(std::sync::Arc::new(storage));
+        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -1504,7 +1504,7 @@ mod tests {
             )
             .unwrap();
 
-        let graph = Graph::new(std::sync::Arc::new(storage));
+        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 

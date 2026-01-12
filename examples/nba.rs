@@ -277,7 +277,7 @@ fn load_nba_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
     }
 
     let storage = Arc::new(storage);
-    let graph = Graph::new(storage.clone());
+    let graph = Graph::from_arc(storage.clone());
 
     (graph, storage, mappings)
 }

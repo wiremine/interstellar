@@ -487,7 +487,7 @@ mod tests {
     fn create_test_graph() -> Graph {
         let mut storage = InMemoryGraph::new();
         storage.add_vertex("person", HashMap::new());
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod any_step_tests {
@@ -890,7 +890,7 @@ mod tests {
             storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
             storage.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -1142,7 +1142,7 @@ mod tests {
         fn start_step_empty_graph_returns_empty() {
             // Create empty graph
             let storage = InMemoryGraph::new();
-            let graph = Graph::new(Arc::new(storage));
+            let graph = Graph::new(storage);
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
 
@@ -1226,7 +1226,7 @@ mod tests {
             storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
             storage.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]

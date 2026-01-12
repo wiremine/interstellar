@@ -36,7 +36,7 @@ fn create_test_graph() -> Graph {
     globex_props.insert("name".to_string(), Value::from("Globex"));
     storage.add_vertex("Company", globex_props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 // =============================================================================
@@ -192,7 +192,7 @@ fn test_gql_method_on_snapshot() {
     let props = HashMap::new();
     storage.add_vertex("Test", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
 
     // Test that gql() method works on snapshot
     let snapshot = graph.snapshot();
@@ -286,7 +286,7 @@ fn create_graph_with_edges() -> Graph {
         .add_edge(bob, dave, "WORKS_WITH", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 #[test]
@@ -664,7 +664,7 @@ fn create_pattern_test_graph() -> Graph {
         .add_edge(bob, carol, "WORKS_WITH", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Phase 2.6 test: Edge traversal patterns
@@ -719,7 +719,7 @@ fn create_property_return_graph() -> Graph {
     bob_props.insert("age".to_string(), Value::from(25i64));
     storage.add_vertex("Person", bob_props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Phase 2.6 test: Property access in RETURN clause
@@ -781,7 +781,7 @@ fn create_multi_hop_graph() -> Graph {
         .add_edge(bob, carol, "KNOWS", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Phase 2.6 test: Multi-hop traversal
@@ -838,7 +838,7 @@ fn test_gql_comprehensive_edge_traversal() {
         .add_edge(bob, carol, "WORKS_WITH", HashMap::new())
         .unwrap();
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Test 1: Outgoing edge with property filter on source
@@ -881,7 +881,7 @@ fn test_gql_property_return_values() {
     bob_props.insert("age".to_string(), Value::from(25i64));
     storage.add_vertex("Person", bob_props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Return single property
@@ -926,7 +926,7 @@ fn test_gql_multi_hop_with_property_filters() {
         .add_edge(alice, dave, "KNOWS", HashMap::new())
         .unwrap();
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Two-hop traversal from Alice via Bob to Carol
@@ -979,7 +979,7 @@ fn create_where_test_graph() -> Graph {
     // Note: Dave has no 'active' property (for IS NULL tests)
     storage.add_vertex("Person", dave_props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test WHERE with greater than comparison
@@ -1155,7 +1155,7 @@ fn test_gql_where_contains() {
     props3.insert("name".to_string(), Value::from("Carol Anderson"));
     storage.add_vertex("Person", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1182,7 +1182,7 @@ fn test_gql_where_starts_with() {
     props3.insert("name".to_string(), Value::from("Bob"));
     storage.add_vertex("Person", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1209,7 +1209,7 @@ fn test_gql_where_ends_with() {
     props3.insert("email".to_string(), Value::from("carol@example.com"));
     storage.add_vertex("Person", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1365,7 +1365,7 @@ fn test_gql_where_with_traversal() {
         .add_edge(alice, carol, "KNOWS", HashMap::new())
         .unwrap();
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Find friends of Alice who are over 30
@@ -1412,7 +1412,7 @@ fn create_order_by_test_graph() -> Graph {
         storage.add_vertex("Person", props);
     }
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test ORDER BY ascending (default)
@@ -1695,7 +1695,7 @@ fn create_aggregation_test_graph() -> Graph {
         storage.add_vertex("Person", props);
     }
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test COUNT(*) - count all matches
@@ -2050,7 +2050,7 @@ fn create_phase47_test_graph() -> Graph {
         storage.add_vertex("Person", props);
     }
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test ORDER BY with multiple columns
@@ -2354,7 +2354,7 @@ fn test_gql_order_by_with_nulls() {
     props3.insert("score".to_string(), Value::from(90i64));
     storage.add_vertex("Person", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // ORDER BY score - Bob will be filtered out since he has no score
@@ -2467,7 +2467,7 @@ fn test_gql_sum_floats() {
     props3.insert("price".to_string(), Value::Float(9.99));
     storage.add_vertex("Product", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -2511,7 +2511,7 @@ fn test_gql_avg_mixed_numeric() {
     props3.insert("value".to_string(), Value::Int(30));
     storage.add_vertex("Item", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -2629,7 +2629,7 @@ fn create_variable_length_path_graph() -> Graph {
         .add_edge(frank, dave, "KNOWS", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test exact hop count: *2 (exactly 2 hops)
@@ -2925,7 +2925,7 @@ fn create_distinct_test_graph() -> Graph {
         storage.add_vertex("Person", props);
     }
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test RETURN DISTINCT on property - should deduplicate results
@@ -2988,7 +2988,7 @@ fn test_gql_return_distinct_multiple_properties() {
         storage.add_vertex("Person", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // RETURN DISTINCT on multiple properties - deduplicates based on the combination
@@ -3375,7 +3375,7 @@ fn test_gql_unicode_japanese_characters() {
     props2.insert("city".to_string(), Value::from("大阪"));
     storage.add_vertex("Person", props2);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Query for Japanese name
@@ -3406,7 +3406,7 @@ fn test_gql_unicode_german_umlauts() {
     props2.insert("city".to_string(), Value::from("Köln"));
     storage.add_vertex("Person", props2);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Query all German names
@@ -3430,7 +3430,7 @@ fn test_gql_unicode_russian_cyrillic() {
     props.insert("city".to_string(), Value::from("Москва"));
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person) WHERE p.city = 'Москва' RETURN p.name";
@@ -3452,7 +3452,7 @@ fn test_gql_unicode_arabic() {
     props.insert("city".to_string(), Value::from("القاهرة"));
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.name, p.city"#;
@@ -3475,7 +3475,7 @@ fn test_gql_unicode_emoji() {
     props.insert("status".to_string(), Value::from("😀👍🚀"));
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.name, p.status"#;
@@ -3500,7 +3500,7 @@ fn test_gql_unicode_mixed_scripts() {
     );
     storage.add_vertex("Item", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (i:Item) RETURN i.description"#;
@@ -3525,7 +3525,7 @@ fn test_gql_special_chars_whitespace() {
     props.insert("data".to_string(), Value::from("Col1\tCol2\tCol3"));
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.bio, p.data"#;
@@ -3555,7 +3555,7 @@ fn test_gql_empty_string_property() {
     props2.insert("nickname".to_string(), Value::from("Bobby"));
     storage.add_vertex("Person", props2);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Query for person with empty nickname
@@ -3583,7 +3583,7 @@ fn test_gql_large_integer_values() {
     props.insert("name".to_string(), Value::from("BigNum"));
     storage.add_vertex("Entity", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (e:Entity) RETURN e.id, e.name"#;
@@ -3611,7 +3611,7 @@ fn test_gql_negative_integer_values() {
     props2.insert("name".to_string(), Value::from("Savings"));
     storage.add_vertex("Account", props2);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Query for negative balance
@@ -3644,7 +3644,7 @@ fn test_gql_zero_comparisons() {
     props3.insert("name".to_string(), Value::from("NegOne"));
     storage.add_vertex("Number", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Exactly zero
@@ -3668,7 +3668,7 @@ fn test_gql_float_precision() {
     props.insert("name".to_string(), Value::from("FloatTest"));
     storage.add_vertex("Test", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (t:Test) RETURN t.rate"#;
@@ -3693,7 +3693,7 @@ fn test_gql_small_float_values() {
     props.insert("epsilon".to_string(), Value::Float(tiny));
     storage.add_vertex("Math", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (m:Math) RETURN m.epsilon"#;
@@ -3719,7 +3719,7 @@ fn test_gql_missing_property_returns_null() {
     // Note: no "age" property
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // When returning a missing property, the row is filtered out
@@ -3748,7 +3748,7 @@ fn test_gql_is_null_missing_property() {
     props2.insert("age".to_string(), Value::Int(30i64));
     storage.add_vertex("Person", props2);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Find people without age
@@ -3780,7 +3780,7 @@ fn test_gql_is_not_null() {
     props3.insert("email".to_string(), Value::from("charlie@example.com"));
     storage.add_vertex("Person", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Find people with email
@@ -3803,7 +3803,7 @@ fn test_gql_explicit_null_property() {
     props.insert("middlename".to_string(), Value::Null);
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) WHERE p.middlename IS NULL RETURN p.name"#;
@@ -3830,7 +3830,7 @@ fn test_gql_boolean_property_true() {
     props2.insert("active".to_string(), Value::Bool(false));
     storage.add_vertex("User", props2);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (u:User) WHERE u.active = true RETURN u.name"#;
@@ -3862,7 +3862,7 @@ fn test_gql_boolean_property_false() {
     props3.insert("verified".to_string(), Value::Bool(false));
     storage.add_vertex("User", props3);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (u:User) WHERE u.verified = false RETURN u.name ORDER BY u.name"#;
@@ -4048,7 +4048,7 @@ fn create_social_network_graph() -> Graph {
         .add_edge(frank, financeinc, "WORKS_AT", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test: Find all friends of Alice
@@ -4377,7 +4377,7 @@ fn test_gql_stress_1000_vertices() {
         storage.add_vertex("Person", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Count all vertices
@@ -4431,7 +4431,7 @@ fn test_gql_stress_dense_graph() {
         }
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Count all connections
@@ -4469,7 +4469,7 @@ fn test_gql_stress_large_aggregation() {
         storage.add_vertex("Transaction", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Sum all amounts
@@ -4515,7 +4515,7 @@ fn test_gql_stress_large_order_by() {
         storage.add_vertex("Item", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Get top 10 by score
@@ -4555,7 +4555,7 @@ fn test_gql_stress_large_offset() {
         storage.add_vertex("Record", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Skip 290, get remaining - LIMIT must come before OFFSET
@@ -4591,7 +4591,7 @@ fn test_gql_stress_multi_hop_traversal() {
             .unwrap();
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Find direct successors of Node0 - use inline property filter
@@ -4642,7 +4642,7 @@ fn test_gql_stress_multiple_labels() {
         storage.add_vertex("Product", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Count each type
@@ -4681,7 +4681,7 @@ fn test_gql_stress_distinct_many_duplicates() {
         storage.add_vertex("Item", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = r#"
@@ -4708,7 +4708,7 @@ fn test_gql_stress_complex_where() {
         storage.add_vertex("Entity", props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Complex filter: active entities in tier T0 or T2 with value > 100
@@ -4794,7 +4794,7 @@ fn create_exists_test_graph() -> Graph {
     let _ = storage.add_edge(barkley_id, suns_id, "played_for", played_props.clone());
     let _ = storage.add_edge(nash_id, suns_id, "played_for", played_props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 #[test]
@@ -5308,7 +5308,7 @@ fn test_gql_exists_no_edges() {
     props.insert("name".to_string(), Value::from("Lonely Player"));
     storage.add_vertex("player", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // EXISTS should return false for a player with no outgoing edges
@@ -5350,7 +5350,7 @@ fn test_gql_exists_self_loop() {
 
     let _ = storage.add_edge(id, id, "admires", HashMap::new());
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // EXISTS should work with self-loops
@@ -5428,7 +5428,7 @@ fn create_group_by_test_graph() -> Graph {
         storage.add_vertex("Person", props);
     }
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test GROUP BY with single expression and COUNT(*)
@@ -5923,7 +5923,7 @@ fn create_multi_var_test_graph() -> Graph {
         .add_edge(dave, startup_inc, "WORKS_AT", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test: Basic multi-variable pattern - return properties from two variables
@@ -6258,7 +6258,7 @@ fn create_edge_property_test_graph() -> Graph {
         })
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test: Edge variable binding - basic case
@@ -6632,7 +6632,7 @@ fn create_coalesce_test_graph() -> Graph {
     carol_props.insert("nickname".to_string(), Value::from("Carol the Great"));
     storage.add_vertex("Person", carol_props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test COALESCE returns first non-null value
@@ -6733,7 +6733,7 @@ fn create_case_test_graph() -> Graph {
         storage.add_vertex("Person", props);
     }
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test CASE expression with age categorization
@@ -6908,7 +6908,7 @@ fn create_type_conversion_test_graph() -> Graph {
     props.insert("bool_str".to_string(), Value::from("true"));
     storage.add_vertex("Person", props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test toString() converts integer to string
@@ -7072,7 +7072,7 @@ fn test_gql_toboolean_string_false() {
     props.insert("status".to_string(), Value::from("false"));
     storage.add_vertex("Test", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7137,7 +7137,7 @@ fn test_gql_abs_function() {
     props.insert("balance".to_string(), Value::from(-100i64));
     storage.add_vertex("Account", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7156,7 +7156,7 @@ fn test_gql_trim_function() {
     props.insert("text".to_string(), Value::from("  hello world  "));
     storage.add_vertex("Test", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot.gql("MATCH (t:Test) RETURN trim(t.text)").unwrap();
@@ -7241,7 +7241,7 @@ fn test_gql_replace_function() {
     props.insert("text".to_string(), Value::from("hello world"));
     storage.add_vertex("Test", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7287,7 +7287,7 @@ fn create_union_test_graph() -> Graph {
     props.insert("name".to_string(), Value::from("Epsilon"));
     storage.add_vertex("TypeB", props);
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test parsing a single query returns Statement::Query
@@ -7455,7 +7455,7 @@ fn test_gql_union_with_where() {
         storage.add_vertex(group, props);
     }
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7538,7 +7538,7 @@ fn test_gql_union_multiple_columns() {
     props.insert("role".to_string(), Value::from("Contractor"));
     storage.add_vertex("Contractor", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7578,7 +7578,7 @@ fn test_gql_union_deduplicates_identical_rows() {
     props.insert("name".to_string(), Value::from("Shared"));
     storage.add_vertex("TypeB", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7610,7 +7610,7 @@ fn test_gql_union_all_keeps_identical_rows() {
     props.insert("name".to_string(), Value::from("Shared"));
     storage.add_vertex("TypeB", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7707,7 +7707,7 @@ fn test_gql_triple_union() {
     props.insert("name".to_string(), Value::from("C1"));
     storage.add_vertex("TypeC", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -7830,7 +7830,7 @@ fn create_optional_match_test_graph() -> Graph {
     let _ = storage.add_edge(sp, bulls, "played_for", HashMap::new());
     let _ = storage.add_edge(cb, suns, "played_for", HashMap::new());
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 /// Test parsing OPTIONAL MATCH
@@ -8201,7 +8201,7 @@ fn test_gql_unwind_list() {
     );
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -8240,7 +8240,7 @@ fn test_gql_unwind_null_produces_no_rows() {
     props.insert("name".to_string(), Value::from("Alice"));
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -8267,7 +8267,7 @@ fn test_gql_unwind_non_list_wraps() {
     props.insert("age".to_string(), Value::from(30i64));
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -8302,7 +8302,7 @@ fn test_gql_multiple_unwind() {
     );
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -8394,7 +8394,7 @@ fn test_gql_unwind_with_where() {
     );
     storage.add_vertex("Person", props);
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -8461,7 +8461,7 @@ fn create_introspection_test_graph() -> Graph {
     knows_props.insert("years".to_string(), Value::from(5i64));
     storage.add_edge(alice, bob, "knows", knows_props).unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }
 
 // =============================================================================
@@ -8769,7 +8769,7 @@ fn test_gql_properties_function_empty_properties() {
     // Create vertex with no properties
     storage.add_vertex("EmptyNode", HashMap::new());
 
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot

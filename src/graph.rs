@@ -24,7 +24,6 @@
 //! use intersteller::prelude::*;
 //! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
-//! use std::sync::Arc;
 //!
 //! // Create an in-memory graph
 //! let mut storage = InMemoryGraph::new();
@@ -47,7 +46,7 @@
 //! storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
 //!
 //! // Wrap storage in a Graph for traversal
-//! let graph = Graph::new(Arc::new(storage));
+//! let graph = Graph::new(storage);
 //!
 //! // Create a snapshot for read-only access
 //! let snapshot = graph.snapshot();
@@ -109,14 +108,13 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 /// ```rust
 /// use intersteller::prelude::*;
 /// use intersteller::storage::InMemoryGraph;
-/// use std::sync::Arc;
 ///
 /// // Method 1: Convenience constructor for in-memory graphs
 /// let graph = Graph::in_memory();
 ///
 /// // Method 2: With custom storage
 /// let storage = InMemoryGraph::new();
-/// let graph = Graph::new(Arc::new(storage));
+/// let graph = Graph::new(storage);
 /// ```
 ///
 /// # Accessing Data
@@ -260,7 +258,6 @@ impl<'g> GraphSnapshot<'g> {
     /// ```rust
     /// use intersteller::prelude::*;
     /// use intersteller::storage::InMemoryGraph;
-    /// use std::sync::Arc;
     ///
     /// // Create storage with data
     /// let mut storage = InMemoryGraph::new();
@@ -269,7 +266,7 @@ impl<'g> GraphSnapshot<'g> {
     /// storage.add_vertex("Person", props);
     ///
     /// // Wrap in Graph for querying
-    /// let graph = Graph::new(Arc::new(storage));
+    /// let graph = Graph::new(storage);
     ///
     /// let snapshot = graph.snapshot();
     /// let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
@@ -341,20 +338,43 @@ impl Graph {
     /// Create a new graph with the given storage backend.
     ///
     /// This is the general constructor that accepts any [`GraphStorage`]
-    /// implementation. For convenience, use [`Graph::in_memory()`] to create
-    /// an in-memory graph without manually constructing storage.
+    /// implementation. The storage is automatically wrapped in an `Arc` for
+    /// thread-safe sharing. For convenience, use [`Graph::in_memory()`] to
+    /// create an in-memory graph without manually constructing storage.
     ///
     /// # Example
     ///
     /// ```rust
     /// use intersteller::prelude::*;
     /// use intersteller::storage::InMemoryGraph;
-    /// use std::sync::Arc;
     ///
     /// let storage = InMemoryGraph::new();
-    /// let graph = Graph::new(Arc::new(storage));
+    /// let graph = Graph::new(storage);
     /// ```
-    pub fn new(storage: Arc<dyn GraphStorage>) -> Self {
+    pub fn new<S: GraphStorage + 'static>(storage: S) -> Self {
+        Graph {
+            storage: Arc::new(storage),
+            lock: Arc::new(RwLock::new(())),
+        }
+    }
+
+    /// Create a new graph from an existing `Arc<dyn GraphStorage>`.
+    ///
+    /// Use this when you already have an Arc-wrapped storage, for example
+    /// when sharing storage between multiple Graph instances or when
+    /// integrating with external code that provides Arc-wrapped storage.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use std::sync::Arc;
+    ///
+    /// let storage: Arc<dyn GraphStorage> = Arc::new(InMemoryGraph::new());
+    /// let graph = Graph::from_arc(storage);
+    /// ```
+    pub fn from_arc(storage: Arc<dyn GraphStorage>) -> Self {
         Graph {
             storage,
             lock: Arc::new(RwLock::new(())),
@@ -491,7 +511,7 @@ impl Graph {
     /// assert_eq!(g.v().count(), 0); // Empty graph
     /// ```
     pub fn in_memory() -> Self {
-        Self::new(Arc::new(InMemoryGraph::new()))
+        Self::new(InMemoryGraph::new())
     }
 
     /// Get the underlying storage backend.

@@ -36,7 +36,7 @@ fn main() {
     // Create Alice with properties using traversal API
     let alice_id = {
         // Use a temporary graph to generate the traversal
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -67,7 +67,7 @@ fn main() {
 
     // Create Bob
     let bob_id = {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -95,7 +95,7 @@ fn main() {
 
     // Create a software vertex
     let software_id = {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -133,7 +133,7 @@ fn main() {
 
     // Create "knows" edge from Alice to Bob
     let knows_edge_id = {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -160,7 +160,7 @@ fn main() {
 
     // Create "uses" edges
     let _alice_uses_edge = {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -183,7 +183,7 @@ fn main() {
     };
 
     let bob_uses_edge = {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -244,7 +244,7 @@ fn main() {
 
     // Update Alice's age using traversal + property step
     {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -304,7 +304,7 @@ fn main() {
 
     // Delete Bob's "uses" edge
     if let Some(edge_id) = bob_uses_edge {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 
@@ -324,7 +324,7 @@ fn main() {
 
     // Delete Bob vertex (this should also clean up incident edges in the storage)
     {
-        let temp_graph = Graph::new(Arc::new(InMemoryGraph::new()));
+        let temp_graph = Graph::in_memory();
         let snapshot = temp_graph.snapshot();
         let g = snapshot.traversal();
 

@@ -218,7 +218,7 @@ mod tests {
             props
         });
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     // =========================================================================
@@ -1462,7 +1462,7 @@ mod project_tests {
         // Bob knows Alice
         let _ = storage.add_edge(bob, alice, "knows", HashMap::new());
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod project_step_construction {
@@ -1757,7 +1757,7 @@ mod math_tests {
         // Alice knows Bob
         let _ = storage.add_edge(alice, bob, "knows", HashMap::new());
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod math_step_construction {

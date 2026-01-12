@@ -193,7 +193,7 @@ mod tests {
     fn create_test_graph() -> Graph {
         let storage = InMemoryGraph::new();
         // Add minimal dummy data if needed by tests, though many here use Traverser::new() directly
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod unfold_step_list {

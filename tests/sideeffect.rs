@@ -127,7 +127,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     TestGraph {
-        graph: Graph::new(Arc::new(storage)),
+        graph: Graph::new(storage),
         alice,
         bob,
         charlie,

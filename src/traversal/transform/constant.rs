@@ -112,7 +112,7 @@ mod tests {
             })
             .unwrap();
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod constant_step_transform_tests {

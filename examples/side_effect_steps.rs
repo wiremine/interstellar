@@ -401,7 +401,7 @@ fn create_test_graph() -> (
         .unwrap();
 
     let storage = Arc::new(storage);
-    let graph = Graph::new(storage.clone());
+    let graph = Graph::from_arc(storage.clone());
     (
         graph, storage, alice, bob, charlie, david, graph_db, rust_lang,
     )

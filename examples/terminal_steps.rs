@@ -381,5 +381,5 @@ fn create_test_graph() -> Graph {
         .add_edge(bob, graph_db, "uses", HashMap::new())
         .unwrap();
 
-    Graph::new(Arc::new(storage))
+    Graph::new(storage)
 }

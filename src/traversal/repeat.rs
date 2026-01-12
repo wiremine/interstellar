@@ -1084,7 +1084,7 @@ mod tests {
             .add_edge(v2, v3, "works_at", HashMap::new())
             .unwrap();
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     // -------------------------------------------------------------------------
@@ -1609,7 +1609,7 @@ mod tests {
                 .add_edge(v1, v2, "works_at", HashMap::new())
                 .unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -1853,7 +1853,7 @@ mod tests {
                 .add_edge(v1, v2, "works_at", HashMap::new())
                 .unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]

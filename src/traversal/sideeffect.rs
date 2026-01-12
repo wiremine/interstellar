@@ -598,7 +598,7 @@ mod tests {
             props
         });
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod store_step_tests {

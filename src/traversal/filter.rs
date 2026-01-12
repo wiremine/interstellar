@@ -2001,7 +2001,7 @@ mod tests {
             .add_edge(VertexId(0), VertexId(3), "works_at", HashMap::new())
             .unwrap();
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod has_label_step_tests {
@@ -2322,7 +2322,7 @@ mod tests {
                 .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
                 .unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -2557,7 +2557,7 @@ mod tests {
                 .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
                 .unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -2905,7 +2905,7 @@ mod tests {
                 })
                 .unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -3149,7 +3149,7 @@ mod tests {
                 props
             });
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -3811,7 +3811,7 @@ mod tests {
                 props
             });
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -6616,7 +6616,7 @@ mod tests {
                 })
                 .unwrap();
 
-            Graph::new(Arc::new(storage))
+            Graph::new(storage)
         }
 
         #[test]
@@ -7052,7 +7052,7 @@ mod tests {
 
         // Helper to create a Graph for tests
         fn create_empty_graph() -> Graph {
-            Graph::new(Arc::new(InMemoryGraph::new()))
+            Graph::in_memory()
         }
 
         #[test]
@@ -7621,7 +7621,7 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_empty_graph() -> Graph {
-            Graph::new(Arc::new(InMemoryGraph::new()))
+            Graph::in_memory()
         }
 
         /// Helper to create a traverser with a path containing the given values.
@@ -7866,7 +7866,7 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_empty_graph() -> Graph {
-            Graph::new(Arc::new(InMemoryGraph::new()))
+            Graph::in_memory()
         }
 
         /// Helper to create a traverser with a path containing the given values.

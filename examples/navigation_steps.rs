@@ -316,7 +316,7 @@ fn create_test_graph() -> (Graph, VertexIds) {
         .unwrap();
 
     (
-        Graph::new(Arc::new(storage)),
+        Graph::new(storage),
         VertexIds {
             alice,
             bob,

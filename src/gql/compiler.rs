@@ -125,7 +125,7 @@ use crate::value::Value;
 /// props.insert("name".to_string(), Value::from("Alice"));
 /// storage.add_vertex("Person", props);
 ///
-/// let graph = Graph::new(Arc::new(storage));
+/// let graph = Graph::new(storage);
 /// let snapshot = graph.snapshot();
 /// let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
 /// let results = compile(&query, &snapshot).unwrap();
@@ -148,7 +148,7 @@ use crate::value::Value;
 /// props.insert("age".to_string(), Value::from(30));
 /// storage.add_vertex("Person", props);
 ///
-/// let graph = Graph::new(Arc::new(storage));
+/// let graph = Graph::new(storage);
 /// let snapshot = graph.snapshot();
 /// let query = parse("MATCH (n:Person) WHERE n.age > 25 RETURN n.name").unwrap();
 /// let results = compile(&query, &snapshot).unwrap();
@@ -4911,7 +4911,7 @@ mod tests {
         props3.insert("name".to_string(), Value::from("Acme"));
         storage.add_vertex("Company", props3);
 
-        let graph = Graph::new(Arc::new(storage));
+        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let query = parse("MATCH (n:Person) RETURN n").unwrap();
         let results = compile(&query, &snapshot).unwrap();
@@ -4931,7 +4931,7 @@ mod tests {
         let props2 = std::collections::HashMap::new();
         storage.add_vertex("Company", props2);
 
-        let graph = Graph::new(Arc::new(storage));
+        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let query = parse("MATCH (n) RETURN n").unwrap();
         let results = compile(&query, &snapshot).unwrap();
@@ -4972,7 +4972,7 @@ mod tests {
         props2.insert("y".to_string(), Value::from(12));
         storage.add_vertex("Number", props2);
 
-        Graph::new(Arc::new(storage))
+        Graph::new(storage)
     }
 
     #[test]

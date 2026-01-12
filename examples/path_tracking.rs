@@ -113,7 +113,7 @@ fn main() {
     println!();
 
     // Wrap in Graph for traversal API
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 

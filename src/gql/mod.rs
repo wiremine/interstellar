@@ -33,7 +33,7 @@
 //! props.insert("age".to_string(), Value::from(30i64));
 //! storage.add_vertex("Person", props);
 //!
-//! let graph = Graph::new(Arc::new(storage));
+//! let graph = Graph::new(storage);
 //! let snapshot = graph.snapshot();
 //!
 //! // Execute GQL query

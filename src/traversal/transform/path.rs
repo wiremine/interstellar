@@ -295,7 +295,7 @@ mod tests {
             props
         });
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod path_step_construction {

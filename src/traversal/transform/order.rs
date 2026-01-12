@@ -437,7 +437,7 @@ mod tests {
 
     fn create_test_graph() -> Graph {
         let storage = InMemoryGraph::new();
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     fn create_sorted_graph() -> Graph {
@@ -459,7 +459,7 @@ mod tests {
         props3.insert("age".to_string(), Value::Int(35));
         storage.add_vertex("person", props3);
 
-        Graph::new(std::sync::Arc::new(storage))
+        Graph::new(storage)
     }
 
     mod order_step_construction {
@@ -863,7 +863,7 @@ mod tests {
             props3.insert("age".to_string(), Value::Int(25));
             storage.add_vertex("person", props3);
 
-            let graph = Graph::new(std::sync::Arc::new(storage));
+            let graph = Graph::new(storage);
             let snapshot = graph.snapshot();
             let g = snapshot.traversal();
 
