@@ -1231,6 +1231,8 @@ pub enum BinaryOperator {
     StartsWith,
     /// String suffix: `ENDS WITH`
     EndsWith,
+    /// String concatenation: `||`
+    Concat,
 }
 
 /// Aggregate functions for computing values across matched patterns.

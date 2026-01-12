@@ -223,13 +223,18 @@ comparison = {
 }
 
 // IS NULL / IS NOT NULL
-is_null_expr = { additive ~ IS ~ NOT? ~ NULL }
+is_null_expr = { concat_expr ~ IS ~ NOT? ~ NULL }
 
 // IN list / NOT IN list
-in_expr = { additive ~ NOT? ~ IN ~ list_expr }
+in_expr = { concat_expr ~ NOT? ~ IN ~ list_expr }
 
 // Binary comparison operators
-comparison_expr = { additive ~ (comp_op ~ additive)? }
+comparison_expr = { concat_expr ~ (comp_op ~ concat_expr)? }
+
+// String concatenation operator (between comparison and additive)
+// Precedence: comparison < concat < additive
+concat_expr = { additive ~ (concat_op ~ additive)* }
+concat_op = { "||" }
 
 comp_op = { 
     neq | lte | gte | lt | gt | eq

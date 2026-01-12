@@ -10197,3 +10197,173 @@ fn test_gql_list_comprehension_with_arithmetic() {
         }
     }
 }
+
+// =============================================================================
+// String Concatenation Tests
+// =============================================================================
+
+#[test]
+fn test_gql_string_concat_basic() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Basic string concatenation
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN 'Hello' || ' ' || 'World' AS greeting")
+        .unwrap();
+
+    // Single return item returns value directly (not wrapped in map)
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::String("Hello World".to_string()));
+}
+
+#[test]
+fn test_gql_string_concat_properties() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Concatenate properties
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN n.name || ' is ' || n.age || ' years old' AS description")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::String("Alice is 30 years old".to_string())
+    );
+}
+
+#[test]
+fn test_gql_string_concat_null_handling() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // NULL concatenation should return NULL (SQL standard)
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN NULL || 'text' AS result")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::Null);
+
+    // Also test the other direction
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN 'text' || NULL AS result")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_string_concat_type_coercion() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Integer coercion
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN 'Count: ' || 42 AS result")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::String("Count: 42".to_string()));
+
+    // Float coercion
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN 'Value: ' || 3.14 AS result")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::String("Value: 3.14".to_string()));
+
+    // Boolean coercion
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN 'Active: ' || true AS result")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::String("Active: true".to_string()));
+}
+
+#[test]
+fn test_gql_string_concat_chained() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Multiple concatenations chained together
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN 'Name: ' || n.name || ', Age: ' || n.age AS info")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::String("Name: Alice, Age: 30".to_string())
+    );
+}
+
+#[test]
+fn test_gql_string_concat_in_where_clause() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use concatenation result in comparison
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name || '!' = 'Alice!' RETURN n.name AS name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}
+
+#[test]
+fn test_gql_string_concat_precedence() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Concat has lower precedence than arithmetic
+    // So 'Result: ' || 1 + 2 means 'Result: ' || (1 + 2) = 'Result: 3'
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN 'Result: ' || 1 + 2 AS result")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results[0], Value::String("Result: 3".to_string()));
+}
+
+#[test]
+fn test_gql_string_concat_with_let() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use concat in LET clause
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' LET fullDesc = n.name || ' (' || n.age || ')' RETURN fullDesc")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice (30)".to_string()));
+}
+
+#[test]
+fn test_gql_string_concat_multiple_returns() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // When returning multiple items with aliases, should get a Map
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN n.name AS name, n.name || '!' AS excited")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+        assert_eq!(
+            map.get("excited"),
+            Some(&Value::String("Alice!".to_string()))
+        );
+    } else {
+        panic!("Expected map result for multiple return items");
+    }
+}

@@ -5467,6 +5467,15 @@ fn apply_binary_op(op: BinaryOperator, left: Value, right: Value) -> Value {
             (Value::Int(a), Value::Float(b)) => Value::Float((a as f64).powf(b)),
             _ => Value::Null,
         },
+        // String concatenation operator
+        BinaryOperator::Concat => match (&left, &right) {
+            (Value::Null, _) | (_, Value::Null) => Value::Null,
+            _ => {
+                let left_str = value_to_string(&left);
+                let right_str = value_to_string(&right);
+                Value::String(format!("{}{}", left_str, right_str))
+            }
+        },
         // Comparison operators return Bool
         op => Value::Bool(apply_comparison(op, &left, &right)),
     }
@@ -5503,6 +5512,30 @@ fn value_to_bool(val: &Value) -> bool {
         Value::Float(f) => *f != 0.0,
         Value::String(s) => !s.is_empty(),
         _ => true,
+    }
+}
+
+/// Convert a Value to a string representation for concatenation.
+fn value_to_string(val: &Value) -> String {
+    match val {
+        Value::String(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => "null".to_string(),
+        Value::List(items) => {
+            let inner: Vec<String> = items.iter().map(value_to_string).collect();
+            format!("[{}]", inner.join(", "))
+        }
+        Value::Map(map) => {
+            let inner: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k, value_to_string(v)))
+                .collect();
+            format!("{{{}}}", inner.join(", "))
+        }
+        Value::Vertex(vid) => format!("Vertex({})", vid.0),
+        Value::Edge(eid) => format!("Edge({})", eid.0),
     }
 }
 

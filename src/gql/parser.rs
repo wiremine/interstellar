@@ -1106,10 +1106,10 @@ fn build_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Par
 fn build_is_null_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
     let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner();
-    let additive_pair = iter
+    let concat_pair = iter
         .next()
         .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
-    let expr = build_additive(additive_pair)?;
+    let expr = build_concat_expr(concat_pair)?;
 
     // Check for NOT keyword
     let negated = iter.any(|p| p.as_rule() == Rule::NOT);
@@ -1123,10 +1123,10 @@ fn build_is_null_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, P
 fn build_in_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
     let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner().peekable();
-    let additive_pair = iter
+    let concat_pair = iter
         .next()
         .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
-    let expr = build_additive(additive_pair)?;
+    let expr = build_concat_expr(concat_pair)?;
 
     // Check for NOT keyword
     let mut negated = false;
@@ -1153,7 +1153,7 @@ fn build_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression
     let first = iter
         .next()
         .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?;
-    let left = build_additive(first)?;
+    let left = build_concat_expr(first)?;
 
     // Check if there's a comparison operator
     if let Some(op_pair) = iter.next() {
@@ -1162,7 +1162,7 @@ fn build_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression
         let right_pair = iter
             .next()
             .ok_or_else(|| ParseError::missing_clause("right operand", op_span))?;
-        let right = build_additive(right_pair)?;
+        let right = build_concat_expr(right_pair)?;
         Ok(Expression::BinaryOp {
             left: Box::new(left),
             op,
@@ -1171,6 +1171,39 @@ fn build_comparison_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression
     } else {
         Ok(left)
     }
+}
+
+/// Build a concatenation expression from a pest pair.
+///
+/// Concatenation has lower precedence than arithmetic operators.
+/// Parses: `additive ~ (concat_op ~ additive)*`
+fn build_concat_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    if children.is_empty() {
+        return Err(ParseError::missing_clause("expression", pair_span));
+    }
+
+    let first = children.remove(0);
+    let mut left = build_additive(first)?;
+
+    // Remaining children are: concat_op, additive, concat_op, additive, ...
+    let mut iter = children.into_iter();
+    while let Some(op_pair) = iter.next() {
+        if op_pair.as_rule() == Rule::concat_op {
+            if let Some(right_pair) = iter.next() {
+                let right = build_additive(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::Concat,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
 }
 
 fn parse_comp_op(pair: &pest::iterators::Pair<Rule>) -> Result<BinaryOperator, ParseError> {
