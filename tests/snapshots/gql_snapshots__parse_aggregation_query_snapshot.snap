@@ -10,6 +10,7 @@ match_clause:
             labels:
               - Order
             properties: []
+            where_clause: ~
         - Edge:
             variable: ~
             labels:
@@ -17,11 +18,13 @@ match_clause:
             direction: Outgoing
             quantifier: ~
             properties: []
+            where_clause: ~
         - Node:
             variable: p
             labels:
               - Product
             properties: []
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

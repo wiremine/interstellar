@@ -1056,7 +1056,6 @@ mod tests {
     use crate::traversal::step::IdentityStep;
     use crate::value::VertexId;
     use std::collections::HashMap;
-    
 
     fn create_test_graph() -> Graph {
         let mut storage = InMemoryGraph::new();

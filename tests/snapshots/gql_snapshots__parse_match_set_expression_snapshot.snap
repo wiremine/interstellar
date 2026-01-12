@@ -11,6 +11,7 @@ Mutation:
               labels:
                 - Person
               properties: []
+              where_clause: ~
   optional_match_clauses: []
   where_clause: ~
   mutations:

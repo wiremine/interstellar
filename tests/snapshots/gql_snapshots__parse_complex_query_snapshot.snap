@@ -12,6 +12,7 @@ match_clause:
             properties:
               - - name
                 - String: Alice
+            where_clause: ~
         - Edge:
             variable: ~
             labels:
@@ -19,11 +20,13 @@ match_clause:
             direction: Outgoing
             quantifier: ~
             properties: []
+            where_clause: ~
         - Node:
             variable: friend
             labels:
               - Person
             properties: []
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

@@ -16,6 +16,7 @@ match_clause:
                 - Int: 30
               - - active
                 - Bool: true
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

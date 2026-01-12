@@ -390,7 +390,6 @@ mod tests {
 
         fn create_test_graph() -> Graph {
             use crate::storage::InMemoryGraph;
-            
 
             let mut storage = InMemoryGraph::new();
 

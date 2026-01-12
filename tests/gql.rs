@@ -8967,3 +8967,296 @@ fn test_gql_is_predicate_equivalent_equality() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("Alice".to_string()));
 }
+
+// =============================================================================
+// INLINE WHERE IN PATTERNS TESTS (spec-14 Advanced GQL)
+// =============================================================================
+
+/// Helper function to create a graph for inline WHERE tests
+fn create_inline_where_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create people with various ages
+    let alice = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Alice"));
+        props.insert("age".to_string(), Value::Int(30));
+        props.insert("active".to_string(), Value::Bool(true));
+        props
+    });
+
+    let bob = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bob"));
+        props.insert("age".to_string(), Value::Int(25));
+        props.insert("active".to_string(), Value::Bool(true));
+        props
+    });
+
+    let charlie = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Charlie"));
+        props.insert("age".to_string(), Value::Int(17));
+        props.insert("active".to_string(), Value::Bool(false));
+        props
+    });
+
+    let dave = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Dave"));
+        props.insert("age".to_string(), Value::Int(45));
+        props.insert("active".to_string(), Value::Bool(true));
+        props
+    });
+
+    // Create KNOWS relationships with 'since' property
+    storage
+        .add_edge(alice, bob, "KNOWS", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2020));
+            props.insert("strength".to_string(), Value::Float(0.8));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(alice, charlie, "KNOWS", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2018));
+            props.insert("strength".to_string(), Value::Float(0.3));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(bob, dave, "KNOWS", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2022));
+            props.insert("strength".to_string(), Value::Float(0.9));
+            props
+        })
+        .unwrap();
+
+    storage
+        .add_edge(charlie, dave, "KNOWS", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2015));
+            props.insert("strength".to_string(), Value::Float(0.5));
+            props
+        })
+        .unwrap();
+
+    Graph::new(storage)
+}
+
+#[test]
+fn test_gql_inline_where_node_simple() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only adults (age > 21)
+    let results = snapshot
+        .gql("MATCH (n:Person WHERE n.age > 21) RETURN n.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 3); // Alice (30), Bob (25), Dave (45)
+
+    let names: HashSet<&str> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::String(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Bob"));
+    assert!(names.contains("Dave"));
+    assert!(!names.contains("Charlie")); // age 17, filtered out
+}
+
+#[test]
+fn test_gql_inline_where_node_equality() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only active people
+    let results = snapshot
+        .gql("MATCH (n:Person WHERE n.active = true) RETURN n.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 3); // Alice, Bob, Dave - not Charlie
+
+    let names: HashSet<&str> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::String(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(!names.contains("Charlie")); // active = false
+}
+
+#[test]
+fn test_gql_inline_where_node_compound() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Adults who are active
+    let results = snapshot
+        .gql("MATCH (n:Person WHERE n.age >= 18 AND n.active = true) RETURN n.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 3); // Alice, Bob, Dave
+
+    let names: HashSet<&str> = results
+        .iter()
+        .filter_map(|v| {
+            if let Value::String(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Bob"));
+    assert!(names.contains("Dave"));
+}
+
+#[test]
+fn test_gql_inline_where_edge_simple() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only relationships established since 2020
+    let results = snapshot
+        .gql("MATCH (a:Person)-[r:KNOWS WHERE r.since >= 2020]->(b:Person) RETURN a.name, b.name")
+        .unwrap();
+
+    // Alice->Bob (2020), Bob->Dave (2022)
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_gql_inline_where_edge_strength() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only strong relationships (strength > 0.5)
+    let results = snapshot
+        .gql("MATCH (a:Person)-[r:KNOWS WHERE r.strength > 0.5]->(b:Person) RETURN a.name, b.name")
+        .unwrap();
+
+    // Alice->Bob (0.8), Bob->Dave (0.9)
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_gql_inline_where_combined_node_and_edge() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Active people who have strong recent relationships
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (a:Person WHERE a.active = true)-[r:KNOWS WHERE r.since >= 2020 AND r.strength > 0.5]->(b:Person)
+            RETURN a.name, b.name
+            "#,
+        )
+        .unwrap();
+
+    // Alice->Bob (active, 2020, 0.8), Bob->Dave (active, 2022, 0.9)
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_gql_inline_where_with_global_where() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Inline WHERE on source node, global WHERE on target
+    let results = snapshot
+        .gql(
+            r#"
+            MATCH (a:Person WHERE a.age > 21)-[r:KNOWS]->(b:Person)
+            WHERE b.active = true
+            RETURN a.name, b.name
+            "#,
+        )
+        .unwrap();
+
+    // Filters: a.age > 21 AND b.active = true
+    // Alice(30)->Bob(active), Alice(30)->Charlie(inactive), Bob(25)->Dave(active)
+    // After filters: Alice->Bob, Bob->Dave
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_gql_inline_where_no_matches() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Impossible condition
+    let results = snapshot
+        .gql("MATCH (n:Person WHERE n.age > 100) RETURN n.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_inline_where_edge_no_matches() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Impossible edge condition
+    let results = snapshot
+        .gql("MATCH (a:Person)-[r:KNOWS WHERE r.since > 2030]->(b:Person) RETURN a.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_inline_where_equivalent_to_global() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Inline WHERE version
+    let inline_results = snapshot
+        .gql("MATCH (n:Person WHERE n.age > 21) RETURN n.name")
+        .unwrap();
+
+    // Global WHERE version
+    let global_results = snapshot
+        .gql("MATCH (n:Person) WHERE n.age > 21 RETURN n.name")
+        .unwrap();
+
+    // Should produce identical results
+    assert_eq!(inline_results.len(), global_results.len());
+
+    let inline_names: HashSet<_> = inline_results.iter().collect();
+    let global_names: HashSet<_> = global_results.iter().collect();
+    assert_eq!(inline_names, global_names);
+}
+
+#[test]
+fn test_gql_inline_where_string_comparison() {
+    let graph = create_inline_where_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter by name starting with 'A' or 'B'
+    let results = snapshot
+        .gql("MATCH (n:Person WHERE n.name < 'C') RETURN n.name")
+        .unwrap();
+
+    // Alice, Bob
+    assert_eq!(results.len(), 2);
+}

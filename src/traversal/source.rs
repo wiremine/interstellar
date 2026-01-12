@@ -3638,7 +3638,6 @@ mod tests {
     use crate::graph::Graph;
     use crate::storage::InMemoryGraph;
     use std::collections::HashMap;
-    
 
     fn create_empty_graph() -> Graph {
         Graph::in_memory()

@@ -724,6 +724,7 @@ fn build_node_pattern(pair: pest::iterators::Pair<Rule>) -> Result<NodePattern, 
     let mut variable = None;
     let mut labels = Vec::new();
     let mut properties = Vec::new();
+    let mut where_clause = None;
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -734,6 +735,9 @@ fn build_node_pattern(pair: pest::iterators::Pair<Rule>) -> Result<NodePattern, 
             Rule::property_filter => {
                 properties = build_properties(inner)?;
             }
+            Rule::inline_where => {
+                where_clause = Some(build_inline_where(inner)?);
+            }
             _ => {}
         }
     }
@@ -742,6 +746,7 @@ fn build_node_pattern(pair: pest::iterators::Pair<Rule>) -> Result<NodePattern, 
         variable,
         labels,
         properties,
+        where_clause,
     })
 }
 
@@ -750,6 +755,7 @@ fn build_edge_pattern(pair: pest::iterators::Pair<Rule>) -> Result<EdgePattern, 
     let mut labels = Vec::new();
     let mut quantifier = None;
     let mut properties = Vec::new();
+    let mut where_clause = None;
 
     let mut has_left = false;
     let mut has_right = false;
@@ -764,6 +770,9 @@ fn build_edge_pattern(pair: pest::iterators::Pair<Rule>) -> Result<EdgePattern, 
             }
             Rule::quantifier => quantifier = Some(build_quantifier(inner)?),
             Rule::property_filter => properties = build_properties(inner)?,
+            Rule::inline_where => {
+                where_clause = Some(build_inline_where(inner)?);
+            }
             _ => {}
         }
     }
@@ -780,6 +789,7 @@ fn build_edge_pattern(pair: pest::iterators::Pair<Rule>) -> Result<EdgePattern, 
         direction,
         quantifier,
         properties,
+        where_clause,
     })
 }
 
@@ -825,6 +835,19 @@ fn build_quantifier(pair: pest::iterators::Pair<Rule>) -> Result<PathQuantifier,
     }
 
     Ok(PathQuantifier { min, max })
+}
+
+/// Build an inline WHERE expression from a pest pair.
+///
+/// Parses `WHERE expression` within node/edge patterns.
+fn build_inline_where(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let expr_pair = pair
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::expression)
+        .ok_or_else(|| ParseError::missing_clause("inline WHERE expression", pair_span))?;
+
+    build_expression(expr_pair)
 }
 
 fn build_properties(
@@ -3146,5 +3169,183 @@ mod tests {
         // Verify that queries without GROUP BY have group_by_clause = None
         let query = parse("MATCH (p:player) RETURN p.name").unwrap();
         assert!(query.group_by_clause.is_none());
+    }
+
+    // =========================================================================
+    // Inline WHERE in Patterns Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_node_inline_where() {
+        // Basic inline WHERE on a node
+        let query = parse("MATCH (n:Person WHERE n.age > 21) RETURN n").unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert!(node.where_clause.is_some());
+            let where_expr = node.where_clause.as_ref().unwrap();
+            // Verify it's a comparison expression
+            if let Expression::BinaryOp { op, .. } = where_expr {
+                assert!(matches!(op, BinaryOperator::Gt));
+            } else {
+                panic!("Expected binary op expression");
+            }
+        } else {
+            panic!("Expected node pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_node_inline_where_with_label_and_props() {
+        // Inline WHERE combined with label and property filter
+        let query =
+            parse("MATCH (n:Person {status: 'active'} WHERE n.age >= 18) RETURN n").unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert_eq!(node.labels, vec!["Person"]);
+            assert!(!node.properties.is_empty());
+            assert!(node.where_clause.is_some());
+        } else {
+            panic!("Expected node pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_edge_inline_where() {
+        // Inline WHERE on an edge
+        let query = parse("MATCH (a)-[r:KNOWS WHERE r.since > 2020]->(b) RETURN a, b").unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Edge(edge) = &pattern.elements[1] {
+            assert!(edge.where_clause.is_some());
+            let where_expr = edge.where_clause.as_ref().unwrap();
+            if let Expression::BinaryOp { op, .. } = where_expr {
+                assert!(matches!(op, BinaryOperator::Gt));
+            } else {
+                panic!("Expected binary op expression");
+            }
+        } else {
+            panic!("Expected edge pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_edge_inline_where_with_props() {
+        // Inline WHERE combined with edge property filter
+        let query =
+            parse("MATCH (a)-[r:FOLLOWS {active: true} WHERE r.weight > 0.5]->(b) RETURN a, b")
+                .unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Edge(edge) = &pattern.elements[1] {
+            assert_eq!(edge.labels, vec!["FOLLOWS"]);
+            assert!(!edge.properties.is_empty());
+            assert!(edge.where_clause.is_some());
+        } else {
+            panic!("Expected edge pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_combined_inline_where() {
+        // Both node and edge with inline WHERE
+        let query = parse(
+            "MATCH (a:Person WHERE a.active = true)-[r:FOLLOWS WHERE r.weight > 0.5]->(b) RETURN a, b",
+        )
+        .unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+
+        // Check node
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert!(node.where_clause.is_some());
+        } else {
+            panic!("Expected node pattern");
+        }
+
+        // Check edge
+        if let PatternElement::Edge(edge) = &pattern.elements[1] {
+            assert!(edge.where_clause.is_some());
+        } else {
+            panic!("Expected edge pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_inline_where_complex_expression() {
+        // Inline WHERE with AND expression
+        let query =
+            parse("MATCH (n:Person WHERE n.age > 18 AND n.status = 'active') RETURN n").unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert!(node.where_clause.is_some());
+            let where_expr = node.where_clause.as_ref().unwrap();
+            if let Expression::BinaryOp { op, .. } = where_expr {
+                assert!(matches!(op, BinaryOperator::And));
+            } else {
+                panic!("Expected AND expression");
+            }
+        } else {
+            panic!("Expected node pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_inline_where_is_null() {
+        // Inline WHERE with IS NULL check
+        let query = parse("MATCH (n:Person WHERE n.email IS NOT NULL) RETURN n").unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert!(node.where_clause.is_some());
+            let where_expr = node.where_clause.as_ref().unwrap();
+            assert!(matches!(
+                where_expr,
+                Expression::IsNull { negated: true, .. }
+            ));
+        } else {
+            panic!("Expected node pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_inline_where_in_list() {
+        // Inline WHERE with IN list
+        let query =
+            parse("MATCH (n:Person WHERE n.status IN ['active', 'pending']) RETURN n").unwrap();
+
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert!(node.where_clause.is_some());
+            let where_expr = node.where_clause.as_ref().unwrap();
+            assert!(matches!(
+                where_expr,
+                Expression::InList { negated: false, .. }
+            ));
+        } else {
+            panic!("Expected node pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_inline_where_with_global_where() {
+        // Inline WHERE combined with global WHERE clause
+        let query = parse(
+            "MATCH (a:Person WHERE a.active = true)-[r:KNOWS]->(b) WHERE b.age > 30 RETURN a, b",
+        )
+        .unwrap();
+
+        // Check inline WHERE on node
+        let pattern = &query.match_clause.patterns[0];
+        if let PatternElement::Node(node) = &pattern.elements[0] {
+            assert!(node.where_clause.is_some());
+        } else {
+            panic!("Expected node pattern");
+        }
+
+        // Check global WHERE exists
+        assert!(query.where_clause.is_some());
     }
 }

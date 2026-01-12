@@ -17,6 +17,7 @@ Mutation:
                   properties:
                     - - name
                       - String: Alice
+                  where_clause: ~
           - elements:
               - Node:
                   variable: b
@@ -25,4 +26,5 @@ Mutation:
                   properties:
                     - - name
                       - String: Bob
+                  where_clause: ~
   return_clause: ~

@@ -10,6 +10,7 @@ match_clause:
             labels:
               - Person
             properties: []
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

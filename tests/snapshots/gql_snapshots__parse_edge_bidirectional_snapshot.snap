@@ -9,6 +9,7 @@ match_clause:
             variable: a
             labels: []
             properties: []
+            where_clause: ~
         - Edge:
             variable: ~
             labels:
@@ -16,10 +17,12 @@ match_clause:
             direction: Both
             quantifier: ~
             properties: []
+            where_clause: ~
         - Node:
             variable: b
             labels: []
             properties: []
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

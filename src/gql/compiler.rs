@@ -1172,7 +1172,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 
     /// Compile a node pattern into filter steps.
     ///
-    /// Applies label filters and property filters to the traversal.
+    /// Applies label filters, property filters, and inline WHERE to the traversal.
     fn compile_node(
         &mut self,
         node: &NodePattern,
@@ -1189,6 +1189,13 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         for (key, value) in &node.properties {
             let val: Value = value.clone().into();
             traversal = traversal.has_value(key.as_str(), val);
+        }
+
+        // Apply inline WHERE filter if present
+        if let Some(where_expr) = &node.where_clause {
+            let expr = where_expr.clone();
+            traversal =
+                traversal.filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val));
         }
 
         // Register binding and add as_() step for multi-variable patterns
@@ -1218,7 +1225,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     ///
     /// Translates edge direction and labels into out()/in_()/both() calls.
     /// Handles variable-length paths when a quantifier is present.
-    /// Handles edge variable binding and edge property filters.
+    /// Handles edge variable binding, edge property filters, and inline WHERE.
     fn compile_edge(
         &mut self,
         edge: &EdgePattern,
@@ -1229,8 +1236,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             return self.compile_edge_with_quantifier(edge, quantifier, traversal);
         }
 
-        // Check if we need edge-level access (variable or properties)
-        let needs_edge_access = edge.variable.is_some() || !edge.properties.is_empty();
+        // Check if we need edge-level access (variable, properties, or inline WHERE)
+        let needs_edge_access =
+            edge.variable.is_some() || !edge.properties.is_empty() || edge.where_clause.is_some();
 
         if needs_edge_access {
             return self.compile_edge_with_variable(edge, traversal);
@@ -1269,11 +1277,12 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 
     /// Compile an edge pattern that needs variable binding or property filtering.
     ///
-    /// When an edge has a variable or properties, we need to:
+    /// When an edge has a variable, properties, or inline WHERE, we need to:
     /// 1. Navigate to the edge (out_e/in_e/both_e)
     /// 2. Apply edge property filters
-    /// 3. Bind the edge variable with as_() if present
-    /// 4. Navigate to the target vertex (in_v/out_v/other_v)
+    /// 3. Apply inline WHERE filter if present
+    /// 4. Bind the edge variable with as_() if present
+    /// 5. Navigate to the target vertex (in_v/out_v/other_v)
     fn compile_edge_with_variable(
         &mut self,
         edge: &EdgePattern,
@@ -1312,7 +1321,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             traversal = traversal.has_value(key.as_str(), val);
         }
 
-        // Step 3: Register and bind edge variable
+        // Step 3: Apply inline WHERE filter if present
+        if let Some(where_expr) = &edge.where_clause {
+            let expr = where_expr.clone();
+            traversal =
+                traversal.filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val));
+        }
+
+        // Step 4: Register and bind edge variable
         if let Some(var) = &edge.variable {
             if self.bindings.contains_key(var) {
                 return Err(CompileError::duplicate_variable(var));
@@ -1331,7 +1347,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
         }
 
-        // Step 4: Navigate to target vertex
+        // Step 5: Navigate to target vertex
         let traversal = match edge.direction {
             EdgeDirection::Outgoing => traversal.in_v(),
             EdgeDirection::Incoming => traversal.out_v(),
@@ -4886,13 +4902,188 @@ fn value_to_bool(val: &Value) -> bool {
     }
 }
 
+// =============================================================================
+// Inline WHERE Expression Evaluation
+// =============================================================================
+//
+// These functions evaluate expressions for inline WHERE clauses in patterns.
+// They are designed to be called from within filter closures, taking a
+// GraphSnapshot reference and an element Value.
+
+/// Extract a property value from a vertex or edge using a snapshot.
+///
+/// This is a standalone version of `Compiler::extract_property` for use in closures.
+fn extract_property_from_snapshot<'g>(
+    snapshot: &GraphSnapshot<'g>,
+    element: &Value,
+    property: &str,
+) -> Option<Value> {
+    match element {
+        Value::Vertex(id) => {
+            let vertex = snapshot.storage().get_vertex(*id)?;
+            vertex.properties.get(property).cloned()
+        }
+        Value::Edge(id) => {
+            let edge = snapshot.storage().get_edge(*id)?;
+            edge.properties.get(property).cloned()
+        }
+        Value::Null => Some(Value::Null),
+        _ => None,
+    }
+}
+
+/// Evaluate an expression to a Value for inline WHERE clauses.
+///
+/// This is a standalone version of `Compiler::evaluate_value` that takes a
+/// snapshot reference, suitable for use within filter closures.
+fn eval_inline_value<'g>(
+    snapshot: &GraphSnapshot<'g>,
+    expr: &Expression,
+    element: &Value,
+) -> Value {
+    match expr {
+        Expression::Literal(lit) => lit.clone().into(),
+        Expression::Variable(_) => {
+            // Return the element itself when referencing a variable
+            element.clone()
+        }
+        Expression::Property { property, .. } => {
+            // Extract property from the element
+            extract_property_from_snapshot(snapshot, element, property).unwrap_or(Value::Null)
+        }
+        Expression::BinaryOp { left, op, right } => {
+            let left_val = eval_inline_value(snapshot, left, element);
+            let right_val = eval_inline_value(snapshot, right, element);
+            apply_binary_op(*op, left_val, right_val)
+        }
+        Expression::UnaryOp { op, expr } => match op {
+            UnaryOperator::Not => {
+                let val = eval_inline_value(snapshot, expr, element);
+                match val {
+                    Value::Bool(b) => Value::Bool(!b),
+                    _ => Value::Null,
+                }
+            }
+            UnaryOperator::Neg => {
+                let val = eval_inline_value(snapshot, expr, element);
+                match val {
+                    Value::Int(n) => Value::Int(-n),
+                    Value::Float(f) => Value::Float(-f),
+                    _ => Value::Null,
+                }
+            }
+        },
+        Expression::IsNull { expr, negated } => {
+            let val = eval_inline_value(snapshot, expr, element);
+            let is_null = matches!(val, Value::Null);
+            Value::Bool(if *negated { !is_null } else { is_null })
+        }
+        Expression::InList {
+            expr,
+            list,
+            negated,
+        } => {
+            let val = eval_inline_value(snapshot, expr, element);
+            let in_list = list.iter().any(|item| {
+                let item_val = eval_inline_value(snapshot, item, element);
+                val == item_val
+            });
+            Value::Bool(if *negated { !in_list } else { in_list })
+        }
+        Expression::List(items) => {
+            let values: Vec<Value> = items
+                .iter()
+                .map(|item| eval_inline_value(snapshot, item, element))
+                .collect();
+            Value::List(values)
+        }
+        // For inline WHERE, we don't support complex expressions like EXISTS, CASE, or function calls
+        // These would require additional context or be expensive to evaluate per-element
+        _ => Value::Null,
+    }
+}
+
+/// Evaluate a predicate expression for inline WHERE clauses.
+///
+/// This is a standalone version of `Compiler::evaluate_predicate` that takes a
+/// snapshot reference, suitable for use within filter closures.
+fn eval_inline_predicate<'g>(
+    snapshot: &GraphSnapshot<'g>,
+    expr: &Expression,
+    element: &Value,
+) -> bool {
+    match expr {
+        Expression::BinaryOp { left, op, right } => {
+            match op {
+                // Logical operators
+                BinaryOperator::And => {
+                    eval_inline_predicate(snapshot, left, element)
+                        && eval_inline_predicate(snapshot, right, element)
+                }
+                BinaryOperator::Or => {
+                    eval_inline_predicate(snapshot, left, element)
+                        || eval_inline_predicate(snapshot, right, element)
+                }
+                // Comparison and other operators
+                _ => {
+                    let left_val = eval_inline_value(snapshot, left, element);
+                    let right_val = eval_inline_value(snapshot, right, element);
+                    apply_comparison(*op, &left_val, &right_val)
+                }
+            }
+        }
+        Expression::UnaryOp { op, expr } => match op {
+            UnaryOperator::Not => !eval_inline_predicate(snapshot, expr, element),
+            UnaryOperator::Neg => {
+                // Negation of a value - treat non-zero as true
+                match eval_inline_value(snapshot, expr, element) {
+                    Value::Int(n) => n == 0,
+                    Value::Float(f) => f == 0.0,
+                    Value::Bool(b) => !b,
+                    Value::Null => true,
+                    _ => false,
+                }
+            }
+        },
+        Expression::IsNull { expr, negated } => {
+            let val = eval_inline_value(snapshot, expr, element);
+            let is_null = matches!(val, Value::Null);
+            if *negated {
+                !is_null
+            } else {
+                is_null
+            }
+        }
+        Expression::InList {
+            expr,
+            list,
+            negated,
+        } => {
+            let val = eval_inline_value(snapshot, expr, element);
+            let in_list = list.iter().any(|item| {
+                let item_val = eval_inline_value(snapshot, item, element);
+                val == item_val
+            });
+            if *negated {
+                !in_list
+            } else {
+                in_list
+            }
+        }
+        // For other expressions, evaluate and check truthiness
+        _ => {
+            let val = eval_inline_value(snapshot, expr, element);
+            value_to_bool(&val)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::gql::parser::parse;
     use crate::storage::InMemoryGraph;
     use crate::Graph;
-    
 
     #[test]
     fn test_compile_simple_match() {

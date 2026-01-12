@@ -12,6 +12,7 @@ match_clause:
             properties:
               - - age
                 - Int: 30
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

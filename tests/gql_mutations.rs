@@ -52,10 +52,9 @@ fn create_test_graph() -> InMemoryGraph {
 /// Execute a GQL mutation query against storage.
 fn execute_gql(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
-        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(format!(
-            "Parse error: {}",
-            e
-        )))
+        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(
+            format!("Parse error: {}", e),
+        ))
     })?;
     execute_mutation(&stmt, storage)
 }

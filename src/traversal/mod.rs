@@ -5002,7 +5002,6 @@ mod tests {
         fn steps_can_be_executed_from_into_steps() {
             use crate::graph::Graph;
             use crate::storage::InMemoryGraph;
-            
 
             let storage = InMemoryGraph::new();
             let graph = Graph::new(storage);
@@ -5035,7 +5034,6 @@ mod tests {
         use super::*;
         use crate::graph::Graph;
         use crate::storage::InMemoryGraph;
-        
 
         fn create_test_graph() -> Graph {
             let storage = InMemoryGraph::new();
@@ -5073,7 +5071,6 @@ mod tests {
         use crate::storage::InMemoryGraph;
         use crate::traversal::step::execute_traversal_from;
         use std::collections::HashMap;
-        
 
         fn create_test_graph() -> Graph {
             let mut storage = InMemoryGraph::new();

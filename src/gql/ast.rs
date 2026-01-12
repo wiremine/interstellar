@@ -542,11 +542,12 @@ pub enum PatternElement {
 /// - A variable name for binding the matched vertex
 /// - One or more labels to filter by
 /// - Property value constraints
+/// - An inline WHERE clause for additional filtering
 ///
 /// # Syntax
 ///
 /// ```text
-/// (variable:Label1:Label2 {prop1: value1, prop2: value2})
+/// (variable:Label1:Label2 {prop1: value1, prop2: value2} WHERE condition)
 /// ```
 ///
 /// All parts are optional:
@@ -554,6 +555,7 @@ pub enum PatternElement {
 /// - `(n)` - matches any vertex, binds to `n`
 /// - `(:Person)` - matches vertices with label "Person"
 /// - `(n:Person {age: 30})` - matches Person vertices with age=30, binds to `n`
+/// - `(n:Person WHERE n.age > 21)` - matches Person vertices where age > 21
 ///
 /// # Example
 ///
@@ -577,6 +579,10 @@ pub struct NodePattern {
     pub labels: Vec<String>,
     /// Property constraints as (key, value) pairs.
     pub properties: Vec<(String, Literal)>,
+    /// Optional inline WHERE expression for additional filtering.
+    ///
+    /// Example: `(n:Person WHERE n.age > 21)`
+    pub where_clause: Option<Expression>,
 }
 
 /// An edge pattern specifying constraints on matched edges.
@@ -587,14 +593,15 @@ pub struct NodePattern {
 /// - Direction (outgoing, incoming, or both)
 /// - A path quantifier for variable-length paths
 /// - Property constraints
+/// - An inline WHERE clause for additional filtering
 ///
 /// # Syntax
 ///
 /// ```text
-/// -[variable:TYPE1|TYPE2 {prop: value}]->   // outgoing
-/// <-[variable:TYPE]-                         // incoming  
-/// -[variable:TYPE]-                          // either direction
-/// -[*2..5]->                                 // variable-length path
+/// -[variable:TYPE1|TYPE2 {prop: value} WHERE condition]->   // outgoing
+/// <-[variable:TYPE WHERE condition]-                         // incoming  
+/// -[variable:TYPE WHERE condition]-                          // either direction
+/// -[*2..5]->                                                  // variable-length path
 /// ```
 ///
 /// # Example
@@ -621,6 +628,10 @@ pub struct EdgePattern {
     pub quantifier: Option<PathQuantifier>,
     /// Property constraints as (key, value) pairs.
     pub properties: Vec<(String, Literal)>,
+    /// Optional inline WHERE expression for additional filtering.
+    ///
+    /// Example: `-[r:KNOWS WHERE r.since > 2020]->`
+    pub where_clause: Option<Expression>,
 }
 
 /// Direction of an edge in a pattern.

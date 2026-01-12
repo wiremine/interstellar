@@ -20,10 +20,9 @@ use intersteller::value::Value;
 /// Helper function to execute a GQL mutation and handle errors.
 fn execute(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
-        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(format!(
-            "Parse error: {}",
-            e
-        )))
+        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(
+            format!("Parse error: {}", e),
+        ))
     })?;
     execute_mutation(&stmt, storage)
 }

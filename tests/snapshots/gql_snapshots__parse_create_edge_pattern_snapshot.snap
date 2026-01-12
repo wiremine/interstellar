@@ -15,6 +15,7 @@ Mutation:
                   labels:
                     - Person
                   properties: []
+                  where_clause: ~
               - Edge:
                   variable: ~
                   labels:
@@ -24,9 +25,11 @@ Mutation:
                   properties:
                     - - since
                       - Int: 2020
+                  where_clause: ~
               - Node:
                   variable: b
                   labels:
                     - Person
                   properties: []
+                  where_clause: ~
   return_clause: ~

@@ -19,4 +19,5 @@ Mutation:
                       - String: Alice
                     - - age
                       - Int: 30
+                  where_clause: ~
   return_clause: ~

@@ -1963,7 +1963,6 @@ mod tests {
     use crate::storage::InMemoryGraph;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
-    
 
     fn create_test_graph() -> Graph {
         let mut storage = InMemoryGraph::new();

@@ -17,6 +17,7 @@ Mutation:
                 properties:
                   - - name
                     - String: Alice
+                where_clause: ~
         on_create: ~
         on_match: ~
   return_clause:

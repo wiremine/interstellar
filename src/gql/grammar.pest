@@ -164,16 +164,20 @@ where_clause = { WHERE ~ expression }
 // e.g., (a)-[:KNOWS]->(b)-[:WORKS_WITH]->(c)
 pattern = { node_pattern ~ (edge_pattern ~ node_pattern)* }
 
-// Node pattern: (variable:Label:Label2 {prop: value, prop2: value2})
-node_pattern = { "(" ~ variable? ~ label_filter? ~ property_filter? ~ ")" }
+// Node pattern: (variable:Label:Label2 {prop: value, prop2: value2} WHERE expr)
+node_pattern = { "(" ~ variable? ~ label_filter? ~ property_filter? ~ inline_where? ~ ")" }
 
 // Edge pattern with direction
-// -[variable:TYPE {prop: value}]->  (outgoing)
-// <-[variable:TYPE {prop: value}]-  (incoming)
-// -[variable:TYPE {prop: value}]-   (both/undirected)
+// -[variable:TYPE {prop: value} WHERE expr]->  (outgoing)
+// <-[variable:TYPE {prop: value} WHERE expr]-  (incoming)
+// -[variable:TYPE {prop: value} WHERE expr]-   (both/undirected)
 edge_pattern = { 
-    left_arrow? ~ "-[" ~ variable? ~ label_filter? ~ quantifier? ~ property_filter? ~ "]-" ~ right_arrow?
+    left_arrow? ~ "-[" ~ variable? ~ label_filter? ~ quantifier? ~ property_filter? ~ inline_where? ~ "]-" ~ right_arrow?
 }
+
+// Inline WHERE clause for patterns (distinct from main WHERE)
+// Allows filtering within node/edge patterns: (n:Person WHERE n.age > 21)
+inline_where = { WHERE ~ expression }
 
 left_arrow = { "<" }
 right_arrow = { ">" }

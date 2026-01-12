@@ -17,6 +17,7 @@ Mutation:
                   properties:
                     - - name
                       - String: Alice
+                  where_clause: ~
   return_clause:
     distinct: false
     items:

@@ -17,6 +17,7 @@ Mutation:
                 properties:
                   - - name
                     - String: Alice
+                where_clause: ~
             - Edge:
                 variable: ~
                 labels:
@@ -24,6 +25,7 @@ Mutation:
                 direction: Outgoing
                 quantifier: ~
                 properties: []
+                where_clause: ~
             - Node:
                 variable: b
                 labels:
@@ -31,6 +33,7 @@ Mutation:
                 properties:
                   - - name
                     - String: Bob
+                where_clause: ~
         on_create: ~
         on_match: ~
   return_clause: ~

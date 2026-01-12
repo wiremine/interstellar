@@ -10,6 +10,7 @@ match_clause:
             labels:
               - player
             properties: []
+            where_clause: ~
         - Edge:
             variable: e
             labels:
@@ -17,11 +18,13 @@ match_clause:
             direction: Outgoing
             quantifier: ~
             properties: []
+            where_clause: ~
         - Node:
             variable: t
             labels:
               - team
             properties: []
+            where_clause: ~
 optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []

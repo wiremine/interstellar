@@ -15,4 +15,5 @@ Mutation:
                   labels:
                     - Node
                   properties: []
+                  where_clause: ~
   return_clause: ~
