@@ -3309,6 +3309,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 let edge = self.snapshot.storage().get_edge(*id)?;
                 edge.properties.get(property).cloned()
             }
+            Value::Map(map) => {
+                // Support property access on map values (e.g., in list comprehensions)
+                Some(map.get(property).cloned().unwrap_or(Value::Null))
+            }
             Value::Null => Some(Value::Null), // OPTIONAL MATCH variable that didn't match
             _ => None,
         }
