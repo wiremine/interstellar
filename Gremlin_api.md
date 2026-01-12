@@ -361,6 +361,8 @@ let names = __::values("name");
 
 **Side Effect:**
 - `__::as_()`, `__::select()`, `__::select_one()`
+- `__::store()`, `__::aggregate()`, `__::cap()`
+- `__::side_effect()`, `__::profile()`
 
 **Branch/Filter with Sub-traversals:**
 - `__::where_()`, `__::where_p()`, `__::not()`, `__::and_()`, `__::or_()`
@@ -546,7 +548,6 @@ The following Gremlin features are not currently planned for support:
 | `tree()` | Specialized data structure |
 | `sack()` / `withSack()` | Requires stateful traverser |
 | `barrier()` | Explicit synchronization (implicit in reduce steps) |
-| `cap()` | Side effect capture |
 | `match()` | Complex pattern matching |
 | `program()` | VertexProgram execution |
 | `io()` | Graph I/O (use native import/export) |
@@ -567,10 +568,10 @@ The following Gremlin features are not currently planned for support:
 | Aggregation Steps | 6 | 0 |
 | Branch Steps | 7 | 0 |
 | Repeat Steps | 6 | 0 |
-| Side Effect Steps | 1 | 5 |
+| Side Effect Steps | 6 | 1 |
 | Mutation Steps | 6 | 2 |
 | Modulator Steps | 4 | 4 |
 | Terminal Steps | 7 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 7 | 0 |
-| **Total** | **~143** | **~16** |
+| **Total** | **~148** | **~11** |
