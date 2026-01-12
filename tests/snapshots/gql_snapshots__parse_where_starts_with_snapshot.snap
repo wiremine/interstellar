@@ -25,6 +25,7 @@ where_clause:
       right:
         Literal:
           String: A
+let_clauses: []
 return_clause:
   distinct: false
   items:

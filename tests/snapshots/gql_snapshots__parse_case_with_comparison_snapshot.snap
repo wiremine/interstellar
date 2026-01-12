@@ -39,6 +39,7 @@ where_clause:
       else_clause:
         Literal:
           Bool: true
+let_clauses: []
 return_clause:
   distinct: false
   items:

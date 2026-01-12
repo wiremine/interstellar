@@ -21,6 +21,7 @@ optional_match_clauses: []
 with_path_clause: ~
 unwind_clauses: []
 where_clause: ~
+let_clauses: []
 return_clause:
   distinct: false
   items:

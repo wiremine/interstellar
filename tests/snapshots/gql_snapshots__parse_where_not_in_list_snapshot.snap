@@ -27,6 +27,7 @@ where_clause:
         - Literal:
             String: deleted
       negated: true
+let_clauses: []
 return_clause:
   distinct: false
   items:

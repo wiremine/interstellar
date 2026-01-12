@@ -49,6 +49,7 @@ ALL      = @{ ^"all" ~ !ASCII_ALPHANUMERIC }
 OPTIONAL = @{ ^"optional" ~ !ASCII_ALPHANUMERIC }
 PATH     = @{ ^"path" ~ !ASCII_ALPHANUMERIC }
 UNWIND   = @{ ^"unwind" ~ !ASCII_ALPHANUMERIC }
+LET      = @{ ^"let" ~ !ASCII_ALPHANUMERIC }
 
 // Mutation keywords
 CREATE   = @{ ^"create" ~ !ASCII_ALPHANUMERIC }
@@ -136,11 +137,12 @@ on_match_action = { ON ~ MATCH ~ SET ~ set_item ~ ("," ~ set_item)* }
 // UNION (without ALL) deduplicates results, UNION ALL keeps duplicates
 union_clause = { UNION ~ ALL? }
 
-// Single query with optional WHERE, GROUP BY, ORDER BY, and LIMIT clauses
+// Single query with optional WHERE, LET, GROUP BY, ORDER BY, and LIMIT clauses
 // GROUP BY comes after RETURN (GQL/SQL style)
 // OPTIONAL MATCH clauses come after the main MATCH clause
 // WITH PATH enables path tracking, UNWIND expands lists into rows
-query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
+// LET binds computed values to variables for use in RETURN
+query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ let_clause* ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
 
 // WITH PATH clause - enables path tracking and collection
 // Allows using path() function in RETURN to get the traversed path
@@ -149,6 +151,10 @@ with_path_clause = { WITH ~ PATH ~ (AS ~ identifier)? }
 // UNWIND clause - expands a list into individual rows
 // UNWIND expression AS variable
 unwind_clause = { UNWIND ~ expression ~ AS ~ identifier }
+
+// LET clause - binds computed values to variables
+// LET variable = expression
+let_clause = { LET ~ identifier ~ "=" ~ expression }
 
 // MATCH clause - multiple patterns separated by commas
 match_clause = { MATCH ~ pattern ~ ("," ~ pattern)* }

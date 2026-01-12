@@ -54,6 +54,7 @@ where_clause:
           right:
             Literal:
               String: NYC
+let_clauses: []
 return_clause:
   distinct: false
   items:

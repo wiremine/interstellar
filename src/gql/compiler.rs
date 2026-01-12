@@ -71,7 +71,7 @@ use mathexpr::Expression as MathExpr;
 
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
-    GroupByClause, LimitClause, Literal, NodePattern, OptionalMatchClause, OrderClause,
+    GroupByClause, LetClause, LimitClause, Literal, NodePattern, OptionalMatchClause, OrderClause,
     PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
     UnaryOperator, UnwindClause, WhereClause,
 };
@@ -365,6 +365,7 @@ pub fn compile_statement_with_params<'g>(
 }
 
 /// Execute a UNION of multiple queries.
+#[allow(dead_code)]
 fn compile_union<'g>(
     queries: &[Query],
     keep_duplicates: bool,
@@ -434,6 +435,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     }
 
     /// Resolve a parameter by name, returning an error if not found.
+    #[allow(dead_code)]
     fn resolve_parameter(&self, name: &str) -> Result<Value, CompileError> {
         self.parameters
             .get(name)
@@ -520,12 +522,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let has_with_path = query.with_path_clause.is_some();
         let uses_path_func = self.return_uses_path_function(&query.return_clause);
         let has_unwind = !query.unwind_clauses.is_empty();
+        let has_let = !query.let_clauses.is_empty();
         self.has_multi_vars = var_count > 1
             || has_edge_var
             || has_optional
             || has_with_path
             || uses_path_func
-            || has_unwind;
+            || has_unwind
+            || has_let;
 
         // Build traversal starting from v()
         let g = self.snapshot.traversal();
@@ -553,6 +557,17 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         for unwind in &query.unwind_clauses {
             self.bindings.insert(
                 unwind.alias.clone(),
+                BindingInfo {
+                    pattern_index: 0,
+                    is_node: false,
+                },
+            );
+        }
+
+        // Register LET clause variables as valid bindings
+        for let_clause in &query.let_clauses {
+            self.bindings.insert(
+                let_clause.variable.clone(),
                 BindingInfo {
                     pattern_index: 0,
                     is_node: false,
@@ -597,6 +612,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             let results = self.execute_with_optional_match(
                 &query.return_clause,
                 &query.where_clause,
+                &query.let_clauses,
                 &query.optional_match_clauses,
                 traversal,
             )?;
@@ -614,6 +630,11 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // Check if we have UNWIND clauses to apply
         if !query.unwind_clauses.is_empty() {
             return self.execute_with_unwind(query, traversal);
+        }
+
+        // Check if we have LET clauses - if so, use row-based processing
+        if !query.let_clauses.is_empty() {
+            return self.execute_with_let(query, traversal);
         }
 
         // Execute and collect results based on RETURN clause
@@ -690,6 +711,91 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             current_rows
         };
 
+        // Apply LET clauses if present
+        let filtered_rows = self.apply_let_clauses(filtered_rows, &query.let_clauses);
+
+        // Process RETURN clause
+        let results: Vec<Value> = filtered_rows
+            .into_iter()
+            .filter_map(|row| self.evaluate_return_for_row(&query.return_clause.items, &row))
+            .collect();
+
+        // Apply DISTINCT if requested
+        let results = if query.return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        // Apply ORDER BY if present
+        let results = self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+
+        // Apply LIMIT/OFFSET if present
+        let results = self.apply_limit(&query.limit_clause, results);
+
+        Ok(results)
+    }
+
+    /// Execute a query with LET clauses.
+    ///
+    /// LET binds computed values to variables for use in RETURN.
+    /// This function converts the traversal results to row-based processing
+    /// to support LET variable bindings.
+    fn execute_with_let(
+        &self,
+        query: &Query,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Execute the base match first
+        let base_traversers: Vec<Traverser> = if self.has_multi_vars {
+            traversal.execute().collect()
+        } else {
+            // Convert values to traversers for consistent handling
+            traversal
+                .to_list()
+                .into_iter()
+                .map(Traverser::new)
+                .collect()
+        };
+
+        // Convert traversers to rows
+        let current_rows: Vec<HashMap<String, Value>> = base_traversers
+            .into_iter()
+            .map(|t| {
+                let mut row = HashMap::new();
+                // Copy bound variables from path to row
+                for label in t.path.all_labels() {
+                    if let Some(values) = t.path.get(label) {
+                        if let Some(path_value) = values.last() {
+                            row.insert(label.clone(), path_value.to_value());
+                        }
+                    }
+                }
+                // Store the full path as __path__ for path() function
+                let path_values: Vec<Value> = t.path.objects().map(|pv| pv.to_value()).collect();
+                row.insert("__path__".to_string(), Value::List(path_values));
+                // Also store the current traverser value
+                row.insert("__current__".to_string(), t.value);
+                row
+            })
+            .collect();
+
+        // Apply WHERE filter if present
+        let filtered_rows: Vec<HashMap<String, Value>> = if let Some(where_cl) = &query.where_clause
+        {
+            current_rows
+                .into_iter()
+                .filter(|row| self.evaluate_predicate_from_row(&where_cl.expression, row))
+                .collect()
+        } else {
+            current_rows
+        };
+
+        // Apply LET clauses
+        let filtered_rows = self.apply_let_clauses(filtered_rows, &query.let_clauses);
+
         // Process RETURN clause
         let results: Vec<Value> = filtered_rows
             .into_iter()
@@ -746,6 +852,208 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         }
 
         Ok(result)
+    }
+
+    /// Apply LET clauses to transform rows by binding new variables.
+    ///
+    /// LET binds the result of an expression to a new variable. If the expression
+    /// contains aggregates, the aggregate is computed over all rows and bound to
+    /// each row. Non-aggregate expressions are evaluated per-row.
+    fn apply_let_clauses(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        let_clauses: &[LetClause],
+    ) -> Vec<HashMap<String, Value>> {
+        if let_clauses.is_empty() {
+            return rows;
+        }
+
+        let mut current_rows = rows;
+
+        for let_clause in let_clauses {
+            current_rows = self.apply_single_let_clause(current_rows, let_clause);
+        }
+
+        current_rows
+    }
+
+    /// Apply a single LET clause to all rows.
+    fn apply_single_let_clause(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        let_clause: &LetClause,
+    ) -> Vec<HashMap<String, Value>> {
+        if rows.is_empty() {
+            return rows;
+        }
+
+        // Check if the expression contains aggregates
+        if Self::expr_has_aggregate(&let_clause.expression) {
+            // Aggregate LET: compute once over all rows, bind to all
+            let aggregate_value = self.compute_let_aggregate(&rows, &let_clause.expression);
+
+            rows.into_iter()
+                .map(|mut row| {
+                    row.insert(let_clause.variable.clone(), aggregate_value.clone());
+                    row
+                })
+                .collect()
+        } else {
+            // Non-aggregate LET: evaluate per-row
+            rows.into_iter()
+                .map(|mut row| {
+                    let value = self.evaluate_expression_from_row(&let_clause.expression, &row);
+                    row.insert(let_clause.variable.clone(), value);
+                    row
+                })
+                .collect()
+        }
+    }
+
+    /// Compute an aggregate expression for LET over all rows.
+    fn compute_let_aggregate(&self, rows: &[HashMap<String, Value>], expr: &Expression) -> Value {
+        match expr {
+            Expression::Aggregate {
+                func,
+                distinct,
+                expr: inner_expr,
+            } => {
+                // Collect values from all rows
+                let mut values: Vec<Value> = rows
+                    .iter()
+                    .map(|row| self.evaluate_expression_from_row(inner_expr, row))
+                    .filter(|v| !matches!(v, Value::Null))
+                    .collect();
+
+                // Apply DISTINCT if requested
+                if *distinct {
+                    let mut seen = HashSet::new();
+                    values.retain(|v| {
+                        let key = format!("{:?}", v);
+                        seen.insert(key)
+                    });
+                }
+
+                // Compute the aggregate
+                match func {
+                    AggregateFunc::Count => Value::Int(values.len() as i64),
+                    AggregateFunc::Sum => {
+                        let mut sum = 0.0;
+                        let mut is_int = true;
+                        let mut int_sum: i64 = 0;
+
+                        for val in &values {
+                            match val {
+                                Value::Int(n) => {
+                                    if is_int {
+                                        int_sum = int_sum.saturating_add(*n);
+                                    } else {
+                                        sum += *n as f64;
+                                    }
+                                }
+                                Value::Float(f) => {
+                                    if is_int {
+                                        sum = int_sum as f64 + f;
+                                        is_int = false;
+                                    } else {
+                                        sum += f;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        if is_int {
+                            Value::Int(int_sum)
+                        } else {
+                            Value::Float(sum)
+                        }
+                    }
+                    AggregateFunc::Avg => {
+                        if values.is_empty() {
+                            return Value::Null;
+                        }
+                        let mut sum = 0.0;
+                        let mut count = 0;
+                        for val in &values {
+                            match val {
+                                Value::Int(n) => {
+                                    sum += *n as f64;
+                                    count += 1;
+                                }
+                                Value::Float(f) => {
+                                    sum += f;
+                                    count += 1;
+                                }
+                                _ => {}
+                            }
+                        }
+                        if count > 0 {
+                            Value::Float(sum / count as f64)
+                        } else {
+                            Value::Null
+                        }
+                    }
+                    AggregateFunc::Min => values
+                        .into_iter()
+                        .min_by(compare_values)
+                        .unwrap_or(Value::Null),
+                    AggregateFunc::Max => values
+                        .into_iter()
+                        .max_by(compare_values)
+                        .unwrap_or(Value::Null),
+                    AggregateFunc::Collect => Value::List(values),
+                }
+            }
+            // For non-aggregate expressions at the top level (but may contain nested aggregates),
+            // we evaluate the binary ops etc. but with aggregate handling
+            Expression::BinaryOp { left, op, right } => {
+                let left_val = self.compute_let_aggregate(rows, left);
+                let right_val = self.compute_let_aggregate(rows, right);
+                apply_binary_op(*op, left_val, right_val)
+            }
+            Expression::UnaryOp { op, expr } => {
+                let val = self.compute_let_aggregate(rows, expr);
+                match op {
+                    UnaryOperator::Not => match val {
+                        Value::Bool(b) => Value::Bool(!b),
+                        _ => Value::Null,
+                    },
+                    UnaryOperator::Neg => match val {
+                        Value::Int(n) => Value::Int(-n),
+                        Value::Float(f) => Value::Float(-f),
+                        _ => Value::Null,
+                    },
+                }
+            }
+            Expression::FunctionCall { name, args } => {
+                // Handle SIZE function specially for aggregated lists
+                if name.to_uppercase() == "SIZE" {
+                    if let Some(arg) = args.first() {
+                        let val = self.compute_let_aggregate(rows, arg);
+                        return match val {
+                            Value::List(l) => Value::Int(l.len() as i64),
+                            Value::String(s) => Value::Int(s.len() as i64),
+                            _ => Value::Null,
+                        };
+                    }
+                }
+                // For other functions, use the first row as context
+                if !rows.is_empty() {
+                    self.evaluate_function_call_from_row(name, args, &rows[0])
+                } else {
+                    Value::Null
+                }
+            }
+            // For non-aggregate expressions, evaluate from the first row (they should be the same)
+            _ => {
+                if !rows.is_empty() {
+                    self.evaluate_expression_from_row(expr, &rows[0])
+                } else {
+                    Value::Null
+                }
+            }
+        }
     }
 
     /// Evaluate an expression using a row (HashMap) for variable lookup.
@@ -1769,6 +2077,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
+        let_clauses: &[LetClause],
         optional_match_clauses: &[OptionalMatchClause],
         traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
@@ -1825,6 +2134,49 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         } else {
             expanded_traversers
         };
+
+        // If we have LET clauses, convert to row-based processing
+        if !let_clauses.is_empty() {
+            // Convert traversers to rows
+            let current_rows: Vec<HashMap<String, Value>> = filtered_traversers
+                .into_iter()
+                .map(|t| {
+                    let mut row = HashMap::new();
+                    // Copy bound variables from path to row
+                    for label in t.path.all_labels() {
+                        if let Some(values) = t.path.get(label) {
+                            if let Some(path_value) = values.last() {
+                                row.insert(label.clone(), path_value.to_value());
+                            }
+                        }
+                    }
+                    // Store the full path as __path__ for path() function
+                    let path_values: Vec<Value> =
+                        t.path.objects().map(|pv| pv.to_value()).collect();
+                    row.insert("__path__".to_string(), Value::List(path_values));
+                    row.insert("__current__".to_string(), t.value);
+                    row
+                })
+                .collect();
+
+            // Apply LET clauses
+            let rows_with_let = self.apply_let_clauses(current_rows, let_clauses);
+
+            // Process RETURN clause
+            let results: Vec<Value> = rows_with_let
+                .into_iter()
+                .filter_map(|row| self.evaluate_return_for_row(&return_clause.items, &row))
+                .collect();
+
+            // Apply DISTINCT if requested
+            let results = if return_clause.distinct {
+                self.deduplicate_results(results)
+            } else {
+                results
+            };
+
+            return Ok(results);
+        }
 
         // Process each traverser according to the RETURN clause
         let results: Vec<Value> = filtered_traversers

@@ -36,11 +36,11 @@ use pest_derive::Parser;
 
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, CreateClause, DeleteClause, DetachDeleteClause,
-    EdgeDirection, EdgePattern, Expression, GroupByClause, LimitClause, Literal, MatchClause,
-    MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause,
-    OrderItem, PathQuantifier, Pattern, PatternElement, PropertyRef, Query, RemoveClause,
-    ReturnClause, ReturnItem, SetClause, SetItem, Statement, UnaryOperator, UnwindClause,
-    WhereClause, WithPathClause,
+    EdgeDirection, EdgePattern, Expression, GroupByClause, LetClause, LimitClause, Literal,
+    MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause,
+    OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, PropertyRef, Query,
+    RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, Statement, UnaryOperator,
+    UnwindClause, WhereClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -516,6 +516,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut with_path_clause = None;
     let mut unwind_clauses = Vec::new();
     let mut where_clause = None;
+    let mut let_clauses = Vec::new();
     let mut return_clause = None;
     let mut group_by_clause = None;
     let mut order_clause = None;
@@ -530,6 +531,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::with_path_clause => with_path_clause = Some(build_with_path_clause(inner)?),
             Rule::unwind_clause => unwind_clauses.push(build_unwind_clause(inner)?),
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
+            Rule::let_clause => let_clauses.push(build_let_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
             Rule::group_by_clause => group_by_clause = Some(build_group_by_clause(inner)?),
             Rule::order_clause => order_clause = Some(build_order_clause(inner)?),
@@ -545,6 +547,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
         with_path_clause,
         unwind_clauses,
         where_clause,
+        let_clauses,
         return_clause: return_clause
             .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
         group_by_clause,
@@ -562,6 +565,26 @@ fn build_where_clause(pair: pest::iterators::Pair<Rule>) -> Result<WhereClause, 
 
     Ok(WhereClause {
         expression: build_expression(expr_pair)?,
+    })
+}
+
+fn build_let_clause(pair: pest::iterators::Pair<Rule>) -> Result<LetClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut variable = None;
+    let mut expression = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => variable = Some(inner.as_str().to_string()),
+            Rule::expression => expression = Some(build_expression(inner)?),
+            _ => {}
+        }
+    }
+
+    Ok(LetClause {
+        variable: variable.ok_or_else(|| ParseError::missing_clause("variable", pair_span))?,
+        expression: expression
+            .ok_or_else(|| ParseError::missing_clause("expression", pair_span))?,
     })
 }
 

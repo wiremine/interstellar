@@ -27,6 +27,7 @@ where_clause:
         - Literal:
             String: pending
       negated: false
+let_clauses: []
 return_clause:
   distinct: false
   items:

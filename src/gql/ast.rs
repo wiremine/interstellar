@@ -342,6 +342,7 @@ pub struct MergeClause {
 /// - `with_path_clause` - Enables path tracking for use with path() function
 /// - `unwind_clauses` - Expands lists into rows
 /// - `where_clause` - Filters matched patterns
+/// - `let_clauses` - Binds computed values to variables
 /// - `group_by_clause` - Groups results for aggregation
 /// - `order_clause` - Sorts results
 /// - `limit_clause` - Limits and offsets results
@@ -374,6 +375,8 @@ pub struct Query {
     pub unwind_clauses: Vec<UnwindClause>,
     /// Optional WHERE clause for filtering matched patterns.
     pub where_clause: Option<WhereClause>,
+    /// LET clauses for binding computed values to variables.
+    pub let_clauses: Vec<LetClause>,
     /// The RETURN clause specifying what values to output.
     pub return_clause: ReturnClause,
     /// Optional GROUP BY clause for grouping aggregation results.
@@ -382,6 +385,37 @@ pub struct Query {
     pub order_clause: Option<OrderClause>,
     /// Optional LIMIT/OFFSET clause for pagination.
     pub limit_clause: Option<LimitClause>,
+}
+
+/// The LET clause for binding computed values to variables.
+///
+/// LET binds the result of an expression to a new variable that can be
+/// used in subsequent LET clauses, RETURN, and ORDER BY. LET is evaluated
+/// after MATCH/WHERE filtering but before RETURN.
+///
+/// # Example
+///
+/// ```text
+/// MATCH (p:Person)-[:FRIEND]->(f)
+/// LET friendCount = COUNT(f)
+/// RETURN p.name, friendCount
+/// ```
+///
+/// Multiple LET clauses can be chained, with later clauses able to
+/// reference variables from earlier ones:
+///
+/// ```text
+/// MATCH (person)-[:WORKS_AT]->(company)
+/// LET colleagues = COLLECT(person)
+/// LET companySize = SIZE(colleagues)
+/// RETURN company.name, companySize
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct LetClause {
+    /// The variable name to bind the expression result to.
+    pub variable: String,
+    /// The expression to evaluate and bind.
+    pub expression: Expression,
 }
 
 // =============================================================================

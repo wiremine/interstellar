@@ -9514,3 +9514,309 @@ fn test_gql_parameter_float_comparison() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::from("Item1"));
 }
+
+// =============================================================================
+// LET Clause Tests
+// =============================================================================
+
+#[test]
+fn test_gql_let_simple_expression() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Simple LET binding a computed value
+    let results = snapshot
+        .gql("MATCH (n:Person) LET doubled = n.age * 2 RETURN n.name, doubled")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // Each result should be a map with name and doubled age
+    for result in &results {
+        if let Value::Map(map) = result {
+            let name = map.get("n.name").unwrap();
+            let doubled = map.get("doubled").unwrap();
+
+            match name {
+                Value::String(s) if s == "Alice" => {
+                    assert_eq!(*doubled, Value::Int(60)); // 30 * 2
+                }
+                Value::String(s) if s == "Bob" => {
+                    assert_eq!(*doubled, Value::Int(50)); // 25 * 2
+                }
+                Value::String(s) if s == "Charlie" => {
+                    assert_eq!(*doubled, Value::Int(70)); // 35 * 2
+                }
+                _ => panic!("Unexpected name: {:?}", name),
+            }
+        } else {
+            panic!("Expected map result");
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_count_aggregate() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create people with friends
+    let alice_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Alice"));
+        props
+    });
+
+    let bob_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bob"));
+        props
+    });
+
+    let charlie_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Charlie"));
+        props
+    });
+
+    // Alice knows Bob and Charlie
+    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Use LET to count friends
+    let results = snapshot
+        .gql("MATCH (p:Person)-[:KNOWS]->(f) LET friendCount = COUNT(f) RETURN p.name, friendCount")
+        .unwrap();
+
+    // Alice has 2 friends, so we should see 2 rows (one per edge), each with friendCount = 2
+    assert!(!results.is_empty());
+
+    // All rows should have the same friendCount (aggregate applied to all)
+    for result in &results {
+        if let Value::Map(map) = result {
+            let count = map.get("friendCount").unwrap();
+            assert_eq!(*count, Value::Int(2)); // Alice knows 2 people
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_collect_aggregate() {
+    let mut storage = InMemoryGraph::new();
+
+    let alice_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Alice"));
+        props
+    });
+
+    let bob_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bob"));
+        props
+    });
+
+    let charlie_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Charlie"));
+        props
+    });
+
+    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Use LET to collect friend names
+    let results = snapshot
+        .gql("MATCH (p:Person)-[:KNOWS]->(f) LET friends = COLLECT(f.name) RETURN p.name, friends")
+        .unwrap();
+
+    // Each row should have the collected list of friend names
+    for result in &results {
+        if let Value::Map(map) = result {
+            let friends = map.get("friends").unwrap();
+            if let Value::List(list) = friends {
+                // Should contain Bob and Charlie
+                assert_eq!(list.len(), 2);
+                let names: HashSet<_> = list.iter().collect();
+                assert!(names.contains(&Value::from("Bob")));
+                assert!(names.contains(&Value::from("Charlie")));
+            } else {
+                panic!("Expected list for friends");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_multiple_clauses() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Multiple LET clauses - later ones can reference earlier
+    let results = snapshot
+        .gql("MATCH (n:Person) LET doubled = n.age * 2 LET plusTen = doubled + 10 RETURN n.name, plusTen")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            let name = map.get("n.name").unwrap();
+            let plus_ten = map.get("plusTen").unwrap();
+
+            match name {
+                Value::String(s) if s == "Alice" => {
+                    assert_eq!(*plus_ten, Value::Int(70)); // (30 * 2) + 10
+                }
+                Value::String(s) if s == "Bob" => {
+                    assert_eq!(*plus_ten, Value::Int(60)); // (25 * 2) + 10
+                }
+                Value::String(s) if s == "Charlie" => {
+                    assert_eq!(*plus_ten, Value::Int(80)); // (35 * 2) + 10
+                }
+                _ => panic!("Unexpected name"),
+            }
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_sum_aggregate() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use LET with SUM aggregate
+    let results = snapshot
+        .gql("MATCH (n:Person) LET totalAge = SUM(n.age) RETURN n.name, totalAge")
+        .unwrap();
+
+    // Total age should be 30 + 25 + 35 = 90
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            let total = map.get("totalAge").unwrap();
+            assert_eq!(*total, Value::Int(90));
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_avg_aggregate() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use LET with AVG aggregate
+    let results = snapshot
+        .gql("MATCH (n:Person) LET avgAge = AVG(n.age) RETURN n.name, avgAge")
+        .unwrap();
+
+    // Average age should be (30 + 25 + 35) / 3 = 30.0
+    assert_eq!(results.len(), 3);
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            let avg = map.get("avgAge").unwrap();
+            if let Value::Float(f) = avg {
+                assert!((f - 30.0).abs() < 0.001);
+            } else {
+                panic!("Expected float for avgAge");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_with_where() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // LET should be evaluated after WHERE
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.age > 25 LET doubled = n.age * 2 RETURN n.name, doubled")
+        .unwrap();
+
+    // Only Alice (30) and Charlie (35) match WHERE
+    assert_eq!(results.len(), 2);
+
+    let names: HashSet<String> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::String(name)) = map.get("n.name") {
+                    return Some(name.clone());
+                }
+            }
+            None
+        })
+        .collect();
+
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Charlie"));
+    assert!(!names.contains("Bob"));
+}
+
+#[test]
+fn test_gql_let_size_of_collect() {
+    let mut storage = InMemoryGraph::new();
+
+    let alice_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Alice"));
+        props
+    });
+
+    let bob_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Bob"));
+        props
+    });
+
+    let charlie_id = storage.add_vertex("Person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::from("Charlie"));
+        props
+    });
+
+    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Chain LET clauses: collect then size
+    let results = snapshot
+        .gql("MATCH (p:Person)-[:KNOWS]->(f) LET friends = COLLECT(f.name) LET numFriends = SIZE(friends) RETURN p.name, numFriends")
+        .unwrap();
+
+    for result in &results {
+        if let Value::Map(map) = result {
+            let num = map.get("numFriends").unwrap();
+            assert_eq!(*num, Value::Int(2)); // Alice knows 2 people
+        }
+    }
+}
+
+#[test]
+fn test_gql_let_parse_only() {
+    // Test that LET clause is properly parsed
+    let query = parse("MATCH (n:Person) LET x = n.age RETURN x").unwrap();
+
+    assert_eq!(query.let_clauses.len(), 1);
+    assert_eq!(query.let_clauses[0].variable, "x");
+}
+
+#[test]
+fn test_gql_let_parse_multiple() {
+    // Test parsing multiple LET clauses
+    let query = parse("MATCH (n:Person) LET x = n.age LET y = x * 2 RETURN y").unwrap();
+
+    assert_eq!(query.let_clauses.len(), 2);
+    assert_eq!(query.let_clauses[0].variable, "x");
+    assert_eq!(query.let_clauses[1].variable, "y");
+}
