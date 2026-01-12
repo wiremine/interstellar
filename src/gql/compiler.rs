@@ -473,6 +473,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
             Expression::UnaryOp { expr, .. } => Self::expression_uses_path_function(expr),
             Expression::List(items) => items.iter().any(Self::expression_uses_path_function),
+            Expression::Map(entries) => entries
+                .iter()
+                .any(|(_, value)| Self::expression_uses_path_function(value)),
             Expression::FunctionCall { args, .. } => {
                 args.iter().any(Self::expression_uses_path_function)
             }
@@ -1102,6 +1105,16 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     .map(|item| self.evaluate_expression_from_row(item, row))
                     .collect();
                 Value::List(values)
+            }
+            Expression::Map(entries) => {
+                let map: std::collections::HashMap<String, Value> = entries
+                    .iter()
+                    .map(|(key, value_expr)| {
+                        let value = self.evaluate_expression_from_row(value_expr, row);
+                        (key.clone(), value)
+                    })
+                    .collect();
+                Value::Map(map)
             }
             Expression::FunctionCall { name, args } => {
                 self.evaluate_function_call_from_row(name, args, row)
@@ -2588,6 +2601,16 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     .collect();
                 Value::List(values)
             }
+            Expression::Map(entries) => {
+                let map: std::collections::HashMap<String, Value> = entries
+                    .iter()
+                    .map(|(key, value_expr)| {
+                        let value = self.evaluate_value_from_path(value_expr, traverser);
+                        (key.clone(), value)
+                    })
+                    .collect();
+                Value::Map(map)
+            }
             Expression::Exists { pattern, negated } => {
                 let exists = self.evaluate_exists_pattern(pattern, &traverser.value);
                 Value::Bool(if *negated { !exists } else { exists })
@@ -3441,6 +3464,16 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     .collect();
                 Value::List(values)
             }
+            Expression::Map(entries) => {
+                let map: std::collections::HashMap<String, Value> = entries
+                    .iter()
+                    .map(|(key, value_expr)| {
+                        let value = self.evaluate_value(value_expr, element);
+                        (key.clone(), value)
+                    })
+                    .collect();
+                Value::Map(map)
+            }
             Expression::Exists { pattern, negated } => {
                 let exists = self.evaluate_exists_pattern(pattern, element);
                 Value::Bool(if *negated { !exists } else { exists })
@@ -4133,6 +4166,11 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     self.validate_expression_variables(item)?;
                 }
             }
+            Expression::Map(entries) => {
+                for (_, value) in entries {
+                    self.validate_expression_variables(value)?;
+                }
+            }
             Expression::FunctionCall { args, .. } => {
                 for arg in args {
                     self.validate_expression_variables(arg)?;
@@ -4231,6 +4269,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 Self::expr_has_aggregate(expr) || list.iter().any(Self::expr_has_aggregate)
             }
             Expression::List(items) => items.iter().any(Self::expr_has_aggregate),
+            Expression::Map(entries) => entries.iter().any(|(_, v)| Self::expr_has_aggregate(v)),
             Expression::FunctionCall { args, .. } => args.iter().any(Self::expr_has_aggregate),
             Expression::Case(case_expr) => {
                 case_expr
@@ -5638,6 +5677,16 @@ fn eval_inline_value<'g>(
                 .map(|item| eval_inline_value(snapshot, item, element, params))
                 .collect();
             Value::List(values)
+        }
+        Expression::Map(entries) => {
+            let map: std::collections::HashMap<String, Value> = entries
+                .iter()
+                .map(|(key, value_expr)| {
+                    let value = eval_inline_value(snapshot, value_expr, element, params);
+                    (key.clone(), value)
+                })
+                .collect();
+            Value::Map(map)
         }
         // For inline WHERE, we don't support complex expressions like EXISTS, CASE, or function calls
         // These would require additional context or be expensive to evaluate per-element

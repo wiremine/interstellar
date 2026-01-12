@@ -10367,3 +10367,218 @@ fn test_gql_string_concat_multiple_returns() {
         panic!("Expected map result for multiple return items");
     }
 }
+
+// =============================================================================
+// Map Literal Tests
+// =============================================================================
+
+#[test]
+fn test_gql_map_literal_basic() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Basic map literal with literal values
+    let results = snapshot
+        .gql("MATCH (n:Person) RETURN {name: 'test', count: 42} AS data")
+        .unwrap();
+
+    assert!(!results.is_empty());
+    // Single return item returns value directly
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("name"), Some(&Value::String("test".to_string())));
+        assert_eq!(map.get("count"), Some(&Value::Int(42)));
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_with_properties() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Map literal with property references
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN {personName: n.name, personAge: n.age} AS info")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("personName"),
+            Some(&Value::String("Alice".to_string()))
+        );
+        assert_eq!(map.get("personAge"), Some(&Value::Int(30)));
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_empty() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Empty map literal
+    let results = snapshot.gql("MATCH (n:Person) RETURN {} AS empty").unwrap();
+
+    assert!(!results.is_empty());
+    if let Value::Map(map) = &results[0] {
+        assert!(map.is_empty());
+    } else {
+        panic!("Expected empty map, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_with_expressions() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Map with expressions as values
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN {doubled: n.age * 2, greeting: 'Hello ' || n.name} AS computed")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("doubled"), Some(&Value::Int(60))); // 30 * 2
+        assert_eq!(
+            map.get("greeting"),
+            Some(&Value::String("Hello Alice".to_string()))
+        );
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_nested() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Nested map literal
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN {person: {name: n.name, age: n.age}, type: 'data'} AS nested")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(outer) = &results[0] {
+        assert_eq!(outer.get("type"), Some(&Value::String("data".to_string())));
+        if let Some(Value::Map(inner)) = outer.get("person") {
+            assert_eq!(inner.get("name"), Some(&Value::String("Alice".to_string())));
+            assert_eq!(inner.get("age"), Some(&Value::Int(30)));
+        } else {
+            panic!("Expected nested map for 'person'");
+        }
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_with_let() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Map literal in LET clause
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' LET profile = {name: n.name, age: n.age} RETURN profile")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+        assert_eq!(map.get("age"), Some(&Value::Int(30)));
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_in_collect() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Map literal inside COLLECT aggregation
+    let results = snapshot
+        .gql("MATCH (n:Person) LET people = COLLECT({name: n.name, age: n.age}) RETURN people")
+        .unwrap();
+
+    // Each row gets the same aggregated result (3 persons)
+    assert_eq!(results.len(), 3);
+    if let Value::List(items) = &results[0] {
+        assert_eq!(items.len(), 3);
+        // Check that each item is a map with name and age
+        for item in items {
+            if let Value::Map(map) = item {
+                assert!(map.contains_key("name"));
+                assert!(map.contains_key("age"));
+            } else {
+                panic!("Expected map in list, got {:?}", item);
+            }
+        }
+    } else {
+        panic!("Expected list result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_multiple_entries() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Map with multiple entries
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN {a: 1, b: 2, c: 3, d: 4} AS multi")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("a"), Some(&Value::Int(1)));
+        assert_eq!(map.get("b"), Some(&Value::Int(2)));
+        assert_eq!(map.get("c"), Some(&Value::Int(3)));
+        assert_eq!(map.get("d"), Some(&Value::Int(4)));
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+#[test]
+fn test_gql_map_literal_parse() {
+    use intersteller::gql::Expression;
+
+    // Test parsing without execution
+    let query = parse("MATCH (n:Person) RETURN {name: n.name, age: 30} AS data").unwrap();
+
+    // Check that the return expression is a Map
+    if let Expression::Map(entries) = &query.return_clause.items[0].expression {
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].0, "name");
+        assert_eq!(entries[1].0, "age");
+    } else {
+        panic!("Expected Map expression in RETURN");
+    }
+}
+
+#[test]
+fn test_gql_map_literal_with_string_key() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Map with string literal key (for special characters in keys)
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN {'full-name': n.name, 'years-old': n.age} AS data")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("full-name"),
+            Some(&Value::String("Alice".to_string()))
+        );
+        assert_eq!(map.get("years-old"), Some(&Value::Int(30)));
+    } else {
+        panic!("Expected map result, got {:?}", results[0]);
+    }
+}

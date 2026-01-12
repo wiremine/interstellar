@@ -1136,6 +1136,32 @@ pub enum Expression {
         /// Transformation expression applied to each element.
         transform: Box<Expression>,
     },
+
+    /// Map literal: `{key: value, ...}`
+    ///
+    /// Creates a map/object value with key-value pairs.
+    /// Keys must be identifiers (unquoted) or string literals.
+    /// Values can be any expression.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Simple map literal
+    /// {name: 'Alice', age: 30}
+    ///
+    /// -- Map with property references
+    /// {personName: p.name, personAge: p.age}
+    ///
+    /// -- In COLLECT
+    /// LET data = COLLECT({parent: parent, type: event.type})
+    ///
+    /// -- Nested maps
+    /// RETURN {
+    ///     name: p.name,
+    ///     stats: {friends: friendCount, posts: postCount}
+    /// } AS profile
+    /// ```
+    Map(Vec<(String, Expression)>),
 }
 
 /// A CASE expression with WHEN/THEN/ELSE branches.

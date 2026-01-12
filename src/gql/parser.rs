@@ -1418,10 +1418,11 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         }
         Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
         Rule::list_comprehension => build_list_comprehension(inner),
+        Rule::map_expr => build_map_expr(inner),
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, or list comprehension",
+            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, list comprehension, or map literal",
         )),
     }
 }
@@ -1591,6 +1592,80 @@ fn build_list_expr(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Expression>,
         }
     }
     Ok(items)
+}
+
+/// Build a map literal expression from a pest pair.
+///
+/// Grammar: `{key: value, key2: value2, ...}`
+///
+/// Keys can be identifiers or string literals.
+///
+/// # Examples
+///
+/// ```text
+/// {name: 'Alice', age: 30}
+/// {personName: p.name, personAge: p.age}
+/// {'string-key': value, regularKey: value2}
+/// ```
+fn build_map_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut entries = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::map_entry {
+            let (key, value) = build_map_entry(inner)?;
+            entries.push((key, value));
+        }
+    }
+
+    Ok(Expression::Map(entries))
+}
+
+/// Build a single map entry (key: value) from a pest pair.
+fn build_map_entry(pair: pest::iterators::Pair<Rule>) -> Result<(String, Expression), ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut inner = pair.into_inner();
+
+    // First element: map_key (identifier or string)
+    let key_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("map key", pair_span))?;
+    let key = build_map_key(key_pair)?;
+
+    // Second element: expression (the value)
+    let value_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("map value", pair_span))?;
+    let value = build_expression(value_pair)?;
+
+    Ok((key, value))
+}
+
+/// Build a map key from a pest pair.
+/// Keys can be identifiers or string literals.
+fn build_map_key(pair: pest::iterators::Pair<Rule>) -> Result<String, ParseError> {
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("map key", Span { start: 0, end: 0 }))?;
+
+    match inner.as_rule() {
+        Rule::identifier => Ok(inner.as_str().to_string()),
+        Rule::string => {
+            // String literal - extract inner content without quotes
+            let s = inner.as_str();
+            // Remove surrounding quotes and handle escaped quotes
+            let inner_content = inner
+                .into_inner()
+                .next()
+                .map(|p| p.as_str().replace("''", "'"))
+                .unwrap_or_else(|| {
+                    // Fallback: strip quotes manually
+                    s.trim_matches('\'').replace("''", "'")
+                });
+            Ok(inner_content)
+        }
+        _ => Ok(inner.as_str().to_string()),
+    }
 }
 
 /// Build a list comprehension expression from a pest pair.

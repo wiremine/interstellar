@@ -282,7 +282,16 @@ primary = {
     | variable
     | paren_expr
     | list_expr
+    | map_expr  // Map literal expression
 }
+
+// Map literal expression: {key: value, key2: value2}
+// Keys can be identifiers or string literals
+// e.g., {name: 'Alice', age: 30}
+// e.g., {personName: p.name, personAge: p.age}
+map_expr = { "{" ~ (map_entry ~ ("," ~ map_entry)*)? ~ "}" }
+map_entry = { map_key ~ ":" ~ expression }
+map_key = { identifier | string }
 
 // Parameter reference: $paramName
 // Used for parameterized queries with safe value injection
