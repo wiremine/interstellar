@@ -1105,6 +1105,37 @@ pub enum Expression {
     /// END
     /// ```
     Case(CaseExpression),
+
+    /// List comprehension: `[x IN list | expression]`
+    ///
+    /// Transforms and optionally filters a list. Each element of the input list
+    /// is bound to the variable, optionally filtered, then transformed.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Basic transformation
+    /// [x IN list | x.name]
+    ///
+    /// -- With filter
+    /// [x IN list WHERE x.active | x.name]
+    ///
+    /// -- Expression transformation
+    /// [n IN numbers | n * 2]
+    ///
+    /// -- String building
+    /// [t IN types | t.category || ': ' || t.name]
+    /// ```
+    ListComprehension {
+        /// Variable name bound to each element.
+        variable: String,
+        /// The list expression to iterate over.
+        list: Box<Expression>,
+        /// Optional filter condition.
+        filter: Option<Box<Expression>>,
+        /// Transformation expression applied to each element.
+        transform: Box<Expression>,
+    },
 }
 
 /// A CASE expression with WHEN/THEN/ELSE branches.

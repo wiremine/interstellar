@@ -172,7 +172,7 @@ pub fn parse_statement(input: &str) -> Result<Statement, ParseError> {
 
 /// Build a Statement from a pest pair.
 fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::read_statement => {
                 return build_read_statement(inner);
@@ -193,7 +193,7 @@ fn build_read_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, 
     let mut queries = Vec::new();
     let mut union_all = false;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::query => {
                 queries.push(build_query(inner)?);
@@ -244,7 +244,7 @@ fn build_create_only_statement(pair: pest::iterators::Pair<Rule>) -> Result<Stat
     let mut mutations = Vec::new();
     let mut return_clause = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::create_clause => {
                 mutations.push(MutationClause::Create(build_create_clause(inner)?));
@@ -275,7 +275,7 @@ fn build_match_mutation_statement(
     let mut mutations = Vec::new();
     let mut return_clause = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::match_clause => {
                 match_clause = Some(build_match_clause(inner)?);
@@ -313,7 +313,7 @@ fn build_merge_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement,
     let mut on_match = None;
     let mut return_clause = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::merge_clause => {
                 // Extract pattern from merge_clause
@@ -382,7 +382,7 @@ fn build_mutation_clause(pair: pest::iterators::Pair<Rule>) -> Result<MutationCl
 fn build_create_clause(pair: pest::iterators::Pair<Rule>) -> Result<CreateClause, ParseError> {
     let mut patterns = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::pattern {
             patterns.push(build_pattern(inner)?);
         }
@@ -395,7 +395,7 @@ fn build_create_clause(pair: pest::iterators::Pair<Rule>) -> Result<CreateClause
 fn build_set_clause(pair: pest::iterators::Pair<Rule>) -> Result<SetClause, ParseError> {
     let mut items = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::set_item {
             items.push(build_set_item(inner)?);
         }
@@ -410,7 +410,7 @@ fn build_set_item(pair: pest::iterators::Pair<Rule>) -> Result<SetItem, ParseErr
     let mut target = None;
     let mut value = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::property_access => {
                 target = Some(build_property_ref(inner)?);
@@ -454,7 +454,7 @@ fn build_set_items_from_action(
 ) -> Result<Vec<SetItem>, ParseError> {
     let mut items = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::set_item {
             items.push(build_set_item(inner)?);
         }
@@ -467,7 +467,7 @@ fn build_set_items_from_action(
 fn build_remove_clause(pair: pest::iterators::Pair<Rule>) -> Result<RemoveClause, ParseError> {
     let mut properties = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::remove_item {
             // remove_item contains property_access
             for item_inner in inner.into_inner() {
@@ -485,7 +485,7 @@ fn build_remove_clause(pair: pest::iterators::Pair<Rule>) -> Result<RemoveClause
 fn build_delete_clause(pair: pest::iterators::Pair<Rule>) -> Result<DeleteClause, ParseError> {
     let mut variables = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::variable {
             variables.push(inner.as_str().to_string());
         }
@@ -500,7 +500,7 @@ fn build_detach_delete_clause(
 ) -> Result<DetachDeleteClause, ParseError> {
     let mut variables = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::variable {
             variables.push(inner.as_str().to_string());
         }
@@ -522,7 +522,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut order_clause = None;
     let mut limit_clause = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::match_clause => match_clause = Some(build_match_clause(inner)?),
             Rule::optional_match_clause => {
@@ -573,7 +573,7 @@ fn build_let_clause(pair: pest::iterators::Pair<Rule>) -> Result<LetClause, Pars
     let mut variable = None;
     let mut expression = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::identifier => variable = Some(inner.as_str().to_string()),
             Rule::expression => expression = Some(build_expression(inner)?),
@@ -592,7 +592,7 @@ fn build_group_by_clause(pair: pest::iterators::Pair<Rule>) -> Result<GroupByCla
     let pair_span = span_from_pair(&pair);
     let mut expressions = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::expression {
             expressions.push(build_expression(inner)?);
         }
@@ -608,7 +608,7 @@ fn build_group_by_clause(pair: pest::iterators::Pair<Rule>) -> Result<GroupByCla
 fn build_order_clause(pair: pest::iterators::Pair<Rule>) -> Result<OrderClause, ParseError> {
     let mut items = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::order_item {
             items.push(build_order_item(inner)?);
         }
@@ -622,7 +622,7 @@ fn build_order_item(pair: pest::iterators::Pair<Rule>) -> Result<OrderItem, Pars
     let mut expression = None;
     let mut descending = false;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::expression => expression = Some(build_expression(inner)?),
             Rule::DESC => descending = true,
@@ -643,7 +643,7 @@ fn build_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, 
     let mut offset = None;
     let mut seen_limit = false;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::integer {
             let span = span_from_pair(&inner);
             let n: u64 = inner.as_str().parse().map_err(|_| {
@@ -664,7 +664,7 @@ fn build_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, 
 fn build_match_clause(pair: pest::iterators::Pair<Rule>) -> Result<MatchClause, ParseError> {
     let mut patterns = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::pattern {
             patterns.push(build_pattern(inner)?);
         }
@@ -678,7 +678,7 @@ fn build_optional_match_clause(
 ) -> Result<OptionalMatchClause, ParseError> {
     let mut patterns = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::pattern {
             patterns.push(build_pattern(inner)?);
         }
@@ -693,7 +693,7 @@ fn build_optional_match_clause(
 fn build_with_path_clause(pair: pest::iterators::Pair<Rule>) -> Result<WithPathClause, ParseError> {
     let mut alias = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::identifier {
             alias = Some(inner.as_str().to_string());
         }
@@ -710,7 +710,7 @@ fn build_unwind_clause(pair: pest::iterators::Pair<Rule>) -> Result<UnwindClause
     let mut expression = None;
     let mut alias = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::expression => expression = Some(build_expression(inner)?),
             Rule::identifier => alias = Some(inner.as_str().to_string()),
@@ -728,7 +728,7 @@ fn build_unwind_clause(pair: pest::iterators::Pair<Rule>) -> Result<UnwindClause
 fn build_pattern(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {
     let mut elements = Vec::new();
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::node_pattern => {
                 elements.push(PatternElement::Node(build_node_pattern(inner)?));
@@ -749,7 +749,7 @@ fn build_node_pattern(pair: pest::iterators::Pair<Rule>) -> Result<NodePattern, 
     let mut properties = Vec::new();
     let mut where_clause = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::variable => variable = Some(inner.as_str().to_string()),
             Rule::label_filter => {
@@ -783,7 +783,7 @@ fn build_edge_pattern(pair: pest::iterators::Pair<Rule>) -> Result<EdgePattern, 
     let mut has_left = false;
     let mut has_right = false;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::left_arrow => has_left = true,
             Rule::right_arrow => has_right = true,
@@ -818,7 +818,7 @@ fn build_edge_pattern(pair: pest::iterators::Pair<Rule>) -> Result<EdgePattern, 
 
 fn build_labels(pair: pest::iterators::Pair<Rule>) -> Result<Vec<String>, ParseError> {
     let mut labels = Vec::new();
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::identifier {
             labels.push(inner.as_str().to_string());
         }
@@ -830,7 +830,7 @@ fn build_quantifier(pair: pest::iterators::Pair<Rule>) -> Result<PathQuantifier,
     let mut min = None;
     let mut max = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::range {
             let span = span_from_pair(&inner);
             let range_str = inner.as_str();
@@ -953,7 +953,7 @@ fn build_return_clause(pair: pest::iterators::Pair<Rule>) -> Result<ReturnClause
     let mut items = Vec::new();
     let mut distinct = false;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::DISTINCT => distinct = true,
             Rule::return_item => items.push(build_return_item(inner)?),
@@ -969,7 +969,7 @@ fn build_return_item(pair: pest::iterators::Pair<Rule>) -> Result<ReturnItem, Pa
     let mut expression = None;
     let mut alias = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::expression => expression = Some(build_expression(inner)?),
             Rule::identifier => alias = Some(inner.as_str().to_string()),
@@ -1060,7 +1060,7 @@ fn build_not_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Parse
     let mut not_count = 0;
     let mut comparison_pair = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::NOT => not_count += 1,
             Rule::comparison => comparison_pair = Some(inner),
@@ -1316,7 +1316,7 @@ fn build_unary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseErr
     let mut negated = false;
     let mut primary_pair = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::neg_op => negated = true,
             Rule::primary => primary_pair = Some(inner),
@@ -1384,10 +1384,11 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
             build_expression_from_inner(inner_expr)
         }
         Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
+        Rule::list_comprehension => build_list_comprehension(inner),
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, function call, parameter, CASE, or EXISTS expression",
+            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, or list comprehension",
         )),
     }
 }
@@ -1399,7 +1400,7 @@ fn build_case_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Pars
     let mut when_clauses = Vec::new();
     let mut else_clause = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::case_when_clause => {
                 let (condition, result) = build_case_when_clause(inner)?;
@@ -1426,7 +1427,7 @@ fn build_case_when_clause(
     let mut condition = None;
     let mut result = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::expression {
             if condition.is_none() {
                 condition = Some(build_expression(inner)?);
@@ -1445,7 +1446,7 @@ fn build_case_when_clause(
 /// Build the ELSE clause from a pest pair.
 fn build_case_else_clause(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
     let pair_span = span_from_pair(&pair);
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::expression {
             return build_expression(inner);
         }
@@ -1461,7 +1462,7 @@ fn build_exists_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Pa
     let mut negated = false;
     let mut pattern = None;
 
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::NOT => negated = true,
             Rule::pattern => pattern = Some(build_pattern(inner)?),
@@ -1551,12 +1552,279 @@ fn build_function_call(pair: pest::iterators::Pair<Rule>) -> Result<Expression, 
 
 fn build_list_expr(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Expression>, ParseError> {
     let mut items = Vec::new();
-    for inner in pair.into_inner() {
+    for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::expression {
             items.push(build_expression(inner)?);
         }
     }
     Ok(items)
+}
+
+/// Build a list comprehension expression from a pest pair.
+///
+/// Grammar: `[variable IN list_comp_source WHERE? list_comp_filter | expression]`
+///
+/// # Examples
+///
+/// ```text
+/// [x IN people | x.name]               -- basic transformation
+/// [x IN people WHERE x.age > 18 | x.name]  -- with filter
+/// [n IN numbers | n * 2]               -- numeric transformation
+/// ```
+fn build_list_comprehension(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut inner = pair.into_inner();
+
+    // First element: identifier (the variable name)
+    let variable = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("variable", pair_span))?
+        .as_str()
+        .to_string();
+
+    // Skip the IN keyword (it appears as an inner rule)
+    let _in_keyword = inner.next();
+
+    // Third element: list_comp_source (the list to iterate over)
+    let list_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("list expression", pair_span))?;
+    let list = Box::new(build_list_comp_expr(list_pair)?);
+
+    // Remaining elements: optional list_comp_where, pipe_token, and transform expression
+    let mut filter = None;
+    let mut transform = None;
+
+    for item in inner {
+        match item.as_rule() {
+            Rule::list_comp_where => {
+                // Extract the list_comp_filter from WHERE clause (skip WHERE keyword)
+                for where_inner in item.into_inner() {
+                    if where_inner.as_rule() == Rule::list_comp_filter {
+                        filter = Some(Box::new(build_list_comp_expr(where_inner)?));
+                        break;
+                    }
+                }
+            }
+            Rule::pipe_token => {
+                // Skip the pipe token - it's just a delimiter
+            }
+            Rule::expression => {
+                // This is the transform expression (after the |)
+                transform = Some(Box::new(build_expression(item)?));
+            }
+            _ => {}
+        }
+    }
+
+    let transform =
+        transform.ok_or_else(|| ParseError::missing_clause("transform expression", pair_span))?;
+
+    Ok(Expression::ListComprehension {
+        variable,
+        list,
+        filter,
+        transform,
+    })
+}
+
+/// Build an expression from list comprehension source/filter rules.
+///
+/// These rules use a simplified grammar to avoid ambiguity with the `|` token.
+fn build_list_comp_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut terms: Vec<(Option<BinaryOperator>, Expression)> = Vec::new();
+
+    for item in pair.into_inner() {
+        match item.as_rule() {
+            Rule::list_comp_term => {
+                let term_expr = build_list_comp_term(item)?;
+                terms.push((None, term_expr));
+            }
+            Rule::list_comp_binop => {
+                // Store the operator to apply to the next term
+                let op = build_list_comp_binop(&item)?;
+                if let Some(last) = terms.last_mut() {
+                    if last.0.is_none() {
+                        // This term doesn't have an operator yet, store it for combining with next
+                        last.0 = Some(op);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Build expression tree from terms (left-to-right for simplicity)
+    if terms.is_empty() {
+        return Err(ParseError::missing_clause("expression", pair_span));
+    }
+
+    let mut result = terms.remove(0).1;
+    for (maybe_op, term) in terms {
+        if let Some(op) = maybe_op {
+            result = Expression::BinaryOp {
+                left: Box::new(result),
+                op,
+                right: Box::new(term),
+            };
+        } else {
+            // No operator - shouldn't happen in well-formed input
+            result = term;
+        }
+    }
+
+    Ok(result)
+}
+
+/// Build a term from the list comprehension grammar.
+fn build_list_comp_term(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut is_not = false;
+    let mut primary_expr = None;
+    let mut is_null = false;
+    let is_not_null = false;
+
+    for item in pair.into_inner() {
+        match item.as_rule() {
+            Rule::NOT => {
+                is_not = true;
+            }
+            Rule::list_comp_primary => {
+                primary_expr = Some(build_list_comp_primary(item)?);
+            }
+            Rule::IS => {
+                // Next will be NOT? NULL
+            }
+            Rule::NULL => {
+                is_null = true;
+            }
+            _ => {}
+        }
+    }
+
+    let mut expr =
+        primary_expr.ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?;
+
+    // Handle IS NULL / IS NOT NULL
+    if is_null {
+        expr = Expression::IsNull {
+            expr: Box::new(expr),
+            negated: is_not_null,
+        };
+        is_not = false; // IS NOT NULL is handled separately
+    }
+
+    // Handle NOT prefix
+    if is_not {
+        expr = Expression::UnaryOp {
+            op: UnaryOperator::Not,
+            expr: Box::new(expr),
+        };
+    }
+
+    Ok(expr)
+}
+
+/// Build a primary expression from the list comprehension grammar.
+fn build_list_comp_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?;
+
+    match inner.as_rule() {
+        Rule::function_call => build_function_call(inner),
+        Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
+        Rule::property_access => {
+            let span = span_from_pair(&inner);
+            let mut parts = inner.into_inner();
+            let variable = parts
+                .next()
+                .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                .as_str()
+                .to_string();
+            let property = parts
+                .next()
+                .ok_or_else(|| ParseError::missing_clause("property", span))?
+                .as_str()
+                .to_string();
+            Ok(Expression::Property { variable, property })
+        }
+        Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
+        Rule::expression => build_expression(inner),
+        _ => Err(ParseError::unexpected_token(
+            span_from_pair(&inner),
+            inner.as_str(),
+            "function call, literal, property access, variable, or parenthesized expression",
+        )),
+    }
+}
+
+/// Build a binary operator from the list comprehension grammar.
+fn build_list_comp_binop(pair: &pest::iterators::Pair<Rule>) -> Result<BinaryOperator, ParseError> {
+    let inner = pair.clone().into_inner().next();
+
+    if let Some(op_pair) = inner {
+        match op_pair.as_rule() {
+            Rule::AND => Ok(BinaryOperator::And),
+            Rule::OR => Ok(BinaryOperator::Or),
+            Rule::comp_op => {
+                let comp_inner = op_pair.into_inner().next();
+                if let Some(comp) = comp_inner {
+                    match comp.as_rule() {
+                        Rule::eq => Ok(BinaryOperator::Eq),
+                        Rule::neq => Ok(BinaryOperator::Neq),
+                        Rule::lt => Ok(BinaryOperator::Lt),
+                        Rule::lte => Ok(BinaryOperator::Lte),
+                        Rule::gt => Ok(BinaryOperator::Gt),
+                        Rule::gte => Ok(BinaryOperator::Gte),
+                        Rule::CONTAINS => Ok(BinaryOperator::Contains),
+                        Rule::starts_with => Ok(BinaryOperator::StartsWith),
+                        Rule::ends_with => Ok(BinaryOperator::EndsWith),
+                        _ => Ok(BinaryOperator::Eq),
+                    }
+                } else {
+                    Ok(BinaryOperator::Eq)
+                }
+            }
+            Rule::add_op => {
+                if op_pair.as_str() == "+" {
+                    Ok(BinaryOperator::Add)
+                } else {
+                    Ok(BinaryOperator::Sub)
+                }
+            }
+            Rule::mul_op => match op_pair.as_str() {
+                "*" => Ok(BinaryOperator::Mul),
+                "/" => Ok(BinaryOperator::Div),
+                "%" => Ok(BinaryOperator::Mod),
+                _ => Ok(BinaryOperator::Mul),
+            },
+            Rule::pow_op => Ok(BinaryOperator::Pow),
+            _ => Ok(BinaryOperator::Eq),
+        }
+    } else {
+        // Direct match on the pair's string representation
+        match pair.as_str().to_uppercase().as_str() {
+            "AND" => Ok(BinaryOperator::And),
+            "OR" => Ok(BinaryOperator::Or),
+            "+" => Ok(BinaryOperator::Add),
+            "-" => Ok(BinaryOperator::Sub),
+            "*" => Ok(BinaryOperator::Mul),
+            "/" => Ok(BinaryOperator::Div),
+            "%" => Ok(BinaryOperator::Mod),
+            "^" => Ok(BinaryOperator::Pow),
+            "=" => Ok(BinaryOperator::Eq),
+            "<>" | "!=" => Ok(BinaryOperator::Neq),
+            "<" => Ok(BinaryOperator::Lt),
+            "<=" => Ok(BinaryOperator::Lte),
+            ">" => Ok(BinaryOperator::Gt),
+            ">=" => Ok(BinaryOperator::Gte),
+            _ => Ok(BinaryOperator::Eq),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3379,5 +3647,50 @@ mod tests {
 
         // Check global WHERE exists
         assert!(query.where_clause.is_some());
+    }
+
+    #[test]
+    fn test_list_comprehension_pest_parse() {
+        // Test pest parsing directly
+        let input = "[x IN items | x * 2]";
+
+        let result = GqlParser::parse(Rule::list_comprehension, input);
+        assert!(result.is_ok(), "Failed to parse list comprehension");
+
+        let pairs = result.unwrap();
+        let pair = pairs.into_iter().next().unwrap();
+        assert_eq!(pair.as_rule(), Rule::list_comprehension);
+        assert_eq!(pair.as_str(), "[x IN items | x * 2]");
+    }
+
+    #[test]
+    fn test_list_comprehension_with_filter_pest_parse() {
+        let input = "[a IN ages WHERE a >= 30 | a]";
+
+        let result = GqlParser::parse(Rule::list_comprehension, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse list comprehension with filter"
+        );
+
+        let pairs = result.unwrap();
+        let pair = pairs.into_iter().next().unwrap();
+        assert_eq!(pair.as_rule(), Rule::list_comprehension);
+    }
+
+    #[test]
+    fn test_list_comprehension_full_parse() {
+        // Test full query parsing with list comprehension
+        let input = "MATCH (n:Person) LET doubled = [x IN items | x * 2] RETURN doubled";
+
+        let result = parse(input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse query with list comprehension"
+        );
+
+        let query = result.unwrap();
+        assert_eq!(query.let_clauses.len(), 1);
+        assert_eq!(query.let_clauses[0].variable, "doubled");
     }
 }

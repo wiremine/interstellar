@@ -272,6 +272,7 @@ primary = {
     | parameter
     | literal
     | function_call
+    | list_comprehension  // Must come before list_expr to take precedence
     | property_access
     | variable
     | paren_expr
@@ -281,6 +282,38 @@ primary = {
 // Parameter reference: $paramName
 // Used for parameterized queries with safe value injection
 parameter = @{ "$" ~ identifier }
+
+// List comprehension: [x IN list | expression] or [x IN list WHERE condition | expression]
+// Transforms and optionally filters a list
+// e.g., [p IN people | p.name]
+// e.g., [p IN people WHERE p.age > 18 | p.name]
+// Note: Uses pipe_token to distinguish the literal "|" from pest's choice operator
+list_comprehension = { "[" ~ identifier ~ IN ~ list_comp_source ~ list_comp_where? ~ pipe_token ~ expression ~ "]" }
+list_comp_where = { WHERE ~ list_comp_filter }
+pipe_token = { "|" }
+
+// List comprehension source expression - stops at WHERE or |
+// This avoids greedy matching that would consume the | token
+list_comp_source = { list_comp_term ~ (list_comp_binop ~ list_comp_term)* }
+list_comp_filter = { list_comp_term ~ (list_comp_binop ~ list_comp_term)* }
+
+// Binary operators allowed in list comprehension source (excludes |)
+list_comp_binop = {
+    AND | OR | comp_op | add_op | mul_op | pow_op
+}
+
+// Terms that can appear in list comprehension source expression
+list_comp_term = {
+    NOT? ~ list_comp_primary ~ (IS ~ NOT? ~ NULL)?
+}
+
+list_comp_primary = {
+    function_call
+    | literal  
+    | property_access
+    | variable
+    | "(" ~ expression ~ ")"
+}
 
 // CASE expression
 // CASE WHEN condition THEN result [WHEN ... THEN ...] [ELSE default] END
