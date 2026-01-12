@@ -54,7 +54,7 @@ pub use navigation::{
     OutVStep,
 };
 pub use repeat::{RepeatConfig, RepeatStep, RepeatTraversal};
-pub use sideeffect::StoreStep;
+pub use sideeffect::{AggregateStep, CapStep, ProfileStep, SideEffectStep, StoreStep};
 pub use source::{BoundTraversal, BranchBuilder, GraphTraversalSource, TraversalExecutor};
 pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
 pub use transform::{
@@ -2494,6 +2494,133 @@ impl<In> Traversal<In, Value> {
     pub fn drop(self) -> Traversal<In, Value> {
         self.add_step(mutation::DropStep::new())
     }
+
+    // -------------------------------------------------------------------------
+    // Side Effect Steps (for anonymous traversals)
+    // -------------------------------------------------------------------------
+
+    /// Store traverser values in a side-effect collection (for anonymous traversals).
+    ///
+    /// This is a **lazy step** - values are stored as they pass through the iterator,
+    /// not all at once. The traverser values pass through unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that stores values
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .out()
+    ///     .store("neighbors");
+    /// ```
+    pub fn store(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(sideeffect::StoreStep::new(key))
+    }
+
+    /// Aggregate all traverser values into a side-effect collection (for anonymous traversals).
+    ///
+    /// This is a **barrier step** - it collects ALL values before continuing.
+    /// All input traversers are collected, stored, then re-emitted.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that aggregates values
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .out()
+    ///     .aggregate("all_neighbors");
+    /// ```
+    pub fn aggregate(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(sideeffect::AggregateStep::new(key))
+    }
+
+    /// Retrieve side-effect data by key (for anonymous traversals).
+    ///
+    /// For a single key, returns the collection as a `Value::List`.
+    /// Consumes all input traversers before producing the result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that retrieves stored data
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .store("x")
+    ///     .cap("x");
+    /// ```
+    pub fn cap(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(sideeffect::CapStep::new(key))
+    }
+
+    /// Retrieve multiple side-effect collections as a map (for anonymous traversals).
+    ///
+    /// Returns a `Value::Map` with keys being the collection names
+    /// and values being `Value::List` of the stored items.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that retrieves multiple collections
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .store("x")
+    ///     .store("y")
+    ///     .cap_multi(["x", "y"]);
+    /// ```
+    pub fn cap_multi<I, S>(self, keys: I) -> Traversal<In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.add_step(sideeffect::CapStep::multi(keys))
+    }
+
+    /// Execute a sub-traversal for its side effects (for anonymous traversals).
+    ///
+    /// The sub-traversal is executed for each input traverser, but its output
+    /// is discarded. The original traverser passes through unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that executes a side effect
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .side_effect(__::out().store("neighbors"));
+    /// ```
+    pub fn side_effect(self, traversal: Traversal<Value, Value>) -> Traversal<In, Value> {
+        self.add_step(sideeffect::SideEffectStep::new(traversal))
+    }
+
+    /// Profile the traversal step timing and counts (for anonymous traversals).
+    ///
+    /// Records the number of traversers and elapsed time in milliseconds
+    /// to the side-effects under the default key "~profile".
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal with profiling
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .out()
+    ///     .profile();
+    /// ```
+    pub fn profile(self) -> Traversal<In, Value> {
+        self.add_step(sideeffect::ProfileStep::new())
+    }
+
+    /// Profile the traversal with a custom key (for anonymous traversals).
+    ///
+    /// Like `profile()`, but stores data under the specified key instead
+    /// of the default "~profile".
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal with custom profile key
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .out()
+    ///     .profile_as("out_step_profile");
+    /// ```
+    pub fn profile_as(self, key: impl Into<String>) -> Traversal<In, Value> {
+        self.add_step(sideeffect::ProfileStep::with_key(key))
+    }
 }
 
 // Re-export Predicate trait and p module
@@ -4070,6 +4197,118 @@ pub mod __ {
     pub fn branch(branch_traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
         use crate::traversal::branch::BranchStep;
         Traversal::<Value, Value>::new().add_step(BranchStep::new(branch_traversal))
+    }
+
+    // -------------------------------------------------------------------------
+    // Side Effect Steps
+    // -------------------------------------------------------------------------
+
+    /// Store traverser values in a side-effect collection.
+    ///
+    /// This is a **lazy step** - values are stored as they pass through the iterator,
+    /// not all at once. The traverser values pass through unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Store values as they pass through
+    /// let stored = __::store("x");
+    /// ```
+    pub fn store(key: impl Into<String>) -> Traversal<Value, Value> {
+        use crate::traversal::sideeffect::StoreStep;
+        Traversal::<Value, Value>::new().add_step(StoreStep::new(key))
+    }
+
+    /// Aggregate all traverser values into a side-effect collection.
+    ///
+    /// This is a **barrier step** - it collects ALL values before continuing.
+    /// All input traversers are collected, stored, then re-emitted.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Aggregate all values
+    /// let aggregated = __::aggregate("all");
+    /// ```
+    pub fn aggregate(key: impl Into<String>) -> Traversal<Value, Value> {
+        use crate::traversal::sideeffect::AggregateStep;
+        Traversal::<Value, Value>::new().add_step(AggregateStep::new(key))
+    }
+
+    /// Retrieve side-effect data by key.
+    ///
+    /// For a single key, returns the collection as a `Value::List`.
+    /// Consumes all input traversers before producing the result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Retrieve stored data
+    /// let capped = __::cap("x");
+    /// ```
+    pub fn cap(key: impl Into<String>) -> Traversal<Value, Value> {
+        use crate::traversal::sideeffect::CapStep;
+        Traversal::<Value, Value>::new().add_step(CapStep::new(key))
+    }
+
+    /// Execute a sub-traversal for its side effects.
+    ///
+    /// The sub-traversal is executed for each input traverser, but its output
+    /// is discarded. The original traverser passes through unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Execute side effect traversal
+    /// let with_side_effect = __::side_effect(__::out().store("neighbors"));
+    /// ```
+    pub fn side_effect(traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        use crate::traversal::sideeffect::SideEffectStep;
+        Traversal::<Value, Value>::new().add_step(SideEffectStep::new(traversal))
+    }
+
+    /// Profile the traversal step timing and counts.
+    ///
+    /// Records the number of traversers and elapsed time in milliseconds
+    /// to the side-effects under the default key "~profile".
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Profile traversal step
+    /// let profiled = __::profile();
+    /// ```
+    pub fn profile() -> Traversal<Value, Value> {
+        use crate::traversal::sideeffect::ProfileStep;
+        Traversal::<Value, Value>::new().add_step(ProfileStep::new())
+    }
+
+    /// Profile the traversal with a custom key.
+    ///
+    /// Like `profile()`, but stores data under the specified key instead
+    /// of the default "~profile".
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Profile with custom key
+    /// let profiled = __::profile_as("my_profile");
+    /// ```
+    pub fn profile_as(key: impl Into<String>) -> Traversal<Value, Value> {
+        use crate::traversal::sideeffect::ProfileStep;
+        Traversal::<Value, Value>::new().add_step(ProfileStep::with_key(key))
     }
 }
 

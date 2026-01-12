@@ -2379,6 +2379,189 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     }
 
     // -------------------------------------------------------------------------
+    // Side effect steps
+    // -------------------------------------------------------------------------
+
+    /// Store each traverser value into a named side-effect collection (lazy).
+    ///
+    /// This is NOT a barrier step - values are stored as they pass through,
+    /// and traversers continue immediately. Values are stored incrementally
+    /// as the traversal proceeds.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().store("x").out().store("y")
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Store all visited vertices
+    /// let _ = g.v().store("visited").out().store("neighbors").to_list();
+    ///
+    /// // Retrieve stored values from ExecutionContext's side_effects
+    /// ```
+    pub fn store(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::sideeffect::StoreStep;
+        self.add_step(StoreStep::new(key))
+    }
+
+    /// Aggregate all traverser values into a named side-effect collection (barrier).
+    ///
+    /// This is a **barrier step** - it collects ALL input traversers before
+    /// allowing any to continue. This is useful when you need all values to be
+    /// stored before subsequent steps execute.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().aggregate("x").out().where(within("x"))
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Collect all starting vertices before continuing
+    /// let result = g.v()
+    ///     .has_label("person")
+    ///     .aggregate("people")
+    ///     .out("knows")
+    ///     .to_list();
+    /// ```
+    pub fn aggregate(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::sideeffect::AggregateStep;
+        self.add_step(AggregateStep::new(key))
+    }
+
+    /// Retrieve accumulated side-effect data (single key).
+    ///
+    /// Returns a `Value::List` containing all values stored under the given key.
+    /// This step consumes the input stream first to ensure side effects are populated.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().store("x").cap("x")
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Store and retrieve vertices
+    /// let stored = g.v().store("all").cap("all").next();
+    /// // Returns Some(Value::List([...all vertices...]))
+    /// ```
+    pub fn cap(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::sideeffect::CapStep;
+        self.add_step(CapStep::new(key))
+    }
+
+    /// Retrieve accumulated side-effect data (multiple keys).
+    ///
+    /// Returns a `Value::Map` containing the stored values for each key.
+    /// Each key maps to a `Value::List` of stored values.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().store("x").store("y").cap("x", "y")
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Store and retrieve from multiple keys
+    /// let stored = g.v()
+    ///     .store("vertices")
+    ///     .out_e().store("edges")
+    ///     .cap_multi(&["vertices", "edges"])
+    ///     .next();
+    /// // Returns Some(Value::Map { "vertices" -> List, "edges" -> List })
+    /// ```
+    pub fn cap_multi<I, S>(self, keys: I) -> BoundTraversal<'g, In, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        use crate::traversal::sideeffect::CapStep;
+        self.add_step(CapStep::multi(keys))
+    }
+
+    /// Execute a traversal for side effects only.
+    ///
+    /// The sub-traversal is executed for each input traverser, but its output
+    /// is discarded. The original traverser passes through unchanged.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().sideEffect(out().count().store("counts"))
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rustgremlin::traversal::__;
+    ///
+    /// // Store counts as side effect while traversing
+    /// let names = g.v()
+    ///     .side_effect(__::out_e().count().store("edge_counts"))
+    ///     .values("name")
+    ///     .to_list();
+    /// ```
+    pub fn side_effect(
+        self,
+        traversal: crate::traversal::Traversal<Value, Value>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::sideeffect::SideEffectStep;
+        self.add_step(SideEffectStep::new(traversal))
+    }
+
+    /// Collect traversal profiling information with default key "profile".
+    ///
+    /// This step records the count of traversers and elapsed time as they pass
+    /// through. The profile data is stored in the side effects when the iterator
+    /// is exhausted.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().out().profile()
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Profile the traversal
+    /// let result = g.v().out().profile().to_list();
+    ///
+    /// // Profile data stored under "profile" key with {"count": n, "time_ms": t}
+    /// ```
+    pub fn profile(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::sideeffect::ProfileStep;
+        self.add_step(ProfileStep::new())
+    }
+
+    /// Collect traversal profiling information with a named key.
+    ///
+    /// Like `profile()`, but stores the profile data under the specified key
+    /// instead of the default "profile" key.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Profile with custom key
+    /// let result = g.v().profile_as("step1").out().profile_as("step2").to_list();
+    ///
+    /// // Two profiles stored: "step1" and "step2"
+    /// ```
+    pub fn profile_as(self, key: impl Into<String>) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::sideeffect::ProfileStep;
+        self.add_step(ProfileStep::with_key(key))
+    }
+
+    // -------------------------------------------------------------------------
     // Repeat step
     // -------------------------------------------------------------------------
 

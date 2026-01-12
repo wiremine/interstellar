@@ -197,12 +197,13 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 
 | Gremlin Function | Rust Function | Module |
 |-----------------|---------------|--------|
-| `sideEffect()` | - | - |
-| `aggregate()` | - | - |
-| `store()` | - | - |
+| `sideEffect(traversal)` | `side_effect(traversal)` | `traversal::sideeffect` |
+| `aggregate(key)` | `aggregate(key)` | `traversal::sideeffect` |
+| `store(key)` | `store(key)` | `traversal::sideeffect` |
 | `subgraph()` | - | - |
-| `cap()` | - | - |
-| `profile()` | - | - |
+| `cap(key)` | `cap(key)` | `traversal::sideeffect` |
+| `cap(key...)` | `cap_multi(keys)` | `traversal::sideeffect` |
+| `profile()` | `profile()`, `profile_as(key)` | `traversal::sideeffect` |
 
 ---
 
