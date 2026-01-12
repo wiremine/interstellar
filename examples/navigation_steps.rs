@@ -23,7 +23,6 @@ use intersteller::graph::Graph;
 use intersteller::storage::InMemoryGraph;
 use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 fn main() {
     println!("=== Intersteller Navigation Steps Example ===\n");

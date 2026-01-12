@@ -18,7 +18,6 @@ use intersteller::graph::Graph;
 use intersteller::storage::InMemoryGraph;
 use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Helper to get a vertex name from the graph for display purposes
 fn get_name(snapshot: &intersteller::graph::GraphSnapshot, vid: VertexId) -> String {

@@ -1001,7 +1001,7 @@ mod tests {
     use crate::storage::InMemoryGraph;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
-    use std::sync::Arc;
+    
 
     /// Create a test graph with the following structure:
     ///

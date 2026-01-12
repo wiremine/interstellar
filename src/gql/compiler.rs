@@ -4892,7 +4892,7 @@ mod tests {
     use crate::gql::parser::parse;
     use crate::storage::InMemoryGraph;
     use crate::Graph;
-    use std::sync::Arc;
+    
 
     #[test]
     fn test_compile_simple_match() {

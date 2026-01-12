@@ -418,7 +418,7 @@ mod tests {
     use crate::traversal::step::AnyStep;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
-    use std::sync::Arc;
+    
 
     fn create_test_graph() -> Graph {
         let mut storage = InMemoryGraph::new();

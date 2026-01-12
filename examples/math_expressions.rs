@@ -16,7 +16,6 @@ use intersteller::storage::InMemoryGraph;
 use intersteller::traversal::__;
 use intersteller::value::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 fn main() {
     let graph = create_sample_graph();

@@ -5,7 +5,6 @@ use intersteller::prelude::*;
 use intersteller::storage::InMemoryGraph;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 /// Helper to create a test graph with sample data
 fn create_test_graph() -> Graph {

@@ -390,7 +390,7 @@ mod tests {
 
         fn create_test_graph() -> Graph {
             use crate::storage::InMemoryGraph;
-            use std::sync::Arc;
+            
 
             let mut storage = InMemoryGraph::new();
 

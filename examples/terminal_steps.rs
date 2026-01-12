@@ -30,7 +30,6 @@ use intersteller::graph::Graph;
 use intersteller::storage::InMemoryGraph;
 use intersteller::value::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 fn main() {
     println!("=== Intersteller Terminal Steps Example ===\n");

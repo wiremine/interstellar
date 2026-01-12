@@ -14,7 +14,6 @@ use intersteller::graph::Graph;
 use intersteller::storage::{GraphStorage, InMemoryGraph};
 use intersteller::traversal::{MutationExecutor, __};
 
-use std::sync::Arc;
 
 fn main() {
     println!("=== Intersteller Mutation Steps Example ===\n");

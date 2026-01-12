@@ -10,7 +10,6 @@
 //! - Path preservation through branch
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use intersteller::graph::Graph;
 use intersteller::storage::InMemoryGraph;

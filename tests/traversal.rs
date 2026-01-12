@@ -10,7 +10,6 @@
 //! - Complex multi-step traversals
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use intersteller::graph::Graph;
 use intersteller::p;

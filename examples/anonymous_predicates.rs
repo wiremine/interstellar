@@ -22,7 +22,6 @@ use intersteller::traversal::p;
 use intersteller::traversal::__;
 use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 fn main() {
     println!("=== Intersteller Anonymous Traversals and Predicates Example ===\n");

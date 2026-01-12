@@ -22,7 +22,6 @@ use intersteller::storage::InMemoryGraph;
 use intersteller::traversal::__;
 use intersteller::value::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 fn main() {
     println!("=== Intersteller Filter Steps Example ===\n");

@@ -3,7 +3,6 @@
 //! Tests for `addV()`, `addE()`, `property()`, and `drop()` mutation steps.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use intersteller::graph::Graph;
 use intersteller::storage::{GraphStorage, InMemoryGraph};
