@@ -17,8 +17,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use rustgremlin::gql::{parse_statement, execute_mutation};
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::gql::{parse_statement, execute_mutation};
+//! use intersteller::storage::InMemoryGraph;
 //!
 //! let mut storage = InMemoryGraph::new();
 //!
@@ -215,8 +215,8 @@ pub enum Element {
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::gql::{parse_statement, execute_mutation};
-/// use rustgremlin::storage::InMemoryGraph;
+/// use intersteller::gql::{parse_statement, execute_mutation};
+/// use intersteller::storage::InMemoryGraph;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let stmt = parse_statement("CREATE (n:Person {name: 'Alice'})").unwrap();

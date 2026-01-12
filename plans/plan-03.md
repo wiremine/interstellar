@@ -1,6 +1,6 @@
 # Plan 03: Traversal Engine Core Implementation
 
-**Phase 3 of RustGremlin Implementation**
+**Phase 3 of Intersteller Implementation**
 
 Based on: `specs/spec-03-traversal-engine-core.md`
 
@@ -698,7 +698,7 @@ pub struct SideEffects {
 3. Ensure clean public API
 
 **Acceptance Criteria**:
-- [x] `use rustgremlin::prelude::*` imports traversal types
+- [x] `use intersteller::prelude::*` imports traversal types
 - [x] Public API is clean and documented
 
 ---

@@ -1,6 +1,6 @@
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::value::Value;
 use std::collections::HashMap;
 
 #[test]

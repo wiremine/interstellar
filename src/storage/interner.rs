@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```
-//! use rustgremlin::storage::StringInterner;
+//! use intersteller::storage::StringInterner;
 //!
 //! let mut interner = StringInterner::new();
 //!
@@ -60,7 +60,7 @@ use std::io::Write;
 /// # Example
 ///
 /// ```
-/// use rustgremlin::storage::StringInterner;
+/// use intersteller::storage::StringInterner;
 ///
 /// let mut interner = StringInterner::new();
 ///
@@ -89,7 +89,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// let interner = StringInterner::new();
     /// assert!(interner.is_empty());
@@ -126,7 +126,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// let mut interner = StringInterner::new();
     ///
@@ -170,7 +170,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// let mut interner = StringInterner::new();
     /// let id = interner.intern("greeting");
@@ -203,7 +203,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// let mut interner = StringInterner::new();
     /// interner.intern("exists");
@@ -226,7 +226,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// let mut interner = StringInterner::new();
     /// assert_eq!(interner.len(), 0);
@@ -250,7 +250,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// let mut interner = StringInterner::new();
     /// assert!(interner.is_empty());
@@ -288,7 +288,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     ///
     /// // Load string table from a byte slice (e.g., from memory-mapped file)
     /// let data = vec![
@@ -366,7 +366,7 @@ impl StringInterner {
     /// # Example
     ///
     /// ```no_run
-    /// use rustgremlin::storage::StringInterner;
+    /// use intersteller::storage::StringInterner;
     /// use std::fs::OpenOptions;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {

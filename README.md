@@ -1,4 +1,4 @@
-# RustGremlin
+# Intersteller
 
 A high-performance Rust graph traversal library with Gremlin-style fluent API.
 
@@ -18,18 +18,18 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rustgremlin = "0.1"
+intersteller = "0.1"
 
 # For persistent storage (memory-mapped files):
-# rustgremlin = { version = "0.1", features = ["mmap"] }
+# intersteller = { version = "0.1", features = ["mmap"] }
 ```
 
 ### Basic Usage
 
 ```rust
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -73,7 +73,7 @@ fn main() {
 HashMap-based storage for development and small graphs:
 
 ```rust
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::storage::InMemoryGraph;
 
 let graph = InMemoryGraph::new();
 ```
@@ -84,11 +84,11 @@ Memory-mapped persistent storage with write-ahead logging. Enable with the `mmap
 
 ```toml
 [dependencies]
-rustgremlin = { version = "0.1", features = ["mmap"] }
+intersteller = { version = "0.1", features = ["mmap"] }
 ```
 
 ```rust
-use rustgremlin::storage::MmapGraph;
+use intersteller::storage::MmapGraph;
 use std::collections::HashMap;
 
 // Open or create a database
@@ -105,7 +105,7 @@ let alice = graph.add_vertex("person", HashMap::from([
 For bulk loading, use batch mode to defer fsync until commit (~500x faster):
 
 ```rust
-use rustgremlin::storage::MmapGraph;
+use intersteller::storage::MmapGraph;
 use std::collections::HashMap;
 
 let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -257,7 +257,7 @@ g.inject([1, 2, 3])      // Inject arbitrary values
 The `p` module provides rich predicates for filtering:
 
 ```rust
-use rustgremlin::traversal::p;
+use intersteller::traversal::p;
 
 p::eq(30)                          // Equals
 p::neq(30)                         // Not equals
@@ -284,7 +284,7 @@ p::not_(p::eq(30))                 // Logical NOT
 The `__` module provides anonymous traversal fragments for composition:
 
 ```rust
-use rustgremlin::traversal::__;
+use intersteller::traversal::__;
 
 // Use in branch steps
 g.v().union([

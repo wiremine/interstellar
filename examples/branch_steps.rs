@@ -9,10 +9,10 @@
 //!
 //! Run with: `cargo run --example branch_steps`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::traversal::__;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::traversal::__;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ fn display_results(results: &[Value], storage: &Arc<InMemoryGraph>) -> String {
 }
 
 fn main() {
-    println!("=== RustGremlin Branch Steps Example ===\n");
+    println!("=== Intersteller Branch Steps Example ===\n");
 
     // Create test graph
     let (graph, storage, alice, bob, charlie, graph_db) = create_test_graph();

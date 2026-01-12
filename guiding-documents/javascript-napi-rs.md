@@ -1,6 +1,6 @@
 # Native Node.js Bindings via napi-rs
 
-This document outlines the plan for creating native Node.js bindings for RustGremlin using [napi-rs](https://napi.rs/), providing better performance than WASM for server-side JavaScript applications.
+This document outlines the plan for creating native Node.js bindings for Intersteller using [napi-rs](https://napi.rs/), providing better performance than WASM for server-side JavaScript applications.
 
 ## Goals
 
@@ -27,10 +27,10 @@ This document outlines the plan for creating native Node.js bindings for RustGre
 ## Crate Structure
 
 ```
-rustgremlin/
+intersteller/
 ├── src/                          # Core library (existing)
-├── rustgremlin-wasm/             # Browser WASM bindings (see wasm.md)
-└── rustgremlin-node/             # Native Node.js bindings
+├── intersteller-wasm/             # Browser WASM bindings (see wasm.md)
+└── intersteller-node/             # Native Node.js bindings
     ├── Cargo.toml
     ├── package.json
     ├── build.rs
@@ -58,16 +58,16 @@ rustgremlin/
 
 ```toml
 [package]
-name = "rustgremlin-node"
+name = "intersteller-node"
 version = "0.1.0"
 edition = "2021"
-description = "Native Node.js bindings for RustGremlin graph database"
+description = "Native Node.js bindings for Intersteller graph database"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-rustgremlin = { path = "..", default-features = true }
+intersteller = { path = "..", default-features = true }
 napi = { version = "3", features = ["async", "serde-json"] }
 napi-derive = "3"
 
@@ -92,14 +92,14 @@ fn main() {
 
 ```json
 {
-  "name": "@rustgremlin/node",
+  "name": "@intersteller/node",
   "version": "0.1.0",
   "description": "High-performance graph traversal library for Node.js",
   "main": "index.js",
   "types": "index.d.ts",
   "files": ["index.js", "index.d.ts"],
   "napi": {
-    "binaryName": "rustgremlin",
+    "binaryName": "intersteller",
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
@@ -111,13 +111,13 @@ fn main() {
     ]
   },
   "optionalDependencies": {
-    "@rustgremlin/node-darwin-arm64": "0.1.0",
-    "@rustgremlin/node-darwin-x64": "0.1.0",
-    "@rustgremlin/node-linux-x64-gnu": "0.1.0",
-    "@rustgremlin/node-linux-arm64-gnu": "0.1.0",
-    "@rustgremlin/node-linux-x64-musl": "0.1.0",
-    "@rustgremlin/node-linux-arm64-musl": "0.1.0",
-    "@rustgremlin/node-win32-x64-msvc": "0.1.0"
+    "@intersteller/node-darwin-arm64": "0.1.0",
+    "@intersteller/node-darwin-x64": "0.1.0",
+    "@intersteller/node-linux-x64-gnu": "0.1.0",
+    "@intersteller/node-linux-arm64-gnu": "0.1.0",
+    "@intersteller/node-linux-x64-musl": "0.1.0",
+    "@intersteller/node-linux-arm64-musl": "0.1.0",
+    "@intersteller/node-win32-x64-msvc": "0.1.0"
   },
   "scripts": {
     "build": "napi build --release",
@@ -133,7 +133,7 @@ fn main() {
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/rustgremlin"
+    "url": "https://github.com/your-org/intersteller"
   },
   "keywords": ["graph", "database", "gremlin", "traversal", "native"]
 }
@@ -146,7 +146,7 @@ The API mirrors the WASM design for consistency between browser and Node.js.
 ### Graph Construction
 
 ```javascript
-const { Graph, P } = require('@rustgremlin/node');
+const { Graph, P } = require('@intersteller/node');
 
 const graph = new Graph();
 
@@ -228,7 +228,7 @@ const neighbors = g.V(alice)
 ### Predicates
 
 ```javascript
-const { P } = require('@rustgremlin/node');
+const { P } = require('@intersteller/node');
 
 // Comparison
 P.eq(value)      // equals
@@ -286,8 +286,8 @@ pub fn init() {
 ```rust
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use rustgremlin::{Graph, Value, VertexId, EdgeId};
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::{Graph, Value, VertexId, EdgeId};
+use intersteller::storage::InMemoryGraph;
 use std::sync::Arc;
 use std::collections::HashMap;
 
@@ -393,7 +393,7 @@ impl JsGraph {
 
 ```rust
 use napi::bindgen_prelude::*;
-use rustgremlin::Value;
+use intersteller::Value;
 use std::collections::HashMap;
 
 /// Convert JavaScript value to Rust Value
@@ -510,8 +510,8 @@ pub fn js_to_properties(obj: Object) -> Result<HashMap<String, Value>> {
 ```rust
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use rustgremlin::{Graph, Value, VertexId};
-use rustgremlin::traversal::{Traversal, TraversalSource, __};
+use intersteller::{Graph, Value, VertexId};
+use intersteller::traversal::{Traversal, TraversalSource, __};
 
 use crate::value::value_to_js;
 use crate::predicate::JsPredicate;
@@ -889,7 +889,7 @@ impl JsAnonymousTraversal {
 ```rust
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use rustgremlin::Value;
+use intersteller::Value;
 
 use crate::value::js_to_value;
 
@@ -1103,17 +1103,17 @@ jobs:
           
       - name: Install dependencies
         run: npm install
-        working-directory: rustgremlin-node
+        working-directory: intersteller-node
         
       - name: Build
         run: npm run build -- --target ${{ matrix.target }}
-        working-directory: rustgremlin-node
+        working-directory: intersteller-node
         
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.target }}
-          path: rustgremlin-node/*.node
+          path: intersteller-node/*.node
 
   publish:
     needs: build
@@ -1134,12 +1134,12 @@ jobs:
           
       - name: Move artifacts
         run: napi artifacts
-        working-directory: rustgremlin-node
+        working-directory: intersteller-node
         
       - name: Publish
         run: |
           npm publish --access public
-        working-directory: rustgremlin-node
+        working-directory: intersteller-node
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 ```
@@ -1148,7 +1148,7 @@ jobs:
 
 ```bash
 # Development
-cd rustgremlin-node
+cd intersteller-node
 npm install
 npm run build:debug    # Fast debug build
 npm run build          # Release build

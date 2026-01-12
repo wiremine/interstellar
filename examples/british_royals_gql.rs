@@ -26,9 +26,9 @@
 //!
 //! Run with: `cargo run --example british_royals_gql`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::Value;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
@@ -45,7 +45,7 @@ fn load_royals_graph() -> Graph {
     let data: JsonValue = serde_json::from_str(&json_str).expect("Failed to parse JSON");
 
     let mut storage = InMemoryGraph::new();
-    let mut person_ids: HashMap<String, rustgremlin::value::VertexId> = HashMap::new();
+    let mut person_ids: HashMap<String, intersteller::value::VertexId> = HashMap::new();
 
     // Load all persons as vertices
     if let Some(persons) = data["persons"].as_array() {
@@ -234,7 +234,7 @@ fn format_names(results: &[Value]) -> String {
         .join(", ")
 }
 
-fn run_query(snapshot: &rustgremlin::graph::GraphSnapshot, gql: &str) -> Vec<Value> {
+fn run_query(snapshot: &intersteller::graph::GraphSnapshot, gql: &str) -> Vec<Value> {
     match snapshot.gql(gql) {
         Ok(results) => results,
         Err(e) => {

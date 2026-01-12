@@ -14,8 +14,8 @@
 //!
 //! After running this example, run `nba_mmap_read` to query the persisted data.
 
-use rustgremlin::storage::mmap::MmapGraph;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::storage::mmap::MmapGraph;
+use intersteller::value::{Value, VertexId};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;

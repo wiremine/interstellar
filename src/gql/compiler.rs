@@ -18,8 +18,8 @@
 //! # Usage
 //!
 //! ```
-//! use rustgremlin::gql::{parse, compile};
-//! use rustgremlin::Graph;
+//! use intersteller::gql::{parse, compile};
+//! use intersteller::Graph;
 //!
 //! let graph = Graph::in_memory();
 //! // ... populate graph ...
@@ -113,10 +113,10 @@ use crate::value::Value;
 /// ## Simple node query
 ///
 /// ```
-/// use rustgremlin::gql::{parse, compile};
-/// use rustgremlin::Graph;
-/// use rustgremlin::storage::InMemoryGraph;
-/// use rustgremlin::value::Value;
+/// use intersteller::gql::{parse, compile};
+/// use intersteller::Graph;
+/// use intersteller::storage::InMemoryGraph;
+/// use intersteller::value::Value;
 /// use std::collections::HashMap;
 /// use std::sync::Arc;
 ///
@@ -135,10 +135,10 @@ use crate::value::Value;
 /// ## Query with filtering
 ///
 /// ```
-/// use rustgremlin::gql::{parse, compile};
-/// use rustgremlin::Graph;
-/// use rustgremlin::storage::InMemoryGraph;
-/// use rustgremlin::value::Value;
+/// use intersteller::gql::{parse, compile};
+/// use intersteller::Graph;
+/// use intersteller::storage::InMemoryGraph;
+/// use intersteller::value::Value;
 /// use std::collections::HashMap;
 /// use std::sync::Arc;
 ///
@@ -157,8 +157,8 @@ use crate::value::Value;
 /// ## Aggregation query
 ///
 /// ```
-/// use rustgremlin::gql::{parse, compile};
-/// use rustgremlin::Graph;
+/// use intersteller::gql::{parse, compile};
+/// use intersteller::Graph;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -197,8 +197,8 @@ pub fn compile<'g>(
 /// # Examples
 ///
 /// ```
-/// use rustgremlin::gql::{parse_statement, compile_statement};
-/// use rustgremlin::Graph;
+/// use intersteller::gql::{parse_statement, compile_statement};
+/// use intersteller::Graph;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();

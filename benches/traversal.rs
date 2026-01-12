@@ -3,8 +3,8 @@
 //! Run with: `cargo bench`
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rustgremlin::prelude::*;
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::prelude::*;
+use intersteller::storage::InMemoryGraph;
 use std::collections::HashMap;
 use std::sync::Arc;
 

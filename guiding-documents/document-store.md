@@ -1,10 +1,10 @@
 # Document Store Extension
 
-This document describes the extensions needed to use RustGremlin as a document database with graph capabilities.
+This document describes the extensions needed to use Intersteller as a document database with graph capabilities.
 
 ## Overview
 
-RustGremlin's current data model already supports document-style storage through:
+Intersteller's current data model already supports document-style storage through:
 - `Value::Map(HashMap<String, Value>)` for nested objects
 - `Value::List(Vec<Value>)` for arrays
 - Schema-free vertex/edge properties
@@ -452,7 +452,7 @@ graph.add_edge(user_id, addr_id, "lives_at", HashMap::new())?;
 ### Creating and Querying Documents
 
 ```rust
-use rustgremlin::prelude::*;
+use intersteller::prelude::*;
 
 let mut graph = InMemoryGraph::new();
 
@@ -506,7 +506,7 @@ let friends_of_alice = g.V(alice)
 
 ## Comparison with Other Document Databases
 
-| Feature | MongoDB | CouchDB | RustGremlin (proposed) |
+| Feature | MongoDB | CouchDB | Intersteller (proposed) |
 |---------|---------|---------|------------------------|
 | Nested documents | ✅ | ✅ | ✅ |
 | Secondary indexes | ✅ | ✅ | ✅ (Phase 1) |
@@ -534,10 +534,10 @@ schema-validation = ["jsonschema"]
 
 ## Conclusion
 
-RustGremlin's existing `Value` system provides a solid foundation for document storage. The proposed extensions would create a unique hybrid database that combines:
+Intersteller's existing `Value` system provides a solid foundation for document storage. The proposed extensions would create a unique hybrid database that combines:
 
 1. **Document flexibility** - Schema-free nested documents
 2. **Graph power** - Native relationship traversal
 3. **Query versatility** - Both document queries and Gremlin traversals
 
-This positions RustGremlin as a compelling alternative for applications that need both document storage and graph capabilities without running separate databases.
+This positions Intersteller as a compelling alternative for applications that need both document storage and graph capabilities without running separate databases.

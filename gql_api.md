@@ -1,6 +1,6 @@
 # GQL API Reference
 
-This document provides comprehensive documentation for the GQL (Graph Query Language) implementation in RustGremlin.
+This document provides comprehensive documentation for the GQL (Graph Query Language) implementation in Intersteller.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ This document provides comprehensive documentation for the GQL (Graph Query Lang
 
 ## Overview
 
-GQL is a declarative query language for property graphs, offering a SQL-like syntax for pattern matching, data retrieval, and mutations. The RustGremlin GQL implementation provides:
+GQL is a declarative query language for property graphs, offering a SQL-like syntax for pattern matching, data retrieval, and mutations. The Intersteller GQL implementation provides:
 
 - **Pattern Matching**: Find subgraphs using intuitive ASCII-art syntax
 - **Filtering**: WHERE clause with comparison, logical, and string operators
@@ -79,8 +79,8 @@ src/gql/
 The simplest way to execute a GQL query:
 
 ```rust
-use rustgremlin::prelude::*;
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::prelude::*;
+use intersteller::storage::InMemoryGraph;
 use std::sync::Arc;
 
 // Create a graph with data
@@ -103,8 +103,8 @@ assert_eq!(results.len(), 1);
 For mutations (CREATE, SET, DELETE, etc.), use `execute_mutation` with mutable storage:
 
 ```rust
-use rustgremlin::gql::{parse_statement, execute_mutation};
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+use intersteller::gql::{parse_statement, execute_mutation};
+use intersteller::storage::{GraphStorage, InMemoryGraph};
 
 let mut storage = InMemoryGraph::new();
 
@@ -907,8 +907,8 @@ CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
 **Rust Usage:**
 
 ```rust
-use rustgremlin::gql::{parse_statement, execute_mutation};
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::gql::{parse_statement, execute_mutation};
+use intersteller::storage::InMemoryGraph;
 
 let mut storage = InMemoryGraph::new();
 
@@ -1015,8 +1015,8 @@ RETURN n
 ### Complete Mutation Examples
 
 ```rust
-use rustgremlin::gql::{parse_statement, execute_mutation};
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+use intersteller::gql::{parse_statement, execute_mutation};
+use intersteller::storage::{GraphStorage, InMemoryGraph};
 
 let mut storage = InMemoryGraph::new();
 
@@ -1075,7 +1075,7 @@ Errors during query parsing (syntax errors).
 **Example:**
 
 ```rust
-use rustgremlin::gql::{parse, ParseError};
+use intersteller::gql::{parse, ParseError};
 
 match parse("MATCH (n:Person) RETURN") {
     Ok(_) => println!("Parsed successfully"),
@@ -1107,8 +1107,8 @@ Errors during compilation (semantic errors).
 **Example:**
 
 ```rust
-use rustgremlin::gql::{parse, compile, CompileError};
-use rustgremlin::Graph;
+use intersteller::gql::{parse, compile, CompileError};
+use intersteller::Graph;
 
 let graph = Graph::in_memory();
 let snapshot = graph.snapshot();
@@ -1140,8 +1140,8 @@ Errors during mutation execution.
 **Example:**
 
 ```rust
-use rustgremlin::gql::{parse_statement, execute_mutation, MutationError};
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::gql::{parse_statement, execute_mutation, MutationError};
+use intersteller::storage::InMemoryGraph;
 
 let mut storage = InMemoryGraph::new();
 
@@ -1164,9 +1164,9 @@ match execute_mutation(&stmt, &mut storage) {
 Wraps both parse and compile errors for convenience:
 
 ```rust
-use rustgremlin::gql::GqlError;
+use intersteller::gql::GqlError;
 
-let graph = rustgremlin::Graph::in_memory();
+let graph = intersteller::Graph::in_memory();
 let snapshot = graph.snapshot();
 
 match snapshot.gql("MATCH (n:Person) RETURN x") {
@@ -1264,7 +1264,7 @@ impl GraphSnapshot {
 
 ### Re-exports
 
-The `rustgremlin::gql` module re-exports:
+The `intersteller::gql` module re-exports:
 
 - All AST types from `ast.rs`
 - `compile`, `compile_statement` from `compiler.rs`

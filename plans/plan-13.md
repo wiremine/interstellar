@@ -1221,8 +1221,8 @@ fn parse_merge_snapshot() {
 **File:** `tests/gql_mutations.rs`
 
 ```rust
-use rustgremlin::gql::{parse, compile, execute};
-use rustgremlin::InMemoryGraph;
+use intersteller::gql::{parse, compile, execute};
+use intersteller::InMemoryGraph;
 
 #[test]
 fn test_create_vertex() {

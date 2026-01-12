@@ -13,10 +13,10 @@
 //!
 //! Run with: `cargo run --example repeat_steps`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::traversal::__;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::traversal::__;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ fn display_vertices(results: &[Value], storage: &Arc<InMemoryGraph>) -> String {
 }
 
 fn main() {
-    println!("=== RustGremlin Repeat Steps Example ===\n");
+    println!("=== Intersteller Repeat Steps Example ===\n");
 
     // Create test graph
     let (graph, storage, vertices) = create_test_graph();

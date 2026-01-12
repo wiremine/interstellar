@@ -1,6 +1,6 @@
-# RustGremlin API Reference
+# Intersteller API Reference
 
-This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implementations in RustGremlin.
+This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implementations in Intersteller.
 
 ## Legend
 
@@ -308,7 +308,7 @@ The double underscore `__` provides anonymous traversal spawning for nested trav
 All implemented steps are available as factory functions in the `__` module for creating anonymous traversals:
 
 ```rust
-use rustgremlin::traversal::__;
+use intersteller::traversal::__;
 
 // Examples
 let friends = __::out_labels(&["knows"]).has_label("person");
@@ -374,15 +374,15 @@ let names = __::values("name");
 
 ## GQL (Graph Query Language) Mutations
 
-RustGremlin also supports GQL, a declarative SQL-like query language for graphs. GQL mutations provide an alternative to the Gremlin fluent API for modifying graphs.
+Intersteller also supports GQL, a declarative SQL-like query language for graphs. GQL mutations provide an alternative to the Gremlin fluent API for modifying graphs.
 
 ### Using GQL Mutations
 
 GQL mutations are executed via `execute_mutation()` with mutable storage:
 
 ```rust
-use rustgremlin::gql::{parse_statement, execute_mutation};
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::gql::{parse_statement, execute_mutation};
+use intersteller::storage::InMemoryGraph;
 
 let mut storage = InMemoryGraph::new();
 
@@ -511,7 +511,7 @@ ON MATCH SET n.status = 'existing', n.visits = n.visits + 1
 GQL mutations can fail with `MutationError`:
 
 ```rust
-use rustgremlin::gql::MutationError;
+use intersteller::gql::MutationError;
 
 match execute_mutation(&stmt, &mut storage) {
     Ok(results) => println!("Success: {:?}", results),

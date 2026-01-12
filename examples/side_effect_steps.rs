@@ -12,10 +12,10 @@
 //!
 //! Run with: `cargo run --example side_effect_steps`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::traversal::__;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::traversal::__;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ fn format_value(value: &Value, storage: &Arc<InMemoryGraph>) -> String {
 }
 
 fn main() {
-    println!("=== RustGremlin Side Effect Steps Example ===\n");
+    println!("=== Intersteller Side Effect Steps Example ===\n");
 
     // Create test graph
     let (graph, storage, alice, bob, _charlie, _david, _graph_db, _rust_lang) = create_test_graph();

@@ -8,7 +8,7 @@ Based on: `guiding-documents/gql.md` and `guiding-documents/gql-to-ir-pipeline.m
 
 ## Overview
 
-This plan implements GQL (Graph Query Language) support for RustGremlin. The implementation follows a **spike-first approach** where Phase 1 delivers a minimal end-to-end working query before building out the full feature set.
+This plan implements GQL (Graph Query Language) support for Intersteller. The implementation follows a **spike-first approach** where Phase 1 delivers a minimal end-to-end working query before building out the full feature set.
 
 **Total Duration**: 4-5 weeks  
 **Dependencies**: Traversal engine (Plan 03) must be complete
@@ -792,7 +792,7 @@ impl<'g> GraphSnapshot<'g> {
 ```rust
 // tests/gql.rs
 
-use rustgremlin::Graph;
+use intersteller::Graph;
 
 #[test]
 fn test_gql_spike_end_to_end() {
@@ -2954,7 +2954,7 @@ pub enum CompileError {
 ```rust
 //! # GQL Parser and Compiler
 //!
-//! This module provides GQL (Graph Query Language) support for RustGremlin.
+//! This module provides GQL (Graph Query Language) support for Intersteller.
 //!
 //! ## Supported Features
 //!
@@ -2983,7 +2983,7 @@ pub enum CompileError {
 //! ## Example
 //!
 //! ```rust
-//! use rustgremlin::Graph;
+//! use intersteller::Graph;
 //!
 //! let graph = Graph::new();
 //! // ... add data ...
@@ -3145,7 +3145,7 @@ mod gql_comprehensive_tests {
 
 ```rust
 use insta::assert_yaml_snapshot;
-use rustgremlin::gql::parse;
+use intersteller::gql::parse;
 
 #[test]
 fn test_parse_simple_match_snapshot() {

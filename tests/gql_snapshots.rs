@@ -4,7 +4,7 @@
 //! and error messages, ensuring stability across changes.
 
 use insta::assert_yaml_snapshot;
-use rustgremlin::gql::{parse, parse_statement};
+use intersteller::gql::{parse, parse_statement};
 
 // =============================================================================
 // Basic Query Parsing Snapshots

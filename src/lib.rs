@@ -1,8 +1,8 @@
-//! # RustGremlin
+//! # Intersteller
 //!
 //! A high-performance Rust graph traversal library with a Gremlin-style fluent API.
 //!
-//! RustGremlin provides a type-safe, ergonomic interface for graph operations with
+//! Intersteller provides a type-safe, ergonomic interface for graph operations with
 //! support for both in-memory and persistent (memory-mapped) storage backends.
 //!
 //! ## Features
@@ -17,8 +17,8 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -60,7 +60,7 @@
 //! For the simplest setup, use the convenience constructor:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! // Create an empty in-memory graph
 //! let graph = Graph::in_memory();
@@ -89,7 +89,7 @@
 //! transform, branch, and terminal steps:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -134,7 +134,7 @@
 //! The [`p`] module provides predicates for filtering:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! // Comparison predicates
 //! let _ = p::eq(30);                // Equals
@@ -159,7 +159,7 @@
 //! The [`__`] module provides anonymous traversal fragments for composition:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -183,8 +183,8 @@
 //! For declarative queries, use the GQL interface:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -203,11 +203,11 @@
 //!
 //! ## Error Handling
 //!
-//! RustGremlin uses `Result` types throughout. See the [`error`] module for details
+//! Intersteller uses `Result` types throughout. See the [`error`] module for details
 //! on error types and recovery patterns:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -229,7 +229,7 @@
 //! Fast HashMap-based storage for development and small graphs:
 //!
 //! ```rust
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::storage::InMemoryGraph;
 //!
 //! let storage = InMemoryGraph::new();
 //! // Use directly or wrap in Graph for traversal
@@ -241,11 +241,11 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustgremlin = { version = "0.1", features = ["mmap"] }
+//! intersteller = { version = "0.1", features = ["mmap"] }
 //! ```
 //!
 //! ```ignore
-//! use rustgremlin::storage::MmapGraph;
+//! use intersteller::storage::MmapGraph;
 //!
 //! let graph = MmapGraph::open("my_graph.db").unwrap();
 //! // Data persists across restarts
@@ -268,7 +268,7 @@
 //! - Snapshots see a consistent view of the graph
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //! use std::sync::Arc;
 //! use std::thread;
 //!
@@ -320,7 +320,7 @@ pub mod value;
 /// Import the prelude to get started quickly:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();

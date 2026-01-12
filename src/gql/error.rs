@@ -19,7 +19,7 @@
 //! ## Handling parse errors
 //!
 //! ```
-//! use rustgremlin::gql::{parse, ParseError};
+//! use intersteller::gql::{parse, ParseError};
 //!
 //! match parse("MATCH (n) RETURN") {
 //!     Ok(_) => println!("Query parsed successfully"),
@@ -33,8 +33,8 @@
 //! ## Handling compile errors
 //!
 //! ```
-//! use rustgremlin::gql::{parse, compile, CompileError};
-//! use rustgremlin::Graph;
+//! use intersteller::gql::{parse, compile, CompileError};
+//! use intersteller::Graph;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();

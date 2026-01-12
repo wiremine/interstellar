@@ -1026,7 +1026,7 @@ impl_filter_step!(HasIdStep, "hasId");
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::traversal::p;
+/// use intersteller::traversal::p;
 ///
 /// // Filter to vertices where age >= 18
 /// let adults = g.v().has_where("age", p::gte(18)).to_list();
@@ -1056,7 +1056,7 @@ impl HasWhereStep {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let step = HasWhereStep::new("age", p::gte(18));
     /// ```
@@ -1134,7 +1134,7 @@ impl_filter_step!(HasWhereStep, "has");
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::traversal::p;
+/// use intersteller::traversal::p;
 ///
 /// // Filter to values equal to 29
 /// let age_29 = g.v().values("age").is_eq(29).to_list();
@@ -1161,7 +1161,7 @@ impl IsStep {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let step = IsStep::new(p::gt(25));
     /// ```
@@ -1223,7 +1223,7 @@ impl_filter_step!(IsStep, "is");
 /// # Example
 ///
 /// ```rust,ignore
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// // Find all simple paths of length 3
 /// let simple_paths = g.v()
@@ -1285,7 +1285,7 @@ impl_filter_step!(SimplePathStep, "simplePath");
 /// # Example
 ///
 /// ```rust,ignore
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// // Find all cyclic paths
 /// let cyclic_paths = g.v()
@@ -1355,7 +1355,7 @@ impl_filter_step!(CyclicPathStep, "cyclicPath");
 /// # Example
 ///
 /// ```rust,ignore
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// // Get the last vertex
 /// let last = g.v().tail().to_list();
@@ -1445,7 +1445,7 @@ impl AnyStep for TailStep {
 /// # Example
 ///
 /// ```rust,ignore
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// // Random sample of approximately 10% of vertices
 /// let sample = g.v().coin(0.1).to_list();
@@ -1924,7 +1924,7 @@ impl WherePStep {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let step = WherePStep::new(p::gt(25));
     /// let step = WherePStep::new(p::within(["Alice", "Bob"]));

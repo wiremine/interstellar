@@ -16,16 +16,16 @@
 //!
 //! Run with: `cargo run --example anonymous_predicates`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::traversal::p;
-use rustgremlin::traversal::__;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::traversal::p;
+use intersteller::traversal::__;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Anonymous Traversals and Predicates Example ===\n");
+    println!("=== Intersteller Anonymous Traversals and Predicates Example ===\n");
 
     // Create test graph
     let (graph, vertices) = create_test_graph();
@@ -470,7 +470,7 @@ fn main() {
     println!("--- Building Query DSL ---");
 
     // Helper function pattern (inline for demo)
-    fn young_adults_at_company() -> rustgremlin::traversal::Traversal<Value, Value> {
+    fn young_adults_at_company() -> intersteller::traversal::Traversal<Value, Value> {
         __::in_labels(&["works_at"])
             .has_label("person")
             .has_where("age", p::and(p::gte(25i64), p::lt(35i64)))

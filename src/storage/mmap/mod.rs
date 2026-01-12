@@ -56,7 +56,7 @@ use crate::value::{EdgeId, VertexId};
 /// to ensure durability (~5ms per operation). For bulk loading, use batch mode:
 ///
 /// ```rust,no_run
-/// use rustgremlin::storage::MmapGraph;
+/// use intersteller::storage::MmapGraph;
 /// use std::collections::HashMap;
 ///
 /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -126,7 +126,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustgremlin::storage::MmapGraph;
+    /// use intersteller::storage::MmapGraph;
     ///
     /// // Create or open a database
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -782,7 +782,7 @@ impl MmapGraph {
     ///
     /// ```ignore
     /// use std::collections::HashMap;
-    /// use rustgremlin::value::Value;
+    /// use intersteller::value::Value;
     ///
     /// let mut props = HashMap::new();
     /// props.insert("name".to_string(), Value::String("Alice".to_string()));
@@ -1118,7 +1118,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::storage::MmapGraph;
+    /// use intersteller::storage::MmapGraph;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db")?;
@@ -1192,7 +1192,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustgremlin::storage::MmapGraph;
+    /// use intersteller::storage::MmapGraph;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -1314,7 +1314,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustgremlin::storage::MmapGraph;
+    /// use intersteller::storage::MmapGraph;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -2365,8 +2365,8 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustgremlin::storage::MmapGraph;
-    /// use rustgremlin::value::Value;
+    /// use intersteller::storage::MmapGraph;
+    /// use intersteller::value::Value;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -2498,8 +2498,8 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustgremlin::storage::MmapGraph;
-    /// use rustgremlin::value::Value;
+    /// use intersteller::storage::MmapGraph;
+    /// use intersteller::value::Value;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();

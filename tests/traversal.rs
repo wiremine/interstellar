@@ -12,11 +12,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rustgremlin::graph::Graph;
-use rustgremlin::p;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::traversal::__;
-use rustgremlin::value::{EdgeId, Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::p;
+use intersteller::storage::InMemoryGraph;
+use intersteller::traversal::__;
+use intersteller::value::{EdgeId, Value, VertexId};
 
 // =============================================================================
 // Test Graph Setup

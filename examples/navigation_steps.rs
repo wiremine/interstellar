@@ -19,14 +19,14 @@
 //!
 //! Run with: `cargo run --example navigation_steps`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Navigation Steps Example ===\n");
+    println!("=== Intersteller Navigation Steps Example ===\n");
 
     // Create test graph
     let (graph, vertices) = create_test_graph();

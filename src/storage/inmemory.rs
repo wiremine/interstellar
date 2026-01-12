@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```
-//! use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+//! use intersteller::storage::{GraphStorage, InMemoryGraph};
 //! use std::collections::HashMap;
 //!
 //! // Create a graph
@@ -92,7 +92,7 @@ use crate::value::{EdgeId, Value, VertexId};
 /// # Example
 ///
 /// ```
-/// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+/// use intersteller::storage::{GraphStorage, InMemoryGraph};
 /// use std::collections::HashMap;
 ///
 /// let mut graph = InMemoryGraph::new();
@@ -178,7 +178,7 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
     ///
     /// let graph = InMemoryGraph::new();
     /// assert_eq!(graph.vertex_count(), 0);
@@ -217,8 +217,8 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-    /// use rustgremlin::Value;
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::Value;
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -282,7 +282,7 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -358,7 +358,7 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -420,7 +420,7 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -492,8 +492,8 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-    /// use rustgremlin::Value;
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::Value;
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -541,8 +541,8 @@ impl InMemoryGraph {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-    /// use rustgremlin::Value;
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::Value;
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();

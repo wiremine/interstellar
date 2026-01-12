@@ -1,6 +1,6 @@
-# RustGremlin: GraphQL Interface
+# Intersteller: GraphQL Interface
 
-This document outlines the GraphQL API for exposing RustGremlin graph data over HTTP. The interface provides query and mutation operations for vertices, edges, and schema introspection.
+This document outlines the GraphQL API for exposing Intersteller graph data over HTTP. The interface provides query and mutation operations for vertices, edges, and schema introspection.
 
 ---
 
@@ -1306,8 +1306,8 @@ pub async fn serve(graph: Arc<Graph>, config: ServerConfig) -> Result<(), std::i
 ### 7.4 Usage Example
 
 ```rust
-use rustgremlin::prelude::*;
-use rustgremlin::graphql::{serve, ServerConfig};
+use intersteller::prelude::*;
+use intersteller::graphql::{serve, ServerConfig};
 use std::sync::Arc;
 
 #[tokio::main]

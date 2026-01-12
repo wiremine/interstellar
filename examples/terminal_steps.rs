@@ -26,14 +26,14 @@
 //!
 //! Run with: `cargo run --example terminal_steps`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Terminal Steps Example ===\n");
+    println!("=== Intersteller Terminal Steps Example ===\n");
 
     // Create test graph
     let graph = create_test_graph();

@@ -1,6 +1,6 @@
 # Plan 04: Anonymous Traversals and Predicates Implementation
 
-**Phase 4 of RustGremlin Implementation**
+**Phase 4 of Intersteller Implementation**
 
 Based on: `specs/spec-04-anonymous-traversal.md`
 
@@ -741,8 +741,8 @@ struct RepeatIterator<'a> {
 5. Update prelude in `src/lib.rs`
 
 **Acceptance Criteria**:
-- [x] `use rustgremlin::prelude::*` imports `p`, `__`, all step types
-- [x] `use rustgremlin::p;` works
+- [x] `use intersteller::prelude::*` imports `p`, `__`, all step types
+- [x] `use intersteller::p;` works
 - [x] Public API is clean
 
 ---

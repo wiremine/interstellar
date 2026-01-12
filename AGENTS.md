@@ -1,10 +1,10 @@
-# AGENTS.md - RustGremlin Graph Database
+# AGENTS.md - Intersteller Graph Database
 
 Guidelines for AI coding agents working in this codebase.
 
 ## Project Overview
 
-RustGremlin is a high-performance Rust graph traversal library with:
+Intersteller is a high-performance Rust graph traversal library with:
 - **Dual storage backends**: In-memory (HashMap-based) and memory-mapped (persistent)
 - **Gremlin-style fluent API**: Chainable traversal steps with lazy evaluation
 - **Anonymous traversals**: Composable fragments via the `__` factory module

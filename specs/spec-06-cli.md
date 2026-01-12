@@ -1,4 +1,4 @@
-# RustGremlin CLI Specification
+# Intersteller CLI Specification
 
 **Spec 06: Command-Line Interface**
 
@@ -10,7 +10,7 @@
 
 ## 1. Overview
 
-This specification defines the `rustgremlin` command-line interface (CLI) tool, providing an interactive and batch-mode interface for working with RustGremlin graph databases.
+This specification defines the `intersteller` command-line interface (CLI) tool, providing an interactive and batch-mode interface for working with Intersteller graph databases.
 
 ### 1.1 Goals
 
@@ -32,7 +32,7 @@ This specification defines the `rustgremlin` command-line interface (CLI) tool, 
 ### 1.3 Binary Name
 
 ```
-rustgremlin
+intersteller
 ```
 
 ---
@@ -88,7 +88,7 @@ rustgremlin
                               │
                               ▼
               ┌──────────────────────────────┐
-              │      RustGremlin Library     │
+              │      Intersteller Library     │
               │  (Graph, Storage, Traversal) │
               └──────────────────────────────┘
 ```
@@ -98,7 +98,7 @@ rustgremlin
 ```
 src/
 ├── bin/
-│   └── rustgremlin.rs       # Binary entry point
+│   └── intersteller.rs       # Binary entry point
 └── cli/                     # CLI module (library code)
     ├── mod.rs               # Module exports
     ├── app.rs               # Application state and lifecycle
@@ -119,7 +119,7 @@ src/
 ### 3.1 Usage
 
 ```bash
-rustgremlin [OPTIONS] [DATABASE]
+intersteller [OPTIONS] [DATABASE]
 
 Arguments:
   [DATABASE]  Path to database file (omit for in-memory)
@@ -135,11 +135,11 @@ Options:
   -V, --version            Print version
 
 Examples:
-  rustgremlin                      # Start REPL with in-memory database
-  rustgremlin data.db              # Open persistent database
-  rustgremlin -e "MATCH (n) RETURN n LIMIT 10"
-  rustgremlin -f queries.gql data.db
-  cat queries.gql | rustgremlin -q data.db
+  intersteller                      # Start REPL with in-memory database
+  intersteller data.db              # Open persistent database
+  intersteller -e "MATCH (n) RETURN n LIMIT 10"
+  intersteller -f queries.gql data.db
+  cat queries.gql | intersteller -q data.db
 ```
 
 ### 3.2 Exit Codes
@@ -158,7 +158,7 @@ Examples:
 ### 4.1 Startup Banner
 
 ```
-RustGremlin v0.1.0
+Intersteller v0.1.0
 Type :help for commands, or enter a query.
 Using in-memory database.
 
@@ -167,7 +167,7 @@ gql>
 
 For persistent database:
 ```
-RustGremlin v0.1.0
+Intersteller v0.1.0
 Type :help for commands, or enter a query.
 Database: /path/to/data.db (1,234 vertices, 5,678 edges)
 
@@ -199,7 +199,7 @@ gql> MATCH (p:Person)
 
 ### 4.4 History and Completion
 
-- **History**: Persistent across sessions (`~/.rustgremlin_history`)
+- **History**: Persistent across sessions (`~/.intersteller_history`)
 - **Tab completion**: 
   - Keywords (MATCH, WHERE, RETURN, etc.)
   - Meta-commands (:help, :schema, etc.)
@@ -482,7 +482,7 @@ Warning: No LIMIT specified. Returning first 1000 rows.
 
 ### 9.1 Configuration File
 
-Location: `~/.config/rustgremlin/config.toml` (or `~/.rustgremlin.toml`)
+Location: `~/.config/intersteller/config.toml` (or `~/.intersteller.toml`)
 
 ```toml
 [display]
@@ -492,7 +492,7 @@ show_timing = true
 color = "auto"             # auto, always, never
 
 [history]
-file = "~/.rustgremlin_history"
+file = "~/.intersteller_history"
 max_entries = 10000
 
 [editor]
@@ -506,9 +506,9 @@ default_path = ""          # Empty = in-memory by default
 ### 9.2 Environment Variables
 
 ```bash
-RUSTGREMLIN_CONFIG      # Path to config file
-RUSTGREMLIN_HISTORY     # Path to history file
-RUSTGREMLIN_FORMAT      # Default output format
+INTERSTELLER_CONFIG      # Path to config file
+INTERSTELLER_HISTORY     # Path to history file
+INTERSTELLER_FORMAT      # Default output format
 NO_COLOR                # Disable colored output
 ```
 
@@ -558,8 +558,8 @@ anyhow = "1.0"
 ```toml
 # Cargo.toml
 [[bin]]
-name = "rustgremlin"
-path = "src/bin/rustgremlin.rs"
+name = "intersteller"
+path = "src/bin/intersteller.rs"
 
 [features]
 default = ["inmemory", "cli"]
@@ -577,12 +577,12 @@ Cons:
 **Option B: Workspace with separate CLI crate**
 
 ```
-rustgremlin/
+intersteller/
 ├── Cargo.toml           # Workspace root
-├── rustgremlin/         # Library crate
+├── intersteller/         # Library crate
 │   ├── Cargo.toml
 │   └── src/
-└── rustgremlin-cli/     # CLI crate
+└── intersteller-cli/     # CLI crate
     ├── Cargo.toml
     └── src/
 ```
@@ -602,7 +602,7 @@ Cons:
 ```rust
 // src/cli/mod.rs
 
-use rustgremlin::{Graph, GraphSnapshot, Value};
+use intersteller::{Graph, GraphSnapshot, Value};
 use std::path::PathBuf;
 
 /// CLI application state
@@ -655,14 +655,14 @@ pub enum ColorMode {
 ### 10.4 Main Entry Point
 
 ```rust
-// src/bin/rustgremlin.rs
+// src/bin/intersteller.rs
 
 use clap::Parser;
-use rustgremlin::cli::{App, run_repl, run_batch, run_single};
+use intersteller::cli::{App, run_repl, run_batch, run_single};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "rustgremlin")]
+#[command(name = "intersteller")]
 #[command(version, about = "Graph database CLI")]
 struct Cli {
     /// Path to database file (omit for in-memory)
@@ -933,8 +933,8 @@ fn show_help(topic: Option<&str>) {
 ```rust
 // src/cli/executor.rs
 
-use rustgremlin::{Graph, GraphSnapshot, Value};
-use rustgremlin::query::{QueryPlan, parse_gql, parse_gremlin};
+use intersteller::{Graph, GraphSnapshot, Value};
+use intersteller::query::{QueryPlan, parse_gql, parse_gremlin};
 use std::time::Instant;
 
 pub struct QueryResult {
@@ -974,7 +974,7 @@ impl App {
 // src/cli/output.rs
 
 use comfy_table::{Table, ContentArrangement, presets::UTF8_FULL};
-use rustgremlin::Value;
+use intersteller::Value;
 
 impl App {
     pub fn display_result(&self, result: &QueryResult) {
@@ -1088,7 +1088,7 @@ The GQL parser is based on the grammar defined in `guilding-documents/gql.md`. W
 Create `src/cli/parser/gql.pest`:
 
 ```pest
-// gql.pest - GQL subset grammar for RustGremlin CLI
+// gql.pest - GQL subset grammar for Intersteller CLI
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 COMMENT = _{ "--" ~ (!"\n" ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
@@ -1378,7 +1378,7 @@ The query compiler transforms the AST into executable traversals:
 // src/cli/compiler.rs
 
 use crate::cli::parser::ast::*;
-use rustgremlin::{Graph, GraphSnapshot};
+use intersteller::{Graph, GraphSnapshot};
 
 pub struct QueryCompiler<'g> {
     graph: &'g Graph,
@@ -1569,7 +1569,7 @@ mod tests {
 ```rust
 // tests/cli_integration.rs
 
-use rustgremlin::cli::{App, run_query};
+use intersteller::cli::{App, run_query};
 
 fn setup_test_graph() -> App {
     let mut app = App::new_in_memory();
@@ -1705,13 +1705,13 @@ fn test_cli_syntax_error_exit_code() {
 
 ### 13.1 CLI Launch and Arguments
 
-- [ ] `rustgremlin` launches interactive REPL with in-memory database
-- [ ] `rustgremlin <path>` opens persistent database file
-- [ ] `rustgremlin -e <query>` executes single query and exits
-- [ ] `rustgremlin -f <file>` executes queries from file and exits
-- [ ] `rustgremlin -o json` sets output format
-- [ ] `rustgremlin -q` suppresses banner/prompts for scripting
-- [ ] `rustgremlin --gremlin` starts in Gremlin mode
+- [ ] `intersteller` launches interactive REPL with in-memory database
+- [ ] `intersteller <path>` opens persistent database file
+- [ ] `intersteller -e <query>` executes single query and exits
+- [ ] `intersteller -f <file>` executes queries from file and exits
+- [ ] `intersteller -o json` sets output format
+- [ ] `intersteller -q` suppresses banner/prompts for scripting
+- [ ] `intersteller --gremlin` starts in Gremlin mode
 - [ ] Exit code 0 on success, 1 on query error, 2 on database error, 3 on argument error
 
 ### 13.2 REPL Functionality
@@ -1719,7 +1719,7 @@ fn test_cli_syntax_error_exit_code() {
 - [ ] Displays startup banner with version and database info
 - [ ] Prompt shows current mode (`gql>` or `gremlin>`)
 - [ ] Multi-line input with `...>` continuation prompt
-- [ ] Command history persisted to `~/.rustgremlin_history`
+- [ ] Command history persisted to `~/.intersteller_history`
 - [ ] Tab completion for keywords and meta-commands
 - [ ] Ctrl+C cancels current input
 - [ ] Ctrl+D exits REPL (if line empty)
@@ -1779,14 +1779,14 @@ fn test_cli_syntax_error_exit_code() {
 **Goal**: Basic CLI infrastructure without query execution
 
 **Tasks**:
-1. Set up `src/bin/rustgremlin.rs` with clap argument parsing
+1. Set up `src/bin/intersteller.rs` with clap argument parsing
 2. Implement `src/cli/mod.rs` with App state
 3. Implement basic REPL loop with rustyline
 4. Add meta-commands (:help, :quit, :status)
 5. Add output formatting skeleton (table only)
 
 **Deliverables**:
-- `rustgremlin` launches and accepts input
+- `intersteller` launches and accepts input
 - Meta-commands work
 - `:status` shows placeholder stats
 - Queries print "Not implemented"
@@ -1874,7 +1874,7 @@ fn test_cli_syntax_error_exit_code() {
 ### 15.2 Server Mode (Phase 3)
 
 ```bash
-rustgremlin serve --port 8182
+intersteller serve --port 8182
 ```
 
 - WebSocket protocol compatible with Gremlin Server

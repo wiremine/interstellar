@@ -14,7 +14,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use rustgremlin::traversal::p;
+//! use intersteller::traversal::p;
 //!
 //! // Comparison predicates
 //! g.v().has_where("age", p::gte(18));
@@ -49,7 +49,7 @@ use crate::value::Value;
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::traversal::predicate::{Predicate, p};
+/// use intersteller::traversal::predicate::{Predicate, p};
 ///
 /// // Using a comparison predicate
 /// let pred = p::eq(42);
@@ -88,7 +88,7 @@ impl Clone for Box<dyn Predicate> {
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::traversal::p;
+/// use intersteller::traversal::p;
 ///
 /// // Comparison predicates (Phase 1.2)
 /// g.v().has_where("age", p::gte(18));
@@ -117,7 +117,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::eq(42);
     /// assert!(pred.test(&Value::Int(42)));
@@ -145,7 +145,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Integer equality
     /// let pred = p::eq(42);
@@ -167,7 +167,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::neq(42);
     /// assert!(!pred.test(&Value::Int(42)));
@@ -195,7 +195,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::neq(42);
     /// assert!(pred.test(&Value::Int(41)));
@@ -213,7 +213,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::lt(50);
     /// assert!(pred.test(&Value::Int(30)));
@@ -249,7 +249,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for values less than 50
     /// let pred = p::lt(50);
@@ -267,7 +267,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::lte(50);
     /// assert!(pred.test(&Value::Int(30)));
@@ -303,7 +303,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for values less than or equal to 50
     /// let pred = p::lte(50);
@@ -321,7 +321,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::gt(50);
     /// assert!(pred.test(&Value::Int(60)));
@@ -357,7 +357,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for values greater than 50
     /// let pred = p::gt(50);
@@ -375,7 +375,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::gte(50);
     /// assert!(pred.test(&Value::Int(60)));
@@ -411,7 +411,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for values greater than or equal to 18
     /// let pred = p::gte(18);
@@ -432,7 +432,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::between(10, 20);
     /// assert!(pred.test(&Value::Int(10)));  // inclusive start
@@ -466,7 +466,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for ages 18-65 (exclusive of 65)
     /// let pred = p::between(18, 65);
@@ -483,7 +483,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::inside(10, 20);
     /// assert!(!pred.test(&Value::Int(10))); // exclusive start
@@ -516,7 +516,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for values strictly between 0 and 100
     /// let pred = p::inside(0, 100);
@@ -533,7 +533,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::outside(10, 20);
     /// assert!(pred.test(&Value::Int(5)));   // below range
@@ -569,7 +569,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for values outside the normal range
     /// let pred = p::outside(0, 100);
@@ -589,7 +589,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::within([1, 2, 3]);
     /// assert!(pred.test(&Value::Int(2)));
@@ -619,7 +619,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for specific names
     /// let pred = p::within(["Alice", "Bob", "Carol"]);
@@ -646,7 +646,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::without([1, 2, 3]);
     /// assert!(pred.test(&Value::Int(4)));
@@ -676,7 +676,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Exclude specific statuses
     /// let pred = p::without(["deleted", "archived"]);
@@ -704,7 +704,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::containing("foo");
     /// assert!(pred.test(&Value::String("foobar".to_string())));
@@ -740,7 +740,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for names containing "son"
     /// g.v().has_label("person")
@@ -759,7 +759,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::starting_with("foo");
     /// assert!(pred.test(&Value::String("foobar".to_string())));
@@ -794,7 +794,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for names starting with "A"
     /// g.v().has_label("person")
@@ -813,7 +813,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::ending_with("bar");
     /// assert!(pred.test(&Value::String("foobar".to_string())));
@@ -848,7 +848,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for email addresses ending with "@company.com"
     /// g.v().has_label("person")
@@ -867,7 +867,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::not_containing("spam");
     /// assert!(pred.test(&Value::String("hello world".to_string())));
@@ -902,7 +902,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for messages without spam keywords
     /// g.v().has_label("message")
@@ -921,7 +921,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::not_starting_with("test_");
     /// assert!(pred.test(&Value::String("production_data".to_string())));
@@ -956,7 +956,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for non-test items
     /// g.v().has_label("item")
@@ -975,7 +975,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::not_ending_with(".tmp");
     /// assert!(pred.test(&Value::String("document.pdf".to_string())));
@@ -1010,7 +1010,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for non-temporary files
     /// g.v().has_label("file")
@@ -1035,7 +1035,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// let pred = p::regex(r"^\d{3}-\d{4}$");
     /// assert!(pred.test(&Value::String("123-4567".to_string())));
@@ -1075,7 +1075,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Match phone numbers
     /// g.v().has_label("person")
@@ -1111,7 +1111,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Valid pattern
     /// let pred = p::try_regex(r"^\d+$");
@@ -1137,7 +1137,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Match ages between 18 and 65
     /// let pred = p::and(p::gte(18), p::lt(65));
@@ -1174,7 +1174,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for working-age adults
     /// g.v().has_label("person")
@@ -1203,7 +1203,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Match either "active" or "pending" status
     /// let pred = p::or(p::eq("active"), p::eq("pending"));
@@ -1240,7 +1240,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for specific statuses
     /// g.v().has_label("task")
@@ -1269,7 +1269,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Match any value that is NOT 42
     /// let pred = p::not(p::eq(42));
@@ -1304,7 +1304,7 @@ pub mod p {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter for non-admin users
     /// g.v().has_label("user")

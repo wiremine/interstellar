@@ -1,6 +1,6 @@
 //! Path Tracking Example
 //!
-//! This example demonstrates path tracking features in RustGremlin:
+//! This example demonstrates path tracking features in Intersteller:
 //! - Automatic path tracking with `with_path()`
 //! - Labeling positions with `as_()`
 //! - Selecting labeled values with `select()` and `select_one()`
@@ -14,14 +14,14 @@
 //!
 //! Run with: `cargo run --example path_tracking`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Helper to get a vertex name from the graph for display purposes
-fn get_name(snapshot: &rustgremlin::graph::GraphSnapshot, vid: VertexId) -> String {
+fn get_name(snapshot: &intersteller::graph::GraphSnapshot, vid: VertexId) -> String {
     snapshot
         .storage()
         .get_vertex(vid)
@@ -37,7 +37,7 @@ fn get_name(snapshot: &rustgremlin::graph::GraphSnapshot, vid: VertexId) -> Stri
 }
 
 /// Helper to format a value for display
-fn format_value(snapshot: &rustgremlin::graph::GraphSnapshot, value: &Value) -> String {
+fn format_value(snapshot: &intersteller::graph::GraphSnapshot, value: &Value) -> String {
     match value {
         Value::Vertex(vid) => get_name(snapshot, *vid),
         Value::Edge(eid) => format!("Edge({:?})", eid),
@@ -46,7 +46,7 @@ fn format_value(snapshot: &rustgremlin::graph::GraphSnapshot, value: &Value) -> 
 }
 
 fn main() {
-    println!("=== RustGremlin Path Tracking Example ===\n");
+    println!("=== Intersteller Path Tracking Example ===\n");
 
     // -------------------------------------------------------------------------
     // Step 1: Create a sample graph

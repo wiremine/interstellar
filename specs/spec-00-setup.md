@@ -1,6 +1,6 @@
 # Spec 00: Project Setup
 
-Foundational setup for RustGremlin prior to implementing core types. Draws from `overview.md` and `implementation.md`.
+Foundational setup for Intersteller prior to implementing core types. Draws from `overview.md` and `implementation.md`.
 
 ---
 
@@ -18,7 +18,7 @@ Foundational setup for RustGremlin prior to implementing core types. Draws from 
 
 ## Directory Layout
 ```
-rustgremlin/
+intersteller/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs              # Public API, prelude (skeleton)

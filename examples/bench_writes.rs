@@ -1,5 +1,5 @@
-use rustgremlin::storage::mmap::MmapGraph;
-use rustgremlin::storage::GraphStorage;
+use intersteller::storage::mmap::MmapGraph;
+use intersteller::storage::GraphStorage;
 use std::collections::HashMap;
 use std::time::Instant;
 use tempfile::TempDir;
@@ -144,7 +144,7 @@ fn bench_batch_writes() {
 }
 
 fn bench_inmemory_writes() {
-    use rustgremlin::storage::InMemoryGraph;
+    use intersteller::storage::InMemoryGraph;
 
     let mut graph = InMemoryGraph::new();
 

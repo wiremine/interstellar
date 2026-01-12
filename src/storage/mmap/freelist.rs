@@ -72,7 +72,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// let free_list = FreeList::new();
     /// assert!(free_list.is_empty());
@@ -96,7 +96,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// // Load from header with head = 42
     /// let free_list = FreeList::with_head(42);
@@ -117,7 +117,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// let mut free_list = FreeList::new();
     /// assert!(free_list.is_empty());
@@ -157,7 +157,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// let mut free_list = FreeList::new();
     ///
@@ -202,7 +202,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// let mut free_list = FreeList::new();
     /// assert!(free_list.is_empty());
@@ -278,7 +278,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// let mut free_list = FreeList::new();
     ///
@@ -305,7 +305,7 @@ impl FreeList {
     /// # Example
     ///
     /// ```
-    /// use rustgremlin::storage::mmap::freelist::FreeList;
+    /// use intersteller::storage::mmap::freelist::FreeList;
     ///
     /// let mut free_list = FreeList::new();
     /// free_list.free(3);

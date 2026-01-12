@@ -13,14 +13,14 @@
 //!
 //! Run with: `cargo run --example gql_mutations`
 
-use rustgremlin::gql::{execute_mutation, parse_statement, MutationError};
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::value::Value;
+use intersteller::gql::{execute_mutation, parse_statement, MutationError};
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::value::Value;
 
 /// Helper function to execute a GQL mutation and handle errors.
 fn execute(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
-        MutationError::Compile(rustgremlin::gql::CompileError::UnsupportedFeature(format!(
+        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(format!(
             "Parse error: {}",
             e
         )))
@@ -29,7 +29,7 @@ fn execute(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, Mutat
 }
 
 fn main() {
-    println!("=== RustGremlin GQL Mutations Example ===\n");
+    println!("=== Intersteller GQL Mutations Example ===\n");
 
     // -------------------------------------------------------------------------
     // Step 1: Create an empty graph
@@ -81,7 +81,7 @@ fn main() {
     // Create an edge pattern between new vertices
     execute(
         &mut storage,
-        "CREATE (software:Software {name: 'RustGremlin', language: 'Rust', version: '1.0'})",
+        "CREATE (software:Software {name: 'Intersteller', language: 'Rust', version: '1.0'})",
     )
     .unwrap();
     println!("Created Software vertex");

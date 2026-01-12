@@ -1,8 +1,8 @@
 //! Integration tests for GQL module.
 
-use rustgremlin::gql::{parse, parse_statement, GqlError, Statement};
-use rustgremlin::prelude::*;
-use rustgremlin::storage::InMemoryGraph;
+use intersteller::gql::{parse, parse_statement, GqlError, Statement};
+use intersteller::prelude::*;
+use intersteller::storage::InMemoryGraph;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -222,7 +222,7 @@ fn test_gql_multiple_queries_same_snapshot() {
 
 #[test]
 fn test_parse_function_export() {
-    use rustgremlin::gql::parse;
+    use intersteller::gql::parse;
 
     let query = parse("MATCH (n:Person) RETURN n").unwrap();
 
@@ -232,7 +232,7 @@ fn test_parse_function_export() {
 
 #[test]
 fn test_compile_function_export() {
-    use rustgremlin::gql::{compile, parse};
+    use intersteller::gql::{compile, parse};
 
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
@@ -3249,7 +3249,7 @@ fn test_gql_compile_error_helpful_message() {
 /// Test that compile error for duplicate variable is helpful
 #[test]
 fn test_gql_compile_error_duplicate_variable_message() {
-    use rustgremlin::gql::CompileError;
+    use intersteller::gql::CompileError;
 
     // Test the error message directly since the compiler detects duplicates
     let err = CompileError::duplicate_variable("n");
@@ -3271,7 +3271,7 @@ fn test_gql_compile_error_duplicate_variable_message() {
 /// Test that ParseError span extraction works
 #[test]
 fn test_gql_parse_error_span_extraction() {
-    use rustgremlin::gql::{ParseError, Span};
+    use intersteller::gql::{ParseError, Span};
 
     // Create an error with a known span
     let err = ParseError::invalid_literal("abc", Span::new(5, 8), "expected integer");
@@ -3293,7 +3293,7 @@ fn test_gql_parse_error_span_extraction() {
 /// Test that CompileError messages include suggestions
 #[test]
 fn test_gql_compile_error_suggestions() {
-    use rustgremlin::gql::CompileError;
+    use intersteller::gql::CompileError;
 
     // Test undefined variable suggestion
     let err = CompileError::undefined_variable("myVar");
@@ -3317,7 +3317,7 @@ fn test_gql_compile_error_suggestions() {
 /// Test error message for empty pattern
 #[test]
 fn test_gql_compile_error_empty_pattern_message() {
-    use rustgremlin::gql::CompileError;
+    use intersteller::gql::CompileError;
 
     let err = CompileError::EmptyPattern;
     let msg = format!("{}", err);
@@ -3338,7 +3338,7 @@ fn test_gql_compile_error_empty_pattern_message() {
 /// Test error message for pattern must start with node
 #[test]
 fn test_gql_compile_error_pattern_start_message() {
-    use rustgremlin::gql::CompileError;
+    use intersteller::gql::CompileError;
 
     let err = CompileError::PatternMustStartWithNode;
     let msg = format!("{}", err);
@@ -4976,7 +4976,7 @@ fn test_gql_parse_exists_expression() {
     // The where clause should contain an EXISTS expression
     let where_clause = ast.where_clause.unwrap();
     match where_clause.expression {
-        rustgremlin::gql::Expression::Exists { negated, pattern } => {
+        intersteller::gql::Expression::Exists { negated, pattern } => {
             assert!(!negated);
             assert!(!pattern.elements.is_empty());
         }
@@ -5001,17 +5001,17 @@ fn test_gql_parse_not_exists_expression() {
 
     let where_clause = ast.where_clause.unwrap();
     match where_clause.expression {
-        rustgremlin::gql::Expression::UnaryOp { op, expr } => {
-            assert!(matches!(op, rustgremlin::gql::UnaryOperator::Not));
+        intersteller::gql::Expression::UnaryOp { op, expr } => {
+            assert!(matches!(op, intersteller::gql::UnaryOperator::Not));
             match *expr {
-                rustgremlin::gql::Expression::Exists { negated, pattern } => {
+                intersteller::gql::Expression::Exists { negated, pattern } => {
                     assert!(!negated);
                     assert!(!pattern.elements.is_empty());
                 }
                 _ => panic!("Expected EXISTS expression inside NOT"),
             }
         }
-        rustgremlin::gql::Expression::Exists { negated, pattern } => {
+        intersteller::gql::Expression::Exists { negated, pattern } => {
             // Alternative: if grammar is changed to support NOT directly
             assert!(negated);
             assert!(!pattern.elements.is_empty());
@@ -6560,7 +6560,7 @@ fn test_gql_debug_traverser_path() {
     let alice_results: Vec<_> = g
         .v()
         .has_label("Person")
-        .has_value("name", rustgremlin::value::Value::from("Alice"))
+        .has_value("name", intersteller::value::Value::from("Alice"))
         .to_list();
     println!("Alice found: {:?}", alice_results);
 
@@ -6570,7 +6570,7 @@ fn test_gql_debug_traverser_path() {
         .v()
         .with_path()
         .has_label("Person")
-        .has_value("name", rustgremlin::value::Value::from("Alice"))
+        .has_value("name", intersteller::value::Value::from("Alice"))
         .as_("p")
         .out_labels(&["KNOWS"])
         .out_labels(&["KNOWS"])
@@ -6585,7 +6585,7 @@ fn test_gql_debug_traverser_path() {
 /// Debug test to check traverser execution with repeat
 #[test]
 fn test_gql_debug_traverser_repeat_path() {
-    use rustgremlin::traversal::__;
+    use intersteller::traversal::__;
 
     let graph = create_social_network_graph();
     let snapshot = graph.snapshot();
@@ -6595,7 +6595,7 @@ fn test_gql_debug_traverser_repeat_path() {
         .v()
         .with_path()
         .has_label("Person")
-        .has_value("name", rustgremlin::value::Value::from("Alice"))
+        .has_value("name", intersteller::value::Value::from("Alice"))
         .as_("p")
         .repeat(__::out_labels(&["KNOWS"]))
         .times(2)

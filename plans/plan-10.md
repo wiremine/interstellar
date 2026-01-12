@@ -1443,8 +1443,8 @@ impl<'a, 'g> Compiler<'a, 'g> {
 //! This example demonstrates querying the NBA graph using GQL,
 //! comparing equivalent queries to the traversal API.
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::mmap::MmapGraph;
+use intersteller::graph::Graph;
+use intersteller::storage::mmap::MmapGraph;
 use std::sync::Arc;
 
 fn main() {
@@ -1604,7 +1604,7 @@ fn demonstrate_multi_variable(snapshot: &GraphSnapshot) {
 
 ```rust
 use insta::assert_yaml_snapshot;
-use rustgremlin::gql::parse;
+use intersteller::gql::parse;
 
 #[test]
 fn test_parse_exists_snapshot() {

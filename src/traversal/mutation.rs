@@ -16,7 +16,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! // Create a vertex with properties
 //! let vertex = g.add_v("person")
@@ -733,8 +733,8 @@ impl Default for MutationResult {
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::storage::InMemoryGraph;
-/// use rustgremlin::traversal::mutation::MutationExecutor;
+/// use intersteller::storage::InMemoryGraph;
+/// use intersteller::traversal::mutation::MutationExecutor;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let mut executor = MutationExecutor::new(&mut storage);

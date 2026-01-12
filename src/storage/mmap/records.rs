@@ -6,7 +6,7 @@
 // File Format Constants
 // =============================================================================
 
-/// Magic number identifying RustGremlin database files ("GRML" in ASCII)
+/// Magic number identifying Intersteller database files ("GRML" in ASCII)
 pub const MAGIC: u32 = 0x47524D4C;
 
 /// File format version

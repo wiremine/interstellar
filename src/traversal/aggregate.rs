@@ -519,8 +519,8 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::*;
-/// use rustgremlin::traversal::__; // Anonymous traversal factory
+/// use intersteller::*;
+/// use intersteller::traversal::__; // Anonymous traversal factory
 ///
 /// let graph = Graph::new(/* ... */);
 /// let snapshot = graph.snapshot();
@@ -659,7 +659,7 @@ impl AnyStep for GroupCountStep {
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::*;
+/// use intersteller::*;
 ///
 /// let graph = Graph::new(/* ... */);
 /// let snapshot = graph.snapshot();

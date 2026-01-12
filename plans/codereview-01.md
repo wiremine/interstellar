@@ -1,4 +1,4 @@
-# Code Review Plan: RustGremlin Graph Database
+# Code Review Plan: Intersteller Graph Database
 
 **Date**: January 3, 2026  
 **Scope**: Comprehensive review of entire codebase  
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-This document outlines a structured code review for the RustGremlin graph traversal library. The review prioritizes correctness (bug hunting, edge cases, error handling) and code quality (maintainability, patterns, consistency).
+This document outlines a structured code review for the Intersteller graph traversal library. The review prioritizes correctness (bug hunting, edge cases, error handling) and code quality (maintainability, patterns, consistency).
 
 **Current Status**:
 - 924 unit tests passing

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of GQL mutation clauses for RustGremlin. These clauses provide a declarative, Cypher-like syntax for creating, updating, and deleting graph elements through the GQL query interface.
+This specification defines the implementation of GQL mutation clauses for Intersteller. These clauses provide a declarative, Cypher-like syntax for creating, updating, and deleting graph elements through the GQL query interface.
 
 GQL mutations build upon the existing Gremlin-style mutation steps (Spec 10) by providing an alternative, declarative syntax that integrates naturally with GQL's pattern-matching approach.
 
@@ -639,8 +639,8 @@ Note: No ORDER BY, GROUP BY, or LIMIT for mutations (these are read-only feature
 ## 8. Example Usage
 
 ```rust
-use rustgremlin::gql::{parse, compile, execute};
-use rustgremlin::InMemoryGraph;
+use intersteller::gql::{parse, compile, execute};
+use intersteller::InMemoryGraph;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let graph = InMemoryGraph::new();

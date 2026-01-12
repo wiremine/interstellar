@@ -13,11 +13,11 @@
 //! Run first: `cargo run --features mmap --example nba_mmap_write`
 //! Then run:  `cargo run --features mmap --example nba_mmap_read`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::mmap::MmapGraph;
-use rustgremlin::storage::GraphStorage;
-use rustgremlin::traversal::{p, __};
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::mmap::MmapGraph;
+use intersteller::storage::GraphStorage;
+use intersteller::traversal::{p, __};
+use intersteller::value::Value;
 use std::sync::Arc;
 
 const DB_PATH: &str = "examples/data/nba_graph.db";

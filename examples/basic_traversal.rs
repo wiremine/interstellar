@@ -7,14 +7,14 @@
 //!
 //! Run with: `cargo run --example basic_traversal`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Basic Traversal Example ===\n");
+    println!("=== Intersteller Basic Traversal Example ===\n");
 
     // -------------------------------------------------------------------------
     // Step 1: Create graph and add data

@@ -1,6 +1,6 @@
-# RustGremlin: Multi-Version Concurrency Control (MVCC)
+# Intersteller: Multi-Version Concurrency Control (MVCC)
 
-This document describes the MVCC implementation for RustGremlin, enabling lock-free reads with snapshot isolation while maintaining high write throughput.
+This document describes the MVCC implementation for Intersteller, enabling lock-free reads with snapshot isolation while maintaining high write throughput.
 
 ---
 
@@ -8,7 +8,7 @@ This document describes the MVCC implementation for RustGremlin, enabling lock-f
 
 ### 1.1 Why MVCC?
 
-RustGremlin Phase 1 uses a simple `RwLock`-based concurrency model:
+Intersteller Phase 1 uses a simple `RwLock`-based concurrency model:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -78,7 +78,7 @@ MVCC solves these problems by maintaining multiple versions of data:
 
 ### 1.4 Isolation Levels
 
-RustGremlin MVCC supports two isolation levels:
+Intersteller MVCC supports two isolation levels:
 
 ```rust
 /// Supported isolation levels
@@ -298,7 +298,7 @@ impl VersionedEdgeRecord {
 
 ### 2.5 Version Chain Storage Strategies
 
-RustGremlin supports two version chain storage strategies:
+Intersteller supports two version chain storage strategies:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

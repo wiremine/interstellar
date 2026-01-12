@@ -1,10 +1,10 @@
 # Spec 03: Traversal Engine Core
 
-**Phase 3 of RustGremlin Implementation**
+**Phase 3 of Intersteller Implementation**
 
 ## Overview
 
-This specification details the implementation of the core traversal engine - the heart of RustGremlin's Gremlin-style fluent API. Phase 3 builds on the completed Phase 1 (Core Foundation) and Phase 2 (In-Memory Storage) to deliver a functional graph query system.
+This specification details the implementation of the core traversal engine - the heart of Intersteller's Gremlin-style fluent API. Phase 3 builds on the completed Phase 1 (Core Foundation) and Phase 2 (In-Memory Storage) to deliver a functional graph query system.
 
 The architecture uses **type-erased steps** (`Box<dyn AnyStep>`) internally while maintaining **compile-time type safety** at API boundaries through `Traversal<In, Out>`. This design enables:
 - **Unified traversal type**: Same `Traversal` type for both bound and anonymous traversals

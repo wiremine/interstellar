@@ -1,6 +1,6 @@
 # Plan 05: Query IR and Predicate System Implementation
 
-**Phase 5 of RustGremlin Implementation**
+**Phase 5 of Intersteller Implementation**
 
 Based on: `specs/spec-05-ir.md`
 
@@ -829,9 +829,9 @@ impl HasPredicateStep {
 3. Document module with examples
 
 **Acceptance Criteria**:
-- [ ] `use rustgremlin::query::*` imports all types
-- [ ] `use rustgremlin::query::p` works for predicates
-- [ ] `use rustgremlin::prelude::*` includes query types
+- [ ] `use intersteller::query::*` imports all types
+- [ ] `use intersteller::query::p` works for predicates
+- [ ] `use intersteller::prelude::*` includes query types
 
 ---
 

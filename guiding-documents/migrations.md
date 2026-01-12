@@ -1,4 +1,4 @@
-# RustGremlin: Schema Versioning and Migrations
+# Intersteller: Schema Versioning and Migrations
 
 This document outlines the schema versioning system and migration framework for evolving graph schemas over time. Migrations enable safe, controlled changes to graph structure while preserving existing data.
 
@@ -694,7 +694,7 @@ pub struct MigrationStep {
 ### 5.2 Usage Example
 
 ```rust
-use rustgremlin::migration::*;
+use intersteller::migration::*;
 
 // Define migrations
 let runner = MigrationRunner::new()
@@ -995,20 +995,20 @@ impl Migration for AutoMigration {
 ### 8.1 Migration Commands
 
 ```
-rustgremlin migrate status         # Show current version and pending migrations
-rustgremlin migrate up             # Apply all pending migrations
-rustgremlin migrate up --to=5      # Migrate to specific version
-rustgremlin migrate down           # Rollback last migration
-rustgremlin migrate down --to=3    # Rollback to specific version
-rustgremlin migrate plan           # Show what migrations would run (dry run)
-rustgremlin migrate history        # Show migration history
-rustgremlin migrate create <name>  # Create new migration template
+intersteller migrate status         # Show current version and pending migrations
+intersteller migrate up             # Apply all pending migrations
+intersteller migrate up --to=5      # Migrate to specific version
+intersteller migrate down           # Rollback last migration
+intersteller migrate down --to=3    # Rollback to specific version
+intersteller migrate plan           # Show what migrations would run (dry run)
+intersteller migrate history        # Show migration history
+intersteller migrate create <name>  # Create new migration template
 ```
 
 ### 8.2 Example Output
 
 ```
-$ rustgremlin migrate status
+$ intersteller migrate status
 Database: my_graph.db
 Current version: 3
 Latest version: 6
@@ -1018,7 +1018,7 @@ Pending migrations:
   5: Split user vertices into admin and member labels  
   6: Add colleague edges between coworkers
 
-$ rustgremlin migrate plan
+$ intersteller migrate plan
 Planning migration from v3 to v6...
 
 Step 1: v3 -> v4
@@ -1036,9 +1036,9 @@ Step 3: v5 -> v6
   Reversible: Yes
   Affected: Creates ~2,500 new edges
 
-Run 'rustgremlin migrate up' to apply these migrations.
+Run 'intersteller migrate up' to apply these migrations.
 
-$ rustgremlin migrate up
+$ intersteller migrate up
 Backing up to my_graph.db.backup.20240102...
 Applying migration v3 -> v4... done (125ms, 1000 vertices)
 Applying migration v4 -> v5... done (89ms, 500 vertices)
@@ -1119,7 +1119,7 @@ impl Migration for LargeMigration {
 
 ## 10. Summary
 
-RustGremlin's migration system provides:
+Intersteller's migration system provides:
 
 | Feature | Description |
 |---------|-------------|

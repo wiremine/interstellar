@@ -1,6 +1,6 @@
 # WASM + JavaScript Bindings
 
-This document outlines the plan for compiling RustGremlin to WebAssembly with full JavaScript bindings, enabling browser-based graph traversal for demos and playgrounds.
+This document outlines the plan for compiling Intersteller to WebAssembly with full JavaScript bindings, enabling browser-based graph traversal for demos and playgrounds.
 
 ## Goals
 
@@ -45,12 +45,12 @@ This document outlines the plan for compiling RustGremlin to WebAssembly with fu
 ### Crate Structure
 
 ```
-rustgremlin/
+intersteller/
 ├── src/
 │   ├── lib.rs
 │   ├── sync.rs          # NEW: Platform-specific sync primitives
 │   └── ...
-├── rustgremlin-wasm/    # NEW: WASM bindings crate
+├── intersteller-wasm/    # NEW: WASM bindings crate
 │   ├── Cargo.toml
 │   ├── src/
 │   │   ├── lib.rs       # wasm-bindgen exports
@@ -71,7 +71,7 @@ rustgremlin/
 
 ### Phase 1: Core Library WASM Compatibility
 
-**Goal:** Make `rustgremlin` compile for `wasm32-unknown-unknown` target.
+**Goal:** Make `intersteller` compile for `wasm32-unknown-unknown` target.
 
 #### 1.1 Create Sync Abstraction Layer
 
@@ -190,27 +190,27 @@ cargo build --target wasm32-unknown-unknown --no-default-features --features inm
 
 ### Phase 2: WASM Bindings Crate
 
-**Goal:** Create `rustgremlin-wasm` crate with JavaScript bindings.
+**Goal:** Create `intersteller-wasm` crate with JavaScript bindings.
 
 #### 2.1 Create Crate Structure
 
 ```bash
-mkdir -p rustgremlin-wasm/src
+mkdir -p intersteller-wasm/src
 ```
 
-**`rustgremlin-wasm/Cargo.toml`:**
+**`intersteller-wasm/Cargo.toml`:**
 ```toml
 [package]
-name = "rustgremlin-wasm"
+name = "intersteller-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "WebAssembly bindings for RustGremlin graph database"
+description = "WebAssembly bindings for Intersteller graph database"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustgremlin = { path = "..", default-features = false, features = ["inmemory"] }
+intersteller = { path = "..", default-features = false, features = ["inmemory"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -234,7 +234,7 @@ The JS API should feel natural to JavaScript developers while maintaining Gremli
 
 **Graph Construction:**
 ```javascript
-import { Graph } from 'rustgremlin';
+import { Graph } from 'intersteller';
 
 const graph = new Graph();
 
@@ -283,7 +283,7 @@ const paths = await g.V()
 
 #### 2.3 Wrapper Types
 
-**`rustgremlin-wasm/src/lib.rs`:**
+**`intersteller-wasm/src/lib.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
 
@@ -303,10 +303,10 @@ pub fn init() {
 }
 ```
 
-**`rustgremlin-wasm/src/graph.rs`:**
+**`intersteller-wasm/src/graph.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
-use rustgremlin::{Graph, InMemoryGraph, VertexId, EdgeId, Value};
+use intersteller::{Graph, InMemoryGraph, VertexId, EdgeId, Value};
 use std::collections::HashMap;
 
 #[wasm_bindgen]
@@ -382,10 +382,10 @@ impl JsGraph {
 }
 ```
 
-**`rustgremlin-wasm/src/traversal.rs`:**
+**`intersteller-wasm/src/traversal.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
-use rustgremlin::{Graph, GraphTraversal};
+use intersteller::{Graph, GraphTraversal};
 
 #[wasm_bindgen]
 pub struct JsTraversalSource {
@@ -526,7 +526,7 @@ impl JsTraversal {
 }
 ```
 
-**`rustgremlin-wasm/src/predicate.rs`:**
+**`intersteller-wasm/src/predicate.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
 
@@ -584,7 +584,7 @@ cargo install wasm-pack
 #### 3.2 Build WASM Package
 
 ```bash
-cd rustgremlin-wasm
+cd intersteller-wasm
 wasm-pack build --target web      # For ES modules
 wasm-pack build --target bundler  # For webpack/rollup
 wasm-pack build --target nodejs   # For Node.js
@@ -593,11 +593,11 @@ wasm-pack build --target nodejs   # For Node.js
 #### 3.3 Output Structure
 
 ```
-rustgremlin-wasm/pkg/
-├── rustgremlin_wasm.js      # JS glue code
-├── rustgremlin_wasm.d.ts    # TypeScript definitions
-├── rustgremlin_wasm_bg.wasm # WASM binary
-├── rustgremlin_wasm_bg.js   # Background JS
+intersteller-wasm/pkg/
+├── intersteller_wasm.js      # JS glue code
+├── intersteller_wasm.d.ts    # TypeScript definitions
+├── intersteller_wasm_bg.wasm # WASM binary
+├── intersteller_wasm_bg.js   # Background JS
 └── package.json             # npm package metadata
 ```
 
@@ -609,11 +609,11 @@ rustgremlin-wasm/pkg/
 <!DOCTYPE html>
 <html>
 <head>
-  <title>RustGremlin Playground</title>
+  <title>Intersteller Playground</title>
 </head>
 <body>
   <script type="module">
-    import init, { Graph, P } from './pkg/rustgremlin_wasm.js';
+    import init, { Graph, P } from './pkg/intersteller_wasm.js';
 
     async function main() {
       await init();
@@ -668,7 +668,7 @@ rustgremlin-wasm/pkg/
 ### Rust Unit Tests
 
 ```bash
-cd rustgremlin-wasm
+cd intersteller-wasm
 cargo test
 ```
 

@@ -1,6 +1,6 @@
-# RustGremlin: Core Algorithms
+# Intersteller: Core Algorithms
 
-This document details the fundamental algorithms powering the RustGremlin graph traversal library. RustGremlin supports dual storage backends (in-memory and memory-mapped), both sharing the same traversal execution engine.
+This document details the fundamental algorithms powering the Intersteller graph traversal library. Intersteller supports dual storage backends (in-memory and memory-mapped), both sharing the same traversal execution engine.
 
 ---
 
@@ -1161,7 +1161,7 @@ impl Statistics {
 
 ### 6.1 Simple RwLock-Based Concurrency
 
-RustGremlin Phase 1 uses a simple reader-writer lock model for concurrent access:
+Intersteller Phase 1 uses a simple reader-writer lock model for concurrent access:
 
 ```rust
 /// Thread-safe graph handle

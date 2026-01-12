@@ -11,10 +11,10 @@
 //!
 //! Run with: `cargo run --example math_expressions`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::traversal::__;
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::traversal::__;
+use intersteller::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 

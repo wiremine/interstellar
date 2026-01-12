@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of advanced GQL features needed to support complex analytical queries. These features bring RustGremlin closer to full GQL/Cypher compatibility, enabling sophisticated pattern matching and data transformation scenarios.
+This specification defines the implementation of advanced GQL features needed to support complex analytical queries. These features bring Intersteller closer to full GQL/Cypher compatibility, enabling sophisticated pattern matching and data transformation scenarios.
 
 The target is to support queries like:
 
@@ -974,8 +974,8 @@ pub enum GqlError {
 ### 10.1 Parameterized Query
 
 ```rust
-use rustgremlin::gql::{execute_with_params, Parameters};
-use rustgremlin::Value;
+use intersteller::gql::{execute_with_params, Parameters};
+use intersteller::Value;
 
 let mut params = Parameters::new();
 params.insert("personId".to_string(), Value::Int(123));

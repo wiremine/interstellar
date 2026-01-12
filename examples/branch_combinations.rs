@@ -9,15 +9,15 @@
 //!
 //! Run with: `cargo run --example branch_combinations`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::traversal::__;
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::traversal::__;
+use intersteller::value::{Value, VertexId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Branch Combinations Example ===\n");
+    println!("=== Intersteller Branch Combinations Example ===\n");
 
     let (graph, _storage, ids) = create_test_graph();
     let snapshot = graph.snapshot();

@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 
-use rustgremlin::gql::{execute_mutation, parse_statement, MutationError};
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::value::Value;
+use intersteller::gql::{execute_mutation, parse_statement, MutationError};
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::value::Value;
 
 // =============================================================================
 // Helper Functions
@@ -52,7 +52,7 @@ fn create_test_graph() -> InMemoryGraph {
 /// Execute a GQL mutation query against storage.
 fn execute_gql(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
-        MutationError::Compile(rustgremlin::gql::CompileError::UnsupportedFeature(format!(
+        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(format!(
             "Parse error: {}",
             e
         )))

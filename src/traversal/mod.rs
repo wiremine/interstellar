@@ -968,7 +968,7 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Create an anonymous traversal that filters to adults
     /// let anon = Traversal::<Value, Value>::new().has_where("age", p::gte(18));
@@ -995,7 +995,7 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter ages greater than 25
     /// let anon = Traversal::<Value, Value>::new().is_(p::gt(25));
@@ -1403,7 +1403,7 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Create an anonymous traversal that filters values > 25
     /// let anon = Traversal::<Value, Value>::new().where_p(p::gt(25));
@@ -2085,8 +2085,8 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::*;
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::*;
+    /// use intersteller::traversal::__;
     ///
     /// // Count vertices by label
     /// let t = __::v().group_count().by_label().build();
@@ -2650,7 +2650,7 @@ pub use predicate::Predicate;
 /// # Example
 ///
 /// ```ignore
-/// use rustgremlin::traversal::__;
+/// use intersteller::traversal::__;
 ///
 /// // Create an anonymous traversal
 /// let knows_bob = __::out_labels(&["knows"]).has_value("name", "Bob");
@@ -3015,7 +3015,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter to adults
     /// let adults = __::has_where("age", p::gte(18));
@@ -3042,7 +3042,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::{__, p};
+    /// use intersteller::traversal::{__, p};
     ///
     /// // Filter ages greater than 25
     /// let gt_25 = __::is_(p::gt(25));
@@ -3064,7 +3064,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Filter to ages equal to 29
     /// let age_29 = __::is_eq(29);
@@ -3359,7 +3359,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::p;
+    /// use intersteller::traversal::p;
     ///
     /// // Filter values greater than 25
     /// let adults = __::where_p(p::gt(25));
@@ -3631,7 +3631,7 @@ pub mod __ {
     /// # Examples
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Double current values
     /// let doubled = __::math("_ * 2").build();
@@ -3729,7 +3729,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Count by label
     /// let count_step = __::group_count().by_label().build();
@@ -3933,7 +3933,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Keep only vertices that have outgoing edges
     /// let with_out = __::where_(__.out());
@@ -3950,7 +3950,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Keep only leaf vertices (no outgoing edges)
     /// let leaves = __::not(__.out());
@@ -3967,7 +3967,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Keep vertices that have both outgoing AND incoming edges
     /// let connected = __::and_(vec![__.out(), __.in_()]);
@@ -3984,7 +3984,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Keep vertices that are either "person" OR "software"
     /// let entities = __::or_(vec![__.has_label("person"), __.has_label("software")]);
@@ -4005,7 +4005,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Get neighbors in both directions
     /// let neighbors = __::union(vec![__.out(), __.in_()]);
@@ -4022,7 +4022,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Try to get nickname, fall back to name
     /// let names = __::coalesce(vec![__.values("nickname"), __.values("name")]);
@@ -4039,7 +4039,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // If person, get friends; otherwise get all neighbors
     /// let results = __::choose(__.has_label("person"), __.out_labels(&["knows"]), __.out());
@@ -4060,7 +4060,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Try to traverse to friends, keep original if none found
     /// let results = __::optional(__.out_labels(&["knows"]));
@@ -4077,7 +4077,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Count neighbors per vertex
     /// let counts = __::local(__.out().limit(1));
@@ -4100,7 +4100,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Create a pending vertex (actual creation happens at execution time)
     /// let vertex_traversal = __::add_v("person")
@@ -4121,8 +4121,8 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
-    /// use rustgremlin::value::VertexId;
+    /// use intersteller::traversal::__;
+    /// use intersteller::value::VertexId;
     ///
     /// // Create a pending edge between two vertices
     /// let edge_step = __::add_e("knows")
@@ -4143,7 +4143,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Add a property to current element
     /// let with_name = __::property("name", "Alice");
@@ -4162,7 +4162,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Mark elements for deletion
     /// let deleted = __::drop();
@@ -4189,7 +4189,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Create a basic branch step (options added via bound traversal)
     /// let branch_traversal = __::branch(__::label());
@@ -4211,7 +4211,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Store values as they pass through
     /// let stored = __::store("x");
@@ -4229,7 +4229,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Aggregate all values
     /// let aggregated = __::aggregate("all");
@@ -4247,7 +4247,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Retrieve stored data
     /// let capped = __::cap("x");
@@ -4265,7 +4265,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Execute side effect traversal
     /// let with_side_effect = __::side_effect(__::out().store("neighbors"));
@@ -4283,7 +4283,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Profile traversal step
     /// let profiled = __::profile();
@@ -4301,7 +4301,7 @@ pub mod __ {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::traversal::__;
+    /// use intersteller::traversal::__;
     ///
     /// // Profile with custom key
     /// let profiled = __::profile_as("my_profile");

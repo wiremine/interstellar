@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of missing Gremlin filter steps for RustGremlin. These steps extend the existing filter functionality to provide more comprehensive graph traversal filtering capabilities.
+This specification defines the implementation of missing Gremlin filter steps for Intersteller. These steps extend the existing filter functionality to provide more comprehensive graph traversal filtering capabilities.
 
 ## Goals
 
@@ -592,7 +592,7 @@ The `rand` crate is needed for:
 ## 7. Example Usage
 
 ```rust
-use rustgremlin::prelude::*;
+use intersteller::prelude::*;
 
 fn main() {
     let graph = create_sample_graph();

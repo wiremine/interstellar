@@ -1,6 +1,6 @@
 //! Value types and element identifiers for graph data.
 //!
-//! This module provides the core data types used throughout RustGremlin:
+//! This module provides the core data types used throughout Intersteller:
 //!
 //! - [`VertexId`] / [`EdgeId`] - Unique identifiers for graph elements
 //! - [`ElementId`] - Union type for either vertex or edge IDs
@@ -9,7 +9,7 @@
 //!
 //! # Value System
 //!
-//! RustGremlin uses a dynamic type system for property values, similar to JSON
+//! Intersteller uses a dynamic type system for property values, similar to JSON
 //! but extended with graph-specific types for vertices and edges. The [`Value`]
 //! enum can hold:
 //!
@@ -23,7 +23,7 @@
 //! construct values:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! let int_val: Value = 42i64.into();
 //! let str_val: Value = "hello".into();
@@ -39,7 +39,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //! use std::collections::HashMap;
 //!
 //! // Create values from Rust types
@@ -73,8 +73,8 @@ use std::collections::{BTreeMap, HashMap};
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
-/// use rustgremlin::storage::InMemoryGraph;
+/// use intersteller::prelude::*;
+/// use intersteller::storage::InMemoryGraph;
 /// use std::collections::HashMap;
 ///
 /// let mut storage = InMemoryGraph::new();
@@ -107,8 +107,8 @@ pub struct VertexId(pub u64);
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
-/// use rustgremlin::storage::InMemoryGraph;
+/// use intersteller::prelude::*;
+/// use intersteller::storage::InMemoryGraph;
 /// use std::collections::HashMap;
 ///
 /// let mut storage = InMemoryGraph::new();
@@ -134,7 +134,7 @@ pub struct EdgeId(pub u64);
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let vertex_elem = ElementId::Vertex(VertexId(1));
 /// let edge_elem = ElementId::Edge(EdgeId(2));
@@ -154,7 +154,7 @@ pub enum ElementId {
 
 /// A dynamic value type for graph properties and traversal results.
 ///
-/// `Value` is RustGremlin's universal data type, capable of representing
+/// `Value` is Intersteller's universal data type, capable of representing
 /// any property value or traversal result. It's similar to JSON but extended
 /// with graph-specific types for vertex and edge references.
 ///
@@ -177,7 +177,7 @@ pub enum ElementId {
 /// `Value` implements [`From`] for many common types:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// // Primitives
 /// let _: Value = true.into();
@@ -195,7 +195,7 @@ pub enum ElementId {
 /// Use the `as_*` methods to safely extract typed values:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let val: Value = 42i64.into();
 ///
@@ -216,7 +216,7 @@ pub enum ElementId {
 /// consistent hashing regardless of insertion order.
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 /// use std::collections::HashSet;
 ///
 /// let mut seen: HashSet<Value> = HashSet::new();
@@ -264,7 +264,7 @@ pub enum Value {
 /// Use [`Value::to_comparable`] to convert a `Value`:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let val = Value::Float(3.14);
 /// let comparable = val.to_comparable();
@@ -312,7 +312,7 @@ pub enum ComparableValue {
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::value::OrderedFloat;
+/// use intersteller::value::OrderedFloat;
 ///
 /// let a = OrderedFloat(1.0);
 /// let b = OrderedFloat(2.0);
@@ -481,7 +481,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let value = Value::Int(42);
     /// let mut buf = Vec::new();
@@ -557,7 +557,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// // Serialize a value
     /// let original = Value::String("hello".to_string());
@@ -642,7 +642,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let values = vec![
     ///     Value::Int(3),
@@ -686,7 +686,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert_eq!(Value::Bool(true).as_bool(), Some(true));
     /// assert_eq!(Value::Int(1).as_bool(), None);
@@ -705,7 +705,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert_eq!(Value::Int(42).as_i64(), Some(42));
     /// assert_eq!(Value::Float(42.0).as_i64(), None); // Type mismatch
@@ -724,7 +724,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert_eq!(Value::Float(3.14).as_f64(), Some(3.14));
     /// assert_eq!(Value::Int(3).as_f64(), None); // Type mismatch
@@ -743,7 +743,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let val = Value::String("hello".to_string());
     /// assert_eq!(val.as_str(), Some("hello"));
@@ -763,7 +763,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let val = Value::List(vec![Value::Int(1), Value::Int(2)]);
     /// if let Some(items) = val.as_list() {
@@ -785,7 +785,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     /// use std::collections::HashMap;
     ///
     /// let mut map = HashMap::new();
@@ -810,7 +810,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert!(Value::Null.is_null());
     /// assert!(!Value::Int(0).is_null());
@@ -827,7 +827,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let val = Value::Vertex(VertexId(42));
     /// assert_eq!(val.as_vertex_id(), Some(VertexId(42)));
@@ -847,7 +847,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let val = Value::Edge(EdgeId(99));
     /// assert_eq!(val.as_edge_id(), Some(EdgeId(99)));
@@ -867,7 +867,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert!(Value::Vertex(VertexId(1)).is_vertex());
     /// assert!(!Value::Edge(EdgeId(1)).is_vertex());
@@ -884,7 +884,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert!(Value::Edge(EdgeId(1)).is_edge());
     /// assert!(!Value::Vertex(VertexId(1)).is_edge());
@@ -918,7 +918,7 @@ impl Value {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// assert_eq!(Value::Null.discriminant(), 0x00);
     /// assert_eq!(Value::Bool(false).discriminant(), 0x01);

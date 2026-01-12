@@ -1,4 +1,4 @@
-# RustGremlin Web UI Specification
+# Intersteller Web UI Specification
 
 **Status**: Draft  
 **Dependencies**: Phase 3 (Traversal Engine), Phase 6 (CLI)  
@@ -8,11 +8,11 @@
 
 ## 1. Overview
 
-A simple, embedded web UI that ships with the RustGremlin binary. The UI provides graph exploration, query execution, and data management capabilities through a browser interface.
+A simple, embedded web UI that ships with the Intersteller binary. The UI provides graph exploration, query execution, and data management capabilities through a browser interface.
 
 ### 1.1 Goals
 
-1. **Embedded**: Single binary deployment via `rustgremlin serve`
+1. **Embedded**: Single binary deployment via `intersteller serve`
 2. **Read/Write**: Full CRUD operations on graph data
 3. **Local-first**: No authentication required (assumes trusted local network)
 4. **Dual audience**: Usable by both developers and non-technical users
@@ -52,7 +52,7 @@ A simple, embedded web UI that ships with the RustGremlin binary. The UI provide
 │        └────────────────────┼────────────────────┘              │
 │                             ▼                                   │
 │                 ┌──────────────────────┐                        │
-│                 │   RustGremlin Core   │                        │
+│                 │   Intersteller Core   │                        │
 │                 │  (Graph, Traversal)  │                        │
 │                 └──────────────────────┘                        │
 │                                                                 │
@@ -88,7 +88,7 @@ serde_json = "1.0"
 ### 3.1 Command Structure
 
 ```bash
-rustgremlin serve [OPTIONS]
+intersteller serve [OPTIONS]
 
 Options:
   -p, --port <PORT>     HTTP port [default: 8080]
@@ -102,16 +102,16 @@ Options:
 
 ```bash
 # Start with in-memory database
-rustgremlin serve
+intersteller serve
 
 # Start with persistent database
-rustgremlin serve --db ./my-graph.db
+intersteller serve --db ./my-graph.db
 
 # Start on custom port, auto-open browser
-rustgremlin serve --port 3000 --open
+intersteller serve --port 3000 --open
 
 # Read-only mode for production data
-rustgremlin serve --db ./production.db --readonly
+intersteller serve --db ./production.db --readonly
 ```
 
 ---
@@ -264,7 +264,7 @@ POST   /api/samples/:name        → Load sample dataset (marvel, british_royals
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  RustGremlin                              [Stats] [Schema] [?]  │
+│  Intersteller                              [Stats] [Schema] [?]  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌───────────────────────────────────────────────────────────┐ │

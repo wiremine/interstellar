@@ -1,4 +1,4 @@
-# RustGremlin: Gremlin Interface Implementation
+# Intersteller: Gremlin Interface Implementation
 
 **Note**: This document describes a **Phase 2 feature**. The initial Phase 1 implementation focuses on the core Rust fluent API. The Gremlin interface enables external clients to submit queries using standard Gremlin bytecode or text format, which get compiled to the internal traversal engine. See the [Roadmap](./overview.md#5-roadmap) section in overview.md for the complete development timeline.
 
@@ -63,7 +63,7 @@ The following features described in this document are **planned but not yet impl
 
 The Rust API differs from standard Gremlin in several ways:
 
-| Gremlin | RustGremlin | Reason |
+| Gremlin | Intersteller | Reason |
 |---------|-------------|--------|
 | `in()` | `in_()` | `in` is a Rust keyword |
 | `as()` | `as_()` | `as` is a Rust keyword |
@@ -77,13 +77,13 @@ The Rust API differs from standard Gremlin in several ways:
 
 ### 1.1 Purpose
 
-The Gremlin interface provides external access to RustGremlin's traversal engine through:
+The Gremlin interface provides external access to Intersteller's traversal engine through:
 
 1. **Bytecode Interface**: Accept TinkerPop-compatible Gremlin bytecode and execute it
 2. **Text Parser**: Parse Gremlin query strings (e.g., `g.V().has('name','Alice').out('knows')`)
 3. **Server Protocol**: Optional WebSocket server implementing the Gremlin Server protocol
 
-This enables interoperability with existing Gremlin clients (Python, JavaScript, Java, etc.) while leveraging RustGremlin's high-performance traversal engine.
+This enables interoperability with existing Gremlin clients (Python, JavaScript, Java, etc.) while leveraging Intersteller's high-performance traversal engine.
 
 ### 1.2 Architecture
 
@@ -1275,7 +1275,7 @@ let results = interpreter.execute(bytecode)?;
 > The bytecode interpreter is planned for Phase 2. The architecture and code
 > below are reference designs and have not been implemented in the codebase.
 
-The bytecode interpreter converts Gremlin bytecode into RustGremlin's internal traversal representation and executes it.
+The bytecode interpreter converts Gremlin bytecode into Intersteller's internal traversal representation and executes it.
 
 ### 5.1 Interpreter Architecture
 
@@ -2049,7 +2049,7 @@ pub enum ExecutionError {
 
 ### 6.1 WebSocket Server Overview
 
-The optional Gremlin Server provides network access to RustGremlin using the TinkerPop WebSocket protocol.
+The optional Gremlin Server provides network access to Intersteller using the TinkerPop WebSocket protocol.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -2347,7 +2347,7 @@ fn encode_response(response: ResponseMessage) -> Result<Vec<u8>, ServerError> {
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
 from gremlin_python.process.anonymous_traversal import traversal
 
-# Connect to RustGremlin server
+# Connect to Intersteller server
 connection = DriverRemoteConnection('ws://localhost:8182/gremlin', 'g')
 g = traversal().withRemote(connection)
 
@@ -2380,7 +2380,7 @@ await connection.close();
 ## 7. Module Structure
 
 ```
-rustgremlin/
+intersteller/
 ├── src/
 │   ├── lib.rs                 # Public API exports
 │   ├── graph.rs               # Core Graph type
@@ -2437,8 +2437,8 @@ rustgremlin/
 ### 8.1 Programmatic API (Bytecode)
 
 ```rust
-use rustgremlin::prelude::*;
-use rustgremlin::gremlin::{Bytecode, Instruction, Argument, GremlinInterpreter};
+use intersteller::prelude::*;
+use intersteller::gremlin::{Bytecode, Instruction, Argument, GremlinInterpreter};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let graph = Graph::open("social.db")?;
@@ -2483,8 +2483,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 ### 8.2 Text Query API
 
 ```rust
-use rustgremlin::prelude::*;
-use rustgremlin::gremlin::{parse_gremlin, GremlinInterpreter};
+use intersteller::prelude::*;
+use intersteller::gremlin::{parse_gremlin, GremlinInterpreter};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let graph = Graph::open("social.db")?;
@@ -2512,8 +2512,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 ### 8.3 Running the Server
 
 ```rust
-use rustgremlin::prelude::*;
-use rustgremlin::gremlin::server::{GremlinServer, ServerConfig};
+use intersteller::prelude::*;
+use intersteller::gremlin::server::{GremlinServer, ServerConfig};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -2652,7 +2652,7 @@ let query = r#"
 
 ### 10.2 Known Differences from TinkerPop
 
-| Behavior | TinkerPop | RustGremlin |
+| Behavior | TinkerPop | Intersteller |
 |----------|-----------|-------------|
 | ID types | Object (any) | u64 only |
 | Properties | Multi-valued | Single-valued (Phase 1) |
@@ -2791,7 +2791,7 @@ fn test_parse_anonymous_traversal() {
 
 ## 12. Summary
 
-The Gremlin interface provides RustGremlin with standard TinkerPop-compatible query capabilities:
+The Gremlin interface provides Intersteller with standard TinkerPop-compatible query capabilities:
 
 | Component | Purpose | Status |
 |-----------|---------|--------|
@@ -2812,4 +2812,4 @@ The Gremlin interface provides RustGremlin with standard TinkerPop-compatible qu
 2. Text parser (enables string-based queries)
 3. WebSocket server (enables remote client access)
 
-The Gremlin interface, combined with the native Rust fluent API, provides users with flexible query options while maintaining the performance benefits of RustGremlin's optimized traversal engine.
+The Gremlin interface, combined with the native Rust fluent API, provides users with flexible query options while maintaining the performance benefits of Intersteller's optimized traversal engine.

@@ -1,6 +1,6 @@
 //! Error types for storage and traversal operations.
 //!
-//! This module defines the error types used throughout RustGremlin:
+//! This module defines the error types used throughout Intersteller:
 //!
 //! - [`StorageError`] - Errors from storage backend operations
 //! - [`TraversalError`] - Errors during graph traversals
@@ -11,7 +11,7 @@
 //!
 //! # Error Handling Philosophy
 //!
-//! RustGremlin follows Rust conventions by returning `Result` types for fallible
+//! Intersteller follows Rust conventions by returning `Result` types for fallible
 //! operations. The library **never panics** in normal operation—all error conditions
 //! are communicated through return values.
 //!
@@ -28,8 +28,8 @@
 //! # Quick Reference
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::error::MutationError;
+//! use intersteller::prelude::*;
+//! use intersteller::error::MutationError;
 //!
 //! // Most storage operations return Result<T, StorageError>
 //! // Most traversal terminals return T directly or Result<T, TraversalError>
@@ -51,8 +51,8 @@
 //! Use pattern matching when you need to handle different error cases differently:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //!
 //! let mut storage = InMemoryGraph::new();
@@ -83,8 +83,8 @@
 //! For functions that return `Result`, use `?` for concise error propagation:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -111,7 +111,7 @@
 //! When you have a sensible default for error cases:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -130,8 +130,8 @@
 //! The `.one()` terminal step is strict—it requires exactly one result:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -174,8 +174,8 @@
 //! For persistent storage, I/O errors may be transient:
 //!
 //! ```ignore
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::MmapGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::MmapGraph;
 //! use std::thread;
 //! use std::time::Duration;
 //!
@@ -204,8 +204,8 @@
 //! Handle errors by falling back to alternative behavior:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -233,7 +233,7 @@
 //! Errors automatically convert between types using the `From` trait:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! // TraversalError can wrap StorageError
 //! fn combined_operation() -> Result<(), TraversalError> {
@@ -251,7 +251,7 @@
 //! All error types implement `Debug` and `Display`:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //!
 //! let error = StorageError::VertexNotFound(VertexId(42));
 //!
@@ -314,8 +314,8 @@ use crate::value::{EdgeId, VertexId};
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
-/// use rustgremlin::storage::InMemoryGraph;
+/// use intersteller::prelude::*;
+/// use intersteller::storage::InMemoryGraph;
 /// use std::collections::HashMap;
 ///
 /// let mut storage = InMemoryGraph::new();
@@ -350,8 +350,8 @@ pub enum StorageError {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
-    /// use rustgremlin::storage::InMemoryGraph;
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
     /// use std::collections::HashMap;
     ///
     /// let mut storage = InMemoryGraph::new();
@@ -407,7 +407,7 @@ pub enum StorageError {
     /// # Example
     ///
     /// ```ignore
-    /// use rustgremlin::storage::MmapGraph;
+    /// use intersteller::storage::MmapGraph;
     ///
     /// match MmapGraph::open("/nonexistent/path/graph.db") {
     ///     Ok(graph) => { /* use graph */ }
@@ -451,7 +451,7 @@ pub enum StorageError {
 
     /// The storage file format is invalid.
     ///
-    /// This can occur when opening a file that isn't a valid RustGremlin
+    /// This can occur when opening a file that isn't a valid Intersteller
     /// database or when the file version is incompatible.
     ///
     /// # Common Causes
@@ -463,7 +463,7 @@ pub enum StorageError {
     /// # Recovery
     ///
     /// - Verify the file path is correct
-    /// - Check the file is actually a RustGremlin database
+    /// - Check the file is actually a Intersteller database
     /// - If upgrading, check for migration tools
     #[error("invalid file format")]
     InvalidFormat,
@@ -527,7 +527,7 @@ pub enum StorageError {
 /// allowing automatic conversion when using the `?` operator:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// fn example() -> Result<(), TraversalError> {
 ///     // StorageError automatically converts to TraversalError
@@ -540,7 +540,7 @@ pub enum StorageError {
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -588,8 +588,8 @@ pub enum TraversalError {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
-    /// use rustgremlin::storage::InMemoryGraph;
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
     /// use std::collections::HashMap;
     /// use std::sync::Arc;
     ///
@@ -631,7 +631,7 @@ pub enum TraversalError {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let err = TraversalError::Storage(StorageError::VertexNotFound(VertexId(1)));
     ///
@@ -678,9 +678,9 @@ pub enum TraversalError {
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
-/// use rustgremlin::error::MutationError;
-/// use rustgremlin::storage::InMemoryGraph;
+/// use intersteller::prelude::*;
+/// use intersteller::error::MutationError;
+/// use intersteller::storage::InMemoryGraph;
 /// use std::collections::HashMap;
 ///
 /// let mut storage = InMemoryGraph::new();
@@ -709,8 +709,8 @@ pub enum MutationError {
     /// Create the source vertex before creating the edge:
     ///
     /// ```rust
-    /// use rustgremlin::storage::InMemoryGraph;
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
+    /// use intersteller::prelude::*;
     /// use std::collections::HashMap;
     ///
     /// let mut storage = InMemoryGraph::new();

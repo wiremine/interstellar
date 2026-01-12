@@ -25,10 +25,10 @@
 //!
 //! Run with: `cargo run --example nba`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::traversal::{p, __};
-use rustgremlin::value::{Value, VertexId};
+use intersteller::graph::Graph;
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::traversal::{p, __};
+use intersteller::value::{Value, VertexId};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;

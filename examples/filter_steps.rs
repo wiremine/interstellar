@@ -16,16 +16,16 @@
 //!
 //! Run with: `cargo run --example filter_steps`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::p;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::traversal::__;
-use rustgremlin::value::Value;
+use intersteller::graph::Graph;
+use intersteller::p;
+use intersteller::storage::InMemoryGraph;
+use intersteller::traversal::__;
+use intersteller::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Filter Steps Example ===\n");
+    println!("=== Intersteller Filter Steps Example ===\n");
 
     // Create test graph
     let graph = create_test_graph();

@@ -1,4 +1,4 @@
-# RustGremlin: Advanced Storage Features
+# Intersteller: Advanced Storage Features
 
 This document covers advanced storage features planned for future phases: **Property Indexes**, **Compaction**, and **Compression**. These features build on top of the core memory-mapped storage architecture defined in [storage.md](./storage.md) and [spec-08-storage.md](../specs/spec-08-storage.md).
 

@@ -1183,14 +1183,14 @@ fn test_coexistence_vertex_edge_traversal() {
 ## Test Helper Functions
 
 ```rust
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::InMemoryGraph;
-use rustgremlin::value::{Value, VertexId, EdgeId};
-use rustgremlin::error::TraversalError;
-use rustgremlin::traversal::{Traversal, __};
-use rustgremlin::traversal::filter::HasLabelStep;
-use rustgremlin::traversal::navigation::OutStep;
-use rustgremlin::traversal::transform::ValuesStep;
+use intersteller::graph::Graph;
+use intersteller::storage::InMemoryGraph;
+use intersteller::value::{Value, VertexId, EdgeId};
+use intersteller::error::TraversalError;
+use intersteller::traversal::{Traversal, __};
+use intersteller::traversal::filter::HasLabelStep;
+use intersteller::traversal::navigation::OutStep;
+use intersteller::traversal::transform::ValuesStep;
 use std::collections::HashMap;
 use std::sync::Arc;
 

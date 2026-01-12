@@ -10,14 +10,14 @@
 //!
 //! Run with: `cargo run --example mutations`
 
-use rustgremlin::graph::Graph;
-use rustgremlin::storage::{GraphStorage, InMemoryGraph};
-use rustgremlin::traversal::{MutationExecutor, __};
+use intersteller::graph::Graph;
+use intersteller::storage::{GraphStorage, InMemoryGraph};
+use intersteller::traversal::{MutationExecutor, __};
 
 use std::sync::Arc;
 
 fn main() {
-    println!("=== RustGremlin Mutation Steps Example ===\n");
+    println!("=== Intersteller Mutation Steps Example ===\n");
 
     // -------------------------------------------------------------------------
     // Step 1: Create an empty graph
@@ -101,7 +101,7 @@ fn main() {
 
         let traversers: Vec<_> = g
             .add_v("software")
-            .property("name", "RustGremlin")
+            .property("name", "Intersteller")
             .property("version", "1.0")
             .property("language", "Rust")
             .execute()
@@ -110,7 +110,7 @@ fn main() {
         let mut executor = MutationExecutor::new(&mut storage);
         let result = executor.execute(traversers.into_iter());
 
-        println!("Created RustGremlin software:");
+        println!("Created Intersteller software:");
         println!("  Vertices added: {}", result.vertices_added);
 
         result
@@ -176,7 +176,7 @@ fn main() {
         let mut executor = MutationExecutor::new(&mut storage);
         let result = executor.execute(traversers.into_iter());
 
-        println!("Created 'uses' edge (Alice -> RustGremlin):");
+        println!("Created 'uses' edge (Alice -> Intersteller):");
         println!("  Edges added: {}", result.edges_added);
 
         result.values.first().and_then(|v| v.as_edge_id())
@@ -199,7 +199,7 @@ fn main() {
         let mut executor = MutationExecutor::new(&mut storage);
         let result = executor.execute(traversers.into_iter());
 
-        println!("Created 'uses' edge (Bob -> RustGremlin):");
+        println!("Created 'uses' edge (Bob -> Intersteller):");
         println!("  Edges added: {}", result.edges_added);
 
         result.values.first().and_then(|v| v.as_edge_id())

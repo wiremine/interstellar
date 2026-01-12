@@ -8,8 +8,8 @@
 #![cfg(feature = "mmap")]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rustgremlin::storage::{GraphStorage, MmapGraph};
-use rustgremlin::value::{EdgeId, VertexId};
+use intersteller::storage::{GraphStorage, MmapGraph};
+use intersteller::value::{EdgeId, VertexId};
 use std::collections::HashMap;
 use tempfile::TempDir;
 

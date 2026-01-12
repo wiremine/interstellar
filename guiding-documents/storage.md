@@ -1,4 +1,4 @@
-# RustGremlin: Storage Options
+# Intersteller: Storage Options
 
 This document outlines the dual storage architecture supporting both in-memory and on-disk graph databases, enabling flexibility for different use cases from high-performance analytics to large-scale persistent graph storage.
 
@@ -6,7 +6,7 @@ This document outlines the dual storage architecture supporting both in-memory a
 
 ## 1. Storage Architecture Overview
 
-RustGremlin supports two storage modes:
+Intersteller supports two storage modes:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -886,7 +886,7 @@ impl MmapGraph {
 
 ## 10. Summary
 
-RustGremlin's dual storage architecture provides flexibility:
+Intersteller's dual storage architecture provides flexibility:
 
 - **In-Memory**: Maximum performance for graphs that fit in RAM or don't need persistence
 - **Memory-Mapped**: Persistent, scalable storage for large graphs with good performance

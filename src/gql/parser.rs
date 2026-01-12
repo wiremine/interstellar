@@ -9,7 +9,7 @@
 //! The primary entry point is the [`parse`] function:
 //!
 //! ```rust
-//! use rustgremlin::gql::parse;
+//! use intersteller::gql::parse;
 //!
 //! let ast = parse("MATCH (n:Person) RETURN n").unwrap();
 //! assert_eq!(ast.match_clause.patterns.len(), 1);
@@ -20,7 +20,7 @@
 //! Parse errors include source position information for debugging:
 //!
 //! ```rust
-//! use rustgremlin::gql::{parse, ParseError};
+//! use intersteller::gql::{parse, ParseError};
 //!
 //! match parse("MATCH (n:Person") {
 //!     Ok(_) => unreachable!(),
@@ -72,7 +72,7 @@ fn span_from_pair(pair: &pest::iterators::Pair<Rule>) -> Span {
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::gql::parse;
+/// use intersteller::gql::parse;
 ///
 /// // Simple query
 /// let query = parse("MATCH (n:Person) RETURN n").unwrap();
@@ -95,7 +95,7 @@ fn span_from_pair(pair: &pest::iterators::Pair<Rule>) -> Span {
 /// - Invalid literals (malformed numbers, strings)
 ///
 /// ```rust
-/// use rustgremlin::gql::parse;
+/// use intersteller::gql::parse;
 ///
 /// // Missing RETURN clause
 /// assert!(parse("MATCH (n:Person)").is_err());
@@ -142,7 +142,7 @@ pub fn parse(input: &str) -> Result<Query, ParseError> {
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::gql::parse_statement;
+/// use intersteller::gql::parse_statement;
 ///
 /// // Single query
 /// let stmt = parse_statement("MATCH (n:Person) RETURN n").unwrap();

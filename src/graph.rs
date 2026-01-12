@@ -1,6 +1,6 @@
 //! Graph container with snapshot-based concurrency control.
 //!
-//! This module provides the main entry points for working with graphs in RustGremlin:
+//! This module provides the main entry points for working with graphs in Intersteller:
 //!
 //! - [`Graph`] - The thread-safe container that owns graph storage
 //! - [`GraphSnapshot`] - A read-only view for concurrent traversals
@@ -8,7 +8,7 @@
 //!
 //! # Concurrency Model
 //!
-//! RustGremlin uses a readers-writer lock to provide safe concurrent access:
+//! Intersteller uses a readers-writer lock to provide safe concurrent access:
 //!
 //! - **Multiple readers**: Any number of [`GraphSnapshot`]s can exist simultaneously,
 //!   allowing concurrent read-only traversals across threads.
@@ -21,8 +21,8 @@
 //! # Example
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
-//! use rustgremlin::storage::InMemoryGraph;
+//! use intersteller::prelude::*;
+//! use intersteller::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -68,7 +68,7 @@
 //! The typical pattern for concurrent access is to wrap the graph in an `Arc`:
 //!
 //! ```rust
-//! use rustgremlin::prelude::*;
+//! use intersteller::prelude::*;
 //! use std::sync::Arc;
 //! use std::thread;
 //!
@@ -107,8 +107,8 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 /// There are two ways to create a `Graph`:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
-/// use rustgremlin::storage::InMemoryGraph;
+/// use intersteller::prelude::*;
+/// use intersteller::storage::InMemoryGraph;
 /// use std::sync::Arc;
 ///
 /// // Method 1: Convenience constructor for in-memory graphs
@@ -124,7 +124,7 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 /// To read from the graph, create a [`GraphSnapshot`] using [`snapshot()`](Graph::snapshot):
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -171,7 +171,7 @@ pub struct Graph {
 /// querying the graph:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -187,7 +187,7 @@ pub struct Graph {
 /// Multiple snapshots can exist simultaneously, even across threads:
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 ///
@@ -217,7 +217,7 @@ impl<'g> GraphSnapshot<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     /// let snapshot = graph.snapshot();
@@ -258,8 +258,8 @@ impl<'g> GraphSnapshot<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
-    /// use rustgremlin::storage::InMemoryGraph;
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
     /// use std::sync::Arc;
     ///
     /// // Create storage with data
@@ -309,7 +309,7 @@ impl<'g> GraphSnapshot<'g> {
 /// # Example
 ///
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 ///
@@ -347,8 +347,8 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
-    /// use rustgremlin::storage::InMemoryGraph;
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
     /// use std::sync::Arc;
     ///
     /// let storage = InMemoryGraph::new();
@@ -374,7 +374,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -414,7 +414,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -449,7 +449,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -481,7 +481,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -509,7 +509,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use rustgremlin::prelude::*;
+    /// use intersteller::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///

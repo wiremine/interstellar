@@ -1,6 +1,6 @@
 # Spec 04: Anonymous Traversals and Predicates
 
-**Phase 4 of RustGremlin Implementation**
+**Phase 4 of Intersteller Implementation**
 
 ## Overview
 
@@ -1148,7 +1148,7 @@ impl Clone for Box<dyn Predicate> {
 /// 
 /// # Example
 /// ```rust
-/// use rustgremlin::prelude::*;
+/// use intersteller::prelude::*;
 /// 
 /// g.v().has_label("person")
 ///     .has_where("age", p::gte(18))
@@ -1774,7 +1774,7 @@ impl<In, Out> Traversal<In, Out> {
 
 **Example Usage:**
 ```rust
-use rustgremlin::prelude::*;
+use intersteller::prelude::*;
 
 // Complex predicate composition
 let adults_starting_with_a = g.v()
