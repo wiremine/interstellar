@@ -13,9 +13,10 @@ This document provides comprehensive documentation for the GQL (Graph Query Lang
 7. [Operators](#operators)
 8. [Built-in Functions](#built-in-functions)
 9. [Aggregation](#aggregation)
-10. [Mutation Operations](#mutation-operations)
-11. [Error Handling](#error-handling)
-12. [Limitations](#limitations)
+10. [Advanced Features](#advanced-features)
+11. [Mutation Operations](#mutation-operations)
+12. [Error Handling](#error-handling)
+13. [Limitations](#limitations)
 
 ---
 
@@ -30,6 +31,12 @@ GQL is a declarative query language for property graphs, offering a SQL-like syn
 - **Sorting & Pagination**: ORDER BY, LIMIT, OFFSET
 - **Mutations**: CREATE, SET, REMOVE, DELETE, DETACH DELETE, MERGE
 - **Advanced Features**: UNION, OPTIONAL MATCH, EXISTS, CASE expressions, WITH PATH
+- **Query Parameters**: Parameterized queries with `$paramName` syntax
+- **LET Clause**: Bind intermediate computed values to variables
+- **List Comprehensions**: Transform and filter lists with `[x IN list | expr]` syntax
+- **Map Literals**: Create map values with `{key: value}` syntax
+- **String Concatenation**: `||` operator for string operations
+- **Inline WHERE**: Filter patterns directly within node/edge definitions
 
 ---
 
@@ -135,6 +142,7 @@ execute_mutation(&stmt, &mut storage).unwrap();
 [WITH PATH [AS alias]]
 [UNWIND expression AS variable]
 [WHERE expression]
+[LET variable = expression]...
 RETURN [DISTINCT] expression [AS alias] [, ...]
 [GROUP BY expression [, ...]]
 [ORDER BY expression [ASC|DESC] [, ...]]
@@ -530,13 +538,14 @@ RETURN CASE WHEN p.age > 65 THEN 'Senior' END
 | 3 | `^` | Exponentiation |
 | 4 | `*`, `/`, `%` | Multiplication, Division, Modulo |
 | 5 | `+`, `-` | Addition, Subtraction |
-| 6 | `=`, `<>`, `<`, `<=`, `>`, `>=` | Comparison |
-| 6 | `CONTAINS`, `STARTS WITH`, `ENDS WITH` | String comparison |
-| 6 | `IS NULL`, `IS NOT NULL` | Null checks |
-| 6 | `IN`, `NOT IN` | List membership |
-| 7 | `NOT` | Logical negation |
-| 8 | `AND` | Logical conjunction |
-| 9 | `OR` | Logical disjunction |
+| 6 | `\|\|` | String Concatenation |
+| 7 | `=`, `<>`, `<`, `<=`, `>`, `>=` | Comparison |
+| 7 | `CONTAINS`, `STARTS WITH`, `ENDS WITH` | String comparison |
+| 7 | `IS NULL`, `IS NOT NULL` | Null checks |
+| 7 | `IN`, `NOT IN` | List membership |
+| 8 | `NOT` | Logical negation |
+| 9 | `AND` | Logical conjunction |
+| 10 | `OR` | Logical disjunction |
 
 ### Comparison Operators
 
@@ -572,6 +581,7 @@ RETURN CASE WHEN p.age > 65 THEN 'Senior' END
 
 | Operator | Description | Example |
 |----------|-------------|---------|
+| `\|\|` | String concatenation | `p.firstName \|\| ' ' \|\| p.lastName` |
 | `CONTAINS` | Substring match | `n.name CONTAINS 'son'` |
 | `STARTS WITH` | Prefix match | `n.name STARTS WITH 'A'` |
 | `ENDS WITH` | Suffix match | `n.email ENDS WITH '.com'` |
@@ -861,6 +871,256 @@ GROUP BY t.name
 MATCH (p:Player)-[:played_for]->(t:Team)
 RETURN p.name, COLLECT(DISTINCT t.name) AS teams
 GROUP BY p.name
+```
+
+---
+
+## Advanced Features
+
+This section covers advanced GQL features for complex analytical queries.
+
+### Query Parameters
+
+Parameterized queries allow safe value injection and query reuse using `$paramName` syntax.
+
+**Syntax:**
+
+```sql
+-- Parameter in property filter
+MATCH (n:Person {id: $personId}) RETURN n
+
+-- Parameter in WHERE clause
+MATCH (n:Person) WHERE n.age > $minAge RETURN n
+
+-- Parameter in expression
+MATCH (n) RETURN n.value * $multiplier AS scaled
+
+-- Multiple parameters
+MATCH (a:Person {id: $fromId})-[:KNOWS]->(b:Person {id: $toId})
+RETURN a, b
+```
+
+**Rust Usage:**
+
+```rust
+use intersteller::gql::{execute_with_params, Parameters};
+use intersteller::Value;
+
+let mut params = Parameters::new();
+params.insert("personId".to_string(), Value::Int(123));
+params.insert("minAge".to_string(), Value::Int(18));
+
+let results = execute_with_params(
+    &graph,
+    "MATCH (p:Person {id: $personId})-[:FRIEND]->(f) 
+     WHERE f.age >= $minAge 
+     RETURN f.name",
+    &params,
+)?;
+```
+
+**Supported parameter types:** String, Int, Float, Bool, List, Map, Null
+
+### Inline WHERE in Patterns
+
+Filter nodes and edges directly within pattern syntax during pattern matching.
+
+**Syntax:**
+
+```sql
+-- Node with inline WHERE
+MATCH (n:Person WHERE n.age > 21) RETURN n
+
+-- Edge with inline WHERE
+MATCH (a)-[r:KNOWS WHERE r.since > 2020]->(b) RETURN a, b
+
+-- Combined filters
+MATCH (a:Person WHERE a.status = 'active')-[r:FOLLOWS WHERE r.weight > 0.5]->(b)
+RETURN a, b
+```
+
+**Semantics:**
+
+- Inline WHERE is evaluated during pattern matching, not after
+- Can only reference properties of the current element (not other pattern variables)
+- Combines with label filters (both must match)
+
+**Equivalent queries:**
+
+```sql
+-- These are semantically equivalent:
+MATCH (n:Person WHERE n.age > 21) RETURN n
+MATCH (n:Person) WHERE n.age > 21 RETURN n
+
+-- But inline WHERE is useful for edge filtering in complex patterns
+MATCH (a)-[r:KNOWS WHERE r.weight > 0.5]->(b)-[s:WORKS_AT]->(c)
+RETURN a, b, c
+```
+
+### LET Clause
+
+The LET clause binds the result of an expression to a variable for use in subsequent clauses.
+
+**Syntax:**
+
+```sql
+-- Basic LET
+MATCH (p:Person)-[:FRIEND]->(f)
+LET friendCount = COUNT(f)
+RETURN p.name, friendCount
+
+-- LET with COLLECT
+MATCH (p:Person)-[:PURCHASED]->(item)
+LET purchases = COLLECT(item)
+LET totalSpent = SUM(item.price)
+RETURN p.name, purchases, totalSpent
+
+-- LET with CASE expression
+MATCH (p:Person)
+LET ageCategory = CASE 
+    WHEN p.age < 18 THEN 'minor'
+    WHEN p.age < 65 THEN 'adult'
+    ELSE 'senior'
+END
+RETURN p.name, ageCategory
+
+-- Multiple LET clauses (later LETs can reference earlier ones)
+MATCH (person)-[:WORKS_AT]->(company)
+LET colleagues = COLLECT(person)
+LET companySize = SIZE(colleagues)
+LET avgSalary = AVG(person.salary)
+RETURN company.name, companySize, avgSalary
+```
+
+**Clause ordering:**
+
+```
+MATCH -> OPTIONAL MATCH -> WHERE -> LET -> RETURN -> GROUP BY -> ORDER BY -> LIMIT
+```
+
+### List Comprehensions
+
+Transform and filter lists using a concise syntax similar to Python list comprehensions.
+
+**Syntax:**
+
+```sql
+-- Basic transformation: [variable IN list | expression]
+[x IN list | x.name]
+
+-- With filter: [variable IN list WHERE condition | expression]
+[x IN list WHERE x.active | x.name]
+```
+
+**Examples:**
+
+```sql
+-- Get names from list of people
+LET names = [p IN people | p.name]
+-- Input: [{name: 'Alice'}, {name: 'Bob'}]
+-- Output: ['Alice', 'Bob']
+
+-- Filter and transform
+LET adultNames = [p IN people WHERE p.age >= 18 | p.name]
+-- Input: [{name: 'Alice', age: 25}, {name: 'Bob', age: 15}]
+-- Output: ['Alice']
+
+-- Build formatted strings
+LET labels = [t IN types | t.category || '/' || t.name]
+-- Input: [{category: 'A', name: 'foo'}, {category: 'B', name: 'bar'}]
+-- Output: ['A/foo', 'B/bar']
+
+-- Complex expressions
+[p IN people | CASE WHEN p.age > 18 THEN 'adult' ELSE 'minor' END]
+```
+
+**Semantics:**
+
+- The variable is scoped to the comprehension only
+- If input is NULL or not a list, returns NULL
+- Empty list input returns empty list
+
+### String Concatenation Operator
+
+The `||` operator concatenates strings, following SQL/GQL standard.
+
+**Syntax:**
+
+```sql
+-- Basic concatenation
+'Hello' || ' ' || 'World'
+-- Result: 'Hello World'
+
+-- With properties
+p.firstName || ' ' || p.lastName
+
+-- In expressions
+RETURN n.type || '/' || n.subtype AS fullType
+
+-- With COALESCE for null handling
+COALESCE(p.nickname, p.firstName) || ' ' || p.lastName
+```
+
+**Semantics:**
+
+- If either operand is NULL, result is NULL
+- Non-string operands are automatically converted to strings:
+  - Int/Float: Decimal representation
+  - Bool: `"true"` / `"false"`
+  - List: `"[elem1, elem2, ...]"`
+  - Map: `"{key1: val1, key2: val2}"`
+
+### Map Literals
+
+Create map/object values in expressions, particularly useful with COLLECT and RETURN.
+
+**Syntax:**
+
+```sql
+-- Map literal
+{name: 'Alice', age: 30}
+
+-- Map with property references
+{personName: p.name, personAge: p.age}
+
+-- In COLLECT
+LET data = COLLECT({parent: parent, type: event.type})
+
+-- In RETURN
+RETURN {
+    name: p.name,
+    stats: {
+        friends: friendCount,
+        posts: postCount
+    }
+} AS profile
+
+-- Nested maps supported
+{outer: {inner: value}}
+```
+
+**Keys:** Must be identifiers (unquoted) or string literals
+
+### Complete Advanced Query Example
+
+Combining multiple advanced features:
+
+```sql
+MATCH (person:Person WHERE person.id = $personId)
+      -[r1:PARTICIPATED_IN WHERE r1.role = 'child']->(birthEvent:Birth)
+      <-[r2:PARTICIPATED_IN WHERE r2.role = 'parent']-(parent:Person),
+      (parent)-[:PARTICIPATED_IN]->(otherBirth:Birth)
+      <-[r3:PARTICIPATED_IN WHERE r3.role = 'child']-(sibling:Person)
+WHERE sibling <> person
+LET siblingInfo = COLLECT({
+    sibling: sibling,
+    parent: parent,
+    sharedEvent: birthEvent
+})
+RETURN sibling.name,
+       SIZE(siblingInfo) AS connectionCount,
+       [s IN siblingInfo | s.parent.name] AS sharedParents
+GROUP BY sibling
 ```
 
 ---
@@ -1193,7 +1453,9 @@ The current GQL implementation has the following limitations:
 | Multiple graphs | Not supported | Single graph queries only |
 | Returning paths directly | Partial | Use `WITH PATH` + `path()` function |
 | `CALL` procedures | Not supported | No stored procedures |
-| Parameter binding | Not supported | Values must be literals in query |
+| `REDUCE` function | Not supported | Future work |
+| Regular expression predicates | Not supported | Future work |
+| Pattern comprehensions | Not supported | `[(p)-[:KNOWS]->(f) | f.name]` syntax |
 
 ### Partial Support
 
@@ -1240,6 +1502,20 @@ pub fn compile<'g>(query: &Query, snapshot: &'g GraphSnapshot<'g>) -> Result<Vec
 // Compile and execute a statement
 pub fn compile_statement<'g>(stmt: &Statement, snapshot: &'g GraphSnapshot<'g>) -> Result<Vec<Value>, CompileError>;
 
+// Compile and execute a query with parameters
+pub fn compile_with_params<'g>(
+    query: &str,
+    params: &Parameters,
+    snapshot: &'g GraphSnapshot<'g>,
+) -> Result<Vec<Value>, GqlError>;
+
+// Execute a query with parameters (convenience function)
+pub fn execute_with_params<G: Graph>(
+    graph: &G,
+    query: &str,
+    params: &Parameters,
+) -> Result<Vec<Value>, GqlError>;
+
 // Execute a mutation
 pub fn execute_mutation<S: GraphStorage + GraphStorageMut>(
     stmt: &Statement,
@@ -1251,6 +1527,13 @@ pub fn execute_mutation_query<S: GraphStorage + GraphStorageMut>(
     query: &MutationQuery,
     storage: &mut S,
 ) -> Result<Vec<Value>, MutationError>;
+```
+
+### Types
+
+```rust
+/// Parameters passed to query execution
+pub type Parameters = HashMap<String, Value>;
 ```
 
 ### Convenience Method
