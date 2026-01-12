@@ -271,6 +271,10 @@ pub enum CompileError {
     /// Unsupported feature (e.g., mutations on immutable snapshot)
     #[error("Unsupported: {0}")]
     UnsupportedFeature(String),
+
+    /// Unbound parameter reference
+    #[error("Unbound parameter: ${0}")]
+    UnboundParameter(String),
 }
 
 impl CompileError {
@@ -316,6 +320,11 @@ impl CompileError {
     /// Create an expression not in GROUP BY error
     pub fn expression_not_in_group_by(expr: impl Into<String>) -> Self {
         CompileError::ExpressionNotInGroupBy { expr: expr.into() }
+    }
+
+    /// Create an unbound parameter error
+    pub fn unbound_parameter(name: impl Into<String>) -> Self {
+        CompileError::UnboundParameter(name.into())
     }
 }
 

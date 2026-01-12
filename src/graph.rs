@@ -283,6 +283,58 @@ impl<'g> GraphSnapshot<'g> {
         let results = crate::gql::compile_statement(&stmt, self)?;
         Ok(results)
     }
+
+    /// Execute a parameterized GQL query against this snapshot.
+    ///
+    /// Similar to [`gql()`](Self::gql), but allows passing query parameters that
+    /// can be referenced in the query using `$paramName` syntax. Parameters provide
+    /// a safe way to inject values into queries without string concatenation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
+    /// use intersteller::gql::Parameters;
+    ///
+    /// // Create storage with data
+    /// let mut storage = InMemoryGraph::new();
+    /// let mut props = std::collections::HashMap::new();
+    /// props.insert("name".to_string(), Value::from("Alice"));
+    /// props.insert("age".to_string(), Value::from(30));
+    /// storage.add_vertex("Person", props);
+    ///
+    /// // Wrap in Graph for querying
+    /// let graph = Graph::new(storage);
+    ///
+    /// let snapshot = graph.snapshot();
+    ///
+    /// // Use parameters instead of string interpolation
+    /// let mut params = Parameters::new();
+    /// params.insert("minAge".to_string(), Value::Int(25));
+    ///
+    /// let results = snapshot.gql_with_params(
+    ///     "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
+    ///     &params,
+    /// ).unwrap();
+    /// assert_eq!(results.len(), 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GqlError`](crate::gql::GqlError) if:
+    /// - The query has a syntax error
+    /// - A parameter referenced in the query is not provided in `params`
+    /// - The query references undefined variables
+    pub fn gql_with_params(
+        &self,
+        query: &str,
+        params: &crate::gql::Parameters,
+    ) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
+        let stmt = crate::gql::parse_statement(query)?;
+        let results = crate::gql::compile_statement_with_params(&stmt, self, params)?;
+        Ok(results)
+    }
 }
 
 /// An exclusive mutable handle to a graph.

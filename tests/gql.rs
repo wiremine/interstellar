@@ -9260,3 +9260,257 @@ fn test_gql_inline_where_string_comparison() {
     // Alice, Bob
     assert_eq!(results.len(), 2);
 }
+
+// =============================================================================
+// Query Parameters Tests
+// =============================================================================
+
+#[test]
+fn test_gql_parameter_in_where_clause() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("minAge".to_string(), Value::Int(30));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
+            &params,
+        )
+        .unwrap();
+
+    // Alice (30) and Charlie (35) should match
+    assert_eq!(results.len(), 2);
+
+    let names: HashSet<_> = results.iter().collect();
+    assert!(names.contains(&Value::from("Alice")));
+    assert!(names.contains(&Value::from("Charlie")));
+}
+
+#[test]
+fn test_gql_parameter_equality() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("targetAge".to_string(), Value::Int(25));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.age = $targetAge RETURN n.name",
+            &params,
+        )
+        .unwrap();
+
+    // Only Bob is 25
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::from("Bob"));
+}
+
+#[test]
+fn test_gql_parameter_in_list() {
+    // Note: The IN clause currently requires a list literal [a, b, c]
+    // rather than a parameter. This tests using parameters as list elements.
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("age1".to_string(), Value::Int(25));
+    params.insert("age2".to_string(), Value::Int(35));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.age IN [$age1, $age2] RETURN n.name",
+            &params,
+        )
+        .unwrap();
+
+    // Bob (25) and Charlie (35) should match
+    assert_eq!(results.len(), 2);
+
+    let names: HashSet<_> = results.iter().collect();
+    assert!(names.contains(&Value::from("Bob")));
+    assert!(names.contains(&Value::from("Charlie")));
+}
+
+#[test]
+fn test_gql_multiple_parameters() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("minAge".to_string(), Value::Int(25));
+    params.insert("maxAge".to_string(), Value::Int(32));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.age >= $minAge AND n.age <= $maxAge RETURN n.name",
+            &params,
+        )
+        .unwrap();
+
+    // Bob (25) and Alice (30) should match
+    assert_eq!(results.len(), 2);
+
+    let names: HashSet<_> = results.iter().collect();
+    assert!(names.contains(&Value::from("Alice")));
+    assert!(names.contains(&Value::from("Bob")));
+}
+
+#[test]
+fn test_gql_parameter_in_return_expression() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("multiplier".to_string(), Value::Int(2));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.name = 'Alice' RETURN n.age * $multiplier",
+            &params,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // Alice is 30, multiplied by 2 = 60
+    assert_eq!(results[0], Value::Int(60));
+}
+
+#[test]
+fn test_gql_unbound_parameter_error() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let params = intersteller::gql::Parameters::new(); // Empty params
+
+    let result = snapshot.gql_with_params(
+        "MATCH (n:Person) WHERE n.age >= $undefinedParam RETURN n.name",
+        &params,
+    );
+
+    // Should error because $undefinedParam is not provided
+    assert!(result.is_err());
+
+    if let Err(GqlError::Compile(e)) = result {
+        let error_msg = e.to_string();
+        assert!(
+            error_msg.contains("undefinedParam"),
+            "Error should mention the unbound parameter name"
+        );
+    } else {
+        panic!("Expected CompileError for unbound parameter");
+    }
+}
+
+#[test]
+fn test_gql_parameter_string_value() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("searchName".to_string(), Value::from("Alice"));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.name = $searchName RETURN n.age",
+            &params,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(30));
+}
+
+#[test]
+fn test_gql_parameter_with_null() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("value".to_string(), Value::Null);
+
+    // Comparing with null should use IS NULL logic
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE $value IS NULL RETURN n.name",
+            &params,
+        )
+        .unwrap();
+
+    // All persons should match since $value IS NULL is true
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn test_gql_parameter_reuse() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("threshold".to_string(), Value::Int(30));
+
+    // Use same parameter twice
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (n:Person) WHERE n.age >= $threshold AND $threshold > 20 RETURN n.name",
+            &params,
+        )
+        .unwrap();
+
+    // Alice (30) and Charlie (35) should match
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_gql_empty_params_works_like_regular_query() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let params = intersteller::gql::Parameters::new();
+
+    // Query without parameters should work with empty params
+    let results_with_params = snapshot
+        .gql_with_params("MATCH (n:Person) RETURN n.name", &params)
+        .unwrap();
+
+    let results_regular = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
+
+    assert_eq!(results_with_params.len(), results_regular.len());
+
+    let names_with_params: HashSet<_> = results_with_params.iter().collect();
+    let names_regular: HashSet<_> = results_regular.iter().collect();
+    assert_eq!(names_with_params, names_regular);
+}
+
+#[test]
+fn test_gql_parameter_float_comparison() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Item1"));
+    props.insert("price".to_string(), Value::Float(19.99));
+    storage.add_vertex("Product", props);
+
+    let mut props2 = HashMap::new();
+    props2.insert("name".to_string(), Value::from("Item2"));
+    props2.insert("price".to_string(), Value::Float(29.99));
+    storage.add_vertex("Product", props2);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    let mut params = intersteller::gql::Parameters::new();
+    params.insert("maxPrice".to_string(), Value::Float(25.0));
+
+    let results = snapshot
+        .gql_with_params(
+            "MATCH (p:Product) WHERE p.price < $maxPrice RETURN p.name",
+            &params,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::from("Item1"));
+}

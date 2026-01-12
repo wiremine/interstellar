@@ -381,7 +381,9 @@ mod mutation;
 mod parser;
 
 pub use ast::*;
-pub use compiler::{compile, compile_statement};
+pub use compiler::{
+    compile, compile_statement, compile_statement_with_params, compile_with_params, Parameters,
+};
 pub use error::{CompileError, GqlError, ParseError, Span};
 pub use mutation::{
     execute_mutation, execute_mutation_query, Element, MutationContext, MutationError,

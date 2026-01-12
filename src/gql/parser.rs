@@ -1326,6 +1326,15 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
     match inner.as_rule() {
         Rule::case_expr => build_case_expr(inner),
         Rule::exists_expr => build_exists_expr(inner),
+        Rule::parameter => {
+            // Parameter syntax: $paramName - strip the leading '$'
+            let param_str = inner.as_str();
+            let name = param_str
+                .strip_prefix('$')
+                .unwrap_or(param_str)
+                .to_string();
+            Ok(Expression::Parameter(name))
+        }
         Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
         Rule::function_call => build_function_call(inner),
         Rule::property_access => {
@@ -1355,7 +1364,7 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, function call, CASE, or EXISTS expression",
+            "literal, variable, property access, function call, parameter, CASE, or EXISTS expression",
         )),
     }
 }

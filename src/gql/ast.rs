@@ -931,6 +931,25 @@ pub enum Expression {
     /// Literal value: `42`, `"hello"`, `true`, `null`
     Literal(Literal),
 
+    /// Parameter reference: `$paramName`
+    ///
+    /// References a parameter that will be resolved at compile/execute time.
+    /// Parameters allow safe value injection and query reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Parameter in property filter
+    /// MATCH (n:Person {id: $personId}) RETURN n
+    ///
+    /// -- Parameter in WHERE clause
+    /// MATCH (n:Person) WHERE n.age > $minAge RETURN n
+    ///
+    /// -- Parameter in expression
+    /// MATCH (n) RETURN n.value * $multiplier AS scaled
+    /// ```
+    Parameter(String),
+
     /// Binary operation: `a + b`, `x = y`, `p AND q`
     ///
     /// Applies a binary operator to two sub-expressions.

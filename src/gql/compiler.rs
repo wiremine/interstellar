@@ -80,6 +80,24 @@ use crate::graph::GraphSnapshot;
 use crate::traversal::{BoundTraversal, Traversal, __};
 use crate::value::Value;
 
+/// Parameters passed to query execution.
+///
+/// A map of parameter names to their values. Parameter names should not include
+/// the leading `$` - for example, to provide a value for `$personId`, use
+/// `"personId"` as the key.
+///
+/// # Example
+///
+/// ```
+/// use intersteller::gql::Parameters;
+/// use intersteller::Value;
+///
+/// let mut params = Parameters::new();
+/// params.insert("personId".to_string(), Value::Int(123));
+/// params.insert("minAge".to_string(), Value::Int(18));
+/// ```
+pub type Parameters = HashMap<String, Value>;
+
 /// Compile and execute a GQL query against a graph snapshot.
 ///
 /// This is the main entry point for executing GQL queries. It takes a parsed
@@ -175,7 +193,67 @@ pub fn compile<'g>(
     query: &Query,
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
-    let mut compiler = Compiler::new(snapshot);
+    compile_with_params(query, snapshot, &Parameters::new())
+}
+
+/// Compile and execute a parameterized GQL query against a graph snapshot.
+///
+/// This function allows passing query parameters that can be referenced in the
+/// query using `$paramName` syntax. Parameters provide a safe way to inject
+/// values into queries without string concatenation, preventing injection attacks
+/// and enabling query reuse with different values.
+///
+/// # Arguments
+///
+/// * `query` - A parsed GQL query from [`parse()`]
+/// * `snapshot` - An immutable snapshot of the graph to query
+/// * `params` - A map of parameter names to their values
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<Value>)` containing the query results on success.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if:
+/// - A parameter referenced in the query is not provided in `params`
+/// - A variable in RETURN or WHERE is not bound in MATCH
+/// - A variable is bound multiple times in MATCH
+///
+/// # Examples
+///
+/// ```
+/// use intersteller::gql::{parse, compile_with_params, Parameters};
+/// use intersteller::Graph;
+/// use intersteller::storage::InMemoryGraph;
+/// use intersteller::value::Value;
+/// use std::collections::HashMap;
+///
+/// let mut storage = InMemoryGraph::new();
+/// let mut props = HashMap::new();
+/// props.insert("name".to_string(), Value::from("Alice"));
+/// props.insert("age".to_string(), Value::from(30));
+/// storage.add_vertex("Person", props);
+///
+/// let graph = Graph::new(storage);
+/// let snapshot = graph.snapshot();
+/// let query = parse("MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name").unwrap();
+///
+/// let mut params = Parameters::new();
+/// params.insert("minAge".to_string(), Value::Int(25));
+///
+/// let results = compile_with_params(&query, &snapshot, &params).unwrap();
+/// assert_eq!(results.len(), 1);
+/// ```
+///
+/// [`parse()`]: crate::gql::parse
+/// [`CompileError`]: crate::gql::error::CompileError
+pub fn compile_with_params<'g>(
+    query: &Query,
+    snapshot: &'g GraphSnapshot<'g>,
+    params: &Parameters,
+) -> Result<Vec<Value>, CompileError> {
+    let mut compiler = Compiler::new(snapshot, params);
     compiler.compile(query)
 }
 
@@ -221,9 +299,61 @@ pub fn compile_statement<'g>(
     stmt: &Statement,
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
+    compile_statement_with_params(stmt, snapshot, &Parameters::new())
+}
+
+/// Compile and execute a parameterized GQL statement against a graph snapshot.
+///
+/// This function handles both single queries and UNION of multiple queries,
+/// with support for query parameters. For UNION statements, all queries share
+/// the same parameter set.
+///
+/// # Arguments
+///
+/// * `stmt` - A parsed GQL statement from [`parse_statement()`]
+/// * `snapshot` - An immutable snapshot of the graph to query
+/// * `params` - A map of parameter names to their values
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<Value>)` containing the statement results on success.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if:
+/// - A parameter referenced in the query is not provided in `params`
+/// - Any other compilation error occurs
+///
+/// # Examples
+///
+/// ```
+/// use intersteller::gql::{parse_statement, compile_statement_with_params, Parameters};
+/// use intersteller::Graph;
+/// use intersteller::value::Value;
+///
+/// let graph = Graph::in_memory();
+/// let snapshot = graph.snapshot();
+///
+/// let stmt = parse_statement("MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name").unwrap();
+///
+/// let mut params = Parameters::new();
+/// params.insert("minAge".to_string(), Value::Int(25));
+///
+/// let results = compile_statement_with_params(&stmt, &snapshot, &params).unwrap();
+/// ```
+///
+/// [`parse_statement()`]: crate::gql::parse_statement
+/// [`CompileError`]: crate::gql::error::CompileError
+pub fn compile_statement_with_params<'g>(
+    stmt: &Statement,
+    snapshot: &'g GraphSnapshot<'g>,
+    params: &Parameters,
+) -> Result<Vec<Value>, CompileError> {
     match stmt {
-        Statement::Query(query) => compile(query.as_ref(), snapshot),
-        Statement::Union { queries, all } => compile_union(queries, *all, snapshot),
+        Statement::Query(query) => compile_with_params(query.as_ref(), snapshot, params),
+        Statement::Union { queries, all } => {
+            compile_union_with_params(queries, *all, snapshot, params)
+        }
         Statement::Mutation(_) => {
             // Mutation compilation requires mutable access to the graph
             // Use compile_mutation() with a GraphMut instead
@@ -240,10 +370,20 @@ fn compile_union<'g>(
     keep_duplicates: bool,
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
+    compile_union_with_params(queries, keep_duplicates, snapshot, &Parameters::new())
+}
+
+/// Execute a UNION of multiple queries with parameters.
+fn compile_union_with_params<'g>(
+    queries: &[Query],
+    keep_duplicates: bool,
+    snapshot: &'g GraphSnapshot<'g>,
+    params: &Parameters,
+) -> Result<Vec<Value>, CompileError> {
     let mut all_results = Vec::new();
 
     for query in queries {
-        let results = compile(query, snapshot)?;
+        let results = compile_with_params(query, snapshot, params)?;
         all_results.extend(results);
     }
 
@@ -267,6 +407,8 @@ fn compile_union<'g>(
 struct Compiler<'a, 'g> {
     snapshot: &'a GraphSnapshot<'g>,
     bindings: HashMap<String, BindingInfo>,
+    /// Query parameters for parameterized queries
+    parameters: &'a Parameters,
     /// Whether the current query has multiple bound variables (requires path tracking)
     has_multi_vars: bool,
 }
@@ -282,12 +424,21 @@ struct BindingInfo {
 }
 
 impl<'a: 'g, 'g> Compiler<'a, 'g> {
-    fn new(snapshot: &'a GraphSnapshot<'g>) -> Self {
+    fn new(snapshot: &'a GraphSnapshot<'g>, parameters: &'a Parameters) -> Self {
         Self {
             snapshot,
             bindings: HashMap::new(),
+            parameters,
             has_multi_vars: false,
         }
+    }
+
+    /// Resolve a parameter by name, returning an error if not found.
+    fn resolve_parameter(&self, name: &str) -> Result<Value, CompileError> {
+        self.parameters
+            .get(name)
+            .cloned()
+            .ok_or_else(|| CompileError::unbound_parameter(name))
     }
 
     /// Count the number of variables in a pattern.
@@ -606,6 +757,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         match expr {
             Expression::Literal(lit) => lit.clone().into(),
             Expression::Variable(var) => row.get(var).cloned().unwrap_or(Value::Null),
+            Expression::Parameter(name) => {
+                // Resolve parameter - if not found, return Null (error handling happens at validation)
+                self.parameters.get(name).cloned().unwrap_or(Value::Null)
+            }
             Expression::Property { variable, property } => {
                 let element = row.get(variable).cloned().unwrap_or(Value::Null);
                 self.extract_property(&element, property)
@@ -1194,8 +1349,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // Apply inline WHERE filter if present
         if let Some(where_expr) = &node.where_clause {
             let expr = where_expr.clone();
-            traversal =
-                traversal.filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val));
+            let params = self.parameters.clone();
+            traversal = traversal
+                .filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val, &params));
         }
 
         // Register binding and add as_() step for multi-variable patterns
@@ -1324,8 +1480,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // Step 3: Apply inline WHERE filter if present
         if let Some(where_expr) = &edge.where_clause {
             let expr = where_expr.clone();
-            traversal =
-                traversal.filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val));
+            let params = self.parameters.clone();
+            traversal = traversal
+                .filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val, &params));
         }
 
         // Step 4: Register and bind edge variable
@@ -1964,6 +2121,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             Expression::Variable(var) => {
                 // Look up variable in the path
                 self.get_variable_value_from_path(var, traverser)
+            }
+            Expression::Parameter(name) => {
+                // Resolve parameter value
+                self.parameters.get(name).cloned().unwrap_or(Value::Null)
             }
             Expression::Property { variable, property } => {
                 // Get the element for this variable from the path, then extract property
@@ -2815,6 +2976,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 // Return the element itself when referencing a variable
                 element.clone()
             }
+            Expression::Parameter(name) => {
+                // Resolve parameter value
+                self.parameters.get(name).cloned().unwrap_or(Value::Null)
+            }
             Expression::Property { property, .. } => {
                 // Extract property from the element
                 self.extract_property(element, property)
@@ -3592,6 +3757,13 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             }
             Expression::Literal(_) => {
                 // Literals don't reference variables
+            }
+            Expression::Parameter(name) => {
+                // Parameters are resolved from the parameters map, not bindings.
+                // Check if the parameter is bound at validation time.
+                if !self.parameters.contains_key(name) {
+                    return Err(CompileError::unbound_parameter(name));
+                }
             }
         }
         Ok(())
@@ -4940,6 +5112,7 @@ fn eval_inline_value<'g>(
     snapshot: &GraphSnapshot<'g>,
     expr: &Expression,
     element: &Value,
+    params: &Parameters,
 ) -> Value {
     match expr {
         Expression::Literal(lit) => lit.clone().into(),
@@ -4947,25 +5120,29 @@ fn eval_inline_value<'g>(
             // Return the element itself when referencing a variable
             element.clone()
         }
+        Expression::Parameter(name) => {
+            // Resolve parameter value
+            params.get(name).cloned().unwrap_or(Value::Null)
+        }
         Expression::Property { property, .. } => {
             // Extract property from the element
             extract_property_from_snapshot(snapshot, element, property).unwrap_or(Value::Null)
         }
         Expression::BinaryOp { left, op, right } => {
-            let left_val = eval_inline_value(snapshot, left, element);
-            let right_val = eval_inline_value(snapshot, right, element);
+            let left_val = eval_inline_value(snapshot, left, element, params);
+            let right_val = eval_inline_value(snapshot, right, element, params);
             apply_binary_op(*op, left_val, right_val)
         }
         Expression::UnaryOp { op, expr } => match op {
             UnaryOperator::Not => {
-                let val = eval_inline_value(snapshot, expr, element);
+                let val = eval_inline_value(snapshot, expr, element, params);
                 match val {
                     Value::Bool(b) => Value::Bool(!b),
                     _ => Value::Null,
                 }
             }
             UnaryOperator::Neg => {
-                let val = eval_inline_value(snapshot, expr, element);
+                let val = eval_inline_value(snapshot, expr, element, params);
                 match val {
                     Value::Int(n) => Value::Int(-n),
                     Value::Float(f) => Value::Float(-f),
@@ -4974,7 +5151,7 @@ fn eval_inline_value<'g>(
             }
         },
         Expression::IsNull { expr, negated } => {
-            let val = eval_inline_value(snapshot, expr, element);
+            let val = eval_inline_value(snapshot, expr, element, params);
             let is_null = matches!(val, Value::Null);
             Value::Bool(if *negated { !is_null } else { is_null })
         }
@@ -4983,9 +5160,9 @@ fn eval_inline_value<'g>(
             list,
             negated,
         } => {
-            let val = eval_inline_value(snapshot, expr, element);
+            let val = eval_inline_value(snapshot, expr, element, params);
             let in_list = list.iter().any(|item| {
-                let item_val = eval_inline_value(snapshot, item, element);
+                let item_val = eval_inline_value(snapshot, item, element, params);
                 val == item_val
             });
             Value::Bool(if *negated { !in_list } else { in_list })
@@ -4993,7 +5170,7 @@ fn eval_inline_value<'g>(
         Expression::List(items) => {
             let values: Vec<Value> = items
                 .iter()
-                .map(|item| eval_inline_value(snapshot, item, element))
+                .map(|item| eval_inline_value(snapshot, item, element, params))
                 .collect();
             Value::List(values)
         }
@@ -5011,32 +5188,33 @@ fn eval_inline_predicate<'g>(
     snapshot: &GraphSnapshot<'g>,
     expr: &Expression,
     element: &Value,
+    params: &Parameters,
 ) -> bool {
     match expr {
         Expression::BinaryOp { left, op, right } => {
             match op {
                 // Logical operators
                 BinaryOperator::And => {
-                    eval_inline_predicate(snapshot, left, element)
-                        && eval_inline_predicate(snapshot, right, element)
+                    eval_inline_predicate(snapshot, left, element, params)
+                        && eval_inline_predicate(snapshot, right, element, params)
                 }
                 BinaryOperator::Or => {
-                    eval_inline_predicate(snapshot, left, element)
-                        || eval_inline_predicate(snapshot, right, element)
+                    eval_inline_predicate(snapshot, left, element, params)
+                        || eval_inline_predicate(snapshot, right, element, params)
                 }
                 // Comparison and other operators
                 _ => {
-                    let left_val = eval_inline_value(snapshot, left, element);
-                    let right_val = eval_inline_value(snapshot, right, element);
+                    let left_val = eval_inline_value(snapshot, left, element, params);
+                    let right_val = eval_inline_value(snapshot, right, element, params);
                     apply_comparison(*op, &left_val, &right_val)
                 }
             }
         }
         Expression::UnaryOp { op, expr } => match op {
-            UnaryOperator::Not => !eval_inline_predicate(snapshot, expr, element),
+            UnaryOperator::Not => !eval_inline_predicate(snapshot, expr, element, params),
             UnaryOperator::Neg => {
                 // Negation of a value - treat non-zero as true
-                match eval_inline_value(snapshot, expr, element) {
+                match eval_inline_value(snapshot, expr, element, params) {
                     Value::Int(n) => n == 0,
                     Value::Float(f) => f == 0.0,
                     Value::Bool(b) => !b,
@@ -5046,7 +5224,7 @@ fn eval_inline_predicate<'g>(
             }
         },
         Expression::IsNull { expr, negated } => {
-            let val = eval_inline_value(snapshot, expr, element);
+            let val = eval_inline_value(snapshot, expr, element, params);
             let is_null = matches!(val, Value::Null);
             if *negated {
                 !is_null
@@ -5059,9 +5237,9 @@ fn eval_inline_predicate<'g>(
             list,
             negated,
         } => {
-            let val = eval_inline_value(snapshot, expr, element);
+            let val = eval_inline_value(snapshot, expr, element, params);
             let in_list = list.iter().any(|item| {
-                let item_val = eval_inline_value(snapshot, item, element);
+                let item_val = eval_inline_value(snapshot, item, element, params);
                 val == item_val
             });
             if *negated {
@@ -5072,7 +5250,7 @@ fn eval_inline_predicate<'g>(
         }
         // For other expressions, evaluate and check truthiness
         _ => {
-            let val = eval_inline_value(snapshot, expr, element);
+            let val = eval_inline_value(snapshot, expr, element, params);
             value_to_bool(&val)
         }
     }
