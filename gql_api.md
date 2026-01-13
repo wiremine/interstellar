@@ -30,13 +30,17 @@ GQL is a declarative query language for property graphs, offering a SQL-like syn
 - **Aggregation**: COUNT, SUM, AVG, MIN, MAX, COLLECT functions
 - **Sorting & Pagination**: ORDER BY, LIMIT, OFFSET
 - **Mutations**: CREATE, SET, REMOVE, DELETE, DETACH DELETE, MERGE
-- **Advanced Features**: UNION, OPTIONAL MATCH, EXISTS, CASE expressions, WITH PATH
+- **Advanced Features**: UNION, OPTIONAL MATCH, EXISTS, CASE expressions, WITH PATH, WITH clause
 - **Query Parameters**: Parameterized queries with `$paramName` syntax
 - **LET Clause**: Bind intermediate computed values to variables
 - **List Comprehensions**: Transform and filter lists with `[x IN list | expr]` syntax
 - **Map Literals**: Create map values with `{key: value}` syntax
 - **String Concatenation**: `||` operator for string operations
 - **Inline WHERE**: Filter patterns directly within node/edge definitions
+- **Regular Expressions**: Pattern matching with `=~` operator
+- **REDUCE Function**: Fold/accumulate over lists
+- **List Predicates**: ALL, ANY, NONE, SINGLE quantifier expressions
+- **HAVING Clause**: Filter aggregated results post-GROUP BY
 
 ---
 
@@ -143,10 +147,15 @@ execute_mutation(&stmt, &mut storage).unwrap();
 [UNWIND expression AS variable]
 [WHERE expression]
 [LET variable = expression]...
+[WITH [DISTINCT] expression [AS alias] [, ...]
+  [WHERE expression]
+  [ORDER BY expression [ASC|DESC] [, ...]]
+  [LIMIT n [OFFSET|SKIP m]]]...
 RETURN [DISTINCT] expression [AS alias] [, ...]
 [GROUP BY expression [, ...]]
+[HAVING expression]
 [ORDER BY expression [ASC|DESC] [, ...]]
-[LIMIT n [OFFSET m]]
+[LIMIT n [OFFSET|SKIP m]]
 [UNION [ALL] query]
 ```
 
@@ -281,6 +290,46 @@ RETURN t.name, avg(p.age)
 GROUP BY t.name
 ```
 
+### HAVING Clause
+
+The `HAVING` clause filters results after aggregation, similar to SQL's HAVING. Use it to filter on aggregate values.
+
+```sql
+-- Filter groups by aggregate value
+MATCH (p:Player)-[:plays_for]->(t:Team)
+RETURN t.name, COUNT(*) AS playerCount
+GROUP BY t.name
+HAVING playerCount > 10
+
+-- Filter by average
+MATCH (p:Player)-[:plays_for]->(t:Team)
+RETURN t.name, AVG(p.points) AS avgPoints
+GROUP BY t.name
+HAVING avgPoints > 15
+
+-- Multiple conditions in HAVING
+MATCH (p:Player)-[:plays_for]->(t:Team)
+RETURN t.name, COUNT(*) AS count, AVG(p.points) AS avg
+GROUP BY t.name
+HAVING count >= 5 AND avg > 10
+```
+
+**HAVING vs WHERE:**
+
+| Clause | When Applied | Use For |
+|--------|--------------|---------|
+| `WHERE` | Before aggregation | Filter individual rows |
+| `HAVING` | After aggregation | Filter aggregated groups |
+
+```sql
+-- Combined WHERE and HAVING
+MATCH (p:Player)-[:plays_for]->(t:Team)
+WHERE p.active = true              -- Filter before grouping
+RETURN t.name, COUNT(*) AS count
+GROUP BY t.name
+HAVING count > 5                   -- Filter after grouping
+```
+
 ### ORDER BY Clause
 
 Sorts results.
@@ -300,14 +349,17 @@ ORDER BY p.age DESC, p.name ASC
 
 ### LIMIT and OFFSET Clauses
 
-Pagination support.
+Pagination support. `SKIP` is supported as an alias for `OFFSET`.
 
 ```sql
 -- First 10 results
 MATCH (p:Person) RETURN p LIMIT 10
 
--- Skip 20, take 10
+-- Skip 20, take 10 (using OFFSET)
 MATCH (p:Person) RETURN p LIMIT 10 OFFSET 20
+
+-- Skip 20, take 10 (using SKIP alias)
+MATCH (p:Person) RETURN p LIMIT 10 SKIP 20
 ```
 
 ### UNION Clause
@@ -324,6 +376,99 @@ MATCH (p:Player)-[:won_championship_with]->(t:Team) RETURN t.name
 MATCH (p:Player)-[:played_for]->(t:Team) RETURN t.name
 UNION ALL
 MATCH (p:Player)-[:won_championship_with]->(t:Team) RETURN t.name
+```
+
+### WITH Clause
+
+The `WITH` clause allows intermediate result projection and filtering within a query. It enables query chaining by passing computed values between query parts.
+
+**Basic Syntax:**
+
+```sql
+MATCH (pattern)
+WITH expression [AS alias] [, ...]
+[WHERE expression]
+[ORDER BY expression [ASC|DESC]]
+[LIMIT n [OFFSET|SKIP m]]
+RETURN ...
+```
+
+**Basic Projection:**
+
+```sql
+-- Pass selected properties to next stage
+MATCH (p:Player)-[:plays_for]->(t:Team)
+WITH p.name AS playerName, t.name AS teamName
+RETURN playerName, teamName
+```
+
+**Aggregation in WITH:**
+
+```sql
+-- Count friends and filter by count
+MATCH (p:Person)-[:KNOWS]->(friend)
+WITH p, COUNT(friend) AS friendCount
+WHERE friendCount > 5
+RETURN p.name, friendCount
+
+-- Calculate statistics before further processing
+MATCH (p:Player)
+WITH p.position AS position, AVG(p.points) AS avgPoints, COUNT(*) AS count
+WHERE count > 3
+RETURN position, avgPoints
+ORDER BY avgPoints DESC
+```
+
+**WHERE After WITH:**
+
+```sql
+-- Filter on computed values
+MATCH (p:Player)-[:plays_for]->(t:Team)
+WITH t, COUNT(p) AS playerCount
+WHERE playerCount >= 10
+RETURN t.name, playerCount
+```
+
+**WITH DISTINCT:**
+
+```sql
+-- Remove duplicate rows
+MATCH (p:Player)-[:played_for]->(t:Team)
+WITH DISTINCT t.conference AS conference
+RETURN conference
+```
+
+**ORDER BY and LIMIT in WITH:**
+
+```sql
+-- Get top 5 scorers, then find their teams
+MATCH (p:Player)
+WITH p
+ORDER BY p.points DESC
+LIMIT 5
+RETURN p.name, p.points
+```
+
+**Chaining Multiple WITH Clauses:**
+
+```sql
+MATCH (p:Player)-[:plays_for]->(t:Team)
+WITH t, COUNT(p) AS playerCount
+WITH t.name AS teamName, playerCount
+WHERE playerCount > 10
+RETURN teamName, playerCount
+```
+
+**Complete Example:**
+
+```sql
+-- Find teams with high-scoring players and get their average
+MATCH (p:Player)-[:plays_for]->(t:Team)
+WITH t, AVG(p.points) AS avgPoints, MAX(p.points) AS topScore
+WHERE avgPoints > 15
+RETURN t.name AS team, avgPoints, topScore
+ORDER BY avgPoints DESC
+LIMIT 10
 ```
 
 ---
@@ -540,6 +685,7 @@ RETURN CASE WHEN p.age > 65 THEN 'Senior' END
 | 5 | `+`, `-` | Addition, Subtraction |
 | 6 | `\|\|` | String Concatenation |
 | 7 | `=`, `<>`, `<`, `<=`, `>`, `>=` | Comparison |
+| 7 | `=~` | Regular expression match |
 | 7 | `CONTAINS`, `STARTS WITH`, `ENDS WITH` | String comparison |
 | 7 | `IS NULL`, `IS NOT NULL` | Null checks |
 | 7 | `IN`, `NOT IN` | List membership |
@@ -599,6 +745,63 @@ RETURN CASE WHEN p.age > 65 THEN 'Senior' END
 |----------|-------------|---------|
 | `IN` | Value in list | `n.status IN ['active', 'pending']` |
 | `NOT IN` | Value not in list | `n.status NOT IN ['deleted', 'banned']` |
+
+### Regular Expression Operators
+
+The `=~` operator performs regular expression pattern matching against strings.
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `=~` | Regex match | `n.email =~ '.*@gmail\\.com$'` |
+
+**Basic Usage:**
+
+```sql
+-- Match emails ending with @gmail.com
+MATCH (p:Person)
+WHERE p.email =~ '.*@gmail\\.com$'
+RETURN p.name, p.email
+
+-- Match names starting with 'J'
+MATCH (p:Person)
+WHERE p.name =~ '^J.*'
+RETURN p.name
+
+-- Match phone numbers with pattern
+MATCH (c:Contact)
+WHERE c.phone =~ '^\\d{3}-\\d{3}-\\d{4}$'
+RETURN c.name, c.phone
+```
+
+**Case-Insensitive Matching:**
+
+Use the `(?i)` flag at the start of the pattern for case-insensitive matching:
+
+```sql
+-- Case-insensitive match
+MATCH (p:Person)
+WHERE p.name =~ '(?i)^john.*'
+RETURN p.name
+
+-- Match 'Smith', 'SMITH', 'smith', etc.
+MATCH (p:Person)
+WHERE p.lastName =~ '(?i)smith'
+RETURN p.name
+```
+
+**Common Regex Patterns:**
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `.*` | Any characters | `'.*test.*'` matches 'testing' |
+| `^` | Start of string | `'^Hello'` matches 'Hello World' |
+| `$` | End of string | `'world$'` matches 'Hello world' |
+| `\\d` | Any digit | `'\\d+'` matches '123' |
+| `\\w` | Word character | `'\\w+'` matches 'hello' |
+| `[abc]` | Character class | `'[aeiou]'` matches vowels |
+| `(?i)` | Case insensitive | `'(?i)hello'` matches 'HELLO' |
+
+**Note:** Backslashes must be escaped in GQL string literals (`\\d` instead of `\d`).
 
 ---
 
@@ -769,6 +972,160 @@ The MATH function supports:
 - Constants: `pi`, `e`, `tau`
 - Operators: `+`, `-`, `*`, `/`, `%`, `^`
 - Functions: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `sqrt`, `cbrt`, `abs`, `floor`, `ceil`, `round`, `exp`, `ln`, `log`, `log2`, `log10`, `min`, `max`, `clamp`
+
+### REDUCE Function
+
+The `REDUCE` function folds/accumulates over a list, similar to reduce/fold operations in functional programming.
+
+**Syntax:**
+
+```
+REDUCE(accumulator = initialValue, variable IN list | expression)
+```
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `accumulator` | Variable name for the accumulated value |
+| `initialValue` | Starting value for the accumulator |
+| `variable` | Variable bound to each list element |
+| `list` | The list to iterate over |
+| `expression` | Expression that computes the new accumulator value |
+
+**Examples:**
+
+```sql
+-- Sum a list of numbers
+RETURN REDUCE(total = 0, x IN [1, 2, 3, 4, 5] | total + x) AS sum
+-- Returns: 15
+
+-- Product of list elements
+RETURN REDUCE(product = 1, n IN [2, 3, 4] | product * n) AS result
+-- Returns: 24
+
+-- Concatenate strings
+RETURN REDUCE(str = '', s IN ['a', 'b', 'c'] | str || s) AS combined
+-- Returns: 'abc'
+
+-- With separator
+RETURN REDUCE(str = '', s IN ['hello', 'world'] | 
+  CASE WHEN str = '' THEN s ELSE str || ', ' || s END
+) AS joined
+-- Returns: 'hello, world'
+```
+
+**Using with Query Results:**
+
+```sql
+-- Sum prices from collected items
+MATCH (p:Person)-[:PURCHASED]->(item:Product)
+LET items = COLLECT(item.price)
+RETURN p.name, REDUCE(total = 0, price IN items | total + price) AS totalSpent
+
+-- Calculate path length
+MATCH (a:Person)-[r:KNOWS*1..5]->(b:Person)
+RETURN REDUCE(len = 0, rel IN r | len + 1) AS pathLength
+```
+
+**Complex Accumulation:**
+
+```sql
+-- Build a running maximum
+RETURN REDUCE(maxVal = 0, x IN [3, 1, 4, 1, 5, 9] | 
+  CASE WHEN x > maxVal THEN x ELSE maxVal END
+) AS maxValue
+-- Returns: 9
+
+-- Count matching elements
+RETURN REDUCE(count = 0, x IN [1, 2, 3, 4, 5] | 
+  CASE WHEN x > 2 THEN count + 1 ELSE count END
+) AS countGreaterThan2
+-- Returns: 3
+```
+
+### List Predicate Functions
+
+List predicates test conditions across list elements. They return boolean values.
+
+| Function | Description | Returns `true` when |
+|----------|-------------|---------------------|
+| `ALL(x IN list WHERE cond)` | All elements match | Every element satisfies condition |
+| `ANY(x IN list WHERE cond)` | At least one matches | At least one element satisfies |
+| `NONE(x IN list WHERE cond)` | No elements match | No element satisfies condition |
+| `SINGLE(x IN list WHERE cond)` | Exactly one matches | Exactly one element satisfies |
+
+**ALL - Every Element Must Match:**
+
+```sql
+-- Check if all numbers are positive
+RETURN ALL(x IN [1, 2, 3] WHERE x > 0) AS allPositive
+-- Returns: true
+
+RETURN ALL(x IN [1, -2, 3] WHERE x > 0) AS allPositive
+-- Returns: false
+
+-- Check if all friends are adults
+MATCH (p:Person)-[:KNOWS]->(f:Person)
+LET friendAges = COLLECT(f.age)
+WHERE ALL(age IN friendAges WHERE age >= 18)
+RETURN p.name
+```
+
+**ANY - At Least One Must Match:**
+
+```sql
+-- Check if any number is negative
+RETURN ANY(x IN [1, -2, 3] WHERE x < 0) AS hasNegative
+-- Returns: true
+
+-- Check if player has any championship
+MATCH (p:Player)
+LET rings = COLLECT { MATCH (p)-[:won_championship_with]->() RETURN 1 }
+WHERE ANY(x IN rings WHERE x = 1)
+RETURN p.name AS champions
+```
+
+**NONE - No Element Must Match:**
+
+```sql
+-- Check if no numbers are negative
+RETURN NONE(x IN [1, 2, 3] WHERE x < 0) AS noNegatives
+-- Returns: true
+
+-- Find players with no losses
+MATCH (p:Player)
+LET results = [10, 5, 8, 12]  -- example scores
+WHERE NONE(score IN results WHERE score < 5)
+RETURN p.name
+```
+
+**SINGLE - Exactly One Must Match:**
+
+```sql
+-- Check if exactly one element equals 5
+RETURN SINGLE(x IN [1, 5, 3] WHERE x = 5) AS exactlyOne
+-- Returns: true
+
+RETURN SINGLE(x IN [5, 5, 3] WHERE x = 5) AS exactlyOne
+-- Returns: false (two matches)
+
+-- Find teams with exactly one star player
+MATCH (t:Team)<-[:plays_for]-(p:Player)
+LET scores = COLLECT(p.points)
+WHERE SINGLE(pts IN scores WHERE pts > 25)
+RETURN t.name AS teamWithOneStar
+```
+
+**Edge Cases:**
+
+```sql
+-- Empty list behavior
+RETURN ALL(x IN [] WHERE x > 0)    -- true (vacuously true)
+RETURN ANY(x IN [] WHERE x > 0)    -- false (no elements match)
+RETURN NONE(x IN [] WHERE x > 0)   -- true (no elements fail)
+RETURN SINGLE(x IN [] WHERE x > 0) -- false (no elements match)
+```
 
 ---
 
@@ -1447,14 +1804,11 @@ The current GQL implementation has the following limitations:
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Subqueries | Not supported | No nested `CALL` or `MATCH` within expressions |
-| `WITH` clause | Not supported | Cannot pipe results between query parts |
 | `FOREACH` | Not supported | No iterative mutations |
 | `LOAD CSV` | Not supported | No external data import |
 | Multiple graphs | Not supported | Single graph queries only |
 | Returning paths directly | Partial | Use `WITH PATH` + `path()` function |
 | `CALL` procedures | Not supported | No stored procedures |
-| `REDUCE` function | Not supported | Future work |
-| Regular expression predicates | Not supported | Future work |
 | Pattern comprehensions | Not supported | `[(p)-[:KNOWS]->(f) | f.name]` syntax |
 
 ### Partial Support
