@@ -40,7 +40,7 @@ use crate::gql::ast::{
     Literal, MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern,
     OptionalMatchClause, OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement,
     PropertyRef, Query, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, Statement,
-    UnaryOperator, UnwindClause, WhereClause, WithPathClause,
+    UnaryOperator, UnwindClause, WhereClause, WithClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -517,6 +517,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut unwind_clauses = Vec::new();
     let mut where_clause = None;
     let mut let_clauses = Vec::new();
+    let mut with_clauses = Vec::new();
     let mut return_clause = None;
     let mut group_by_clause = None;
     let mut having_clause = None;
@@ -533,6 +534,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::unwind_clause => unwind_clauses.push(build_unwind_clause(inner)?),
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
             Rule::let_clause => let_clauses.push(build_let_clause(inner)?),
+            Rule::with_clause => with_clauses.push(build_with_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
             Rule::group_by_clause => group_by_clause = Some(build_group_by_clause(inner)?),
             Rule::having_clause => having_clause = Some(build_having_clause(inner)?),
@@ -550,6 +552,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
         unwind_clauses,
         where_clause,
         let_clauses,
+        with_clauses,
         return_clause: return_clause
             .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
         group_by_clause,
@@ -777,6 +780,121 @@ fn build_unwind_clause(pair: pest::iterators::Pair<Rule>) -> Result<UnwindClause
         expression: expression
             .ok_or_else(|| ParseError::missing_clause("UNWIND expression", pair_span))?,
         alias: alias.ok_or_else(|| ParseError::missing_clause("UNWIND alias", pair_span))?,
+    })
+}
+
+/// Build a WITH clause from a pest pair.
+///
+/// WITH [DISTINCT] items [WHERE condition] [ORDER BY ...] [LIMIT ...]
+///
+/// The WITH clause pipes results between query parts, projecting specified
+/// columns forward. It resets variable scope - only explicitly listed variables
+/// are available in subsequent clauses.
+///
+/// # Examples
+///
+/// ```text
+/// WITH p, COUNT(f) AS friendCount
+/// WITH DISTINCT friend.city AS city
+/// WITH p ORDER BY p.score DESC LIMIT 10
+/// WITH p, cnt WHERE cnt > 5
+/// ```
+fn build_with_clause(pair: pest::iterators::Pair<Rule>) -> Result<WithClause, ParseError> {
+    let mut distinct = false;
+    let mut items = Vec::new();
+    let mut where_clause = None;
+    let mut order_clause = None;
+    let mut limit_clause = None;
+
+    for inner in pair.clone().into_inner() {
+        match inner.as_rule() {
+            Rule::DISTINCT => distinct = true,
+            Rule::return_item => items.push(build_return_item(inner)?),
+            Rule::with_where_clause => {
+                // Extract the expression from with_where_clause
+                let where_span = span_from_pair(&inner);
+                let expr_pair = inner
+                    .into_inner()
+                    .find(|p| p.as_rule() == Rule::expression)
+                    .ok_or_else(|| ParseError::missing_clause("WHERE expression", where_span))?;
+                where_clause = Some(WhereClause {
+                    expression: build_expression(expr_pair)?,
+                });
+            }
+            Rule::order_clause => order_clause = Some(build_order_clause(inner)?),
+            Rule::with_limit_clause => limit_clause = Some(build_with_limit_clause(inner)?),
+            _ => {}
+        }
+    }
+
+    Ok(WithClause {
+        distinct,
+        items,
+        where_clause,
+        order_clause,
+        limit_clause,
+    })
+}
+
+/// Build a LIMIT clause from within a WITH clause.
+/// Uses with_limit_clause rule to avoid ambiguity with main limit_clause.
+fn build_with_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, ParseError> {
+    let mut limit = None;
+    let mut offset = None;
+
+    let children: Vec<_> = pair.clone().into_inner().collect();
+    let mut i = 0;
+
+    while i < children.len() {
+        let child = &children[i];
+        match child.as_rule() {
+            Rule::LIMIT => {
+                // Next child should be an integer for LIMIT
+                if i + 1 < children.len() && children[i + 1].as_rule() == Rule::integer {
+                    let span = span_from_pair(&children[i + 1]);
+                    let n: u64 = children[i + 1].as_str().parse().map_err(|_| {
+                        ParseError::invalid_literal(
+                            children[i + 1].as_str(),
+                            span,
+                            "expected unsigned integer",
+                        )
+                    })?;
+                    limit = Some(n);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            Rule::OFFSET | Rule::SKIP => {
+                // Next child should be an integer for OFFSET/SKIP
+                if i + 1 < children.len() && children[i + 1].as_rule() == Rule::integer {
+                    let span = span_from_pair(&children[i + 1]);
+                    let n: u64 = children[i + 1].as_str().parse().map_err(|_| {
+                        ParseError::invalid_literal(
+                            children[i + 1].as_str(),
+                            span,
+                            "expected unsigned integer",
+                        )
+                    })?;
+                    offset = Some(n);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            Rule::integer => {
+                // This handles the case where the grammar has already consumed the keyword
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    Ok(LimitClause {
+        limit: limit.unwrap_or(0),
+        offset,
     })
 }
 

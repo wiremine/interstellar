@@ -26,6 +26,7 @@ where_clause:
         Literal:
           Bool: true
 let_clauses: []
+with_clauses: []
 return_clause:
   distinct: false
   items:

@@ -377,6 +377,8 @@ pub struct Query {
     pub where_clause: Option<WhereClause>,
     /// LET clauses for binding computed values to variables.
     pub let_clauses: Vec<LetClause>,
+    /// WITH clauses for piping results between query parts.
+    pub with_clauses: Vec<WithClause>,
     /// The RETURN clause specifying what values to output.
     pub return_clause: ReturnClause,
     /// Optional GROUP BY clause for grouping aggregation results.
@@ -418,6 +420,59 @@ pub struct LetClause {
     pub variable: String,
     /// The expression to evaluate and bind.
     pub expression: Expression,
+}
+
+/// The WITH clause for piping results between query parts.
+///
+/// WITH terminates the current query part and starts a new one.
+/// Only variables explicitly listed in WITH are available in subsequent clauses.
+/// WITH can include aggregations (like RETURN), DISTINCT, WHERE, ORDER BY, and LIMIT.
+///
+/// # Key Semantics
+///
+/// - WITH resets variable scope - only projected variables are available afterward
+/// - WHERE after WITH filters on the WITH output (not the original MATCH)
+/// - WITH can contain aggregates, requiring implicit grouping by non-aggregated expressions
+///
+/// # Examples
+///
+/// ```text
+/// -- Basic WITH
+/// MATCH (p:Person)-[:KNOWS]->(friend)
+/// WITH p, COUNT(friend) AS friendCount
+/// WHERE friendCount > 5
+/// RETURN p.name, friendCount
+///
+/// -- Multiple WITH clauses
+/// MATCH (p:Person)
+/// WITH p, SIZE((p)-[:KNOWS]->()) AS degree
+/// WHERE degree > 10
+/// WITH p, degree, p.age AS age
+/// WHERE age > 30
+/// RETURN p.name, degree
+///
+/// -- WITH DISTINCT
+/// MATCH (p:Person)-[:KNOWS]->(friend)
+/// WITH DISTINCT friend.city AS city
+/// RETURN city
+///
+/// -- WITH ORDER BY and LIMIT (pagination mid-query)
+/// MATCH (p:Person)
+/// WITH p ORDER BY p.score DESC LIMIT 10
+/// RETURN p.name
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct WithClause {
+    /// Whether to apply DISTINCT to projected values.
+    pub distinct: bool,
+    /// Items to project forward (same structure as RETURN items).
+    pub items: Vec<ReturnItem>,
+    /// Optional WHERE clause filtering WITH output.
+    pub where_clause: Option<WhereClause>,
+    /// Optional ORDER BY within WITH.
+    pub order_clause: Option<OrderClause>,
+    /// Optional LIMIT within WITH.
+    pub limit_clause: Option<LimitClause>,
 }
 
 // =============================================================================

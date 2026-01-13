@@ -28,6 +28,7 @@ with_path_clause: ~
 unwind_clauses: []
 where_clause: ~
 let_clauses: []
+with_clauses: []
 return_clause:
   distinct: false
   items:

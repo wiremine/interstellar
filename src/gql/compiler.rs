@@ -73,7 +73,7 @@ use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
     GroupByClause, HavingClause, LetClause, LimitClause, Literal, NodePattern, OptionalMatchClause,
     OrderClause, PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem,
-    Statement, UnaryOperator, UnwindClause, WhereClause,
+    Statement, UnaryOperator, UnwindClause, WhereClause, WithClause,
 };
 use crate::gql::error::CompileError;
 use crate::graph::GraphSnapshot;
@@ -539,13 +539,15 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let uses_path_func = self.return_uses_path_function(&query.return_clause);
         let has_unwind = !query.unwind_clauses.is_empty();
         let has_let = !query.let_clauses.is_empty();
+        let has_with = !query.with_clauses.is_empty();
         self.has_multi_vars = var_count > 1
             || has_edge_var
             || has_optional
             || has_with_path
             || uses_path_func
             || has_unwind
-            || has_let;
+            || has_let
+            || has_with;
 
         // Build traversal starting from v()
         let g = self.snapshot.traversal();
@@ -589,6 +591,24 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     is_node: false,
                 },
             );
+        }
+
+        // Register WITH clause output variables as valid bindings
+        // Each WITH clause outputs variables that can be referenced afterward
+        for with_clause in &query.with_clauses {
+            for item in &with_clause.items {
+                let var_name = item
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| Self::expression_to_key(&item.expression));
+                self.bindings.insert(
+                    var_name,
+                    BindingInfo {
+                        pattern_index: 0,
+                        is_node: false,
+                    },
+                );
+            }
         }
 
         // Verify all referenced variables are bound before proceeding
@@ -647,6 +667,11 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         // Check if we have UNWIND clauses to apply
         if !query.unwind_clauses.is_empty() {
             return self.execute_with_unwind(query, traversal);
+        }
+
+        // Check if we have WITH clauses - process them with row-based execution
+        if !query.with_clauses.is_empty() {
+            return self.execute_with_with_clauses(query, traversal);
         }
 
         // Check if we have LET clauses - if so, use row-based processing
@@ -833,6 +858,478 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         let results = self.apply_limit(&query.limit_clause, results);
 
         Ok(results)
+    }
+
+    /// Execute a query with WITH clauses.
+    ///
+    /// WITH clauses act as query pipes, transforming and filtering results between
+    /// query stages. Each WITH clause:
+    /// 1. Projects specified expressions to a new scope (only projected variables are available afterward)
+    /// 2. Can contain aggregations (GROUP BY semantics when mixing aggregates with non-aggregates)
+    /// 3. Can filter with WHERE after projection
+    /// 4. Can apply ORDER BY and LIMIT within the clause
+    /// 5. Can use DISTINCT to deduplicate
+    fn execute_with_with_clauses(
+        &self,
+        query: &Query,
+        traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Execute the base match first
+        let base_traversers: Vec<Traverser> = if self.has_multi_vars {
+            traversal.execute().collect()
+        } else {
+            traversal
+                .to_list()
+                .into_iter()
+                .map(Traverser::new)
+                .collect()
+        };
+
+        // Convert traversers to rows
+        let mut current_rows: Vec<HashMap<String, Value>> = base_traversers
+            .into_iter()
+            .map(|t| {
+                let mut row = HashMap::new();
+                // Copy bound variables from path to row
+                for label in t.path.all_labels() {
+                    if let Some(values) = t.path.get(label) {
+                        if let Some(path_value) = values.last() {
+                            row.insert(label.clone(), path_value.to_value());
+                        }
+                    }
+                }
+                // Store the full path as __path__ for path() function
+                let path_values: Vec<Value> = t.path.objects().map(|pv| pv.to_value()).collect();
+                row.insert("__path__".to_string(), Value::List(path_values));
+                // Also store the current traverser value
+                row.insert("__current__".to_string(), t.value);
+                row
+            })
+            .collect();
+
+        // Apply main WHERE filter if present (before any WITH clause)
+        if let Some(where_cl) = &query.where_clause {
+            current_rows.retain(|row| self.evaluate_predicate_from_row(&where_cl.expression, row));
+        }
+
+        // Process each WITH clause sequentially
+        for with_clause in &query.with_clauses {
+            current_rows = self.apply_with_clause(current_rows, with_clause)?;
+        }
+
+        // Apply LET clauses if present
+        let current_rows = self.apply_let_clauses(current_rows, &query.let_clauses);
+
+        // Process RETURN clause
+        let results: Vec<Value> = current_rows
+            .into_iter()
+            .filter_map(|row| self.evaluate_return_for_row(&query.return_clause.items, &row))
+            .collect();
+
+        // Apply DISTINCT if requested in RETURN
+        let results = if query.return_clause.distinct {
+            self.deduplicate_results(results)
+        } else {
+            results
+        };
+
+        // Apply ORDER BY if present
+        let results = self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+
+        // Apply LIMIT/OFFSET if present
+        let results = self.apply_limit(&query.limit_clause, results);
+
+        Ok(results)
+    }
+
+    /// Apply a single WITH clause to transform rows.
+    ///
+    /// WITH clause semantics:
+    /// - Projects only the specified expressions (creates a new scope)
+    /// - If aggregates are present, groups by non-aggregate expressions
+    /// - Applies WHERE filter after projection
+    /// - Applies ORDER BY and LIMIT within the clause
+    /// - DISTINCT deduplicates the projected rows
+    fn apply_with_clause(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        with_clause: &WithClause,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        if rows.is_empty() {
+            return Ok(rows);
+        }
+
+        // Check if any WITH item contains aggregates
+        let has_aggregates = with_clause
+            .items
+            .iter()
+            .any(|item| Self::expr_has_aggregate(&item.expression));
+
+        let mut new_rows = if has_aggregates {
+            // WITH with aggregates: group by non-aggregate expressions
+            self.apply_with_aggregation(&rows, with_clause)?
+        } else {
+            // Simple projection: evaluate expressions per-row
+            self.apply_with_projection(&rows, with_clause)?
+        };
+
+        // Apply DISTINCT if requested
+        if with_clause.distinct {
+            new_rows = self.deduplicate_rows(new_rows);
+        }
+
+        // Apply WHERE filter if present (after projection)
+        if let Some(where_cl) = &with_clause.where_clause {
+            new_rows.retain(|row| self.evaluate_predicate_from_row(&where_cl.expression, row));
+        }
+
+        // Apply ORDER BY if present within WITH clause
+        if let Some(order_clause) = &with_clause.order_clause {
+            new_rows = self.apply_order_by_to_rows(new_rows, order_clause)?;
+        }
+
+        // Apply LIMIT/OFFSET if present within WITH clause
+        if let Some(limit_clause) = &with_clause.limit_clause {
+            new_rows = self.apply_limit_to_rows(new_rows, limit_clause);
+        }
+
+        Ok(new_rows)
+    }
+
+    /// Apply simple WITH projection without aggregation.
+    fn apply_with_projection(
+        &self,
+        rows: &[HashMap<String, Value>],
+        with_clause: &WithClause,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        let mut new_rows = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let mut new_row = HashMap::new();
+            for item in &with_clause.items {
+                let key = item
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| Self::expression_to_key(&item.expression));
+                let value = self.evaluate_expression_from_row(&item.expression, row);
+                new_row.insert(key, value);
+            }
+            new_rows.push(new_row);
+        }
+
+        Ok(new_rows)
+    }
+
+    /// Apply WITH clause with aggregation (GROUP BY semantics).
+    ///
+    /// When WITH contains aggregates, non-aggregate expressions become the group key.
+    fn apply_with_aggregation(
+        &self,
+        rows: &[HashMap<String, Value>],
+        with_clause: &WithClause,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        // Separate aggregate from non-aggregate items
+        let mut group_items: Vec<&ReturnItem> = Vec::new();
+        let mut aggregate_items: Vec<&ReturnItem> = Vec::new();
+
+        for item in &with_clause.items {
+            if Self::expr_has_aggregate(&item.expression) {
+                aggregate_items.push(item);
+            } else {
+                group_items.push(item);
+            }
+        }
+
+        // If no group items, aggregate over all rows (global aggregation)
+        if group_items.is_empty() {
+            let mut result_row = HashMap::new();
+            for item in &aggregate_items {
+                let key = item
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| Self::expression_to_key(&item.expression));
+                let value = self.compute_aggregate_over_rows(rows, &item.expression);
+                result_row.insert(key, value);
+            }
+            return Ok(vec![result_row]);
+        }
+
+        // Group rows by non-aggregate expressions
+        let mut groups: HashMap<Vec<ComparableValue>, Vec<&HashMap<String, Value>>> =
+            HashMap::new();
+
+        for row in rows {
+            let group_key: Vec<ComparableValue> = group_items
+                .iter()
+                .map(|item| {
+                    let val = self.evaluate_expression_from_row(&item.expression, row);
+                    ComparableValue::from(val)
+                })
+                .collect();
+
+            groups.entry(group_key).or_default().push(row);
+        }
+
+        // Compute result for each group
+        let mut new_rows = Vec::with_capacity(groups.len());
+
+        for (group_key, group_rows) in groups {
+            let mut new_row = HashMap::new();
+
+            // Add group-by values
+            for (i, item) in group_items.iter().enumerate() {
+                let key = item
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| Self::expression_to_key(&item.expression));
+                let value = Value::from(group_key[i].clone());
+                new_row.insert(key, value);
+            }
+
+            // Compute aggregates over the group
+            let owned_rows: Vec<HashMap<String, Value>> = group_rows.into_iter().cloned().collect();
+            for item in &aggregate_items {
+                let key = item
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| Self::expression_to_key(&item.expression));
+                let value = self.compute_aggregate_over_rows(&owned_rows, &item.expression);
+                new_row.insert(key, value);
+            }
+
+            new_rows.push(new_row);
+        }
+
+        Ok(new_rows)
+    }
+
+    /// Compute an aggregate expression over a collection of rows.
+    fn compute_aggregate_over_rows(
+        &self,
+        rows: &[HashMap<String, Value>],
+        expr: &Expression,
+    ) -> Value {
+        match expr {
+            Expression::Aggregate {
+                func,
+                distinct,
+                expr: inner_expr,
+            } => {
+                // Collect values from all rows
+                let mut values: Vec<Value> = rows
+                    .iter()
+                    .map(|row| self.evaluate_expression_from_row(inner_expr, row))
+                    .filter(|v| !matches!(v, Value::Null))
+                    .collect();
+
+                // Apply DISTINCT if requested
+                if *distinct {
+                    let mut seen = HashSet::new();
+                    values.retain(|v| {
+                        let key = format!("{:?}", v);
+                        seen.insert(key)
+                    });
+                }
+
+                // Compute the aggregate
+                match func {
+                    AggregateFunc::Count => Value::Int(values.len() as i64),
+                    AggregateFunc::Sum => self.compute_sum(&values),
+                    AggregateFunc::Avg => self.compute_avg(&values),
+                    AggregateFunc::Min => self.compute_min(&values),
+                    AggregateFunc::Max => self.compute_max(&values),
+                    AggregateFunc::Collect => Value::List(values),
+                }
+            }
+            Expression::BinaryOp { left, right, op } => {
+                // Handle expressions containing aggregates
+                let left_val = self.compute_aggregate_over_rows(rows, left);
+                let right_val = self.compute_aggregate_over_rows(rows, right);
+                apply_binary_op(*op, left_val, right_val)
+            }
+            _ => {
+                // Non-aggregate expression - should not happen in aggregate context
+                // but handle gracefully by evaluating against first row
+                if let Some(row) = rows.first() {
+                    self.evaluate_expression_from_row(expr, row)
+                } else {
+                    Value::Null
+                }
+            }
+        }
+    }
+
+    /// Helper to compute sum from values.
+    fn compute_sum(&self, values: &[Value]) -> Value {
+        let mut sum = 0.0;
+        let mut is_int = true;
+        let mut int_sum: i64 = 0;
+
+        for v in values {
+            match v {
+                Value::Int(i) => {
+                    if is_int {
+                        int_sum = int_sum.saturating_add(*i);
+                    }
+                    sum += *i as f64;
+                }
+                Value::Float(f) => {
+                    is_int = false;
+                    sum += f;
+                }
+                _ => {}
+            }
+        }
+
+        if is_int {
+            Value::Int(int_sum)
+        } else {
+            Value::Float(sum)
+        }
+    }
+
+    /// Helper to compute average from values.
+    fn compute_avg(&self, values: &[Value]) -> Value {
+        if values.is_empty() {
+            return Value::Null;
+        }
+
+        let mut sum = 0.0;
+        let mut count = 0;
+
+        for v in values {
+            match v {
+                Value::Int(i) => {
+                    sum += *i as f64;
+                    count += 1;
+                }
+                Value::Float(f) => {
+                    sum += f;
+                    count += 1;
+                }
+                _ => {}
+            }
+        }
+
+        if count > 0 {
+            Value::Float(sum / count as f64)
+        } else {
+            Value::Null
+        }
+    }
+
+    /// Helper to compute minimum from values.
+    fn compute_min(&self, values: &[Value]) -> Value {
+        values
+            .iter()
+            .filter(|v| !matches!(v, Value::Null))
+            .min_by(|a, b| compare_values(a, b))
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
+    /// Helper to compute maximum from values.
+    fn compute_max(&self, values: &[Value]) -> Value {
+        values
+            .iter()
+            .filter(|v| !matches!(v, Value::Null))
+            .max_by(|a, b| compare_values(a, b))
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
+    /// Deduplicate rows based on all columns.
+    fn deduplicate_rows(&self, rows: Vec<HashMap<String, Value>>) -> Vec<HashMap<String, Value>> {
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+
+        for row in rows {
+            // Create a comparable key from all row values
+            let key = self.row_to_comparable_key(&row);
+            if seen.insert(key) {
+                result.push(row);
+            }
+        }
+
+        result
+    }
+
+    /// Convert a row to a comparable string key for deduplication.
+    fn row_to_comparable_key(&self, row: &HashMap<String, Value>) -> String {
+        let mut pairs: Vec<_> = row.iter().collect();
+        pairs.sort_by(|a, b| a.0.cmp(b.0));
+        format!("{:?}", pairs)
+    }
+
+    /// Apply ORDER BY to rows.
+    fn apply_order_by_to_rows(
+        &self,
+        mut rows: Vec<HashMap<String, Value>>,
+        order_clause: &OrderClause,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        rows.sort_by(|a, b| {
+            for order_item in &order_clause.items {
+                let val_a = self.evaluate_expression_from_row(&order_item.expression, a);
+                let val_b = self.evaluate_expression_from_row(&order_item.expression, b);
+
+                let cmp = compare_values(&val_a, &val_b);
+                if cmp != std::cmp::Ordering::Equal {
+                    return if order_item.descending {
+                        cmp.reverse()
+                    } else {
+                        cmp
+                    };
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+
+        Ok(rows)
+    }
+
+    /// Apply LIMIT/OFFSET to rows.
+    fn apply_limit_to_rows(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        limit_clause: &LimitClause,
+    ) -> Vec<HashMap<String, Value>> {
+        let offset = limit_clause.offset.unwrap_or(0) as usize;
+        let limit = limit_clause.limit as usize;
+
+        rows.into_iter().skip(offset).take(limit).collect()
+    }
+
+    /// Convert expression to a key string for WITH clause output naming.
+    fn expression_to_key(expr: &Expression) -> String {
+        match expr {
+            Expression::Variable(name) => name.clone(),
+            Expression::Property { variable, property } => format!("{}.{}", variable, property),
+            Expression::Aggregate { func, expr, .. } => {
+                let inner = Self::expression_to_key(expr);
+                match func {
+                    AggregateFunc::Count => format!("count({})", inner),
+                    AggregateFunc::Sum => format!("sum({})", inner),
+                    AggregateFunc::Avg => format!("avg({})", inner),
+                    AggregateFunc::Min => format!("min({})", inner),
+                    AggregateFunc::Max => format!("max({})", inner),
+                    AggregateFunc::Collect => format!("collect({})", inner),
+                }
+            }
+            Expression::FunctionCall { name, args } => {
+                let args_str: Vec<String> = args.iter().map(Self::expression_to_key).collect();
+                format!("{}({})", name, args_str.join(", "))
+            }
+            Expression::Literal(lit) => match lit {
+                Literal::Int(i) => i.to_string(),
+                Literal::Float(f) => f.to_string(),
+                Literal::String(s) => format!("\"{}\"", s),
+                Literal::Bool(b) => b.to_string(),
+                Literal::Null => "null".to_string(),
+            },
+            _ => format!("{:?}", expr),
+        }
     }
 
     /// Apply an UNWIND clause to expand lists into rows.

@@ -148,7 +148,20 @@ union_clause = { UNION ~ ALL? }
 // OPTIONAL MATCH clauses come after the main MATCH clause
 // WITH PATH enables path tracking, UNWIND expands lists into rows
 // LET binds computed values to variables for use in RETURN
-query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ let_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
+// WITH clause pipes results between query parts (after WHERE/LET, before RETURN)
+query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ let_clause* ~ with_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
+
+// WITH clause - pipes results between query parts
+// WITH projects columns forward, resetting variable scope
+// Can include DISTINCT, WHERE (after projection), ORDER BY, LIMIT
+// NOTE: Uses negative lookahead !PATH to distinguish from WITH PATH clause
+with_clause = { WITH ~ !PATH ~ DISTINCT? ~ return_item ~ ("," ~ return_item)* ~ with_where_clause? ~ order_clause? ~ with_limit_clause? }
+
+// WHERE clause within WITH (filters on projected columns)
+with_where_clause = { WHERE ~ expression }
+
+// LIMIT clause within WITH (separate to avoid ambiguity with main limit_clause)
+with_limit_clause = { LIMIT ~ integer ~ ((OFFSET | SKIP) ~ integer)? }
 
 // WITH PATH clause - enables path tracking and collection
 // Allows using path() function in RETURN to get the traversed path

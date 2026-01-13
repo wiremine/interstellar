@@ -23,6 +23,7 @@ where_clause:
           property: email
       negated: true
 let_clauses: []
+with_clauses: []
 return_clause:
   distinct: false
   items:

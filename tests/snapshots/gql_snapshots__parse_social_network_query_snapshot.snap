@@ -58,6 +58,7 @@ where_clause:
               variable: user
               property: id
 let_clauses: []
+with_clauses: []
 return_clause:
   distinct: true
   items:

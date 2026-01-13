@@ -26,6 +26,7 @@ where_clause:
         Literal:
           String: inactive
 let_clauses: []
+with_clauses: []
 return_clause:
   distinct: false
   items:

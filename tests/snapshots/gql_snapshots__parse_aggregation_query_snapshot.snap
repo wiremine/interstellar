@@ -40,6 +40,7 @@ where_clause:
         Literal:
           String: 2024-01-01
 let_clauses: []
+with_clauses: []
 return_clause:
   distinct: false
   items:

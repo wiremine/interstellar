@@ -11700,3 +11700,467 @@ fn test_gql_single_predicate_parse() {
         other => panic!("Expected Single expression, got {:?}", other),
     }
 }
+
+// =============================================================================
+// WITH Clause Tests
+// =============================================================================
+
+/// Helper to create a graph with relationships for WITH clause testing
+fn create_with_clause_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices with ages
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("age".to_string(), Value::from(30i64));
+    alice_props.insert("city".to_string(), Value::from("NYC"));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    bob_props.insert("age".to_string(), Value::from(25i64));
+    bob_props.insert("city".to_string(), Value::from("NYC"));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    carol_props.insert("age".to_string(), Value::from(35i64));
+    carol_props.insert("city".to_string(), Value::from("LA"));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    let mut dave_props = HashMap::new();
+    dave_props.insert("name".to_string(), Value::from("Dave"));
+    dave_props.insert("age".to_string(), Value::from(28i64));
+    dave_props.insert("city".to_string(), Value::from("NYC"));
+    let dave = storage.add_vertex("Person", dave_props);
+
+    let mut eve_props = HashMap::new();
+    eve_props.insert("name".to_string(), Value::from("Eve"));
+    eve_props.insert("age".to_string(), Value::from(32i64));
+    eve_props.insert("city".to_string(), Value::from("LA"));
+    let eve = storage.add_vertex("Person", eve_props);
+
+    // Create KNOWS relationships:
+    // Alice knows Bob, Carol, Dave (3 friends)
+    // Bob knows Carol (1 friend)
+    // Carol knows Dave, Eve (2 friends)
+    // Dave knows Eve (1 friend)
+    // Eve knows no one (0 friends)
+    storage
+        .add_edge(alice, bob, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, dave, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, carol, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(carol, dave, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(carol, eve, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(dave, eve, "KNOWS", HashMap::new())
+        .unwrap();
+
+    Graph::new(storage)
+}
+
+#[test]
+fn test_gql_with_basic_projection() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // Basic WITH: project name as a new variable
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name RETURN name")
+        .unwrap();
+
+    assert_eq!(results.len(), 5, "Should return 5 person names");
+
+    // Verify all results are strings
+    for result in &results {
+        assert!(matches!(result, Value::String(_)));
+    }
+}
+
+#[test]
+fn test_gql_with_multiple_items() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with multiple items
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name, p.age AS age RETURN name, age")
+        .unwrap();
+
+    assert_eq!(results.len(), 5);
+
+    // Each result should be a map with name and age
+    for result in &results {
+        if let Value::Map(map) = result {
+            assert!(map.contains_key("name"));
+            assert!(map.contains_key("age"));
+        } else {
+            panic!("Expected Map result");
+        }
+    }
+}
+
+#[test]
+fn test_gql_with_where_filter() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH followed by WHERE to filter on projected column
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name, p.age AS age WHERE age > 30 RETURN name")
+        .unwrap();
+
+    assert_eq!(
+        results.len(),
+        2,
+        "Should find 2 people over 30 (Carol=35, Eve=32)"
+    );
+
+    let names: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains("Carol"));
+    assert!(names.contains("Eve"));
+}
+
+#[test]
+fn test_gql_with_aggregation_count() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with COUNT aggregation - count friends per person
+    let results = snapshot
+        .gql("MATCH (p:Person)-[:KNOWS]->(friend) WITH p.name AS person, COUNT(friend) AS friendCount RETURN person, friendCount")
+        .unwrap();
+
+    // Alice: 3, Bob: 1, Carol: 2, Dave: 1 (Eve has no outgoing KNOWS edges)
+    assert_eq!(results.len(), 4, "Should have 4 people with friends");
+
+    // Verify friend counts
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for result in results {
+        if let Value::Map(map) = result {
+            let person = match map.get("person") {
+                Some(Value::String(s)) => s.clone(),
+                _ => continue,
+            };
+            let count = match map.get("friendCount") {
+                Some(Value::Int(n)) => *n,
+                _ => continue,
+            };
+            counts.insert(person, count);
+        }
+    }
+
+    assert_eq!(counts.get("Alice"), Some(&3));
+    assert_eq!(counts.get("Bob"), Some(&1));
+    assert_eq!(counts.get("Carol"), Some(&2));
+    assert_eq!(counts.get("Dave"), Some(&1));
+}
+
+#[test]
+fn test_gql_with_aggregation_where_on_count() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH aggregation followed by WHERE filtering on the count
+    let results = snapshot
+        .gql("MATCH (p:Person)-[:KNOWS]->(friend) WITH p.name AS person, COUNT(friend) AS cnt WHERE cnt >= 2 RETURN person, cnt")
+        .unwrap();
+
+    // Alice: 3, Carol: 2 meet the criteria
+    assert_eq!(results.len(), 2, "Should find 2 people with >= 2 friends");
+
+    let names: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(map) => map.get("person").and_then(|v| match v {
+                Value::String(s) => Some(s.as_str()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect();
+
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Carol"));
+}
+
+#[test]
+fn test_gql_with_distinct() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH DISTINCT to deduplicate cities
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH DISTINCT p.city AS city RETURN city")
+        .unwrap();
+
+    // Should only have 2 unique cities: NYC and LA
+    assert_eq!(results.len(), 2, "Should have 2 unique cities");
+
+    let cities: HashSet<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(cities.contains("NYC"));
+    assert!(cities.contains("LA"));
+}
+
+#[test]
+fn test_gql_with_order_by() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with ORDER BY
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name, p.age AS age ORDER BY age DESC RETURN name")
+        .unwrap();
+
+    assert_eq!(results.len(), 5);
+
+    // Collect names in order
+    let names: Vec<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Order should be: Carol(35), Eve(32), Alice(30), Dave(28), Bob(25)
+    assert_eq!(names[0], "Carol");
+    assert_eq!(names[1], "Eve");
+    assert_eq!(names[2], "Alice");
+    assert_eq!(names[3], "Dave");
+    assert_eq!(names[4], "Bob");
+}
+
+#[test]
+fn test_gql_with_limit() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with LIMIT
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name ORDER BY name LIMIT 3 RETURN name")
+        .unwrap();
+
+    assert_eq!(results.len(), 3, "Should return only 3 results");
+
+    // Collect names
+    let names: Vec<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Alphabetically first 3: Alice, Bob, Carol
+    assert_eq!(names, vec!["Alice", "Bob", "Carol"]);
+}
+
+#[test]
+fn test_gql_with_limit_offset() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with LIMIT and OFFSET
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name ORDER BY name LIMIT 2 OFFSET 2 RETURN name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should return 2 results after skipping 2");
+
+    let names: Vec<_> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Skip Alice, Bob -> get Carol, Dave
+    assert_eq!(names, vec!["Carol", "Dave"]);
+}
+
+#[test]
+fn test_gql_with_global_aggregation() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with global aggregation (no GROUP BY key)
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH COUNT(p) AS total RETURN total")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(5));
+}
+
+#[test]
+fn test_gql_with_avg_aggregation() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with AVG aggregation
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH AVG(p.age) AS avgAge RETURN avgAge")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // Average of 30, 25, 35, 28, 32 = 150/5 = 30.0
+    if let Value::Float(avg) = results[0] {
+        assert!((avg - 30.0).abs() < 0.001);
+    } else {
+        panic!("Expected Float result");
+    }
+}
+
+#[test]
+fn test_gql_with_sum_aggregation() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with SUM grouped by city
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.city AS city, SUM(p.age) AS totalAge RETURN city, totalAge")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should have 2 cities");
+
+    let mut city_ages: HashMap<String, i64> = HashMap::new();
+    for result in results {
+        if let Value::Map(map) = result {
+            let city = match map.get("city") {
+                Some(Value::String(s)) => s.clone(),
+                _ => continue,
+            };
+            let total = match map.get("totalAge") {
+                Some(Value::Int(n)) => *n,
+                _ => continue,
+            };
+            city_ages.insert(city, total);
+        }
+    }
+
+    // NYC: Alice(30) + Bob(25) + Dave(28) = 83
+    // LA: Carol(35) + Eve(32) = 67
+    assert_eq!(city_ages.get("NYC"), Some(&83));
+    assert_eq!(city_ages.get("LA"), Some(&67));
+}
+
+#[test]
+fn test_gql_with_scope_reset() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH should reset scope - p should not be accessible after WITH (only 'name' is)
+    // This test ensures WITH properly projects only specified columns
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.name AS name WHERE name = 'Alice' RETURN name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}
+
+#[test]
+fn test_gql_with_collect_aggregation() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with COLLECT to gather names by city
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH p.city AS city, COLLECT(p.name) AS names RETURN city, names")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should have 2 cities");
+
+    for result in results {
+        if let Value::Map(map) = result {
+            let city = match map.get("city") {
+                Some(Value::String(s)) => s.clone(),
+                _ => continue,
+            };
+            let names = match map.get("names") {
+                Some(Value::List(list)) => list.clone(),
+                _ => continue,
+            };
+
+            if city == "NYC" {
+                assert_eq!(names.len(), 3, "NYC should have 3 people");
+            } else if city == "LA" {
+                assert_eq!(names.len(), 2, "LA should have 2 people");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_gql_with_min_max_aggregation() {
+    let graph = create_with_clause_graph();
+    let snapshot = graph.snapshot();
+
+    // WITH with MIN and MAX aggregation
+    let results = snapshot
+        .gql("MATCH (p:Person) WITH MIN(p.age) AS youngest, MAX(p.age) AS oldest RETURN youngest, oldest")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("youngest"), Some(&Value::Int(25))); // Bob
+        assert_eq!(map.get("oldest"), Some(&Value::Int(35))); // Carol
+    } else {
+        panic!("Expected Map result");
+    }
+}
+
+#[test]
+fn test_gql_with_parse_only() {
+    // Test that WITH clause parses correctly
+    use intersteller::gql::parse;
+
+    let query = parse("MATCH (p:Person) WITH p.name AS name, COUNT(p) AS cnt WHERE cnt > 1 ORDER BY name LIMIT 10 RETURN name").unwrap();
+
+    assert_eq!(query.with_clauses.len(), 1);
+    let with_clause = &query.with_clauses[0];
+    assert_eq!(with_clause.items.len(), 2);
+    assert!(with_clause.where_clause.is_some());
+    assert!(with_clause.order_clause.is_some());
+    assert!(with_clause.limit_clause.is_some());
+}
+
+#[test]
+fn test_gql_with_distinct_parse() {
+    use intersteller::gql::parse;
+
+    let query = parse("MATCH (p:Person) WITH DISTINCT p.city AS city RETURN city").unwrap();
+
+    assert_eq!(query.with_clauses.len(), 1);
+    assert!(query.with_clauses[0].distinct);
+}
