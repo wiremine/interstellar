@@ -32,5 +32,6 @@ return_clause:
           Bool: true
       alias: ~
 group_by_clause: ~
+having_clause: ~
 order_clause: ~
 limit_clause: ~

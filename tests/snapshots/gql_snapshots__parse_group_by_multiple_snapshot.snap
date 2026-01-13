@@ -44,5 +44,6 @@ group_by_clause:
     - Property:
         variable: p
         property: team
+having_clause: ~
 order_clause: ~
 limit_clause: ~

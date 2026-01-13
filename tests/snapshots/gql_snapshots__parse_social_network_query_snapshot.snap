@@ -72,6 +72,7 @@ return_clause:
           property: followers
       alias: ~
 group_by_clause: ~
+having_clause: ~
 order_clause:
   items:
     - expression:

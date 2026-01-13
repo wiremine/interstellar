@@ -71,9 +71,9 @@ use mathexpr::Expression as MathExpr;
 
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, EdgeDirection, EdgePattern, Expression,
-    GroupByClause, LetClause, LimitClause, Literal, NodePattern, OptionalMatchClause, OrderClause,
-    PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
-    UnaryOperator, UnwindClause, WhereClause,
+    GroupByClause, HavingClause, LetClause, LimitClause, Literal, NodePattern, OptionalMatchClause,
+    OrderClause, PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem,
+    Statement, UnaryOperator, UnwindClause, WhereClause,
 };
 use crate::gql::error::CompileError;
 use crate::graph::GraphSnapshot;
@@ -424,6 +424,19 @@ struct BindingInfo {
     is_node: bool,
 }
 
+/// Kind of list predicate for evaluation (ALL, ANY, NONE, SINGLE).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListPredicateKind {
+    /// ALL(x IN list WHERE condition) - true if all elements satisfy condition
+    All,
+    /// ANY(x IN list WHERE condition) - true if at least one element satisfies
+    Any,
+    /// NONE(x IN list WHERE condition) - true if no elements satisfy
+    None,
+    /// SINGLE(x IN list WHERE condition) - true if exactly one element satisfies
+    Single,
+}
+
 impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn new(snapshot: &'a GraphSnapshot<'g>, parameters: &'a Parameters) -> Self {
         Self {
@@ -597,6 +610,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 &query.return_clause,
                 &query.where_clause,
                 group_by,
+                &query.having_clause,
                 traversal,
             )?;
 
@@ -1125,6 +1139,60 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 filter,
                 transform,
             } => self.evaluate_list_comprehension_from_row(variable, list, filter, transform, row),
+            Expression::Reduce {
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+            } => {
+                self.evaluate_reduce_from_row(accumulator, initial, variable, list, expression, row)
+            }
+            Expression::Case(case_expr) => self.evaluate_case_from_row(case_expr, row),
+            Expression::All {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_row(
+                ListPredicateKind::All,
+                variable,
+                list,
+                condition,
+                row,
+            ),
+            Expression::Any {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_row(
+                ListPredicateKind::Any,
+                variable,
+                list,
+                condition,
+                row,
+            ),
+            Expression::None {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_row(
+                ListPredicateKind::None,
+                variable,
+                list,
+                condition,
+                row,
+            ),
+            Expression::Single {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_row(
+                ListPredicateKind::Single,
+                variable,
+                list,
+                condition,
+                row,
+            ),
             _ => Value::Null,
         }
     }
@@ -1555,6 +1623,149 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         }
 
         Value::List(results)
+    }
+
+    /// Evaluate a REDUCE expression using a row for variable lookup.
+    ///
+    /// REDUCE(accumulator = initial, variable IN list | expression)
+    ///
+    /// # Behavior
+    /// - Initializes accumulator to the initial value
+    /// - For each element in the list:
+    ///   - Binds both accumulator and variable to the current row
+    ///   - Evaluates the expression to produce the next accumulator value
+    /// - Returns the final accumulator value
+    ///
+    /// # Edge Cases
+    /// - NULL list returns NULL
+    /// - Empty list returns the initial value
+    /// - Non-list input returns NULL
+    fn evaluate_reduce_from_row(
+        &self,
+        accumulator: &str,
+        initial: &Expression,
+        variable: &str,
+        list_expr: &Expression,
+        expression: &Expression,
+        row: &HashMap<String, Value>,
+    ) -> Value {
+        // Evaluate the initial value for the accumulator
+        let mut acc_value = self.evaluate_expression_from_row(initial, row);
+
+        // Evaluate the list expression
+        let list_value = self.evaluate_expression_from_row(list_expr, row);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null, // Non-list, non-null returns null
+        };
+
+        // Iterate and accumulate
+        for item in items {
+            // Create a temporary row with both accumulator and loop variable bound
+            let mut iter_row = row.clone();
+            iter_row.insert(accumulator.to_string(), acc_value);
+            iter_row.insert(variable.to_string(), item);
+
+            // Evaluate the expression to get the next accumulator value
+            acc_value = self.evaluate_expression_from_row(expression, &iter_row);
+        }
+
+        acc_value
+    }
+
+    /// Evaluate a list predicate (ALL/ANY/NONE/SINGLE) using a row for variable lookup.
+    ///
+    /// List predicates test conditions across all elements of a list:
+    /// - ALL: true if all elements satisfy the condition
+    /// - ANY: true if at least one element satisfies the condition
+    /// - NONE: true if no elements satisfy the condition
+    /// - SINGLE: true if exactly one element satisfies the condition
+    ///
+    /// # Semantics
+    /// - Empty list: ALL returns true (vacuous truth), ANY returns false, NONE returns true, SINGLE returns false
+    /// - Non-list input: returns NULL
+    fn evaluate_list_predicate_from_row(
+        &self,
+        kind: ListPredicateKind,
+        variable: &str,
+        list_expr: &Expression,
+        condition: &Expression,
+        row: &HashMap<String, Value>,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_expression_from_row(list_expr, row);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Count matching elements
+        let mut match_count = 0;
+
+        for item in items {
+            let mut iter_row = row.clone();
+            iter_row.insert(variable.to_string(), item);
+
+            // Evaluate condition
+            if self.evaluate_predicate_from_row(condition, &iter_row) {
+                match_count += 1;
+
+                // Early exit optimization for ANY - found one match
+                if kind == ListPredicateKind::Any {
+                    return Value::Bool(true);
+                }
+                // Early exit for NONE - found a match so result is false
+                if kind == ListPredicateKind::None {
+                    return Value::Bool(false);
+                }
+                // Early exit for SINGLE - found more than one match
+                if kind == ListPredicateKind::Single && match_count > 1 {
+                    return Value::Bool(false);
+                }
+                // Early exit for ALL - can't exit early, need to check all
+            } else {
+                // Condition was false
+                // Early exit for ALL - found one that doesn't match
+                if kind == ListPredicateKind::All {
+                    return Value::Bool(false);
+                }
+            }
+        }
+
+        // Return result based on predicate kind
+        Value::Bool(match kind {
+            ListPredicateKind::All => true, // All matched (or empty list - vacuous truth)
+            ListPredicateKind::Any => false, // None matched (we would have returned early if any)
+            ListPredicateKind::None => true, // None matched (we would have returned early if any)
+            ListPredicateKind::Single => match_count == 1,
+        })
+    }
+
+    /// Evaluate a CASE expression using a row for variable lookup.
+    fn evaluate_case_from_row(
+        &self,
+        case_expr: &CaseExpression,
+        row: &HashMap<String, Value>,
+    ) -> Value {
+        // Evaluate each WHEN clause in order
+        for (condition, result) in &case_expr.when_clauses {
+            if self.evaluate_predicate_from_row(condition, row) {
+                return self.evaluate_expression_from_row(result, row);
+            }
+        }
+
+        // No WHEN matched, evaluate ELSE or return null
+        if let Some(else_expr) = &case_expr.else_clause {
+            self.evaluate_expression_from_row(else_expr, row)
+        } else {
+            Value::Null
+        }
     }
 
     /// Evaluate a predicate using a row for variable lookup.
@@ -2619,8 +2830,206 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 self.evaluate_function_call_from_path(name, args, traverser)
             }
             Expression::Case(case_expr) => self.evaluate_case_from_path(case_expr, traverser),
+            Expression::Reduce {
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+            } => self.evaluate_reduce_from_path(
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+                traverser,
+            ),
+            Expression::ListComprehension {
+                variable,
+                list,
+                filter,
+                transform,
+            } => self.evaluate_list_comprehension_from_path(
+                variable, list, filter, transform, traverser,
+            ),
+            Expression::All {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_path(
+                ListPredicateKind::All,
+                variable,
+                list,
+                condition,
+                traverser,
+            ),
+            Expression::Any {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_path(
+                ListPredicateKind::Any,
+                variable,
+                list,
+                condition,
+                traverser,
+            ),
+            Expression::None {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_path(
+                ListPredicateKind::None,
+                variable,
+                list,
+                condition,
+                traverser,
+            ),
+            Expression::Single {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate_from_path(
+                ListPredicateKind::Single,
+                variable,
+                list,
+                condition,
+                traverser,
+            ),
             _ => Value::Null,
         }
+    }
+
+    /// Evaluate a REDUCE expression using path-based variable lookup.
+    fn evaluate_reduce_from_path(
+        &self,
+        accumulator: &str,
+        initial: &Expression,
+        variable: &str,
+        list_expr: &Expression,
+        expression: &Expression,
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        // Evaluate the initial value for the accumulator
+        let mut acc_value = self.evaluate_value_from_path(initial, traverser);
+
+        // Evaluate the list expression
+        let list_value = self.evaluate_value_from_path(list_expr, traverser);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Iterate and accumulate
+        for item in items {
+            // Create a temporary map with both accumulator and loop variable bound
+            let mut iter_map = std::collections::HashMap::new();
+            iter_map.insert(accumulator.to_string(), acc_value);
+            iter_map.insert(variable.to_string(), item);
+
+            // Evaluate the expression to get the next accumulator value
+            acc_value = self.evaluate_expression_from_row(expression, &iter_map);
+        }
+
+        acc_value
+    }
+
+    /// Evaluate a list predicate (ALL/ANY/NONE/SINGLE) using path-based variable lookup.
+    fn evaluate_list_predicate_from_path(
+        &self,
+        kind: ListPredicateKind,
+        variable: &str,
+        list_expr: &Expression,
+        condition: &Expression,
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_value_from_path(list_expr, traverser);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Count matching elements
+        let mut match_count = 0;
+
+        for item in items {
+            let mut iter_map = std::collections::HashMap::new();
+            iter_map.insert(variable.to_string(), item);
+
+            // Evaluate condition
+            if self.evaluate_predicate_from_row(condition, &iter_map) {
+                match_count += 1;
+
+                // Early exit optimizations
+                if kind == ListPredicateKind::Any {
+                    return Value::Bool(true);
+                }
+                if kind == ListPredicateKind::None {
+                    return Value::Bool(false);
+                }
+                if kind == ListPredicateKind::Single && match_count > 1 {
+                    return Value::Bool(false);
+                }
+            } else if kind == ListPredicateKind::All {
+                return Value::Bool(false);
+            }
+        }
+
+        // Return result based on predicate kind
+        Value::Bool(match kind {
+            ListPredicateKind::All => true,
+            ListPredicateKind::Any => false,
+            ListPredicateKind::None => true,
+            ListPredicateKind::Single => match_count == 1,
+        })
+    }
+
+    /// Evaluate a list comprehension using path-based variable lookup.
+    fn evaluate_list_comprehension_from_path(
+        &self,
+        variable: &str,
+        list_expr: &Expression,
+        filter: &Option<Box<Expression>>,
+        transform: &Expression,
+        traverser: &crate::traversal::Traverser,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_value_from_path(list_expr, traverser);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Process each item
+        let mut results = Vec::new();
+        for item in items {
+            // Create a temporary map with the loop variable bound
+            let mut iter_map = std::collections::HashMap::new();
+            iter_map.insert(variable.to_string(), item);
+
+            // Apply filter if present
+            if let Some(filter_expr) = filter {
+                if !self.evaluate_predicate_from_row(filter_expr, &iter_map) {
+                    continue;
+                }
+            }
+
+            // Apply transform
+            let transformed = self.evaluate_expression_from_row(transform, &iter_map);
+            results.push(transformed);
+        }
+
+        Value::List(results)
     }
 
     /// Evaluate a function call using path-based variable lookup.
@@ -3486,8 +3895,208 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 self.evaluate_function_call(name, args, element)
             }
             Expression::Case(case_expr) => self.evaluate_case(case_expr, element),
+            Expression::Reduce {
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+            } => self.evaluate_reduce(accumulator, initial, variable, list, expression, element),
+            Expression::ListComprehension {
+                variable,
+                list,
+                filter,
+                transform,
+            } => self.evaluate_list_comprehension(variable, list, filter, transform, element),
+            Expression::All {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate(
+                ListPredicateKind::All,
+                variable,
+                list,
+                condition,
+                element,
+            ),
+            Expression::Any {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate(
+                ListPredicateKind::Any,
+                variable,
+                list,
+                condition,
+                element,
+            ),
+            Expression::None {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate(
+                ListPredicateKind::None,
+                variable,
+                list,
+                condition,
+                element,
+            ),
+            Expression::Single {
+                variable,
+                list,
+                condition,
+            } => self.evaluate_list_predicate(
+                ListPredicateKind::Single,
+                variable,
+                list,
+                condition,
+                element,
+            ),
             _ => Value::Null, // Unsupported expressions
         }
+    }
+
+    /// Evaluate a REDUCE expression against an element.
+    ///
+    /// REDUCE(accumulator = initial, variable IN list | expression)
+    fn evaluate_reduce(
+        &self,
+        accumulator: &str,
+        initial: &Expression,
+        variable: &str,
+        list_expr: &Expression,
+        expression: &Expression,
+        element: &Value,
+    ) -> Value {
+        // Evaluate the initial value for the accumulator
+        let mut acc_value = self.evaluate_value(initial, element);
+
+        // Evaluate the list expression
+        let list_value = self.evaluate_value(list_expr, element);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Iterate and accumulate
+        for item in items {
+            // Create a temporary map with both accumulator and loop variable bound
+            let mut iter_map = std::collections::HashMap::new();
+            iter_map.insert(accumulator.to_string(), acc_value);
+            iter_map.insert(variable.to_string(), item);
+
+            // Evaluate the expression to get the next accumulator value
+            // Use evaluate_expression_from_row since we have local bindings
+            acc_value = self.evaluate_expression_from_row(expression, &iter_map);
+        }
+
+        acc_value
+    }
+
+    /// Evaluate a list predicate (ALL/ANY/NONE/SINGLE) against an element.
+    fn evaluate_list_predicate(
+        &self,
+        kind: ListPredicateKind,
+        variable: &str,
+        list_expr: &Expression,
+        condition: &Expression,
+        element: &Value,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_value(list_expr, element);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Count matching elements
+        let mut match_count = 0;
+
+        for item in items {
+            let mut iter_map = std::collections::HashMap::new();
+            iter_map.insert(variable.to_string(), item);
+
+            // Add bound variables from the element context
+            // In single-variable queries, all bindings refer to the same element
+            for bound_var in self.bindings.keys() {
+                iter_map.insert(bound_var.clone(), element.clone());
+            }
+
+            // Evaluate condition
+            if self.evaluate_predicate_from_row(condition, &iter_map) {
+                match_count += 1;
+
+                // Early exit optimizations
+                if kind == ListPredicateKind::Any {
+                    return Value::Bool(true);
+                }
+                if kind == ListPredicateKind::None {
+                    return Value::Bool(false);
+                }
+                if kind == ListPredicateKind::Single && match_count > 1 {
+                    return Value::Bool(false);
+                }
+            } else if kind == ListPredicateKind::All {
+                return Value::Bool(false);
+            }
+        }
+
+        // Return result based on predicate kind
+        Value::Bool(match kind {
+            ListPredicateKind::All => true,
+            ListPredicateKind::Any => false,
+            ListPredicateKind::None => true,
+            ListPredicateKind::Single => match_count == 1,
+        })
+    }
+
+    /// Evaluate a list comprehension against an element.
+    ///
+    /// [transform(variable) FOR variable IN list WHERE filter(variable)]
+    fn evaluate_list_comprehension(
+        &self,
+        variable: &str,
+        list_expr: &Expression,
+        filter: &Option<Box<Expression>>,
+        transform: &Expression,
+        element: &Value,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_value(list_expr, element);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Process each item
+        let mut results = Vec::new();
+        for item in items {
+            // Create a temporary map with the loop variable bound
+            let mut iter_map = std::collections::HashMap::new();
+            iter_map.insert(variable.to_string(), item);
+
+            // Apply filter if present
+            if let Some(filter_expr) = filter {
+                if !self.evaluate_predicate_from_row(filter_expr, &iter_map) {
+                    continue;
+                }
+            }
+
+            // Apply transform
+            let transformed = self.evaluate_expression_from_row(transform, &iter_map);
+            results.push(transformed);
+        }
+
+        Value::List(results)
     }
 
     /// Evaluate a function call expression.
@@ -4239,6 +4848,52 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 let _ = filter;
                 let _ = transform;
             }
+            Expression::Reduce {
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+            } => {
+                // Validate the initial value and list expressions (reference outer scope)
+                self.validate_expression_variables(initial)?;
+                self.validate_expression_variables(list)?;
+                // The accumulator and variable are locally scoped to the reduce expression,
+                // so the expression body may reference them. Similar to ListComprehension,
+                // we skip deep validation since the evaluation will handle any undefined
+                // variable errors at runtime.
+                let _ = accumulator;
+                let _ = variable;
+                let _ = expression;
+            }
+            Expression::All {
+                variable,
+                list,
+                condition,
+            }
+            | Expression::Any {
+                variable,
+                list,
+                condition,
+            }
+            | Expression::None {
+                variable,
+                list,
+                condition,
+            }
+            | Expression::Single {
+                variable,
+                list,
+                condition,
+            } => {
+                // Validate the list expression (references outer scope)
+                self.validate_expression_variables(list)?;
+                // The variable is locally scoped to the predicate, so condition may
+                // reference it. Similar to ListComprehension, we skip deep validation
+                // since the evaluation will handle any undefined variable errors at runtime.
+                let _ = variable;
+                let _ = condition;
+            }
         }
         Ok(())
     }
@@ -4350,12 +5005,14 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     /// MATCH (p:player)
     /// RETURN p.position, count(*), avg(p.points_per_game)
     /// GROUP BY p.position
+    /// HAVING count(*) > 5
     /// ```
     fn execute_group_by_query(
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
         group_by: &GroupByClause,
+        having_clause: &Option<HavingClause>,
         traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // For multi-variable patterns, we need to work with traversers to access paths
@@ -4364,6 +5021,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 return_clause,
                 where_clause,
                 group_by,
+                having_clause,
                 traversal,
             );
         }
@@ -4408,12 +5066,27 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             groups.entry(group_key).or_default().push(element);
         }
 
-        // For each group, compute the RETURN clause
+        // For each group, compute the RETURN clause and apply HAVING filter
         let mut results = Vec::new();
 
         for (group_key, group_elements) in groups {
             let result =
                 self.compute_group_result(return_clause, group_by, &group_key, &group_elements)?;
+
+            // Apply HAVING filter if present
+            if let Some(having) = having_clause {
+                if !self.evaluate_having_predicate(
+                    &having.expression,
+                    return_clause,
+                    group_by,
+                    &group_key,
+                    &group_elements,
+                    &result,
+                ) {
+                    continue; // Skip this group
+                }
+            }
+
             results.push(result);
         }
 
@@ -4436,6 +5109,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
         group_by: &GroupByClause,
+        having_clause: &Option<HavingClause>,
         traversal: BoundTraversal<'g, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
@@ -4479,7 +5153,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             groups.entry(group_key).or_default().push(t);
         }
 
-        // For each group, compute the RETURN clause
+        // For each group, compute the RETURN clause and apply HAVING filter
         let mut results = Vec::new();
 
         for (group_key, group_traversers) in groups {
@@ -4489,6 +5163,21 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 &group_key,
                 &group_traversers,
             )?;
+
+            // Apply HAVING filter if present
+            if let Some(having) = having_clause {
+                if !self.evaluate_having_predicate_multi_var(
+                    &having.expression,
+                    return_clause,
+                    group_by,
+                    &group_key,
+                    &group_traversers,
+                    &result,
+                ) {
+                    continue; // Skip this group
+                }
+            }
+
             results.push(result);
         }
 
@@ -4820,6 +5509,431 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 .first()
                 .map(|e| self.evaluate_value(expr, e))
                 .ok_or(CompileError::EmptyPattern)
+        }
+    }
+
+    /// Evaluate a HAVING predicate expression in the context of a group.
+    ///
+    /// HAVING predicates can reference:
+    /// - Aliases defined in RETURN clause (looked up from result map)
+    /// - Aggregate expressions (computed over the group)
+    /// - GROUP BY expressions (extracted from group key)
+    fn evaluate_having_predicate(
+        &self,
+        expr: &Expression,
+        return_clause: &ReturnClause,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_elements: &[Value],
+        result_map: &Value,
+    ) -> bool {
+        match expr {
+            Expression::BinaryOp { left, op, right } => {
+                match op {
+                    // Logical operators
+                    BinaryOperator::And => {
+                        self.evaluate_having_predicate(
+                            left,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_elements,
+                            result_map,
+                        ) && self.evaluate_having_predicate(
+                            right,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_elements,
+                            result_map,
+                        )
+                    }
+                    BinaryOperator::Or => {
+                        self.evaluate_having_predicate(
+                            left,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_elements,
+                            result_map,
+                        ) || self.evaluate_having_predicate(
+                            right,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_elements,
+                            result_map,
+                        )
+                    }
+                    // Comparison operators
+                    _ => {
+                        let left_val = self.evaluate_having_value(
+                            left,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_elements,
+                            result_map,
+                        );
+                        let right_val = self.evaluate_having_value(
+                            right,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_elements,
+                            result_map,
+                        );
+                        apply_comparison(*op, &left_val, &right_val)
+                    }
+                }
+            }
+            Expression::UnaryOp { op, expr: inner } => match op {
+                UnaryOperator::Not => !self.evaluate_having_predicate(
+                    inner,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_elements,
+                    result_map,
+                ),
+                UnaryOperator::Neg => {
+                    let val = self.evaluate_having_value(
+                        inner,
+                        return_clause,
+                        group_by,
+                        group_key,
+                        group_elements,
+                        result_map,
+                    );
+                    match val {
+                        Value::Int(n) => n == 0,
+                        Value::Float(f) => f == 0.0,
+                        Value::Bool(b) => !b,
+                        Value::Null => true,
+                        _ => false,
+                    }
+                }
+            },
+            // For other expressions, evaluate and check truthiness
+            _ => {
+                let val = self.evaluate_having_value(
+                    expr,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_elements,
+                    result_map,
+                );
+                match val {
+                    Value::Bool(b) => b,
+                    Value::Null => false,
+                    Value::Int(n) => n != 0,
+                    Value::Float(f) => f != 0.0,
+                    Value::String(s) => !s.is_empty(),
+                    _ => true,
+                }
+            }
+        }
+    }
+
+    /// Evaluate a HAVING expression to a Value in the context of a group.
+    ///
+    /// Handles alias lookups, aggregate expressions, and GROUP BY expressions.
+    #[allow(clippy::only_used_in_recursion)]
+    fn evaluate_having_value(
+        &self,
+        expr: &Expression,
+        return_clause: &ReturnClause,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_elements: &[Value],
+        result_map: &Value,
+    ) -> Value {
+        match expr {
+            Expression::Literal(lit) => lit.clone().into(),
+            Expression::Variable(name) => {
+                // Check if this is an alias in the RETURN clause
+                if let Value::Map(map) = result_map {
+                    if let Some(val) = map.get(name) {
+                        return val.clone();
+                    }
+                }
+                // Fallback: try group element
+                group_elements.first().cloned().unwrap_or(Value::Null)
+            }
+            Expression::Aggregate {
+                func,
+                distinct,
+                expr: inner,
+            } => {
+                // Compute aggregate over group
+                self.compute_aggregate(*func, *distinct, inner, group_elements)
+                    .unwrap_or(Value::Null)
+            }
+            Expression::Property { variable, property } => {
+                // First check if this is an alias reference
+                if let Value::Map(map) = result_map {
+                    // Check direct property access on alias
+                    if let Some(val) = map.get(variable) {
+                        return self.extract_property(val, property).unwrap_or(Value::Null);
+                    }
+                }
+                // Fallback: check GROUP BY keys
+                for (i, group_expr) in group_by.expressions.iter().enumerate() {
+                    if self.expressions_match(expr, group_expr) {
+                        return group_key[i].clone().into();
+                    }
+                }
+                // Last resort: evaluate against first element
+                group_elements
+                    .first()
+                    .map(|e| self.evaluate_value(expr, e))
+                    .unwrap_or(Value::Null)
+            }
+            Expression::BinaryOp { left, op, right } => {
+                let left_val = self.evaluate_having_value(
+                    left,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_elements,
+                    result_map,
+                );
+                let right_val = self.evaluate_having_value(
+                    right,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_elements,
+                    result_map,
+                );
+                apply_binary_op(*op, left_val, right_val)
+            }
+            Expression::FunctionCall { name, args } => {
+                // For function calls in HAVING, use the first element as context
+                let element = group_elements.first().cloned().unwrap_or(Value::Null);
+                self.evaluate_function_call(name, args, &element)
+            }
+            _ => {
+                // Fallback: try to evaluate as group expression
+                self.evaluate_group_expression(expr, group_by, group_key, group_elements)
+                    .unwrap_or(Value::Null)
+            }
+        }
+    }
+
+    /// Evaluate a HAVING predicate expression in the context of a group (multi-var version).
+    ///
+    /// This version works with traversers instead of plain values.
+    fn evaluate_having_predicate_multi_var(
+        &self,
+        expr: &Expression,
+        return_clause: &ReturnClause,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_traversers: &[crate::traversal::Traverser],
+        result_map: &Value,
+    ) -> bool {
+        match expr {
+            Expression::BinaryOp { left, op, right } => {
+                match op {
+                    // Logical operators
+                    BinaryOperator::And => {
+                        self.evaluate_having_predicate_multi_var(
+                            left,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_traversers,
+                            result_map,
+                        ) && self.evaluate_having_predicate_multi_var(
+                            right,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_traversers,
+                            result_map,
+                        )
+                    }
+                    BinaryOperator::Or => {
+                        self.evaluate_having_predicate_multi_var(
+                            left,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_traversers,
+                            result_map,
+                        ) || self.evaluate_having_predicate_multi_var(
+                            right,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_traversers,
+                            result_map,
+                        )
+                    }
+                    // Comparison operators
+                    _ => {
+                        let left_val = self.evaluate_having_value_multi_var(
+                            left,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_traversers,
+                            result_map,
+                        );
+                        let right_val = self.evaluate_having_value_multi_var(
+                            right,
+                            return_clause,
+                            group_by,
+                            group_key,
+                            group_traversers,
+                            result_map,
+                        );
+                        apply_comparison(*op, &left_val, &right_val)
+                    }
+                }
+            }
+            Expression::UnaryOp { op, expr: inner } => match op {
+                UnaryOperator::Not => !self.evaluate_having_predicate_multi_var(
+                    inner,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_traversers,
+                    result_map,
+                ),
+                UnaryOperator::Neg => {
+                    let val = self.evaluate_having_value_multi_var(
+                        inner,
+                        return_clause,
+                        group_by,
+                        group_key,
+                        group_traversers,
+                        result_map,
+                    );
+                    match val {
+                        Value::Int(n) => n == 0,
+                        Value::Float(f) => f == 0.0,
+                        Value::Bool(b) => !b,
+                        Value::Null => true,
+                        _ => false,
+                    }
+                }
+            },
+            // For other expressions, evaluate and check truthiness
+            _ => {
+                let val = self.evaluate_having_value_multi_var(
+                    expr,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_traversers,
+                    result_map,
+                );
+                match val {
+                    Value::Bool(b) => b,
+                    Value::Null => false,
+                    Value::Int(n) => n != 0,
+                    Value::Float(f) => f != 0.0,
+                    Value::String(s) => !s.is_empty(),
+                    _ => true,
+                }
+            }
+        }
+    }
+
+    /// Evaluate a HAVING expression to a Value in the context of a group (multi-var version).
+    #[allow(clippy::only_used_in_recursion)]
+    fn evaluate_having_value_multi_var(
+        &self,
+        expr: &Expression,
+        return_clause: &ReturnClause,
+        group_by: &GroupByClause,
+        group_key: &[ComparableValue],
+        group_traversers: &[crate::traversal::Traverser],
+        result_map: &Value,
+    ) -> Value {
+        match expr {
+            Expression::Literal(lit) => lit.clone().into(),
+            Expression::Variable(name) => {
+                // Check if this is an alias in the RETURN clause
+                if let Value::Map(map) = result_map {
+                    if let Some(val) = map.get(name) {
+                        return val.clone();
+                    }
+                }
+                // Fallback: try path-based lookup
+                group_traversers
+                    .first()
+                    .map(|t| self.evaluate_value_from_path(expr, t))
+                    .unwrap_or(Value::Null)
+            }
+            Expression::Aggregate {
+                func,
+                distinct,
+                expr: inner,
+            } => {
+                // Compute aggregate over group using path-based evaluation
+                self.compute_aggregate_multi_var(*func, *distinct, inner, group_traversers)
+                    .unwrap_or(Value::Null)
+            }
+            Expression::Property { variable, property } => {
+                // First check if this is an alias reference
+                if let Value::Map(map) = result_map {
+                    if let Some(val) = map.get(variable) {
+                        return self.extract_property(val, property).unwrap_or(Value::Null);
+                    }
+                }
+                // Check GROUP BY keys
+                for (i, group_expr) in group_by.expressions.iter().enumerate() {
+                    if self.expressions_match(expr, group_expr) {
+                        return group_key[i].clone().into();
+                    }
+                }
+                // Path-based lookup
+                group_traversers
+                    .first()
+                    .map(|t| self.evaluate_value_from_path(expr, t))
+                    .unwrap_or(Value::Null)
+            }
+            Expression::BinaryOp { left, op, right } => {
+                let left_val = self.evaluate_having_value_multi_var(
+                    left,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_traversers,
+                    result_map,
+                );
+                let right_val = self.evaluate_having_value_multi_var(
+                    right,
+                    return_clause,
+                    group_by,
+                    group_key,
+                    group_traversers,
+                    result_map,
+                );
+                apply_binary_op(*op, left_val, right_val)
+            }
+            Expression::FunctionCall { name, args } => {
+                // For function calls in HAVING, use the first traverser's value as context
+                let element = group_traversers
+                    .first()
+                    .map(|t| t.value.clone())
+                    .unwrap_or(Value::Null);
+                self.evaluate_function_call(name, args, &element)
+            }
+            _ => {
+                // Fallback: try to evaluate as group expression
+                self.evaluate_group_expression_multi_var(
+                    expr,
+                    group_by,
+                    group_key,
+                    group_traversers,
+                )
+                .unwrap_or(Value::Null)
+            }
         }
     }
 
@@ -5454,6 +6568,19 @@ fn apply_comparison(op: BinaryOperator, left: &Value, right: &Value) -> bool {
         },
         BinaryOperator::EndsWith => match (left, right) {
             (Value::String(s), Value::String(suffix)) => s.ends_with(suffix.as_str()),
+            _ => false,
+        },
+        BinaryOperator::RegexMatch => match (left, right) {
+            (Value::String(s), Value::String(pattern)) => {
+                // Compile and match the regex pattern
+                match regex::Regex::new(pattern) {
+                    Ok(re) => re.is_match(s),
+                    Err(_) => false, // Invalid regex pattern returns false
+                }
+            }
+            // NULL operands return false (not a match)
+            (Value::Null, _) | (_, Value::Null) => false,
+            // Non-string operands return false
             _ => false,
         },
         // Arithmetic operators don't return bool, but we handle them for completeness

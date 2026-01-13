@@ -35,5 +35,6 @@ return_clause:
         Variable: n
       alias: ~
 group_by_clause: ~
+having_clause: ~
 order_clause: ~
 limit_clause: ~

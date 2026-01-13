@@ -32,5 +32,6 @@ return_clause:
                 Int: 3
       alias: ~
 group_by_clause: ~
+having_clause: ~
 order_clause: ~
 limit_clause: ~

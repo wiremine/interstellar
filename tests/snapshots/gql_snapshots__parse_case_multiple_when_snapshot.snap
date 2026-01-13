@@ -65,5 +65,6 @@ return_clause:
               String: Bench
       alias: tier
 group_by_clause: ~
+having_clause: ~
 order_clause: ~
 limit_clause: ~

@@ -25,5 +25,6 @@ return_clause:
           property: name
       alias: ~
 group_by_clause: ~
+having_clause: ~
 order_clause: ~
 limit_clause: ~

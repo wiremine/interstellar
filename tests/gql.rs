@@ -1670,6 +1670,97 @@ fn test_gql_order_limit_where() {
 }
 
 // =============================================================================
+// SKIP Tests (alias for OFFSET)
+// =============================================================================
+
+/// Test SKIP as alias for OFFSET with LIMIT first
+#[test]
+fn test_gql_limit_skip() {
+    let graph = create_order_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 SKIP 2")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should return 2 results after skipping 2");
+
+    let ages: Vec<i64> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+
+    // Ages in order: 22, 25, 28, 30, 35
+    // Skip 2 (22, 25), take 2 (28, 30)
+    assert_eq!(ages, vec![28, 30], "Should return ages 28 and 30");
+}
+
+/// Test SKIP first, then LIMIT
+#[test]
+fn test_gql_skip_limit() {
+    let graph = create_order_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age SKIP 2 LIMIT 2")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should return 2 results after skipping 2");
+
+    let ages: Vec<i64> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+
+    // Ages in order: 22, 25, 28, 30, 35
+    // Skip 2 (22, 25), take 2 (28, 30)
+    assert_eq!(
+        ages,
+        vec![28, 30],
+        "Should return ages 28 and 30 with SKIP first"
+    );
+}
+
+/// Test SKIP produces same result as OFFSET
+#[test]
+fn test_gql_skip_equals_offset() {
+    let graph = create_order_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let offset_results = snapshot
+        .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 OFFSET 1")
+        .unwrap();
+
+    let skip_results = snapshot
+        .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 SKIP 1")
+        .unwrap();
+
+    assert_eq!(
+        offset_results, skip_results,
+        "SKIP and OFFSET should produce identical results"
+    );
+}
+
+/// Test SKIP larger than result set
+#[test]
+fn test_gql_skip_larger_than_results() {
+    let graph = create_order_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 10 SKIP 100")
+        .unwrap();
+
+    assert_eq!(results.len(), 0, "Should return empty when SKIP > count");
+}
+
+// =============================================================================
 // Aggregation Tests
 // =============================================================================
 
@@ -5840,6 +5931,232 @@ fn test_gql_group_by_single_return_count_only() {
 
     counts.sort();
     assert_eq!(counts, vec![1, 2, 3], "Should have counts 1, 2, 3");
+}
+
+// =============================================================================
+// HAVING Clause Tests
+// =============================================================================
+
+/// Test HAVING with count(*) filter
+#[test]
+fn test_gql_having_count_filter() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only return groups with more than 1 person
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 1")
+        .unwrap();
+
+    // New York has 3 people, Boston has 2, Chicago has 1
+    // HAVING count(*) > 1 should return only New York and Boston
+    assert_eq!(results.len(), 2, "Should have 2 groups with count > 1");
+
+    let mut cities: Vec<String> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::String(city)) = map.get("city") {
+                    return Some(city.clone());
+                }
+            }
+            None
+        })
+        .collect();
+
+    cities.sort();
+    assert_eq!(cities, vec!["Boston", "New York"]);
+}
+
+/// Test HAVING with count(*) >= filter
+#[test]
+fn test_gql_having_count_gte() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only return groups with 2 or more people
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) >= 2")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should have 2 groups with count >= 2");
+}
+
+/// Test HAVING with count(*) = filter
+#[test]
+fn test_gql_having_count_equals() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only return groups with exactly 3 people
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) = 3")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should have 1 group with count = 3");
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("city"),
+            Some(&Value::String("New York".to_string()))
+        );
+        assert_eq!(map.get("cnt"), Some(&Value::Int(3)));
+    } else {
+        panic!("Expected Value::Map");
+    }
+}
+
+/// Test HAVING with avg() filter
+#[test]
+fn test_gql_having_avg_filter() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only return groups with average age >= 30
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, avg(p.age) AS avg_age GROUP BY p.city HAVING avg(p.age) >= 30")
+        .unwrap();
+
+    // Verify all returned groups have avg_age >= 30
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::Float(avg)) = map.get("avg_age") {
+                assert!(*avg >= 30.0, "avg_age should be >= 30, got {}", avg);
+            } else if let Some(Value::Int(avg)) = map.get("avg_age") {
+                assert!(*avg >= 30, "avg_age should be >= 30, got {}", avg);
+            }
+        }
+    }
+}
+
+/// Test HAVING with alias reference
+#[test]
+fn test_gql_having_with_alias() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use alias in HAVING clause
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING cnt > 1")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Should have 2 groups with cnt > 1");
+}
+
+/// Test HAVING with AND logic
+#[test]
+fn test_gql_having_and_condition() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Multiple conditions with AND
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt, avg(p.age) AS avg_age GROUP BY p.city HAVING count(*) > 1 AND avg(p.age) < 35")
+        .unwrap();
+
+    // Each result should satisfy both conditions
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::Int(cnt)) = map.get("cnt") {
+                assert!(*cnt > 1, "cnt should be > 1");
+            }
+            if let Some(Value::Float(avg)) = map.get("avg_age") {
+                assert!(*avg < 35.0, "avg_age should be < 35");
+            }
+        }
+    }
+}
+
+/// Test HAVING with OR logic
+#[test]
+fn test_gql_having_or_condition() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Multiple conditions with OR
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) = 1 OR count(*) = 3")
+        .unwrap();
+
+    // Should return Chicago (1 person) and New York (3 people), but not Boston (2)
+    assert_eq!(
+        results.len(),
+        2,
+        "Should have 2 groups with count = 1 OR count = 3"
+    );
+
+    let mut counts: Vec<i64> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::Int(cnt)) = map.get("cnt") {
+                    return Some(*cnt);
+                }
+            }
+            None
+        })
+        .collect();
+
+    counts.sort();
+    assert_eq!(counts, vec![1, 3], "Should have counts 1 and 3");
+}
+
+/// Test HAVING filters all groups (empty result)
+#[test]
+fn test_gql_having_filters_all() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // No group has count > 10
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 10")
+        .unwrap();
+
+    assert_eq!(results.len(), 0, "Should have 0 groups with count > 10");
+}
+
+/// Test HAVING with sum() filter
+#[test]
+fn test_gql_having_sum_filter() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Only return groups where sum of ages > 50
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, sum(p.age) AS total_age GROUP BY p.city HAVING sum(p.age) > 50")
+        .unwrap();
+
+    // Verify all returned groups have total_age > 50
+    for result in &results {
+        if let Value::Map(map) = result {
+            if let Some(Value::Int(total)) = map.get("total_age") {
+                assert!(*total > 50, "total_age should be > 50, got {}", total);
+            }
+        }
+    }
+}
+
+/// Test HAVING combined with ORDER BY and LIMIT
+#[test]
+fn test_gql_having_with_order_by_limit() {
+    let graph = create_group_by_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Filter, order, and limit
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 1 ORDER BY cnt DESC LIMIT 1")
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "Should have 1 result after LIMIT");
+
+    // Should be New York with the highest count (3) among filtered groups
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(
+            map.get("city"),
+            Some(&Value::String("New York".to_string()))
+        );
+        assert_eq!(map.get("cnt"), Some(&Value::Int(3)));
+    }
 }
 
 // =============================================================================
@@ -10580,5 +10897,806 @@ fn test_gql_map_literal_with_string_key() {
         assert_eq!(map.get("years-old"), Some(&Value::Int(30)));
     } else {
         panic!("Expected map result, got {:?}", results[0]);
+    }
+}
+
+// =============================================================================
+// Regex Predicate Tests (Phase 3 of Spec-17)
+// =============================================================================
+
+/// Create a test graph with email data for regex tests
+fn create_regex_test_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert("email".to_string(), Value::from("alice@gmail.com"));
+    storage.add_vertex("Person", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Bob"));
+    props.insert("email".to_string(), Value::from("bob@yahoo.com"));
+    storage.add_vertex("Person", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Charlie"));
+    props.insert("email".to_string(), Value::from("charlie@gmail.com"));
+    storage.add_vertex("Person", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("John Smith"));
+    props.insert("email".to_string(), Value::from("john.smith@company.org"));
+    storage.add_vertex("Person", props);
+
+    Graph::new(storage)
+}
+
+#[test]
+fn test_gql_regex_basic_match() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Match emails ending with @gmail.com
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*@gmail\\.com$' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: HashSet<String> = results
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            _ => panic!("Expected string"),
+        })
+        .collect();
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Charlie"));
+}
+
+#[test]
+fn test_gql_regex_no_match() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // No one has an @outlook.com email
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*@outlook\\.com$' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_regex_case_insensitive() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Case-insensitive match with (?i) flag - match names starting with "john" (any case)
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name =~ '(?i)^john' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("John Smith".to_string()));
+}
+
+#[test]
+fn test_gql_regex_starts_with_pattern() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Match names starting with 'A' or 'C'
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name =~ '^[AC]' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: HashSet<String> = results
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            _ => panic!("Expected string"),
+        })
+        .collect();
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Charlie"));
+}
+
+#[test]
+fn test_gql_regex_contains_pattern() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Match emails containing a dot before @
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*\\..*@' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("John Smith".to_string()));
+}
+
+#[test]
+fn test_gql_regex_with_null() {
+    let mut storage = InMemoryGraph::new();
+
+    // Person with email
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Alice"));
+    props.insert("email".to_string(), Value::from("alice@test.com"));
+    storage.add_vertex("Person", props);
+
+    // Person without email (NULL)
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Bob"));
+    // No email property - will be NULL
+    storage.add_vertex("Person", props);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // NULL =~ pattern should return false (no match)
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}
+
+#[test]
+fn test_gql_regex_invalid_pattern() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Invalid regex pattern (unbalanced parentheses) should return no matches
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*(' RETURN p.name")
+        .unwrap();
+
+    // Invalid regex returns false, so no matches
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn test_gql_regex_in_return_expression() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Regex match can also be used in RETURN to produce boolean values
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN p.email =~ '.*@gmail\\.com$' AS is_gmail")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_regex_combined_with_and() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Combine regex with AND
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*@gmail\\.com$' AND p.name =~ '^A' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice".to_string()));
+}
+
+#[test]
+fn test_gql_regex_combined_with_or() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Combine regex with OR - match gmail OR yahoo
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE p.email =~ '.*@gmail\\.com$' OR p.email =~ '.*@yahoo\\.com$' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 3);
+    let names: HashSet<String> = results
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            _ => panic!("Expected string"),
+        })
+        .collect();
+    assert!(names.contains("Alice"));
+    assert!(names.contains("Bob"));
+    assert!(names.contains("Charlie"));
+}
+
+#[test]
+fn test_gql_regex_with_not() {
+    let graph = create_regex_test_graph();
+    let snapshot = graph.snapshot();
+
+    // NOT with regex - find non-gmail emails
+    let results = snapshot
+        .gql("MATCH (p:Person) WHERE NOT p.email =~ '.*@gmail\\.com$' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: HashSet<String> = results
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            _ => panic!("Expected string"),
+        })
+        .collect();
+    assert!(names.contains("Bob"));
+    assert!(names.contains("John Smith"));
+}
+
+#[test]
+fn test_gql_regex_digit_pattern() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Product A"));
+    props.insert("sku".to_string(), Value::from("SKU-12345"));
+    storage.add_vertex("Product", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Product B"));
+    props.insert("sku".to_string(), Value::from("SKU-99999"));
+    storage.add_vertex("Product", props);
+
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::from("Product C"));
+    props.insert("sku".to_string(), Value::from("INVALID"));
+    storage.add_vertex("Product", props);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Match SKUs with the pattern SKU-NNNNN
+    let results = snapshot
+        .gql("MATCH (p:Product) WHERE p.sku =~ '^SKU-\\d{5}$' RETURN p.name")
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: HashSet<String> = results
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            _ => panic!("Expected string"),
+        })
+        .collect();
+    assert!(names.contains("Product A"));
+    assert!(names.contains("Product B"));
+}
+
+#[test]
+fn test_gql_regex_parse() {
+    use intersteller::gql::{BinaryOperator, Expression};
+
+    // Test parsing without execution
+    let query = parse("MATCH (p:Person) WHERE p.email =~ '.*@gmail\\.com$' RETURN p").unwrap();
+
+    // Check that the WHERE clause expression is a BinaryOp with RegexMatch
+    if let Some(where_clause) = &query.where_clause {
+        if let Expression::BinaryOp { op, .. } = &where_clause.expression {
+            assert_eq!(*op, BinaryOperator::RegexMatch);
+        } else {
+            panic!("Expected BinaryOp expression in WHERE");
+        }
+    } else {
+        panic!("Expected WHERE clause");
+    }
+}
+
+// =============================================================================
+// REDUCE Expression Tests
+// =============================================================================
+
+#[test]
+fn test_gql_reduce_sum_numbers() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use MATCH to get context, then use REDUCE with literal list
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(total = 0, x IN [1, 2, 3, 4, 5] | total + x) AS sum")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // Single item return returns value directly (alias is for naming only)
+    assert_eq!(results[0], Value::Int(15));
+}
+
+#[test]
+fn test_gql_reduce_product() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(product = 1, n IN [2, 3, 4] | product * n) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(24));
+}
+
+#[test]
+fn test_gql_reduce_string_concat() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(s = '', name IN ['Alice', 'Bob', 'Carol'] | s || name || ', ') AS names")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::String("Alice, Bob, Carol, ".to_string()));
+}
+
+#[test]
+fn test_gql_reduce_empty_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(total = 100, x IN [] | total + x) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // Empty list returns the initial value
+    assert_eq!(results[0], Value::Int(100));
+}
+
+#[test]
+fn test_gql_reduce_null_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(total = 0, x IN null | total + x) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // NULL list returns NULL
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_reduce_with_float_initial() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(sum = 0.0, n IN [1.5, 2.5, 3.0] | sum + n) AS total")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    match &results[0] {
+        Value::Float(f) => assert!((f - 7.0).abs() < 0.001),
+        other => panic!("Expected Float(7.0), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_reduce_nested_expression() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Square each number and sum
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(sum = 0, n IN [1, 2, 3] | sum + n * n) AS sum_of_squares")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
+    assert_eq!(results[0], Value::Int(14));
+}
+
+#[test]
+fn test_gql_reduce_count_elements() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(count = 0, x IN ['a', 'b', 'c', 'd'] | count + 1) AS count")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(4));
+}
+
+#[test]
+fn test_gql_reduce_max_value() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(max = 0, n IN [3, 7, 2, 9, 1] | CASE WHEN n > max THEN n ELSE max END) AS maximum")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(9));
+}
+
+#[test]
+fn test_gql_reduce_parse() {
+    use intersteller::gql::{Expression, Literal};
+
+    // Test parsing with MATCH clause (required for valid query)
+    let query = parse("MATCH (n) RETURN REDUCE(total = 0, x IN items | total + x) AS sum").unwrap();
+
+    // Check that the RETURN expression is a Reduce
+    assert_eq!(query.return_clause.items.len(), 1);
+    let return_item = &query.return_clause.items[0];
+    match &return_item.expression {
+        Expression::Reduce {
+            accumulator,
+            initial,
+            variable,
+            list,
+            expression,
+        } => {
+            assert_eq!(accumulator, "total");
+            assert_eq!(variable, "x");
+            match initial.as_ref() {
+                Expression::Literal(Literal::Int(0)) => {}
+                other => panic!("Expected initial value 0, got {:?}", other),
+            }
+            match list.as_ref() {
+                Expression::Variable(var) => assert_eq!(var, "items"),
+                other => panic!("Expected Variable 'items', got {:?}", other),
+            }
+            match expression.as_ref() {
+                Expression::BinaryOp { .. } => {} // total + x
+                other => panic!("Expected BinaryOp, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Reduce expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_reduce_with_list_comprehension_input() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Double each number then sum
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN REDUCE(sum = 0, n IN [x IN [1, 2, 3] | x * 2] | sum + n) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    // [2, 4, 6] summed = 12
+    assert_eq!(results[0], Value::Int(12));
+}
+
+// =============================================================================
+// List Predicate Tests (ALL, ANY, NONE, SINGLE)
+// =============================================================================
+
+#[test]
+fn test_gql_all_predicate_all_match() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // All even numbers in [2, 4, 6]
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ALL(x IN [2, 4, 6] WHERE x % 2 = 0) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_all_predicate_one_fails() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Not all are even: [2, 3, 6]
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ALL(x IN [2, 3, 6] WHERE x % 2 = 0) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_all_predicate_empty_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // ALL on empty list is vacuously true
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ALL(x IN [] WHERE x > 0) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_any_predicate_one_matches() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // At least one equals 2
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(x IN [1, 2, 3] WHERE x = 2) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_any_predicate_none_match() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // None equals 4
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(x IN [1, 2, 3] WHERE x = 4) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_any_predicate_empty_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // ANY on empty list is false
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(x IN [] WHERE x > 0) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_none_predicate_none_match() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // None equals 4
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN NONE(x IN [1, 2, 3] WHERE x = 4) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_none_predicate_one_matches() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // One equals 2
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN NONE(x IN [1, 2, 3] WHERE x = 2) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_none_predicate_empty_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // NONE on empty list is true
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN NONE(x IN [] WHERE x > 0) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_single_predicate_exactly_one() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Exactly one equals 2
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN SINGLE(x IN [1, 2, 3] WHERE x = 2) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_single_predicate_multiple_match() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Two instances of 2
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN SINGLE(x IN [2, 2, 3] WHERE x = 2) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_single_predicate_none_match() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // None equals 4
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN SINGLE(x IN [1, 2, 3] WHERE x = 4) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_single_predicate_empty_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // SINGLE on empty list is false
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN SINGLE(x IN [] WHERE x > 0) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(false));
+}
+
+#[test]
+fn test_gql_list_predicate_in_where_clause() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Use ALL in WHERE clause to filter nodes
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE ALL(x IN [25, 30, 35] WHERE x >= 25) RETURN n.name AS name")
+        .unwrap();
+
+    // All 3 persons should match since the predicate evaluates to true
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn test_gql_list_predicate_with_variable_list() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Test with a property list (ages)
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(x IN [20, 25, 30] WHERE x = n.age) AS has_age")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true)); // Alice is 30
+}
+
+#[test]
+fn test_gql_list_predicate_complex_condition() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // Complex condition: x > 1 AND x < 4
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ALL(x IN [2, 3] WHERE x > 1 AND x < 4) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true));
+}
+
+#[test]
+fn test_gql_list_predicate_nested() {
+    let graph = create_test_graph();
+    let snapshot = graph.snapshot();
+
+    // ANY with ALL nested
+    let results = snapshot
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(list IN [[1, 2], [3, 4]] WHERE ALL(x IN list WHERE x > 0)) AS result")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Bool(true)); // Both sublists have all positive numbers
+}
+
+#[test]
+fn test_gql_all_predicate_parse() {
+    use intersteller::gql::Expression;
+
+    let query = parse("MATCH (n) RETURN ALL(x IN items WHERE x > 0)").unwrap();
+    assert_eq!(query.return_clause.items.len(), 1);
+    let return_item = &query.return_clause.items[0];
+    match &return_item.expression {
+        Expression::All {
+            variable,
+            list,
+            condition,
+        } => {
+            assert_eq!(variable, "x");
+            match list.as_ref() {
+                Expression::Variable(var) => assert_eq!(var, "items"),
+                other => panic!("Expected Variable 'items', got {:?}", other),
+            }
+            match condition.as_ref() {
+                Expression::BinaryOp { .. } => {} // x > 0
+                other => panic!("Expected BinaryOp, got {:?}", other),
+            }
+        }
+        other => panic!("Expected All expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_any_predicate_parse() {
+    use intersteller::gql::Expression;
+
+    let query = parse("MATCH (n) RETURN ANY(x IN items WHERE x = 0)").unwrap();
+    assert_eq!(query.return_clause.items.len(), 1);
+    let return_item = &query.return_clause.items[0];
+    match &return_item.expression {
+        Expression::Any {
+            variable,
+            list,
+            condition,
+        } => {
+            assert_eq!(variable, "x");
+            match list.as_ref() {
+                Expression::Variable(var) => assert_eq!(var, "items"),
+                other => panic!("Expected Variable 'items', got {:?}", other),
+            }
+        }
+        other => panic!("Expected Any expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_none_predicate_parse() {
+    use intersteller::gql::Expression;
+
+    let query = parse("MATCH (n) RETURN NONE(x IN items WHERE x < 0)").unwrap();
+    assert_eq!(query.return_clause.items.len(), 1);
+    let return_item = &query.return_clause.items[0];
+    match &return_item.expression {
+        Expression::None {
+            variable,
+            list,
+            condition,
+        } => {
+            assert_eq!(variable, "x");
+        }
+        other => panic!("Expected None expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_gql_single_predicate_parse() {
+    use intersteller::gql::Expression;
+
+    let query = parse("MATCH (n) RETURN SINGLE(x IN items WHERE x = 1)").unwrap();
+    assert_eq!(query.return_clause.items.len(), 1);
+    let return_item = &query.return_clause.items[0];
+    match &return_item.expression {
+        Expression::Single {
+            variable,
+            list,
+            condition,
+        } => {
+            assert_eq!(variable, "x");
+        }
+        other => panic!("Expected Single expression, got {:?}", other),
     }
 }

@@ -55,6 +55,7 @@ group_by_clause:
     - Property:
         variable: p
         property: position
+having_clause: ~
 order_clause:
   items:
     - expression:

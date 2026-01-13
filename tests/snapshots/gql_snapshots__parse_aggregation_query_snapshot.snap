@@ -65,6 +65,7 @@ return_clause:
               property: total
       alias: revenue
 group_by_clause: ~
+having_clause: ~
 order_clause:
   items:
     - expression:

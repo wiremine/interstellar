@@ -50,6 +50,11 @@ OPTIONAL = @{ ^"optional" ~ !ASCII_ALPHANUMERIC }
 PATH     = @{ ^"path" ~ !ASCII_ALPHANUMERIC }
 UNWIND   = @{ ^"unwind" ~ !ASCII_ALPHANUMERIC }
 LET      = @{ ^"let" ~ !ASCII_ALPHANUMERIC }
+SKIP     = @{ ^"skip" ~ !ASCII_ALPHANUMERIC }
+HAVING   = @{ ^"having" ~ !ASCII_ALPHANUMERIC }
+ANY_KW   = @{ ^"any" ~ !ASCII_ALPHANUMERIC }
+NONE_KW  = @{ ^"none" ~ !ASCII_ALPHANUMERIC }
+SINGLE   = @{ ^"single" ~ !ASCII_ALPHANUMERIC }
 
 // Mutation keywords
 CREATE   = @{ ^"create" ~ !ASCII_ALPHANUMERIC }
@@ -137,12 +142,13 @@ on_match_action = { ON ~ MATCH ~ SET ~ set_item ~ ("," ~ set_item)* }
 // UNION (without ALL) deduplicates results, UNION ALL keeps duplicates
 union_clause = { UNION ~ ALL? }
 
-// Single query with optional WHERE, LET, GROUP BY, ORDER BY, and LIMIT clauses
+// Single query with optional WHERE, LET, GROUP BY, HAVING, ORDER BY, and LIMIT clauses
 // GROUP BY comes after RETURN (GQL/SQL style)
+// HAVING filters groups after aggregation (must come after GROUP BY)
 // OPTIONAL MATCH clauses come after the main MATCH clause
 // WITH PATH enables path tracking, UNWIND expands lists into rows
 // LET binds computed values to variables for use in RETURN
-query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ let_clause* ~ return_clause ~ group_by_clause? ~ order_clause? ~ limit_clause? }
+query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ let_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
 
 // WITH PATH clause - enables path tracking and collection
 // Allows using path() function in RETURN to get the traversed path
@@ -219,6 +225,7 @@ not_expr = { NOT* ~ comparison }
 comparison = { 
     is_null_expr 
     | in_expr 
+    | regex_expr
     | comparison_expr 
 }
 
@@ -227,6 +234,10 @@ is_null_expr = { concat_expr ~ IS ~ NOT? ~ NULL }
 
 // IN list / NOT IN list
 in_expr = { concat_expr ~ NOT? ~ IN ~ list_expr }
+
+// Regex match: expr =~ 'pattern'
+regex_expr = { concat_expr ~ regex_op ~ concat_expr }
+regex_op = { "=~" }
 
 // Binary comparison operators
 comparison_expr = { concat_expr ~ (comp_op ~ concat_expr)? }
@@ -274,6 +285,11 @@ neg_op = { "-" }
 primary = { 
     case_expr
     | exists_expr
+    | reduce_expr     // REDUCE function for list accumulation
+    | all_predicate   // ALL(x IN list WHERE cond)
+    | any_predicate   // ANY(x IN list WHERE cond)
+    | none_predicate  // NONE(x IN list WHERE cond)
+    | single_predicate // SINGLE(x IN list WHERE cond)
     | parameter
     | literal
     | function_call
@@ -323,6 +339,8 @@ list_comp_term = {
 
 list_comp_primary = {
     function_call
+    | list_expr       // Support list literals [1, 2, 3]
+    | list_comprehension  // Support nested comprehensions [x IN y | z]
     | literal  
     | property_access
     | variable
@@ -338,6 +356,43 @@ case_else_clause = { ELSE ~ expression }
 // EXISTS expression: EXISTS { pattern } or NOT EXISTS { pattern }
 // Used to check if a subpattern matches from the current element
 exists_expr = { NOT? ~ EXISTS ~ "{" ~ pattern ~ "}" }
+
+// ALL/ANY/NONE/SINGLE list predicates
+// ALL(x IN list WHERE condition) - true if all elements satisfy condition
+// ANY(x IN list WHERE condition) - true if at least one element satisfies condition
+// NONE(x IN list WHERE condition) - true if no elements satisfy condition
+// SINGLE(x IN list WHERE condition) - true if exactly one element satisfies condition
+all_predicate = { ALL ~ "(" ~ identifier ~ IN ~ list_comp_source ~ WHERE ~ expression ~ ")" }
+any_predicate = { ANY_KW ~ "(" ~ identifier ~ IN ~ list_comp_source ~ WHERE ~ expression ~ ")" }
+none_predicate = { NONE_KW ~ "(" ~ identifier ~ IN ~ list_comp_source ~ WHERE ~ expression ~ ")" }
+single_predicate = { SINGLE ~ "(" ~ identifier ~ IN ~ list_comp_source ~ WHERE ~ expression ~ ")" }
+
+// REDUCE expression: REDUCE(accumulator = initial, variable IN list | expression)
+// Accumulates a value over a list (fold/reduce operation)
+// e.g., REDUCE(total = 0, x IN prices | total + x)
+// e.g., REDUCE(s = '', name IN names | s || name || ', ')
+// Note: Uses reduce_initial for the initial value to avoid consuming the comma
+// Uses list_comp_source for the list expression to avoid consuming the pipe token
+reduce_expr = { 
+    REDUCE ~ "(" ~ 
+    identifier ~ "=" ~ reduce_initial ~ "," ~
+    identifier ~ IN ~ list_comp_source ~ pipe_token ~ 
+    expression ~ 
+    ")"
+}
+
+// Initial value in REDUCE - limited to avoid consuming comma
+// Supports: literals, variables, property access, function calls, parens
+reduce_initial = {
+    function_call
+    | literal
+    | property_access
+    | variable
+    | "(" ~ expression ~ ")"
+}
+
+// REDUCE keyword
+REDUCE = @{ ^"reduce" ~ !ASCII_ALPHANUMERIC }
 
 // Parenthesized expression
 paren_expr = { "(" ~ expression ~ ")" }
@@ -360,11 +415,12 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // All keywords - used to exclude them from variable names
 keyword = {
-    MATCH | RETURN | WHERE | ORDER | BY | GROUP | LIMIT | OFFSET |
+    MATCH | RETURN | WHERE | ORDER | BY | GROUP | LIMIT | OFFSET | SKIP | HAVING |
     AS | AND | OR | NOT | TRUE | FALSE | NULL | ASC | DESC |
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
     CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL |
-    PATH | UNWIND | CREATE | SET | REMOVE | DELETE | DETACH | MERGE | ON
+    PATH | UNWIND | CREATE | SET | REMOVE | DELETE | DETACH | MERGE | ON | LET |
+    REDUCE | ANY_KW | NONE_KW | SINGLE
 }
 
 // ============================================================
@@ -384,6 +440,13 @@ return_item = { expression ~ (AS ~ identifier)? }
 group_by_clause = { GROUP ~ BY ~ expression ~ ("," ~ expression)* }
 
 // ============================================================
+// HAVING clause
+// ============================================================
+// Filters groups after aggregation. Can only be used with GROUP BY.
+// e.g., MATCH (p:person) RETURN p.city, count(*) GROUP BY p.city HAVING count(*) > 5
+having_clause = { HAVING ~ expression }
+
+// ============================================================
 // ORDER BY clause
 // ============================================================
 order_clause = { ORDER ~ BY ~ order_item ~ ("," ~ order_item)* }
@@ -392,7 +455,12 @@ order_item = { expression ~ (ASC | DESC)? }
 // ============================================================
 // LIMIT clause
 // ============================================================
-limit_clause = { LIMIT ~ integer ~ (OFFSET ~ integer)? }
+// SKIP is an alias for OFFSET (Cypher compatibility)
+// Supports: LIMIT n, LIMIT n OFFSET m, LIMIT n SKIP m, SKIP n LIMIT m, OFFSET n LIMIT m
+limit_clause = { 
+    LIMIT ~ integer ~ ((OFFSET | SKIP) ~ integer)?
+    | (OFFSET | SKIP) ~ integer ~ (LIMIT ~ integer)?
+}
 
 // ============================================================
 // Literals

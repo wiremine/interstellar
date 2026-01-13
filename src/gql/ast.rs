@@ -381,6 +381,8 @@ pub struct Query {
     pub return_clause: ReturnClause,
     /// Optional GROUP BY clause for grouping aggregation results.
     pub group_by_clause: Option<GroupByClause>,
+    /// Optional HAVING clause for filtering aggregated groups.
+    pub having_clause: Option<HavingClause>,
     /// Optional ORDER BY clause for sorting results.
     pub order_clause: Option<OrderClause>,
     /// Optional LIMIT/OFFSET clause for pagination.
@@ -872,6 +874,32 @@ pub struct GroupByClause {
 }
 
 // =============================================================================
+// HAVING Clause
+// =============================================================================
+
+/// The HAVING clause for filtering aggregated groups.
+///
+/// HAVING filters groups after aggregation, unlike WHERE which filters
+/// rows before aggregation. HAVING can reference aggregate functions
+/// and their aliases.
+///
+/// # Example
+///
+/// ```
+/// use intersteller::gql::parse;
+///
+/// // Filter groups with more than 2 members
+/// let query = parse("MATCH (p:Person) RETURN p.city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 2").unwrap();
+/// let having = query.having_clause.unwrap();
+/// // The expression is a comparison: count(*) > 2
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct HavingClause {
+    /// The filter expression to evaluate on each group.
+    pub expression: Expression,
+}
+
+// =============================================================================
 // LIMIT Clause
 // =============================================================================
 
@@ -1162,6 +1190,139 @@ pub enum Expression {
     /// } AS profile
     /// ```
     Map(Vec<(String, Expression)>),
+
+    /// REDUCE expression: `REDUCE(acc = init, x IN list | expr)`
+    ///
+    /// Accumulates a value over a list (fold/reduce operation).
+    /// The accumulator is initialized to the initial value, then for each
+    /// element in the list, the expression is evaluated with both the
+    /// accumulator and element in scope, producing the next accumulator value.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Sum numbers
+    /// REDUCE(total = 0, x IN [1, 2, 3] | total + x)
+    /// -- Result: 6
+    ///
+    /// -- String concatenation
+    /// REDUCE(s = '', name IN ['Alice', 'Bob'] | s || name || ', ')
+    /// -- Result: 'Alice, Bob, '
+    ///
+    /// -- Product of numbers
+    /// REDUCE(product = 1, n IN numbers | product * n)
+    ///
+    /// -- Build a list (nested reduce)
+    /// REDUCE(acc = [], x IN items | acc + [x * 2])
+    /// ```
+    Reduce {
+        /// Accumulator variable name.
+        accumulator: String,
+        /// Initial value for accumulator.
+        initial: Box<Expression>,
+        /// Variable bound to each list element.
+        variable: String,
+        /// The list to iterate over.
+        list: Box<Expression>,
+        /// Expression computing next accumulator value.
+        expression: Box<Expression>,
+    },
+
+    /// ALL list predicate: `ALL(x IN list WHERE condition)`
+    ///
+    /// Returns TRUE if all elements in the list satisfy the condition.
+    /// Returns TRUE for an empty list (vacuous truth).
+    /// Returns NULL if the list is NULL.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// -- Check if all scores are passing
+    /// ALL(score IN s.scores WHERE score >= 60)
+    ///
+    /// -- Check if all items are in stock
+    /// ALL(item IN order.items WHERE item.quantity > 0)
+    /// ```
+    All {
+        /// Variable bound to each list element.
+        variable: String,
+        /// The list to iterate over.
+        list: Box<Expression>,
+        /// Condition that must be true for all elements.
+        condition: Box<Expression>,
+    },
+
+    /// ANY list predicate: `ANY(x IN list WHERE condition)`
+    ///
+    /// Returns TRUE if at least one element in the list satisfies the condition.
+    /// Returns FALSE for an empty list.
+    /// Returns NULL if the list is NULL.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// -- Check if any tag is 'vip'
+    /// ANY(tag IN p.tags WHERE tag = 'vip')
+    ///
+    /// -- Check if any friend is online
+    /// ANY(friend IN p.friends WHERE friend.online = true)
+    /// ```
+    Any {
+        /// Variable bound to each list element.
+        variable: String,
+        /// The list to iterate over.
+        list: Box<Expression>,
+        /// Condition that must be true for at least one element.
+        condition: Box<Expression>,
+    },
+
+    /// NONE list predicate: `NONE(x IN list WHERE condition)`
+    ///
+    /// Returns TRUE if no elements in the list satisfy the condition.
+    /// Returns TRUE for an empty list.
+    /// Returns NULL if the list is NULL.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// -- Check if no reviews are negative
+    /// NONE(review IN p.reviews WHERE review.rating < 3)
+    ///
+    /// -- Check if no items are expired
+    /// NONE(item IN inventory WHERE item.expired = true)
+    /// ```
+    None {
+        /// Variable bound to each list element.
+        variable: String,
+        /// The list to iterate over.
+        list: Box<Expression>,
+        /// Condition that must be false for all elements.
+        condition: Box<Expression>,
+    },
+
+    /// SINGLE list predicate: `SINGLE(x IN list WHERE condition)`
+    ///
+    /// Returns TRUE if exactly one element in the list satisfies the condition.
+    /// Returns FALSE for an empty list (zero matches).
+    /// Returns NULL if the list is NULL.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// -- Check if exactly one player is captain
+    /// SINGLE(p IN t.players WHERE p.captain = true)
+    ///
+    /// -- Check if exactly one item is selected
+    /// SINGLE(item IN cart.items WHERE item.selected = true)
+    /// ```
+    Single {
+        /// Variable bound to each list element.
+        variable: String,
+        /// The list to iterate over.
+        list: Box<Expression>,
+        /// Condition that must be true for exactly one element.
+        condition: Box<Expression>,
+    },
 }
 
 /// A CASE expression with WHEN/THEN/ELSE branches.
@@ -1259,6 +1420,8 @@ pub enum BinaryOperator {
     EndsWith,
     /// String concatenation: `||`
     Concat,
+    /// Regex match: `=~`
+    RegexMatch,
 }
 
 /// Aggregate functions for computing values across matched patterns.

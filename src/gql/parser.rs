@@ -36,11 +36,11 @@ use pest_derive::Parser;
 
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CaseExpression, CreateClause, DeleteClause, DetachDeleteClause,
-    EdgeDirection, EdgePattern, Expression, GroupByClause, LetClause, LimitClause, Literal,
-    MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause,
-    OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, PropertyRef, Query,
-    RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, Statement, UnaryOperator,
-    UnwindClause, WhereClause, WithPathClause,
+    EdgeDirection, EdgePattern, Expression, GroupByClause, HavingClause, LetClause, LimitClause,
+    Literal, MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern,
+    OptionalMatchClause, OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement,
+    PropertyRef, Query, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, Statement,
+    UnaryOperator, UnwindClause, WhereClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -519,6 +519,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut let_clauses = Vec::new();
     let mut return_clause = None;
     let mut group_by_clause = None;
+    let mut having_clause = None;
     let mut order_clause = None;
     let mut limit_clause = None;
 
@@ -534,6 +535,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::let_clause => let_clauses.push(build_let_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
             Rule::group_by_clause => group_by_clause = Some(build_group_by_clause(inner)?),
+            Rule::having_clause => having_clause = Some(build_having_clause(inner)?),
             Rule::order_clause => order_clause = Some(build_order_clause(inner)?),
             Rule::limit_clause => limit_clause = Some(build_limit_clause(inner)?),
             Rule::EOI => {}
@@ -551,6 +553,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
         return_clause: return_clause
             .ok_or_else(|| ParseError::missing_clause("RETURN", pair_span))?,
         group_by_clause,
+        having_clause,
         order_clause,
         limit_clause,
     })
@@ -605,6 +608,18 @@ fn build_group_by_clause(pair: pest::iterators::Pair<Rule>) -> Result<GroupByCla
     Ok(GroupByClause { expressions })
 }
 
+fn build_having_clause(pair: pest::iterators::Pair<Rule>) -> Result<HavingClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let expr_pair = pair
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::expression)
+        .ok_or_else(|| ParseError::missing_clause("HAVING expression", pair_span))?;
+
+    Ok(HavingClause {
+        expression: build_expression(expr_pair)?,
+    })
+}
+
 fn build_order_clause(pair: pest::iterators::Pair<Rule>) -> Result<OrderClause, ParseError> {
     let mut items = Vec::new();
 
@@ -639,26 +654,66 @@ fn build_order_item(pair: pest::iterators::Pair<Rule>) -> Result<OrderItem, Pars
 }
 
 fn build_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitClause, ParseError> {
-    let mut limit = 0u64;
+    let mut limit = None;
     let mut offset = None;
-    let mut seen_limit = false;
 
-    for inner in pair.clone().into_inner() {
-        if inner.as_rule() == Rule::integer {
-            let span = span_from_pair(&inner);
-            let n: u64 = inner.as_str().parse().map_err(|_| {
-                ParseError::invalid_literal(inner.as_str(), span, "expected unsigned integer")
-            })?;
-            if !seen_limit {
-                limit = n;
-                seen_limit = true;
-            } else {
-                offset = Some(n);
+    let children: Vec<_> = pair.clone().into_inner().collect();
+    let mut i = 0;
+
+    while i < children.len() {
+        let child = &children[i];
+        match child.as_rule() {
+            Rule::LIMIT => {
+                // Next child should be an integer for LIMIT
+                if i + 1 < children.len() && children[i + 1].as_rule() == Rule::integer {
+                    let span = span_from_pair(&children[i + 1]);
+                    let n: u64 = children[i + 1].as_str().parse().map_err(|_| {
+                        ParseError::invalid_literal(
+                            children[i + 1].as_str(),
+                            span,
+                            "expected unsigned integer",
+                        )
+                    })?;
+                    limit = Some(n);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            Rule::OFFSET | Rule::SKIP => {
+                // Next child should be an integer for OFFSET/SKIP
+                if i + 1 < children.len() && children[i + 1].as_rule() == Rule::integer {
+                    let span = span_from_pair(&children[i + 1]);
+                    let n: u64 = children[i + 1].as_str().parse().map_err(|_| {
+                        ParseError::invalid_literal(
+                            children[i + 1].as_str(),
+                            span,
+                            "expected unsigned integer",
+                        )
+                    })?;
+                    offset = Some(n);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            Rule::integer => {
+                // This handles the case where the grammar has already consumed the keyword
+                // Just move on; we process integers after keywords
+                i += 1;
+            }
+            _ => {
+                i += 1;
             }
         }
     }
 
-    Ok(LimitClause { limit, offset })
+    // Default limit to 0 if only SKIP/OFFSET was provided (edge case)
+    // But grammatically we always have at least one of LIMIT or SKIP/OFFSET
+    Ok(LimitClause {
+        limit: limit.unwrap_or(0),
+        offset,
+    })
 }
 
 fn build_match_clause(pair: pest::iterators::Pair<Rule>) -> Result<MatchClause, ParseError> {
@@ -1094,6 +1149,7 @@ fn build_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Par
     match inner.as_rule() {
         Rule::is_null_expr => build_is_null_expr(inner),
         Rule::in_expr => build_in_expr(inner),
+        Rule::regex_expr => build_regex_expr(inner),
         Rule::comparison_expr => build_comparison_expr(inner),
         _ => Err(ParseError::unexpected_token(
             span,
@@ -1144,6 +1200,36 @@ fn build_in_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         expr: Box::new(expr),
         list,
         negated,
+    })
+}
+
+/// Build a regex match expression from a pest pair.
+///
+/// Grammar: `concat_expr ~ regex_op ~ concat_expr`
+/// Example: `p.email =~ '.*@gmail\\.com$'`
+fn build_regex_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut iter = pair.into_inner();
+
+    // First operand (the string to match against)
+    let left_pair = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("left operand", pair_span))?;
+    let left = build_concat_expr(left_pair)?;
+
+    // Skip the regex_op token (=~)
+    let _op = iter.next();
+
+    // Second operand (the regex pattern)
+    let right_pair = iter
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("regex pattern", pair_span))?;
+    let right = build_concat_expr(right_pair)?;
+
+    Ok(Expression::BinaryOp {
+        left: Box::new(left),
+        op: BinaryOperator::RegexMatch,
+        right: Box::new(right),
     })
 }
 
@@ -1419,10 +1505,15 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
         Rule::list_comprehension => build_list_comprehension(inner),
         Rule::map_expr => build_map_expr(inner),
+        Rule::reduce_expr => build_reduce_expr(inner),
+        Rule::all_predicate => build_list_predicate(inner, ListPredicateKind::All),
+        Rule::any_predicate => build_list_predicate(inner, ListPredicateKind::Any),
+        Rule::none_predicate => build_list_predicate(inner, ListPredicateKind::None),
+        Rule::single_predicate => build_list_predicate(inner, ListPredicateKind::Single),
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, list comprehension, or map literal",
+            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, list comprehension, map literal, REDUCE, or list predicate",
         )),
     }
 }
@@ -1668,6 +1759,188 @@ fn build_map_key(pair: pest::iterators::Pair<Rule>) -> Result<String, ParseError
     }
 }
 
+/// Build a REDUCE expression from a pest pair.
+///
+/// Grammar: `REDUCE(accumulator = reduce_initial, variable IN list_comp_source | expression)`
+///
+/// # Examples
+///
+/// ```text
+/// REDUCE(total = 0, x IN prices | total + x)     -- sum
+/// REDUCE(s = '', name IN names | s || name)      -- string concatenation
+/// REDUCE(product = 1, n IN numbers | product * n) -- product
+/// ```
+fn build_reduce_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut inner = pair.into_inner();
+
+    // Skip the REDUCE keyword
+    inner.next();
+
+    // First element: identifier (accumulator variable name)
+    let accumulator = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("accumulator variable", pair_span))?
+        .as_str()
+        .to_string();
+
+    // Second element: reduce_initial (initial value) - limited grammar
+    let initial_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("initial value", pair_span))?;
+    let initial = Box::new(build_reduce_initial(initial_pair)?);
+
+    // Third element: identifier (loop variable name)
+    let variable = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("loop variable", pair_span))?
+        .as_str()
+        .to_string();
+
+    // Skip the IN keyword
+    inner.next();
+
+    // Fourth element: list_comp_source (list to iterate) - uses limited grammar to avoid | ambiguity
+    let list_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("list expression", pair_span))?;
+    let list = Box::new(build_list_comp_expr(list_pair)?);
+
+    // Skip the pipe_token
+    inner.next();
+
+    // Fifth element: expression (accumulator expression)
+    let expr_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("reduce expression", pair_span))?;
+    let expression = Box::new(build_expression(expr_pair)?);
+
+    Ok(Expression::Reduce {
+        accumulator,
+        initial,
+        variable,
+        list,
+        expression,
+    })
+}
+
+/// Build the initial value expression for REDUCE.
+/// Uses a limited grammar to avoid consuming the comma delimiter.
+fn build_reduce_initial(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("initial value", pair_span))?;
+
+    match inner.as_rule() {
+        Rule::function_call => build_function_call(inner),
+        Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
+        Rule::property_access => {
+            let span = span_from_pair(&inner);
+            let mut parts = inner.into_inner();
+            let variable = parts
+                .next()
+                .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                .as_str()
+                .to_string();
+            let property = parts
+                .next()
+                .ok_or_else(|| ParseError::missing_clause("property", span))?
+                .as_str()
+                .to_string();
+            Ok(Expression::Property { variable, property })
+        }
+        Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
+        Rule::expression => build_expression(inner),
+        _ => Err(ParseError::unexpected_token(
+            span_from_pair(&inner),
+            inner.as_str(),
+            "function call, literal, property access, variable, or parenthesized expression",
+        )),
+    }
+}
+
+/// Kind of list predicate (ALL, ANY, NONE, SINGLE).
+enum ListPredicateKind {
+    All,
+    Any,
+    None,
+    Single,
+}
+
+/// Build a list predicate expression (ALL, ANY, NONE, SINGLE) from a pest pair.
+///
+/// Grammar: `ALL|ANY|NONE|SINGLE(variable IN list WHERE condition)`
+///
+/// # Examples
+///
+/// ```text
+/// ALL(score IN s.scores WHERE score >= 60)     -- all elements satisfy
+/// ANY(tag IN p.tags WHERE tag = 'vip')         -- at least one satisfies
+/// NONE(review IN p.reviews WHERE review < 3)   -- none satisfy
+/// SINGLE(p IN players WHERE p.captain = true)  -- exactly one satisfies
+/// ```
+fn build_list_predicate(
+    pair: pest::iterators::Pair<Rule>,
+    kind: ListPredicateKind,
+) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut inner = pair.into_inner();
+
+    // Skip the keyword (ALL, ANY, NONE, or SINGLE)
+    inner.next();
+
+    // First element: identifier (the variable name)
+    let variable = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("variable", pair_span))?
+        .as_str()
+        .to_string();
+
+    // Skip the IN keyword
+    inner.next();
+
+    // Third element: list_comp_source (the list to iterate over)
+    let list_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("list expression", pair_span))?;
+    let list = Box::new(build_list_comp_expr(list_pair)?);
+
+    // Skip the WHERE keyword
+    inner.next();
+
+    // Fourth element: expression (the condition)
+    let condition_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("condition expression", pair_span))?;
+    let condition = Box::new(build_expression(condition_pair)?);
+
+    // Return the appropriate expression variant
+    match kind {
+        ListPredicateKind::All => Ok(Expression::All {
+            variable,
+            list,
+            condition,
+        }),
+        ListPredicateKind::Any => Ok(Expression::Any {
+            variable,
+            list,
+            condition,
+        }),
+        ListPredicateKind::None => Ok(Expression::None {
+            variable,
+            list,
+            condition,
+        }),
+        ListPredicateKind::Single => Ok(Expression::Single {
+            variable,
+            list,
+            condition,
+        }),
+    }
+}
+
 /// Build a list comprehension expression from a pest pair.
 ///
 /// Grammar: `[variable IN list_comp_source WHERE? list_comp_filter | expression]`
@@ -1844,6 +2117,8 @@ fn build_list_comp_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expressi
 
     match inner.as_rule() {
         Rule::function_call => build_function_call(inner),
+        Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
+        Rule::list_comprehension => build_list_comprehension(inner),
         Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
         Rule::property_access => {
             let span = span_from_pair(&inner);
@@ -1865,7 +2140,7 @@ fn build_list_comp_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expressi
         _ => Err(ParseError::unexpected_token(
             span_from_pair(&inner),
             inner.as_str(),
-            "function call, literal, property access, variable, or parenthesized expression",
+            "function call, list literal, list comprehension, literal, property access, variable, or parenthesized expression",
         )),
     }
 }
@@ -3800,5 +4075,38 @@ mod tests {
         let query = result.unwrap();
         assert_eq!(query.let_clauses.len(), 1);
         assert_eq!(query.let_clauses[0].variable, "doubled");
+    }
+
+    #[test]
+    fn test_reduce_expr_pest_parse() {
+        // Test basic REDUCE expression parsing
+        let input = "REDUCE(total = 0, x IN items | total + x)";
+
+        let result = GqlParser::parse(Rule::reduce_expr, input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse REDUCE expression");
+
+        let pairs = result.unwrap();
+        let pair = pairs.into_iter().next().unwrap();
+        assert_eq!(pair.as_rule(), Rule::reduce_expr);
+
+        // Debug: print inner pairs
+        for inner in pair.into_inner() {
+            eprintln!("Inner: {:?} = {:?}", inner.as_rule(), inner.as_str());
+        }
+    }
+
+    #[test]
+    fn test_reduce_full_parse() {
+        // Test full query parsing with REDUCE
+        let input = "MATCH (n:Person) RETURN REDUCE(total = 0, x IN [1,2,3] | total + x) AS sum";
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse query with REDUCE");
     }
 }
