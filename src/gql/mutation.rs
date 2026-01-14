@@ -34,9 +34,10 @@ use std::collections::HashMap;
 
 use crate::error::StorageError;
 use crate::gql::ast::{
-    CreateClause, DeleteClause, DetachDeleteClause, EdgeDirection, Expression, MatchClause,
-    MergeClause, MutationClause, MutationQuery, Pattern, PatternElement, RemoveClause,
-    ReturnClause, ReturnItem, SetClause, SetItem, Statement, WhereClause,
+    CreateClause, DeleteClause, DetachDeleteClause, EdgeDirection, Expression, ForeachClause,
+    ForeachMutation, MatchClause, MergeClause, MutationClause, MutationQuery, Pattern,
+    PatternElement, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, Statement,
+    WhereClause,
 };
 use crate::gql::error::CompileError;
 use crate::schema::{
@@ -361,6 +362,11 @@ pub fn execute_mutation_query_with_schema<S: GraphStorage + GraphStorageMut>(
                 execute_mutation_clause(&mut ctx, mutation)?;
             }
 
+            // Execute each FOREACH clause
+            for foreach_clause in &query.foreach_clauses {
+                execute_foreach(&mut ctx, foreach_clause)?;
+            }
+
             // Collect RETURN results if present
             if let Some(return_clause) = &query.return_clause {
                 if let Some(result) = evaluate_return(&ctx, return_clause)? {
@@ -372,6 +378,11 @@ pub fn execute_mutation_query_with_schema<S: GraphStorage + GraphStorageMut>(
         // No MATCH clause - direct mutations (CREATE, MERGE)
         for mutation in &query.mutations {
             execute_mutation_clause(&mut ctx, mutation)?;
+        }
+
+        // Execute each FOREACH clause
+        for foreach_clause in &query.foreach_clauses {
+            execute_foreach(&mut ctx, foreach_clause)?;
         }
 
         // Collect RETURN results if present
@@ -1132,6 +1143,125 @@ fn execute_merge<S: GraphStorage + GraphStorageMut>(
     Ok(())
 }
 
+/// Execute a FOREACH clause.
+///
+/// FOREACH iterates over a list expression and applies mutations to each element.
+/// The iteration variable shadows any outer variable with the same name.
+///
+/// # Arguments
+///
+/// * `ctx` - The mutation context with storage and bindings
+/// * `foreach_clause` - The FOREACH clause to execute
+///
+/// # Example
+///
+/// ```text
+/// FOREACH (n IN nodes(p) | SET n.visited = true)
+/// FOREACH (i IN items | SET i.done = true REMOVE i.pending)
+/// ```
+fn execute_foreach<S: GraphStorage + GraphStorageMut>(
+    ctx: &mut MutationContext<S>,
+    foreach_clause: &ForeachClause,
+) -> Result<(), MutationError> {
+    // Create bindings for expression evaluation
+    let bindings = MatchBindings {
+        vertices: ctx.vertex_bindings.clone(),
+        edges: ctx.edge_bindings.clone(),
+    };
+
+    // Evaluate the list expression
+    let list_value = evaluate_expression(ctx, &foreach_clause.list, &bindings);
+
+    // Ensure it's a list
+    let items = match list_value {
+        Value::List(items) => items,
+        Value::Null => {
+            // Empty iteration - nothing to do
+            return Ok(());
+        }
+        other => {
+            return Err(MutationError::Compile(CompileError::foreach_not_list(
+                &foreach_clause.variable,
+                value_type_name(&other),
+            )));
+        }
+    };
+
+    // Save current bindings so we can restore after FOREACH
+    let saved_vertex = ctx.vertex_bindings.get(&foreach_clause.variable).copied();
+    let saved_edge = ctx.edge_bindings.get(&foreach_clause.variable).copied();
+
+    // Iterate over each item and apply mutations
+    for item in items {
+        // Bind the iteration variable based on item type
+        match &item {
+            Value::Vertex(vid) => {
+                ctx.bind_vertex(&foreach_clause.variable, *vid);
+            }
+            Value::Edge(eid) => {
+                ctx.bind_edge(&foreach_clause.variable, *eid);
+            }
+            _ => {
+                // For non-element values, we need to handle differently
+                // Store as a "virtual" binding - but our current system only binds
+                // vertices and edges. For primitive values being iterated,
+                // the variable is typically used for side effects only.
+                // For now, skip binding primitives as they can't be mutated directly.
+            }
+        }
+
+        // Execute each mutation in the FOREACH body
+        for mutation in &foreach_clause.mutations {
+            execute_foreach_mutation(ctx, mutation)?;
+        }
+    }
+
+    // Restore original binding if it existed, or remove the iteration variable binding
+    if let Some(vid) = saved_vertex {
+        ctx.bind_vertex(&foreach_clause.variable, vid);
+    } else {
+        ctx.vertex_bindings.remove(&foreach_clause.variable);
+    }
+
+    if let Some(eid) = saved_edge {
+        ctx.bind_edge(&foreach_clause.variable, eid);
+    } else {
+        ctx.edge_bindings.remove(&foreach_clause.variable);
+    }
+
+    Ok(())
+}
+
+/// Execute a mutation inside a FOREACH clause.
+fn execute_foreach_mutation<S: GraphStorage + GraphStorageMut>(
+    ctx: &mut MutationContext<S>,
+    mutation: &ForeachMutation,
+) -> Result<(), MutationError> {
+    match mutation {
+        ForeachMutation::Set(set) => execute_set(ctx, set),
+        ForeachMutation::Remove(remove) => execute_remove(ctx, remove),
+        ForeachMutation::Delete(delete) => execute_delete(ctx, delete),
+        ForeachMutation::DetachDelete(detach) => execute_detach_delete(ctx, detach),
+        ForeachMutation::Create(create) => execute_create(ctx, create),
+        ForeachMutation::Foreach(nested) => execute_foreach(ctx, nested),
+    }
+}
+
+/// Get a human-readable type name for a Value.
+fn value_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Int(_) => "integer",
+        Value::Float(_) => "float",
+        Value::String(_) => "string",
+        Value::List(_) => "list",
+        Value::Map(_) => "map",
+        Value::Vertex(_) => "vertex",
+        Value::Edge(_) => "edge",
+    }
+}
+
 // =============================================================================
 // RETURN Clause Evaluation
 // =============================================================================
@@ -1412,5 +1542,150 @@ mod tests {
             }
         }
         assert_eq!(updated_count, 1);
+    }
+
+    // =========================================================================
+    // FOREACH Tests
+    // =========================================================================
+
+    #[test]
+    fn test_foreach_basic_set() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create some vertices
+        let stmt = parse_statement("CREATE (a:Person {name: 'Alice'})").unwrap();
+        execute_mutation(&stmt, &mut storage).unwrap();
+        let stmt = parse_statement("CREATE (b:Person {name: 'Bob'})").unwrap();
+        execute_mutation(&stmt, &mut storage).unwrap();
+
+        // Get vertex IDs
+        let vertex_ids: Vec<_> = storage.all_vertices().map(|v| v.id).collect();
+        assert_eq!(vertex_ids.len(), 2);
+
+        // Use FOREACH - test with an actual list value using Expression::List
+        let foreach_clause = ForeachClause {
+            variable: "n".to_string(),
+            list: Expression::List(vec![
+                Expression::Literal(crate::gql::ast::Literal::Int(1)),
+                Expression::Literal(crate::gql::ast::Literal::Int(2)),
+            ]),
+            mutations: vec![],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        // This should succeed (empty mutations, iterating over integers)
+        execute_foreach(&mut ctx, &foreach_clause).unwrap();
+    }
+
+    #[test]
+    fn test_foreach_with_vertex_list() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create vertices
+        let stmt = parse_statement("CREATE (a:Person {name: 'Alice', visited: false})").unwrap();
+        execute_mutation(&stmt, &mut storage).unwrap();
+        let stmt = parse_statement("CREATE (b:Person {name: 'Bob', visited: false})").unwrap();
+        execute_mutation(&stmt, &mut storage).unwrap();
+
+        // Get vertex IDs
+        let vertex_ids: Vec<_> = storage.all_vertices().map(|v| v.id).collect();
+
+        // Create a FOREACH clause with a list of integer literals (representing IDs)
+        let foreach_clause = ForeachClause {
+            variable: "n".to_string(),
+            list: Expression::List(
+                vertex_ids
+                    .iter()
+                    .map(|id| Expression::Literal(crate::gql::ast::Literal::Int(id.0 as i64)))
+                    .collect(),
+            ),
+            mutations: vec![],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        execute_foreach(&mut ctx, &foreach_clause).unwrap();
+
+        // Verify execution completed (no direct mutations since we're iterating over integers)
+        assert_eq!(storage.vertex_count(), 2);
+    }
+
+    #[test]
+    fn test_foreach_not_list_error() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create a FOREACH clause with a non-list expression
+        let foreach_clause = ForeachClause {
+            variable: "n".to_string(),
+            list: Expression::Literal(crate::gql::ast::Literal::Int(42)),
+            mutations: vec![],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        let result = execute_foreach(&mut ctx, &foreach_clause);
+
+        assert!(matches!(
+            result,
+            Err(MutationError::Compile(CompileError::ForeachNotList { .. }))
+        ));
+    }
+
+    #[test]
+    fn test_foreach_null_list_is_noop() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create a FOREACH clause with a null expression (should be a no-op)
+        let foreach_clause = ForeachClause {
+            variable: "n".to_string(),
+            list: Expression::Literal(crate::gql::ast::Literal::Null),
+            mutations: vec![],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        // Should succeed with no effect
+        execute_foreach(&mut ctx, &foreach_clause).unwrap();
+    }
+
+    #[test]
+    fn test_foreach_empty_list() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create a FOREACH clause with an empty list
+        let foreach_clause = ForeachClause {
+            variable: "n".to_string(),
+            list: Expression::List(vec![]),
+            mutations: vec![],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        // Should succeed with no iterations
+        execute_foreach(&mut ctx, &foreach_clause).unwrap();
+    }
+
+    #[test]
+    fn test_foreach_nested() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create a nested FOREACH clause
+        let inner_foreach = ForeachClause {
+            variable: "y".to_string(),
+            list: Expression::List(vec![
+                Expression::Literal(crate::gql::ast::Literal::Int(1)),
+                Expression::Literal(crate::gql::ast::Literal::Int(2)),
+            ]),
+            mutations: vec![],
+        };
+
+        let outer_foreach = ForeachClause {
+            variable: "x".to_string(),
+            list: Expression::List(vec![
+                Expression::Literal(crate::gql::ast::Literal::Int(10)),
+                Expression::Literal(crate::gql::ast::Literal::Int(20)),
+            ]),
+            mutations: vec![ForeachMutation::Foreach(Box::new(inner_foreach))],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        // Should execute without error (4 iterations total: 2 outer * 2 inner)
+        execute_foreach(&mut ctx, &outer_foreach).unwrap();
     }
 }

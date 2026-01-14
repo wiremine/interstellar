@@ -35,6 +35,7 @@ Mutation:
             value:
               Literal:
                 String: today
+  foreach_clauses: []
   return_clause:
     distinct: false
     items:

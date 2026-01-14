@@ -18,6 +18,7 @@ Mutation:
                     - - name
                       - String: Alice
                   where_clause: ~
+  foreach_clauses: []
   return_clause:
     distinct: false
     items:

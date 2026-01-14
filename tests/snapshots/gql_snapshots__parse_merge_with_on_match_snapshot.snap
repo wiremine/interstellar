@@ -26,4 +26,5 @@ Mutation:
             value:
               Literal:
                 String: now
+  foreach_clauses: []
   return_clause: ~

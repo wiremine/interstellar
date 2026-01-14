@@ -21,4 +21,5 @@ Mutation:
             property: temp1
           - variable: p
             property: temp2
+  foreach_clauses: []
   return_clause: ~

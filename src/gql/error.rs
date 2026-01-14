@@ -275,6 +275,15 @@ pub enum CompileError {
     /// Unbound parameter reference
     #[error("Unbound parameter: ${0}")]
     UnboundParameter(String),
+
+    /// FOREACH expression did not evaluate to a list
+    #[error(
+        "FOREACH expression for variable '{variable}' must evaluate to a list, got {actual_type}"
+    )]
+    ForeachNotList {
+        variable: String,
+        actual_type: String,
+    },
 }
 
 impl CompileError {
@@ -325,6 +334,14 @@ impl CompileError {
     /// Create an unbound parameter error
     pub fn unbound_parameter(name: impl Into<String>) -> Self {
         CompileError::UnboundParameter(name.into())
+    }
+
+    /// Create a FOREACH not list error
+    pub fn foreach_not_list(variable: impl Into<String>, actual_type: impl Into<String>) -> Self {
+        CompileError::ForeachNotList {
+            variable: variable.into(),
+            actual_type: actual_type.into(),
+        }
     }
 }
 

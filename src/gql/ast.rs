@@ -424,6 +424,8 @@ pub struct MutationQuery {
     pub where_clause: Option<WhereClause>,
     /// List of mutation clauses (CREATE, SET, DELETE, etc.)
     pub mutations: Vec<MutationClause>,
+    /// FOREACH clauses for list iteration with mutations.
+    pub foreach_clauses: Vec<ForeachClause>,
     /// Optional RETURN clause for returning results.
     pub return_clause: Option<ReturnClause>,
 }
@@ -593,6 +595,71 @@ pub struct MergeClause {
     pub on_create: Option<Vec<SetItem>>,
     /// Actions to perform when matching (ON MATCH SET).
     pub on_match: Option<Vec<SetItem>>,
+}
+
+/// FOREACH clause - iterates over a list and applies mutations.
+///
+/// FOREACH provides a way to iterate over a list and apply mutations to each element.
+/// The iteration variable is scoped to the FOREACH body and shadows any outer variable
+/// with the same name.
+///
+/// # Syntax
+///
+/// ```text
+/// FOREACH (variable IN list_expression | mutations)
+/// ```
+///
+/// # Examples
+///
+/// ```text
+/// -- Mark all nodes in a path as visited
+/// MATCH p = (start:Person {name: 'Alice'})-[*]->(end)
+/// FOREACH (n IN nodes(p) | SET n.visited = true)
+/// RETURN end.name
+///
+/// -- Multiple mutations per iteration
+/// FOREACH (i IN items |
+///     SET i.processed = true
+///     SET i.processedAt = $timestamp
+///     REMOVE i.pending
+/// )
+///
+/// -- Nested FOREACH
+/// MATCH (p:Parent)-[:HAS_CHILD]->(c:Child)
+/// FOREACH (parent IN collect(p) |
+///     FOREACH (task IN parent.tasks |
+///         SET task.assigned = true
+///     )
+/// )
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct ForeachClause {
+    /// The variable name bound to each element in the list.
+    pub variable: String,
+    /// The list expression to iterate over.
+    pub list: Expression,
+    /// Mutations to apply for each element.
+    pub mutations: Vec<ForeachMutation>,
+}
+
+/// A mutation that can appear inside a FOREACH clause.
+///
+/// FOREACH supports a subset of mutation operations that can be applied
+/// to each element during iteration.
+#[derive(Debug, Clone, Serialize)]
+pub enum ForeachMutation {
+    /// SET clause - updates properties.
+    Set(SetClause),
+    /// REMOVE clause - removes properties.
+    Remove(RemoveClause),
+    /// DELETE clause - deletes elements.
+    Delete(DeleteClause),
+    /// DETACH DELETE clause - deletes vertices with edges.
+    DetachDelete(DetachDeleteClause),
+    /// CREATE clause - creates new elements.
+    Create(CreateClause),
+    /// Nested FOREACH clause.
+    Foreach(Box<ForeachClause>),
 }
 
 // =============================================================================

@@ -62,4 +62,5 @@ Mutation:
                 right:
                   Literal:
                     Int: 1
+  foreach_clauses: []
   return_clause: ~

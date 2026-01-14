@@ -30,4 +30,5 @@ Mutation:
                 right:
                   Literal:
                     Int: 10
+  foreach_clauses: []
   return_clause: ~

@@ -36,4 +36,5 @@ Mutation:
                 where_clause: ~
         on_create: ~
         on_match: ~
+  foreach_clauses: []
   return_clause: ~

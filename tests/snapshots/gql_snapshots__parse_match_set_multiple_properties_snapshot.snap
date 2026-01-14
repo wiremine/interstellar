@@ -29,4 +29,5 @@ Mutation:
             value:
               Literal:
                 String: NYC
+  foreach_clauses: []
   return_clause: ~

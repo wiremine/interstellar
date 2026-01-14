@@ -32,4 +32,5 @@ Mutation:
                     - Person
                   properties: []
                   where_clause: ~
+  foreach_clauses: []
   return_clause: ~

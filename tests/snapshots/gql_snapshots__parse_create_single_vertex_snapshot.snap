@@ -20,4 +20,5 @@ Mutation:
                     - - age
                       - Int: 30
                   where_clause: ~
+  foreach_clauses: []
   return_clause: ~

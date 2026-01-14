@@ -28,4 +28,5 @@ Mutation:
     - Delete:
         variables:
           - p
+  foreach_clauses: []
   return_clause: ~

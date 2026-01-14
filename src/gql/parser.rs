@@ -38,12 +38,12 @@ use crate::gql::ast::{
     AggregateFunc, AlterEdgeType, AlterNodeType, AlterTypeAction, BinaryOperator, CallBody,
     CallClause, CallQuery, CaseExpression, CreateClause, CreateEdgeType, CreateNodeType,
     DdlStatement, DeleteClause, DetachDeleteClause, DropType, EdgeDirection, EdgePattern,
-    Expression, GroupByClause, HavingClause, ImportingWith, LetClause, LimitClause, Literal,
-    MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause,
-    OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, PropertyDefinition,
-    PropertyRef, PropertyTypeAst, Query, RemoveClause, ReturnClause, ReturnItem, SetClause,
-    SetItem, SetValidation, Statement, UnaryOperator, UnwindClause, ValidationModeAst, WhereClause,
-    WithClause, WithPathClause,
+    Expression, ForeachClause, ForeachMutation, GroupByClause, HavingClause, ImportingWith,
+    LetClause, LimitClause, Literal, MatchClause, MergeClause, MutationClause, MutationQuery,
+    NodePattern, OptionalMatchClause, OrderClause, OrderItem, PathQuantifier, Pattern,
+    PatternElement, PropertyDefinition, PropertyRef, PropertyTypeAst, Query, RemoveClause,
+    ReturnClause, ReturnItem, SetClause, SetItem, SetValidation, Statement, UnaryOperator,
+    UnwindClause, ValidationModeAst, WhereClause, WithClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -274,6 +274,7 @@ fn build_create_only_statement(pair: pest::iterators::Pair<Rule>) -> Result<Stat
         optional_match_clauses: vec![],
         where_clause: None,
         mutations,
+        foreach_clauses: vec![],
         return_clause,
     })))
 }
@@ -286,6 +287,7 @@ fn build_match_mutation_statement(
     let mut optional_match_clauses = Vec::new();
     let mut where_clause = None;
     let mut mutations = Vec::new();
+    let mut foreach_clauses = Vec::new();
     let mut return_clause = None;
 
     for inner in pair.clone().into_inner() {
@@ -302,6 +304,9 @@ fn build_match_mutation_statement(
             Rule::mutation_clause => {
                 mutations.push(build_mutation_clause(inner)?);
             }
+            Rule::foreach_clause => {
+                foreach_clauses.push(build_foreach_clause(inner)?);
+            }
             Rule::return_clause => {
                 return_clause = Some(build_return_clause(inner)?);
             }
@@ -314,6 +319,7 @@ fn build_match_mutation_statement(
         optional_match_clauses,
         where_clause,
         mutations,
+        foreach_clauses,
         return_clause,
     })))
 }
@@ -368,6 +374,7 @@ fn build_merge_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement,
             on_create,
             on_match,
         })],
+        foreach_clauses: vec![],
         return_clause,
     })))
 }
@@ -520,6 +527,117 @@ fn build_detach_delete_clause(
     }
 
     Ok(DetachDeleteClause { variables })
+}
+
+/// Build a FOREACH clause.
+///
+/// Grammar: `FOREACH ~ "(" ~ identifier ~ IN ~ expression ~ pipe_token ~ foreach_mutation+ ~ ")"`
+///
+/// Parses FOREACH clauses that iterate over a list and apply mutations.
+///
+/// # Examples
+///
+/// ```text
+/// FOREACH (n IN nodes(p) | SET n.visited = true)
+/// FOREACH (i IN items | SET i.x = 1 REMOVE i.y)
+/// ```
+fn build_foreach_clause(pair: pest::iterators::Pair<Rule>) -> Result<ForeachClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut variable = None;
+    let mut list = None;
+    let mut mutations = Vec::new();
+
+    for inner in pair.clone().into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                if variable.is_none() {
+                    variable = Some(inner.as_str().to_string());
+                }
+            }
+            Rule::expression => {
+                if list.is_none() {
+                    list = Some(build_expression(inner)?);
+                }
+            }
+            Rule::pipe_token => {
+                // Skip the pipe token
+            }
+            Rule::foreach_mutation => {
+                mutations.push(build_foreach_mutation(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(ForeachClause {
+        variable: variable
+            .ok_or_else(|| ParseError::missing_clause("FOREACH variable", pair_span))?,
+        list: list
+            .ok_or_else(|| ParseError::missing_clause("FOREACH list expression", pair_span))?,
+        mutations,
+    })
+}
+
+/// Build a single FOREACH mutation (SET, REMOVE, DELETE, DETACH DELETE, CREATE, or nested FOREACH).
+fn build_foreach_mutation(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<ForeachMutation, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    match inner.as_rule() {
+        Rule::set_clause => Ok(ForeachMutation::Set(build_set_clause(inner)?)),
+        Rule::remove_clause => Ok(ForeachMutation::Remove(build_remove_clause(inner)?)),
+        Rule::delete_clause => Ok(ForeachMutation::Delete(build_delete_clause(inner)?)),
+        Rule::detach_delete_clause => Ok(ForeachMutation::DetachDelete(
+            build_detach_delete_clause(inner)?,
+        )),
+        Rule::create_clause => Ok(ForeachMutation::Create(build_create_clause(inner)?)),
+        Rule::nested_foreach => Ok(ForeachMutation::Foreach(Box::new(build_nested_foreach(
+            inner,
+        )?))),
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected FOREACH mutation type: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a nested FOREACH clause (same structure as regular FOREACH).
+fn build_nested_foreach(pair: pest::iterators::Pair<Rule>) -> Result<ForeachClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut variable = None;
+    let mut list = None;
+    let mut mutations = Vec::new();
+
+    for inner in pair.clone().into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                if variable.is_none() {
+                    variable = Some(inner.as_str().to_string());
+                }
+            }
+            Rule::expression => {
+                if list.is_none() {
+                    list = Some(build_expression(inner)?);
+                }
+            }
+            Rule::pipe_token => {
+                // Skip the pipe token
+            }
+            Rule::foreach_mutation => {
+                mutations.push(build_foreach_mutation(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(ForeachClause {
+        variable: variable
+            .ok_or_else(|| ParseError::missing_clause("FOREACH variable", pair_span))?,
+        list: list
+            .ok_or_else(|| ParseError::missing_clause("FOREACH list expression", pair_span))?,
+        mutations,
+    })
 }
 
 fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {

@@ -26,4 +26,5 @@ Mutation:
               Literal:
                 Bool: true
         on_match: ~
+  foreach_clauses: []
   return_clause: ~

@@ -27,4 +27,5 @@ Mutation:
                     - - name
                       - String: Bob
                   where_clause: ~
+  foreach_clauses: []
   return_clause: ~

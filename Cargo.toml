@@ -57,3 +57,11 @@ required-features = ["mmap"]
 [[example]]
 name = "nba_gql"
 required-features = ["mmap"]
+
+[[example]]
+name = "schema_mmap_write"
+required-features = ["mmap"]
+
+[[example]]
+name = "schema_mmap_validate"
+required-features = ["mmap"]

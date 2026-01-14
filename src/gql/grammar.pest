@@ -58,6 +58,7 @@ SINGLE   = @{ ^"single" ~ !ASCII_ALPHANUMERIC }
 
 // Subquery keywords
 CALL     = @{ ^"call" ~ !ASCII_ALPHANUMERIC }
+FOREACH  = @{ ^"foreach" ~ !ASCII_ALPHANUMERIC }
 
 // Mutation keywords
 CREATE   = @{ ^"create" ~ !ASCII_ALPHANUMERIC }
@@ -122,11 +123,13 @@ create_only_statement = { create_clause+ ~ return_clause? }
 
 // MATCH followed by mutation clauses
 // e.g., MATCH (n:Person) WHERE n.name = 'Alice' SET n.age = 31 RETURN n
+// FOREACH clauses can appear after other mutations
 match_mutation_statement = {
     match_clause ~
     optional_match_clause* ~
     where_clause? ~
     mutation_clause+ ~
+    foreach_clause* ~
     return_clause?
 }
 
@@ -239,6 +242,18 @@ validation_mode = { STRICT | CLOSED | WARN_KW | NONE_KW }
 // Mutation Clauses
 // ============================================================
 mutation_clause = { create_clause | set_clause | remove_clause | delete_clause | detach_delete_clause }
+
+// FOREACH clause - iterate over a list and apply mutations
+// FOREACH (variable IN expression | mutation+)
+// e.g., FOREACH (n IN nodes(p) | SET n.visited = true)
+// e.g., FOREACH (i IN items | SET i.processed = true REMOVE i.pending)
+foreach_clause = { FOREACH ~ "(" ~ identifier ~ IN ~ expression ~ pipe_token ~ foreach_mutation+ ~ ")" }
+
+// Mutations allowed inside FOREACH
+foreach_mutation = { set_clause | remove_clause | delete_clause | detach_delete_clause | create_clause | nested_foreach }
+
+// Nested FOREACH for recursive iteration
+nested_foreach = { FOREACH ~ "(" ~ identifier ~ IN ~ expression ~ pipe_token ~ foreach_mutation+ ~ ")" }
 
 // CREATE clause - creates new patterns (vertices and edges)
 // e.g., CREATE (n:Person {name: 'Alice'}), (m:Person {name: 'Bob'})
@@ -599,7 +614,7 @@ keyword = {
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
     CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL |
     PATH | UNWIND | CREATE | SET | REMOVE | DELETE | DETACH | MERGE | ON | LET |
-    REDUCE | ANY_KW | NONE_KW | SINGLE | CALL |
+    REDUCE | ANY_KW | NONE_KW | SINGLE | CALL | FOREACH |
     // DDL keywords
     TYPE | NODE | EDGE | GRAPH | FROM_KW | TO_KW | ALTER | DROP_KW | ADD |
     ALLOW | ADDITIONAL | PROPERTIES | VALIDATION | SCHEMA | STRICT | CLOSED | WARN_KW | DEFAULT |

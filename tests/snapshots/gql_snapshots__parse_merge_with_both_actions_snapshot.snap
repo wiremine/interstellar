@@ -32,4 +32,5 @@ Mutation:
             value:
               Literal:
                 Bool: true
+  foreach_clauses: []
   return_clause: ~

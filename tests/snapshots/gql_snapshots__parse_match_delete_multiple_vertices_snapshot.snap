@@ -32,4 +32,5 @@ Mutation:
     - Delete:
         variables:
           - r
+  foreach_clauses: []
   return_clause: ~

@@ -19,6 +19,7 @@ Mutation:
         properties:
           - variable: p
             property: tempField
+  foreach_clauses: []
   return_clause:
     distinct: false
     items:

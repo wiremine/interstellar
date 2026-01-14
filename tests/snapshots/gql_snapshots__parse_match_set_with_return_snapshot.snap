@@ -25,6 +25,7 @@ Mutation:
             value:
               Literal:
                 Int: 31
+  foreach_clauses: []
   return_clause:
     distinct: false
     items:
