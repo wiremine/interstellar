@@ -9,6 +9,7 @@
 //! - Vertex type definitions with required and optional properties
 //! - Edge type definitions with FROM/TO constraints
 //! - Opening/creating an MmapGraph database
+//! - Saving the schema to the database file using save_schema()
 //! - Batch mode for efficient bulk loading
 //! - Schema-validated inserts using GQL mutations
 //!
@@ -19,17 +20,13 @@
 use intersteller::gql::{
     execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
-use intersteller::schema::{
-    serialize_schema, GraphSchema, PropertyType, SchemaBuilder, ValidationMode,
-};
+use intersteller::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
 use intersteller::storage::mmap::MmapGraph;
 use intersteller::value::Value;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 const DB_PATH: &str = "examples/data/schema_graph.db";
-const SCHEMA_PATH: &str = "examples/data/schema_graph.schema";
 
 /// Helper function to execute a GQL mutation with schema validation.
 fn execute_with_schema(
@@ -148,28 +145,33 @@ fn main() {
         let _ = fs::remove_file(format!("{}.wal", DB_PATH.trim_end_matches(".db")));
     }
 
-    let storage = MmapGraph::open(DB_PATH).expect("Failed to open/create MmapGraph database");
-    let storage = Arc::new(storage);
+    let mut storage = MmapGraph::open(DB_PATH).expect("Failed to open/create MmapGraph database");
 
     println!("  Database created successfully!\n");
 
     // =========================================================================
-    // Step 3: Save the Schema to a File
+    // Step 3: Save the Schema to the Database
     // =========================================================================
-    println!("Step 3: Saving schema to {}...\n", SCHEMA_PATH);
+    println!("Step 3: Saving schema to the database...\n");
 
-    let schema_bytes = serialize_schema(&schema);
-    fs::write(SCHEMA_PATH, &schema_bytes).expect("Failed to write schema file");
-    println!("  Schema saved ({} bytes)\n", schema_bytes.len());
+    storage
+        .save_schema(&schema)
+        .expect("Failed to save schema to database");
+    println!("  Schema saved to database file\n");
+
+    // Verify it was saved
+    if let Ok(Some(loaded)) = storage.load_schema() {
+        println!(
+            "  Verified: Schema loaded back with {} vertex types, {} edge types\n",
+            loaded.vertex_labels().count(),
+            loaded.edge_labels().count()
+        );
+    }
 
     // =========================================================================
     // Step 4: Begin Batch Mode and Insert Data
     // =========================================================================
     println!("Step 4: Beginning batch mode and inserting data...\n");
-
-    // Drop the Arc so we can get mutable access
-    drop(storage);
-    let mut storage = MmapGraph::open(DB_PATH).expect("Failed to reopen database");
 
     storage.begin_batch().expect("Failed to begin batch mode");
     println!("  Batch mode enabled\n");
@@ -295,14 +297,11 @@ fn main() {
     // =========================================================================
     println!("=== Write Complete ===\n");
     println!("Database written to: {}", DB_PATH);
-    println!("Schema saved to: {}", SCHEMA_PATH);
+    println!("Schema stored in: database file (no separate .schema file needed)");
 
-    // Get file sizes
+    // Get file size
     if let Ok(metadata) = fs::metadata(DB_PATH) {
         println!("Database size: {:.2} KB", metadata.len() as f64 / 1024.0);
-    }
-    if let Ok(metadata) = fs::metadata(SCHEMA_PATH) {
-        println!("Schema size: {} bytes", metadata.len());
     }
 
     println!("\nSchema constraints:");

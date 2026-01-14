@@ -4,7 +4,7 @@
 //! database and showing how invalid vertices and edges are rejected.
 //!
 //! Features demonstrated:
-//! - Loading a schema from file
+//! - Loading a schema from the database file using load_schema()
 //! - Opening an existing MmapGraph database
 //! - Attempting invalid mutations that violate schema constraints:
 //!   - Missing required properties
@@ -20,16 +20,12 @@ use intersteller::gql::{
     execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
 use intersteller::graph::Graph;
-use intersteller::schema::{
-    deserialize_schema, GraphSchema, PropertyType, SchemaBuilder, ValidationMode,
-};
+use intersteller::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
 use intersteller::storage::mmap::MmapGraph;
 use intersteller::value::Value;
-use std::fs;
 use std::sync::Arc;
 
 const DB_PATH: &str = "examples/data/schema_graph.db";
-const SCHEMA_PATH: &str = "examples/data/schema_graph.schema";
 
 /// Helper function to execute a GQL mutation with schema validation.
 fn execute_with_schema(
@@ -57,46 +53,15 @@ fn print_test(description: &str) {
 }
 
 fn main() {
-    println!("=== Schema + MmapGraph Read Example - Validation Demo ===\n");
+    println!("=== Schema Validation Demo ===\n");
 
     // =========================================================================
-    // Step 1: Load the Schema
+    // Step 1: Open the Database and Load Schema
     // =========================================================================
-    println!("Step 1: Loading schema from {}...\n", SCHEMA_PATH);
-
-    let schema_bytes = match fs::read(SCHEMA_PATH) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            eprintln!("Error: Failed to read schema file: {}", e);
-            eprintln!("\nMake sure you've run the write example first:");
-            eprintln!("  cargo run --features mmap --example schema_mmap_write");
-            std::process::exit(1);
-        }
-    };
-
-    let schema = match deserialize_schema(&schema_bytes) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error: Failed to deserialize schema: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    println!("Schema loaded successfully!");
-    println!("  Mode: {:?}", schema.mode);
     println!(
-        "  Vertex types: {:?}",
-        schema.vertex_labels().collect::<Vec<_>>()
+        "Step 1: Opening database and loading schema from {}...\n",
+        DB_PATH
     );
-    println!(
-        "  Edge types: {:?}",
-        schema.edge_labels().collect::<Vec<_>>()
-    );
-
-    // =========================================================================
-    // Step 2: Open the Database
-    // =========================================================================
-    println!("\nStep 2: Opening database from {}...\n", DB_PATH);
 
     let storage = match MmapGraph::open(DB_PATH) {
         Ok(s) => Arc::new(s),
@@ -108,6 +73,32 @@ fn main() {
         }
     };
 
+    // Load schema from the database file
+    let schema = match storage.load_schema() {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            eprintln!("Error: No schema found in database");
+            eprintln!("\nMake sure you've run the write example first:");
+            eprintln!("  cargo run --features mmap --example schema_mmap_write");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error: Failed to load schema: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    println!("Schema loaded from database!");
+    println!("  Mode: {:?}", schema.mode);
+    println!(
+        "  Vertex types: {:?}",
+        schema.vertex_labels().collect::<Vec<_>>()
+    );
+    println!(
+        "  Edge types: {:?}",
+        schema.edge_labels().collect::<Vec<_>>()
+    );
+
     // Display current data
     let graph = Graph::from_arc(storage.clone());
     let snapshot = graph.snapshot();
@@ -118,7 +109,7 @@ fn main() {
     let project_count = g.v().has_label("Project").count();
     let edge_count = g.e().count();
 
-    println!("Database opened successfully!");
+    println!("\nDatabase contents:");
     println!("  Persons: {}", person_count);
     println!("  Companies: {}", company_count);
     println!("  Projects: {}", project_count);
