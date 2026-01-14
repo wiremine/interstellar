@@ -25,6 +25,7 @@ where_clause:
       right:
         Literal:
           Int: 21
+call_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

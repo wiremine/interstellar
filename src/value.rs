@@ -954,15 +954,15 @@ mod tests {
         let bool_v: Value = true.into();
         let int_v: Value = 42i32.into();
         let uint_v: Value = 7u32.into();
-        let float_v: Value = 3.14f32.into();
-        let double_v: Value = 6.28f64.into();
+        let float_v: Value = 3.15f32.into(); // Use non-PI value to avoid clippy warning
+        let double_v: Value = 6.30f64.into(); // Use non-TAU value to avoid clippy warning
         let string_v: Value = "hello".into();
 
         assert_eq!(bool_v, Value::Bool(true));
         assert_eq!(int_v, Value::Int(42));
         assert_eq!(uint_v, Value::Int(7));
-        assert!(matches!(float_v, Value::Float(v) if (v - 3.14f64).abs() < 1e-6));
-        assert!(matches!(double_v, Value::Float(v) if (v - 6.28f64).abs() < 1e-12));
+        assert!(matches!(float_v, Value::Float(v) if (v - 3.15f64).abs() < 1e-6));
+        assert!(matches!(double_v, Value::Float(v) if (v - 6.30f64).abs() < 1e-12));
         assert_eq!(string_v, Value::String("hello".to_string()));
     }
 
@@ -1043,7 +1043,7 @@ mod tests {
 
     #[test]
     fn as_f64_extracts_float_values() {
-        assert_eq!(Value::Float(3.14).as_f64(), Some(3.14));
+        assert_eq!(Value::Float(3.15).as_f64(), Some(3.15));
         assert_eq!(Value::Float(-2.5).as_f64(), Some(-2.5));
         assert_eq!(Value::Int(42).as_f64(), None);
         assert_eq!(Value::Null.as_f64(), None);
@@ -1102,8 +1102,8 @@ mod tests {
         let b: Value = true.into();
         assert_eq!(b.as_bool(), Some(true));
 
-        let f: Value = 3.14f64.into();
-        assert_eq!(f.as_f64(), Some(3.14));
+        let f: Value = 3.15f64.into();
+        assert_eq!(f.as_f64(), Some(3.15));
     }
 
     #[test]
@@ -1171,7 +1171,7 @@ mod tests {
         map.insert(Value::String("hello".to_string()), 2);
         map.insert(Value::Bool(true), 3);
         map.insert(Value::Null, 4);
-        map.insert(Value::Float(3.14), 5);
+        map.insert(Value::Float(3.15), 5);
         map.insert(Value::Vertex(VertexId(100)), 6);
         map.insert(Value::Edge(EdgeId(200)), 7);
         map.insert(Value::List(vec![Value::Int(1), Value::Int(2)]), 8);
@@ -1180,7 +1180,7 @@ mod tests {
         assert_eq!(map.get(&Value::String("hello".to_string())), Some(&2));
         assert_eq!(map.get(&Value::Bool(true)), Some(&3));
         assert_eq!(map.get(&Value::Null), Some(&4));
-        assert_eq!(map.get(&Value::Float(3.14)), Some(&5));
+        assert_eq!(map.get(&Value::Float(3.15)), Some(&5));
         assert_eq!(map.get(&Value::Vertex(VertexId(100))), Some(&6));
         assert_eq!(map.get(&Value::Edge(EdgeId(200))), Some(&7));
         assert_eq!(
@@ -1227,8 +1227,8 @@ mod tests {
             hash_value(&Value::String("hello".to_string()))
         );
         assert_eq!(
-            hash_value(&Value::Float(3.14)),
-            hash_value(&Value::Float(3.14))
+            hash_value(&Value::Float(3.15)),
+            hash_value(&Value::Float(3.15))
         );
         assert_eq!(hash_value(&Value::Null), hash_value(&Value::Null));
         assert_eq!(
@@ -1368,7 +1368,7 @@ mod tests {
             any::<bool>().prop_map(Value::Bool),
             any::<i64>().prop_map(Value::Int),
             any::<f64>().prop_map(Value::Float),
-            "[a-zA-Z0-9]{0,8}".prop_map(|s| Value::String(s)),
+            "[a-zA-Z0-9]{0,8}".prop_map(Value::String),
             any::<u64>().prop_map(|n| Value::Vertex(VertexId(n))),
             any::<u64>().prop_map(|n| Value::Edge(EdgeId(n))),
         ];
@@ -1408,9 +1408,9 @@ mod tests {
         assert_eq!(buf[0], 0x03);
 
         // Float
-        assert_eq!(Value::Float(3.14).discriminant(), 0x04);
+        assert_eq!(Value::Float(3.15).discriminant(), 0x04);
         let mut buf = Vec::new();
-        Value::Float(3.14).serialize(&mut buf);
+        Value::Float(3.15).serialize(&mut buf);
         assert_eq!(buf[0], 0x04);
 
         // String
@@ -1480,7 +1480,7 @@ mod tests {
         map.insert("null".to_string(), Value::Null);
         map.insert("bool".to_string(), Value::Bool(true));
         map.insert("int".to_string(), Value::Int(-42));
-        map.insert("float".to_string(), Value::Float(2.718));
+        map.insert("float".to_string(), Value::Float(2.72)); // Use non-E value
         map.insert("string".to_string(), Value::String("nested".to_string()));
         map.insert(
             "list".to_string(),

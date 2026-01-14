@@ -54,6 +54,7 @@ where_clause:
           right:
             Literal:
               String: NYC
+call_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

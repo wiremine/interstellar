@@ -4380,7 +4380,7 @@ mod phase_7_integration_tests {
             .to_list();
 
         // Alice -> Bob -> Charlie is simple
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
         let ids: Vec<VertexId> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
         assert!(ids.contains(&tg.charlie));
     }
@@ -4403,7 +4403,7 @@ mod phase_7_integration_tests {
             .to_list();
 
         // Should find Alice again (cyclic path)
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
         let ids: Vec<VertexId> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
         assert!(ids.contains(&tg.alice));
     }
@@ -4882,7 +4882,7 @@ mod phase_7_integration_tests {
             .to_list();
 
         // Should have at least one simple path
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
     }
 
     #[test]

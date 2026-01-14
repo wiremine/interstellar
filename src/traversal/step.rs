@@ -538,7 +538,7 @@ mod tests {
 
         #[test]
         fn identity_step_default() {
-            let step = IdentityStep::default();
+            let step = IdentityStep;
             assert_eq!(step.name(), "identity");
         }
 

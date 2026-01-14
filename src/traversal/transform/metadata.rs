@@ -481,7 +481,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = IdStep::default();
+            let step = IdStep;
             assert_eq!(step.name(), "id");
         }
 
@@ -660,7 +660,7 @@ mod tests {
             let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
 
             let step = IdStep::new();
-            let input = vec![Traverser::new(Value::Float(3.14))];
+            let input = vec![Traverser::new(Value::Float(3.15))];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
@@ -780,7 +780,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = LabelStep::default();
+            let step = LabelStep;
             assert_eq!(step.name(), "label");
         }
 
@@ -1004,7 +1004,7 @@ mod tests {
             let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
 
             let step = LabelStep::new();
-            let input = vec![Traverser::new(Value::Float(3.14))];
+            let input = vec![Traverser::new(Value::Float(3.15))];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
@@ -1132,7 +1132,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = KeyStep::default();
+            let step = KeyStep;
             assert_eq!(step.name(), "key");
         }
 
@@ -1441,7 +1441,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = ValueStep::default();
+            let step = ValueStep;
             assert_eq!(step.name(), "value");
         }
 
@@ -1814,7 +1814,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = LoopsStep::default();
+            let step = LoopsStep;
             assert_eq!(step.name(), "loops");
         }
 
@@ -2165,7 +2165,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = IndexStep::default();
+            let step = IndexStep;
             assert_eq!(step.name(), "index");
         }
 
@@ -2269,17 +2269,17 @@ mod tests {
                 Traverser::from_edge(EdgeId(0)),
                 Traverser::new(Value::Int(42)),
                 Traverser::new(Value::String("hello".to_string())),
-                Traverser::new(Value::Float(3.14)),
+                Traverser::new(Value::Float(3.15)),
                 Traverser::new(Value::Bool(true)),
                 Traverser::new(Value::Null),
             ];
 
-            let expected_values = vec![
+            let expected_values = [
                 Value::Vertex(VertexId(0)),
                 Value::Edge(EdgeId(0)),
                 Value::Int(42),
                 Value::String("hello".to_string()),
-                Value::Float(3.14),
+                Value::Float(3.15),
                 Value::Bool(true),
                 Value::Null,
             ];

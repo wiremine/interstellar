@@ -505,7 +505,7 @@ mod tests {
 
             let step = FlatMapStep::new(|_ctx, v| {
                 if let Value::Int(n) = v {
-                    (0..*n).map(|i| Value::Int(i)).collect()
+                    (0..*n).map(Value::Int).collect()
                 } else {
                     vec![]
                 }

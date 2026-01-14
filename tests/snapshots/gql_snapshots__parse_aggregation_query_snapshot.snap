@@ -39,6 +39,7 @@ where_clause:
       right:
         Literal:
           String: 2024-01-01
+call_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

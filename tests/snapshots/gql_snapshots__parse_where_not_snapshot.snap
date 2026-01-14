@@ -22,6 +22,7 @@ where_clause:
         Property:
           variable: n
           property: archived
+call_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

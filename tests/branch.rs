@@ -555,7 +555,7 @@ fn test_branch_path_with_multiple_inputs() {
     // Inactive person (Bob) keeps identity
     for result in &results {
         if let Value::List(path) = result {
-            assert!(path.len() >= 1);
+            assert!(!path.is_empty());
         }
     }
 }

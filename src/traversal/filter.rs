@@ -3366,7 +3366,7 @@ mod tests {
 
         #[test]
         fn default_creates_dedup_step() {
-            let step = DedupStep::default();
+            let step = DedupStep;
             assert_eq!(step.name(), "dedup");
         }
 
@@ -3993,7 +3993,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = DedupByLabelStep::default();
+            let step = DedupByLabelStep;
             assert_eq!(step.name(), "dedup");
         }
 
@@ -7644,14 +7644,14 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = SimplePathStep::default();
+            let step = SimplePathStep;
             assert_eq!(step.name(), "simplePath");
         }
 
         #[test]
         fn clone_works() {
             let step = SimplePathStep::new();
-            let cloned = step.clone();
+            let cloned = step;
             assert_eq!(step.name(), cloned.name());
         }
 
@@ -7887,14 +7887,14 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = CyclicPathStep::default();
+            let step = CyclicPathStep;
             assert_eq!(step.name(), "cyclicPath");
         }
 
         #[test]
         fn clone_works() {
             let step = CyclicPathStep::new();
-            let cloned = step.clone();
+            let cloned = step;
             assert_eq!(step.name(), cloned.name());
         }
 

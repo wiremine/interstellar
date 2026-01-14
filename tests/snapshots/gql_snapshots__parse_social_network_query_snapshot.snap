@@ -57,6 +57,7 @@ where_clause:
             Property:
               variable: user
               property: id
+call_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

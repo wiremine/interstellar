@@ -56,6 +56,9 @@ ANY_KW   = @{ ^"any" ~ !ASCII_ALPHANUMERIC }
 NONE_KW  = @{ ^"none" ~ !ASCII_ALPHANUMERIC }
 SINGLE   = @{ ^"single" ~ !ASCII_ALPHANUMERIC }
 
+// Subquery keywords
+CALL     = @{ ^"call" ~ !ASCII_ALPHANUMERIC }
+
 // Mutation keywords
 CREATE   = @{ ^"create" ~ !ASCII_ALPHANUMERIC }
 SET      = @{ ^"set" ~ !ASCII_ALPHANUMERIC }
@@ -149,7 +152,40 @@ union_clause = { UNION ~ ALL? }
 // WITH PATH enables path tracking, UNWIND expands lists into rows
 // LET binds computed values to variables for use in RETURN
 // WITH clause pipes results between query parts (after WHERE/LET, before RETURN)
-query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ let_clause* ~ with_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
+// CALL subqueries execute nested queries for each row
+query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ call_clause* ~ let_clause* ~ with_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
+
+// ============================================================
+// CALL Subquery Clause
+// ============================================================
+// CALL { subquery } executes a nested query for each row in the outer query.
+// Variables can be imported from outer scope using WITH at the start.
+// CALL subqueries must end with a RETURN clause.
+
+call_clause = { CALL ~ "{" ~ call_body ~ "}" }
+
+// Body of a CALL subquery - can be a single query or UNION of queries
+call_body = { call_query ~ (union_clause ~ call_query)* }
+
+// Query inside CALL - starts with optional importing WITH
+// Distinguished from regular WITH by position (must be first in call_query)
+// MATCH is optional (can just transform imported variables)
+call_query = {
+    importing_with? ~
+    match_clause? ~
+    optional_match_clause* ~
+    where_clause? ~
+    call_clause* ~
+    with_clause* ~
+    return_clause ~
+    order_clause? ~
+    limit_clause?
+}
+
+// Importing WITH - brings variables from outer scope into the subquery
+// Distinguished from regular WITH by position (first in call_query)
+// NOTE: Uses negative lookahead !PATH to distinguish from WITH PATH clause
+importing_with = { WITH ~ !PATH ~ return_item ~ ("," ~ return_item)* }
 
 // WITH clause - pipes results between query parts
 // WITH projects columns forward, resetting variable scope
@@ -433,7 +469,7 @@ keyword = {
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
     CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL |
     PATH | UNWIND | CREATE | SET | REMOVE | DELETE | DETACH | MERGE | ON | LET |
-    REDUCE | ANY_KW | NONE_KW | SINGLE
+    REDUCE | ANY_KW | NONE_KW | SINGLE | CALL
 }
 
 // ============================================================

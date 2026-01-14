@@ -53,8 +53,8 @@ fn create_test_graph() -> InMemoryGraph {
 }
 
 /// Executes pending mutations from traversal results.
-fn execute_mutations<'a>(
-    storage: &'a mut InMemoryGraph,
+fn execute_mutations(
+    storage: &mut InMemoryGraph,
     traversers: impl Iterator<Item = intersteller::traversal::Traverser>,
 ) -> MutationResult {
     let mut executor = MutationExecutor::new(storage);

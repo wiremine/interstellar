@@ -25,6 +25,7 @@ where_clause:
       right:
         Literal:
           String: son
+call_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

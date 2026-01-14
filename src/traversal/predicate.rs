@@ -1512,8 +1512,8 @@ mod tests {
 
         #[test]
         fn eq_matches_equal_float() {
-            let pred = p::eq(3.14f64);
-            assert!(pred.test(&Value::Float(3.14)));
+            let pred = p::eq(3.15f64);
+            assert!(pred.test(&Value::Float(3.15)));
         }
 
         #[test]
@@ -2263,10 +2263,10 @@ mod tests {
 
         #[test]
         fn within_with_floats() {
-            let pred = p::within([1.0f64, 2.5f64, 3.14f64]);
+            let pred = p::within([1.0f64, 2.5f64, 3.15f64]);
             assert!(pred.test(&Value::Float(1.0)));
             assert!(pred.test(&Value::Float(2.5)));
-            assert!(pred.test(&Value::Float(3.14)));
+            assert!(pred.test(&Value::Float(3.15)));
             assert!(!pred.test(&Value::Float(1.1)));
         }
 
@@ -2449,7 +2449,7 @@ mod tests {
         fn within_and_without_are_complementary() {
             // For the same set, within and without should be complementary
             let set = [1, 2, 3];
-            let within_pred = p::within(set.clone());
+            let within_pred = p::within(set);
             let without_pred = p::without(set);
 
             // For any value, exactly one should match

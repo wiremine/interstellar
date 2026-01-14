@@ -1474,7 +1474,7 @@ mod tests {
 
         #[test]
         fn other_v_step_default() {
-            let step = OtherVStep::default();
+            let step = OtherVStep;
             assert_eq!(step.name(), "otherV");
         }
 

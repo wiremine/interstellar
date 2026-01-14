@@ -342,6 +342,7 @@ pub struct MergeClause {
 /// - `with_path_clause` - Enables path tracking for use with path() function
 /// - `unwind_clauses` - Expands lists into rows
 /// - `where_clause` - Filters matched patterns
+/// - `call_clauses` - CALL subqueries for nested computations
 /// - `let_clauses` - Binds computed values to variables
 /// - `group_by_clause` - Groups results for aggregation
 /// - `order_clause` - Sorts results
@@ -375,6 +376,8 @@ pub struct Query {
     pub unwind_clauses: Vec<UnwindClause>,
     /// Optional WHERE clause for filtering matched patterns.
     pub where_clause: Option<WhereClause>,
+    /// CALL subqueries for nested query execution.
+    pub call_clauses: Vec<CallClause>,
     /// LET clauses for binding computed values to variables.
     pub let_clauses: Vec<LetClause>,
     /// WITH clauses for piping results between query parts.
@@ -473,6 +476,155 @@ pub struct WithClause {
     pub order_clause: Option<OrderClause>,
     /// Optional LIMIT within WITH.
     pub limit_clause: Option<LimitClause>,
+}
+
+// =============================================================================
+// CALL Subquery Types
+// =============================================================================
+
+/// A CALL subquery clause.
+///
+/// CALL executes a nested query for each row in the outer query.
+/// Variables can be imported from the outer scope using WITH at the
+/// start of the subquery.
+///
+/// # Semantics
+///
+/// - **Correlated**: If the subquery starts with `WITH var`, it runs once
+///   per outer row with that variable in scope
+/// - **Uncorrelated**: If no importing WITH, runs once and cross-joins
+///   with outer results
+/// - **Returning**: Subquery must end with RETURN; returned variables
+///   are added to outer scope
+///
+/// # Examples
+///
+/// ```text
+/// // Correlated - count friends per person
+/// MATCH (p:Person)
+/// CALL {
+///     WITH p
+///     MATCH (p)-[:FRIEND]->(f)
+///     RETURN count(f) AS friendCount
+/// }
+/// RETURN p.name, friendCount
+///
+/// // Uncorrelated - global count cross-joined
+/// MATCH (p:Person)
+/// CALL {
+///     MATCH (t:Team)
+///     RETURN count(t) AS teamCount
+/// }
+/// RETURN p.name, teamCount
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CallClause {
+    /// The subquery body - either a single query or UNION of queries.
+    pub body: CallBody,
+}
+
+impl CallClause {
+    /// Returns true if this CALL subquery is correlated (has importing WITH).
+    ///
+    /// Correlated subqueries execute once per outer row with imported variables
+    /// in scope. Uncorrelated subqueries execute once and cross-join with outer rows.
+    pub fn is_correlated(&self) -> bool {
+        match &self.body {
+            CallBody::Single(query) => query.importing_with.is_some(),
+            CallBody::Union { queries, .. } => queries.iter().any(|q| q.importing_with.is_some()),
+        }
+    }
+}
+
+/// Body of a CALL subquery.
+///
+/// A CALL subquery can contain either a single query or a UNION of queries.
+/// Each query inside CALL must end with a RETURN clause.
+#[derive(Debug, Clone, Serialize)]
+pub enum CallBody {
+    /// A single subquery.
+    Single(Box<CallQuery>),
+    /// A UNION of subqueries.
+    ///
+    /// Multiple queries combined with UNION. If `all` is false, results
+    /// are deduplicated (UNION). If `all` is true, all results are kept
+    /// including duplicates (UNION ALL).
+    Union {
+        /// The queries to union together.
+        queries: Vec<CallQuery>,
+        /// True for UNION ALL (keep duplicates), false for UNION (deduplicate).
+        all: bool,
+    },
+}
+
+/// A query inside a CALL clause.
+///
+/// Similar to a regular Query but:
+/// - May start with an importing WITH (to bring outer variables into scope)
+/// - MATCH is optional (can just transform imported variables)
+/// - Must have a RETURN clause
+/// - Can contain nested CALL clauses
+///
+/// # Examples
+///
+/// ```text
+/// // Full subquery with match
+/// CALL {
+///     WITH p
+///     MATCH (p)-[:FRIEND]->(f)
+///     WHERE f.age > 21
+///     RETURN count(f) AS friendCount
+/// }
+///
+/// // Simple transformation without match
+/// CALL {
+///     WITH p
+///     RETURN p.name AS personName
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CallQuery {
+    /// Optional WITH clause importing variables from outer scope.
+    /// Must be first if present.
+    pub importing_with: Option<ImportingWith>,
+    /// Optional MATCH clause.
+    pub match_clause: Option<MatchClause>,
+    /// Optional MATCH clauses that produce nulls if not found.
+    pub optional_match_clauses: Vec<OptionalMatchClause>,
+    /// Optional WHERE clause.
+    pub where_clause: Option<WhereClause>,
+    /// Nested CALL clauses (subqueries can contain subqueries).
+    pub call_clauses: Vec<CallClause>,
+    /// WITH clauses for intermediate transformations.
+    pub with_clauses: Vec<WithClause>,
+    /// Required RETURN clause.
+    pub return_clause: ReturnClause,
+    /// Optional ORDER BY clause for sorting results.
+    pub order_clause: Option<OrderClause>,
+    /// Optional LIMIT/OFFSET clause for pagination.
+    pub limit_clause: Option<LimitClause>,
+}
+
+/// WITH clause that imports variables from outer scope into a CALL subquery.
+///
+/// Unlike regular WITH which projects forward, importing WITH brings
+/// variables from the outer query into the subquery's scope.
+///
+/// # Example
+///
+/// ```text
+/// MATCH (p:Person)
+/// CALL {
+///     WITH p           -- imports p from outer scope
+///     MATCH (p)-[:FRIEND]->(f)
+///     RETURN count(f) AS cnt
+/// }
+/// RETURN p.name, cnt
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportingWith {
+    /// Variables to import from outer scope.
+    pub items: Vec<ReturnItem>,
 }
 
 // =============================================================================

@@ -747,7 +747,7 @@ mod tests {
                 Traverser::new(Value::Int(42)),
                 Traverser::new(Value::String("hello".to_string())),
                 Traverser::new(Value::Bool(true)),
-                Traverser::new(Value::Float(3.14)),
+                Traverser::new(Value::Float(3.15)),
                 Traverser::new(Value::Vertex(VertexId(1))),
                 Traverser::new(Value::Null),
             ];
@@ -759,7 +759,7 @@ mod tests {
             assert_eq!(stored[0], Value::Int(42));
             assert_eq!(stored[1], Value::String("hello".to_string()));
             assert_eq!(stored[2], Value::Bool(true));
-            assert_eq!(stored[3], Value::Float(3.14));
+            assert_eq!(stored[3], Value::Float(3.15));
             assert_eq!(stored[4], Value::Vertex(VertexId(1)));
             assert_eq!(stored[5], Value::Null);
         }

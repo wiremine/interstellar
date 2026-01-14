@@ -1115,7 +1115,7 @@ fn test_gql_where_not() {
         .unwrap();
 
     // Carol has active=false, Dave has no active property (treated as falsy)
-    assert!(results.len() >= 1, "Should find at least Carol");
+    assert!(!results.is_empty(), "Should find at least Carol");
 }
 
 /// Test WHERE with >= and <=
@@ -7220,7 +7220,7 @@ fn create_type_conversion_test_graph() -> Graph {
     props.insert("score".to_string(), Value::from(95.5));
     props.insert("active".to_string(), Value::from(true));
     props.insert("count_str".to_string(), Value::from("42"));
-    props.insert("float_str".to_string(), Value::from("3.14"));
+    props.insert("float_str".to_string(), Value::from("3.15"));
     props.insert("bool_str".to_string(), Value::from("true"));
     storage.add_vertex("Person", props);
 
@@ -7345,7 +7345,7 @@ fn test_gql_tofloat_string() {
 
     assert_eq!(results.len(), 1);
     if let Value::Float(f) = results[0] {
-        assert!((f - 3.14).abs() < 0.0001, "Expected 3.14, got {}", f);
+        assert!((f - 3.15).abs() < 0.0001, "Expected 3.15, got {}", f);
     } else {
         panic!("Expected Float result");
     }
@@ -9896,8 +9896,8 @@ fn test_gql_let_count_aggregate() {
     });
 
     // Alice knows Bob and Charlie
-    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
-    storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
 
     let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
@@ -9941,8 +9941,8 @@ fn test_gql_let_collect_aggregate() {
         props
     });
 
-    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
-    storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
 
     let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
@@ -10100,8 +10100,8 @@ fn test_gql_let_size_of_collect() {
         props
     });
 
-    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
-    storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, charlie_id, "KNOWS", HashMap::new());
 
     let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
@@ -10349,7 +10349,7 @@ fn test_gql_list_comprehension_property_access() {
         props
     });
 
-    storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    let _ = storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
 
     let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
@@ -10363,7 +10363,7 @@ fn test_gql_list_comprehension_property_access() {
 
     // For Alice, friendNames should contain Bob (she knows Bob)
     for result in &results {
-        if let Value::Map(map) = result {
+        if let Value::Map(_map) = result {
             // Note: Since we're using element access with friend.name,
             // but friends contains vertex IDs, this tests property resolution
             // This test verifies we handle property access in comprehensions
@@ -11651,7 +11651,7 @@ fn test_gql_any_predicate_parse() {
         Expression::Any {
             variable,
             list,
-            condition,
+            condition: _,
         } => {
             assert_eq!(variable, "x");
             match list.as_ref() {
@@ -11673,8 +11673,8 @@ fn test_gql_none_predicate_parse() {
     match &return_item.expression {
         Expression::None {
             variable,
-            list,
-            condition,
+            list: _,
+            condition: _,
         } => {
             assert_eq!(variable, "x");
         }
@@ -11692,8 +11692,8 @@ fn test_gql_single_predicate_parse() {
     match &return_item.expression {
         Expression::Single {
             variable,
-            list,
-            condition,
+            list: _,
+            condition: _,
         } => {
             assert_eq!(variable, "x");
         }

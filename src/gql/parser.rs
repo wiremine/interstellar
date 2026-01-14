@@ -35,12 +35,13 @@ use pest::Parser;
 use pest_derive::Parser;
 
 use crate::gql::ast::{
-    AggregateFunc, BinaryOperator, CaseExpression, CreateClause, DeleteClause, DetachDeleteClause,
-    EdgeDirection, EdgePattern, Expression, GroupByClause, HavingClause, LetClause, LimitClause,
-    Literal, MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern,
-    OptionalMatchClause, OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement,
-    PropertyRef, Query, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, Statement,
-    UnaryOperator, UnwindClause, WhereClause, WithClause, WithPathClause,
+    AggregateFunc, BinaryOperator, CallBody, CallClause, CallQuery, CaseExpression, CreateClause,
+    DeleteClause, DetachDeleteClause, EdgeDirection, EdgePattern, Expression, GroupByClause,
+    HavingClause, ImportingWith, LetClause, LimitClause, Literal, MatchClause, MergeClause,
+    MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause, OrderItem,
+    PathQuantifier, Pattern, PatternElement, PropertyRef, Query, RemoveClause, ReturnClause,
+    ReturnItem, SetClause, SetItem, Statement, UnaryOperator, UnwindClause, WhereClause,
+    WithClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -516,6 +517,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut with_path_clause = None;
     let mut unwind_clauses = Vec::new();
     let mut where_clause = None;
+    let mut call_clauses = Vec::new();
     let mut let_clauses = Vec::new();
     let mut with_clauses = Vec::new();
     let mut return_clause = None;
@@ -533,6 +535,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::with_path_clause => with_path_clause = Some(build_with_path_clause(inner)?),
             Rule::unwind_clause => unwind_clauses.push(build_unwind_clause(inner)?),
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
+            Rule::call_clause => call_clauses.push(build_call_clause(inner)?),
             Rule::let_clause => let_clauses.push(build_let_clause(inner)?),
             Rule::with_clause => with_clauses.push(build_with_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
@@ -551,6 +554,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
         with_path_clause,
         unwind_clauses,
         where_clause,
+        call_clauses,
         let_clauses,
         with_clauses,
         return_clause: return_clause
@@ -896,6 +900,134 @@ fn build_with_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitCla
         limit: limit.unwrap_or(0),
         offset,
     })
+}
+
+// ============================================================
+// CALL Subquery Parser Functions
+// ============================================================
+
+/// Build a CALL clause from a pest pair.
+///
+/// Grammar: `CALL { call_body }`
+///
+/// CALL subqueries execute a nested query for each row in the outer query.
+/// The subquery can import variables from the outer scope using WITH.
+fn build_call_clause(pair: pest::iterators::Pair<Rule>) -> Result<CallClause, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut body = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::call_body {
+            body = Some(build_call_body(inner)?);
+        }
+    }
+
+    Ok(CallClause {
+        body: body.ok_or_else(|| ParseError::missing_clause("CALL body", pair_span))?,
+    })
+}
+
+/// Build a CALL body from a pest pair.
+///
+/// Grammar: `call_query ~ (union_clause ~ call_query)*`
+///
+/// The body can be a single query or a UNION of multiple queries.
+fn build_call_body(pair: pest::iterators::Pair<Rule>) -> Result<CallBody, ParseError> {
+    let mut queries = Vec::new();
+    let mut union_all = false;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::call_query => {
+                queries.push(build_call_query(inner)?);
+            }
+            Rule::union_clause => {
+                // Check for ALL keyword in the union clause
+                for clause_inner in inner.into_inner() {
+                    if clause_inner.as_rule() == Rule::ALL {
+                        union_all = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if queries.len() == 1 {
+        Ok(CallBody::Single(Box::new(queries.pop().unwrap())))
+    } else {
+        Ok(CallBody::Union {
+            queries,
+            all: union_all,
+        })
+    }
+}
+
+/// Build a CALL query from a pest pair.
+///
+/// Grammar: `importing_with? ~ match_clause? ~ optional_match_clause* ~ where_clause? ~
+///           call_clause* ~ with_clause* ~ return_clause ~ order_clause? ~ limit_clause?`
+///
+/// A query inside a CALL subquery. MATCH is optional (can just transform imported variables).
+fn build_call_query(pair: pest::iterators::Pair<Rule>) -> Result<CallQuery, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut importing_with = None;
+    let mut match_clause = None;
+    let mut optional_match_clauses = Vec::new();
+    let mut where_clause = None;
+    let mut call_clauses = Vec::new();
+    let mut with_clauses = Vec::new();
+    let mut return_clause = None;
+    let mut order_clause = None;
+    let mut limit_clause = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::importing_with => importing_with = Some(build_importing_with(inner)?),
+            Rule::match_clause => match_clause = Some(build_match_clause(inner)?),
+            Rule::optional_match_clause => {
+                optional_match_clauses.push(build_optional_match_clause(inner)?);
+            }
+            Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
+            Rule::call_clause => call_clauses.push(build_call_clause(inner)?),
+            Rule::with_clause => with_clauses.push(build_with_clause(inner)?),
+            Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
+            Rule::order_clause => order_clause = Some(build_order_clause(inner)?),
+            Rule::limit_clause => limit_clause = Some(build_limit_clause(inner)?),
+            _ => {}
+        }
+    }
+
+    Ok(CallQuery {
+        importing_with,
+        match_clause,
+        optional_match_clauses,
+        where_clause,
+        call_clauses,
+        with_clauses,
+        return_clause: return_clause
+            .ok_or_else(|| ParseError::missing_clause("RETURN in CALL subquery", pair_span))?,
+        order_clause,
+        limit_clause,
+    })
+}
+
+/// Build an importing WITH clause from a pest pair.
+///
+/// Grammar: `WITH ~ !PATH ~ return_item ~ ("," ~ return_item)*`
+///
+/// The importing WITH clause brings variables from the outer scope into the subquery.
+/// This makes the CALL subquery "correlated" - it runs once per outer row.
+fn build_importing_with(pair: pest::iterators::Pair<Rule>) -> Result<ImportingWith, ParseError> {
+    let mut items = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::return_item {
+            items.push(build_return_item(inner)?);
+        }
+    }
+
+    Ok(ImportingWith { items })
 }
 
 fn build_pattern(pair: pest::iterators::Pair<Rule>) -> Result<Pattern, ParseError> {
@@ -4226,5 +4358,368 @@ mod tests {
             eprintln!("Parse error: {:?}", e);
         }
         assert!(result.is_ok(), "Failed to parse query with REDUCE");
+    }
+
+    // ============================================
+    // CALL Subquery Parser Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_call_basic_uncorrelated() {
+        // Basic uncorrelated CALL (no importing WITH)
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                MATCH (t:Team)
+                RETURN count(t) AS teamCount
+            }
+            RETURN p.name, teamCount
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse uncorrelated CALL subquery");
+
+        let query = result.unwrap();
+        assert_eq!(query.call_clauses.len(), 1);
+
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            assert!(call_query.importing_with.is_none());
+            assert!(call_query.match_clause.is_some());
+        } else {
+            panic!("Expected Single CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_correlated_with_importing_with() {
+        // Correlated CALL with importing WITH
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                MATCH (p)-[:FRIEND]->(f)
+                RETURN count(f) AS friendCount
+            }
+            RETURN p.name, friendCount
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse correlated CALL subquery");
+
+        let query = result.unwrap();
+        assert_eq!(query.call_clauses.len(), 1);
+
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            assert!(call_query.importing_with.is_some());
+            let importing = call_query.importing_with.as_ref().unwrap();
+            assert_eq!(importing.items.len(), 1);
+            if let Expression::Variable(v) = &importing.items[0].expression {
+                assert_eq!(v, "p");
+            } else {
+                panic!("Expected variable expression in importing WITH");
+            }
+        } else {
+            panic!("Expected Single CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_multiple_imported_variables() {
+        // CALL with multiple variables imported
+        let input = r#"
+            MATCH (p:Person)-[:WORKS_AT]->(c:Company)
+            CALL {
+                WITH p, c
+                RETURN p.salary + c.bonus AS totalComp
+            }
+            RETURN p.name, totalComp
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse CALL with multiple imports");
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            let importing = call_query.importing_with.as_ref().unwrap();
+            assert_eq!(importing.items.len(), 2);
+        } else {
+            panic!("Expected Single CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_union() {
+        // CALL with UNION inside
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                MATCH (p)-[:FRIEND]->(f)
+                RETURN f.name AS name
+                UNION
+                WITH p
+                MATCH (p)-[:COLLEAGUE]->(c)
+                RETURN c.name AS name
+            }
+            RETURN p.name, name
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse CALL with UNION");
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Union { queries, all } = &call.body {
+            assert_eq!(queries.len(), 2);
+            assert!(!all); // UNION (not UNION ALL)
+        } else {
+            panic!("Expected Union CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_union_all() {
+        // CALL with UNION ALL inside
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                MATCH (t:Team {sport: 'Basketball'})
+                RETURN t.name AS teamName
+                UNION ALL
+                MATCH (t:Team {sport: 'Football'})
+                RETURN t.name AS teamName
+            }
+            RETURN p.name, teamName
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse CALL with UNION ALL");
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Union { queries, all } = &call.body {
+            assert_eq!(queries.len(), 2);
+            assert!(all); // UNION ALL
+        } else {
+            panic!("Expected Union CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_without_match() {
+        // CALL without MATCH (just transforms imported variables)
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                RETURN p.firstName || ' ' || p.lastName AS fullName
+            }
+            RETURN fullName
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse CALL without MATCH");
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            assert!(call_query.match_clause.is_none());
+            assert!(call_query.importing_with.is_some());
+        } else {
+            panic!("Expected Single CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_with_order_limit() {
+        // CALL with ORDER BY and LIMIT in subquery
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                MATCH (p)-[:BOUGHT]->(item)
+                RETURN item.name AS itemName
+                ORDER BY item.price DESC
+                LIMIT 5
+            }
+            RETURN p.name, itemName
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(
+            result.is_ok(),
+            "Failed to parse CALL with ORDER BY and LIMIT"
+        );
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            assert!(call_query.order_clause.is_some());
+            assert!(call_query.limit_clause.is_some());
+            assert_eq!(call_query.limit_clause.as_ref().unwrap().limit, 5);
+        } else {
+            panic!("Expected Single CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_call_with_where() {
+        // CALL with WHERE clause
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                MATCH (p)-[:FRIEND]->(f)
+                WHERE f.age > 21
+                RETURN f.name AS friendName
+            }
+            RETURN p.name, friendName
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse CALL with WHERE");
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            assert!(call_query.where_clause.is_some());
+        } else {
+            panic!("Expected Single CallBody");
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_call_clauses() {
+        // Multiple CALL clauses in a query
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                MATCH (p)-[:FRIEND]->(f)
+                RETURN count(f) AS friendCount
+            }
+            CALL {
+                WITH p
+                MATCH (p)-[:BOUGHT]->(i)
+                RETURN count(i) AS itemCount
+            }
+            RETURN p.name, friendCount, itemCount
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse multiple CALL clauses");
+
+        let query = result.unwrap();
+        assert_eq!(query.call_clauses.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_call_is_correlated() {
+        // Test is_correlated() method on CallClause
+        let correlated_input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p
+                RETURN p.name AS name
+            }
+            RETURN name
+        "#;
+
+        let uncorrelated_input = r#"
+            MATCH (p:Person)
+            CALL {
+                MATCH (t:Team)
+                RETURN count(t) AS teamCount
+            }
+            RETURN p.name, teamCount
+        "#;
+
+        let correlated_query = parse(correlated_input).unwrap();
+        let uncorrelated_query = parse(uncorrelated_input).unwrap();
+
+        assert!(
+            correlated_query.call_clauses[0].is_correlated(),
+            "CALL with importing WITH should be correlated"
+        );
+        assert!(
+            !uncorrelated_query.call_clauses[0].is_correlated(),
+            "CALL without importing WITH should be uncorrelated"
+        );
+    }
+
+    #[test]
+    fn test_parse_call_case_insensitive() {
+        // CALL keyword is case insensitive
+        let inputs = [
+            "MATCH (p:Person) CALL { MATCH (t:Team) RETURN t } RETURN p",
+            "MATCH (p:Person) call { MATCH (t:Team) RETURN t } RETURN p",
+            "MATCH (p:Person) Call { MATCH (t:Team) RETURN t } RETURN p",
+        ];
+
+        for input in &inputs {
+            let result = parse(input);
+            if let Err(e) = &result {
+                eprintln!("Parse error for '{}': {:?}", input, e);
+            }
+            assert!(result.is_ok(), "Failed to parse: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_parse_call_importing_with_alias() {
+        // Importing WITH with alias (renaming variables)
+        let input = r#"
+            MATCH (p:Person)
+            CALL {
+                WITH p AS person
+                RETURN person.name AS name
+            }
+            RETURN p.name, name
+        "#;
+
+        let result = parse(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Failed to parse CALL with aliased import");
+
+        let query = result.unwrap();
+        let call = &query.call_clauses[0];
+        if let CallBody::Single(call_query) = &call.body {
+            let importing = call_query.importing_with.as_ref().unwrap();
+            assert_eq!(importing.items[0].alias, Some("person".to_string()));
+        } else {
+            panic!("Expected Single CallBody");
+        }
     }
 }

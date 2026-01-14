@@ -995,8 +995,8 @@ mod tests {
 
     #[test]
     fn option_key_from_value() {
-        let key: OptionKey = Value::Float(3.14).into();
-        assert_eq!(key, OptionKey::Value(Value::Float(3.14)));
+        let key: OptionKey = Value::Float(3.15).into();
+        assert_eq!(key, OptionKey::Value(Value::Float(3.15)));
     }
 
     // ==========================================================================
