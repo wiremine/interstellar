@@ -1,0 +1,20 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  CreateEdgeType:
+    name: WORKS_AT
+    properties:
+      - name: role
+        prop_type: String
+        required: true
+        default: ~
+      - name: start_date
+        prop_type: Int
+        required: false
+        default: ~
+    from_types:
+      - Person
+    to_types:
+      - Company

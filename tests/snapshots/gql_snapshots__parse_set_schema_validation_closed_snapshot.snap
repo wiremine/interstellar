@@ -1,0 +1,7 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  SetValidation:
+    mode: Closed

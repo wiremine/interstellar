@@ -6406,8 +6406,8 @@ fn test_gql_multi_var_with_limit() {
 
     let query = r#"
         MATCH (a:Person)-[:KNOWS]->(b:Person)
-        RETURN a.name AS from, b.name AS to
-        ORDER BY from, to
+        RETURN a.name AS src, b.name AS dest
+        ORDER BY src, dest
         LIMIT 2
     "#;
     let results: Vec<_> = snapshot.gql(query).unwrap();
@@ -11606,7 +11606,7 @@ fn test_gql_list_predicate_nested() {
 
     // ANY with ALL nested
     let results = snapshot
-        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(list IN [[1, 2], [3, 4]] WHERE ALL(x IN list WHERE x > 0)) AS result")
+        .gql("MATCH (n:Person) WHERE n.name = 'Alice' RETURN ANY(sublist IN [[1, 2], [3, 4]] WHERE ALL(x IN sublist WHERE x > 0)) AS result")
         .unwrap();
 
     assert_eq!(results.len(), 1);

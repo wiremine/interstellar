@@ -1,0 +1,9 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  AlterNodeType:
+    name: Person
+    action:
+      DropProperty: bio

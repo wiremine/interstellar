@@ -258,6 +258,17 @@ pub enum WalEntry {
         /// Monotonically increasing version number
         version: u64,
     },
+
+    /// Update the schema in the database.
+    ///
+    /// Contains the serialized schema data and the offset where it was written.
+    /// This allows schema changes to be replayed during crash recovery.
+    SchemaUpdate {
+        /// Byte offset where schema data was written
+        offset: u64,
+        /// Serialized schema data
+        data: Vec<u8>,
+    },
 }
 
 // =============================================================================

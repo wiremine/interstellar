@@ -133,6 +133,10 @@ pub fn recover(
                 // TODO: Implement property update recovery in Phase 4
                 stats.properties_updated += 1;
             }
+            WalEntry::SchemaUpdate { offset, data } => {
+                write_schema_to_file(data_file, offset, &data)?;
+                stats.schema_updates += 1;
+            }
             // Transaction markers are not replayed
             WalEntry::BeginTx { .. }
             | WalEntry::CommitTx { .. }
@@ -165,6 +169,8 @@ pub struct RecoveryStats {
     pub edges_deleted: u64,
     /// Number of property updates applied
     pub properties_updated: u64,
+    /// Number of schema updates applied
+    pub schema_updates: u64,
 }
 
 impl RecoveryStats {
@@ -175,6 +181,7 @@ impl RecoveryStats {
             && self.nodes_deleted == 0
             && self.edges_deleted == 0
             && self.properties_updated == 0
+            && self.schema_updates == 0
     }
 
     /// Total number of operations performed
@@ -184,6 +191,7 @@ impl RecoveryStats {
             + self.nodes_deleted
             + self.edges_deleted
             + self.properties_updated
+            + self.schema_updates
     }
 }
 
@@ -368,6 +376,34 @@ fn mark_edge_deleted(file: &File, id: EdgeId, node_capacity: u64) -> Result<(), 
     Ok(())
 }
 
+/// Write schema data to the data file at the specified offset.
+///
+/// Used during recovery to replay schema updates from the WAL.
+fn write_schema_to_file(file: &File, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+    // Ensure file is large enough
+    let metadata = file.metadata()?;
+    let required_size = offset + data.len() as u64;
+    if required_size > metadata.len() {
+        file.set_len(required_size)?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.write_all_at(data, offset)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut file = file;
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(data)?;
+    }
+
+    Ok(())
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -538,6 +574,7 @@ mod tests {
             nodes_deleted: 3,
             edges_deleted: 2,
             properties_updated: 5,
+            schema_updates: 0,
         };
         assert_eq!(stats.total_operations(), 40);
     }

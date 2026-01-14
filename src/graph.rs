@@ -92,6 +92,7 @@
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
 
+use crate::schema::GraphSchema;
 use crate::storage::interner::StringInterner;
 use crate::storage::{GraphStorage, InMemoryGraph};
 
@@ -149,6 +150,11 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 pub struct Graph {
     pub(crate) storage: Arc<dyn GraphStorage>,
     pub(crate) lock: Arc<RwLock<()>>,
+    /// Optional schema for validating mutations.
+    ///
+    /// When set, mutation operations (CREATE, SET, MERGE) will validate
+    /// against this schema according to its [`ValidationMode`](crate::schema::ValidationMode).
+    pub(crate) schema: Arc<RwLock<Option<GraphSchema>>>,
 }
 
 /// A read-only snapshot of a graph for concurrent traversals.
@@ -335,6 +341,33 @@ impl<'g> GraphSnapshot<'g> {
         let results = crate::gql::compile_statement_with_params(&stmt, self, params)?;
         Ok(results)
     }
+
+    /// Get the current schema from the parent graph.
+    ///
+    /// Returns a clone of the schema to avoid holding additional locks.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    ///
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let graph = Graph::in_memory_with_schema(schema);
+    /// let snapshot = graph.snapshot();
+    ///
+    /// let schema = snapshot.schema();
+    /// assert!(schema.is_some());
+    /// ```
+    pub fn schema(&self) -> Option<GraphSchema> {
+        self.graph.schema.read().clone()
+    }
 }
 
 /// An exclusive mutable handle to a graph.
@@ -386,6 +419,139 @@ pub struct GraphMut<'g> {
     pub(crate) _guard: RwLockWriteGuard<'g, ()>,
 }
 
+impl<'g> GraphMut<'g> {
+    /// Get the current schema from the parent graph.
+    ///
+    /// Returns a clone of the schema to avoid holding additional locks.
+    pub fn schema(&self) -> Option<GraphSchema> {
+        self.graph.schema.read().clone()
+    }
+
+    /// Execute a GQL mutation statement with schema validation.
+    ///
+    /// Parses and executes the GQL mutation (CREATE, SET, DELETE, etc.),
+    /// validating against the graph's schema if one is set.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The GQL mutation statement to execute
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query has a syntax error
+    /// - Schema validation fails (missing required properties, type mismatch, etc.)
+    /// - The mutation cannot be executed (e.g., deleting vertex with edges)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    ///
+    /// // Create a graph with schema
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let mut storage = InMemoryGraph::new();
+    /// let graph = Graph::with_schema(storage, schema);
+    ///
+    /// // Get the underlying storage for mutation
+    /// // Note: For real usage, you would use a mutable storage reference
+    /// ```
+    pub fn gql<S: crate::storage::GraphStorageMut>(
+        &self,
+        query: &str,
+        storage: &mut S,
+    ) -> Result<Vec<crate::value::Value>, crate::gql::MutationError> {
+        let stmt = crate::gql::parse_statement(query).map_err(|e| {
+            crate::gql::MutationError::Compile(crate::gql::CompileError::UnsupportedFeature(
+                e.to_string(),
+            ))
+        })?;
+        let schema = self.schema();
+        crate::gql::execute_mutation_with_schema(&stmt, storage, schema.as_ref())
+    }
+
+    /// Execute a GQL DDL statement (CREATE TYPE, ALTER TYPE, DROP TYPE).
+    ///
+    /// DDL statements modify the schema rather than the data. The schema
+    /// changes are applied to the graph's schema immediately.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The GQL DDL statement to execute
+    ///
+    /// # Returns
+    ///
+    /// Returns the updated schema after executing the DDL statement.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query has a syntax error
+    /// - The DDL statement is invalid (e.g., dropping a non-existent type)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::schema::ValidationMode;
+    ///
+    /// let graph = Graph::in_memory();
+    ///
+    /// {
+    ///     let mut_handle = graph.mutate();
+    ///
+    ///     // Create a node type
+    ///     mut_handle.ddl("CREATE NODE TYPE Person (name STRING NOT NULL)").unwrap();
+    ///
+    ///     // Set validation mode
+    ///     mut_handle.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
+    /// }
+    ///
+    /// // Schema is now active
+    /// let schema = graph.schema().unwrap();
+    /// assert!(schema.has_vertex_schema("Person"));
+    /// assert_eq!(schema.mode, ValidationMode::Strict);
+    /// ```
+    pub fn ddl(&self, query: &str) -> Result<GraphSchema, crate::gql::GqlError> {
+        let stmt = crate::gql::parse_statement(query)?;
+
+        // Extract DDL statement from parsed statement
+        let ddl = match stmt {
+            crate::gql::Statement::Ddl(ddl) => ddl,
+            _ => {
+                return Err(crate::gql::GqlError::Compile(
+                    crate::gql::CompileError::UnsupportedFeature(
+                        "Expected DDL statement (CREATE TYPE, ALTER TYPE, DROP TYPE, SET SCHEMA VALIDATION)".into(),
+                    ),
+                ))
+            }
+        };
+
+        // Get current schema or create empty one
+        let mut schema = self.graph.schema.read().clone().unwrap_or_default();
+
+        // Execute DDL
+        crate::gql::execute_ddl(&mut schema, &ddl).map_err(|e| {
+            crate::gql::GqlError::Compile(crate::gql::CompileError::UnsupportedFeature(
+                e.to_string(),
+            ))
+        })?;
+
+        // Update the graph's schema
+        *self.graph.schema.write() = Some(schema.clone());
+
+        Ok(schema)
+    }
+}
+
 impl Graph {
     /// Create a new graph with the given storage backend.
     ///
@@ -407,6 +573,37 @@ impl Graph {
         Graph {
             storage: Arc::new(storage),
             lock: Arc::new(RwLock::new(())),
+            schema: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Create a new graph with a schema for validation.
+    ///
+    /// This constructor creates a [`Graph`] with an associated schema that will
+    /// be used to validate mutation operations (CREATE, SET, MERGE).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::InMemoryGraph;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    ///
+    /// let storage = InMemoryGraph::new();
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let graph = Graph::with_schema(storage, schema);
+    /// ```
+    pub fn with_schema<S: GraphStorage + 'static>(storage: S, schema: GraphSchema) -> Self {
+        Graph {
+            storage: Arc::new(storage),
+            lock: Arc::new(RwLock::new(())),
+            schema: Arc::new(RwLock::new(Some(schema))),
         }
     }
 
@@ -430,6 +627,38 @@ impl Graph {
         Graph {
             storage,
             lock: Arc::new(RwLock::new(())),
+            schema: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Create a new graph from an existing `Arc<dyn GraphStorage>` with a schema.
+    ///
+    /// Use this when you already have an Arc-wrapped storage and want to
+    /// add schema validation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use std::sync::Arc;
+    ///
+    /// let storage: Arc<dyn GraphStorage> = Arc::new(InMemoryGraph::new());
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let graph = Graph::from_arc_with_schema(storage, schema);
+    /// ```
+    pub fn from_arc_with_schema(storage: Arc<dyn GraphStorage>, schema: GraphSchema) -> Self {
+        Graph {
+            storage,
+            lock: Arc::new(RwLock::new(())),
+            schema: Arc::new(RwLock::new(Some(schema))),
         }
     }
 
@@ -566,6 +795,30 @@ impl Graph {
         Self::new(InMemoryGraph::new())
     }
 
+    /// Create a new in-memory graph with a schema for validation.
+    ///
+    /// This is a convenience method that creates an empty in-memory graph
+    /// with an associated schema for validating mutations.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    ///
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let graph = Graph::in_memory_with_schema(schema);
+    /// ```
+    pub fn in_memory_with_schema(schema: GraphSchema) -> Self {
+        Self::with_schema(InMemoryGraph::new(), schema)
+    }
+
     /// Get the underlying storage backend.
     ///
     /// This provides direct access to the storage implementation for advanced
@@ -592,6 +845,70 @@ impl Graph {
     /// ```
     pub fn storage(&self) -> &Arc<dyn GraphStorage> {
         &self.storage
+    }
+
+    /// Get the current schema, if one is set.
+    ///
+    /// Returns a clone of the schema to avoid holding a lock. The returned
+    /// schema is a snapshot of the schema at the time of the call.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    ///
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let graph = Graph::in_memory_with_schema(schema);
+    ///
+    /// // Get the schema
+    /// let schema = graph.schema();
+    /// assert!(schema.is_some());
+    /// assert!(schema.unwrap().has_vertex_schema("Person"));
+    /// ```
+    pub fn schema(&self) -> Option<GraphSchema> {
+        self.schema.read().clone()
+    }
+
+    /// Set or replace the graph schema.
+    ///
+    /// The new schema will be used for all subsequent mutation operations.
+    /// Pass `None` to disable schema validation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    ///
+    /// let graph = Graph::in_memory();
+    ///
+    /// // Initially no schema
+    /// assert!(graph.schema().is_none());
+    ///
+    /// // Add a schema
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// graph.set_schema(Some(schema));
+    /// assert!(graph.schema().is_some());
+    ///
+    /// // Remove the schema
+    /// graph.set_schema(None);
+    /// assert!(graph.schema().is_none());
+    /// ```
+    pub fn set_schema(&self, schema: Option<GraphSchema>) {
+        *self.schema.write() = schema;
     }
 }
 

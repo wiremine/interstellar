@@ -1,0 +1,28 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  CreateNodeType:
+    name: DataContainer
+    properties:
+      - name: str
+        prop_type: String
+        required: false
+        default: ~
+      - name: num
+        prop_type: Int
+        required: false
+        default: ~
+      - name: flt
+        prop_type: Float
+        required: false
+        default: ~
+      - name: flag
+        prop_type: Bool
+        required: false
+        default: ~
+      - name: anything
+        prop_type: Any
+        required: false
+        default: ~

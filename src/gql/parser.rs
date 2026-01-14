@@ -35,12 +35,14 @@ use pest::Parser;
 use pest_derive::Parser;
 
 use crate::gql::ast::{
-    AggregateFunc, BinaryOperator, CallBody, CallClause, CallQuery, CaseExpression, CreateClause,
-    DeleteClause, DetachDeleteClause, EdgeDirection, EdgePattern, Expression, GroupByClause,
-    HavingClause, ImportingWith, LetClause, LimitClause, Literal, MatchClause, MergeClause,
-    MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause, OrderItem,
-    PathQuantifier, Pattern, PatternElement, PropertyRef, Query, RemoveClause, ReturnClause,
-    ReturnItem, SetClause, SetItem, Statement, UnaryOperator, UnwindClause, WhereClause,
+    AggregateFunc, AlterEdgeType, AlterNodeType, AlterTypeAction, BinaryOperator, CallBody,
+    CallClause, CallQuery, CaseExpression, CreateClause, CreateEdgeType, CreateNodeType,
+    DdlStatement, DeleteClause, DetachDeleteClause, DropType, EdgeDirection, EdgePattern,
+    Expression, GroupByClause, HavingClause, ImportingWith, LetClause, LimitClause, Literal,
+    MatchClause, MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause,
+    OrderClause, OrderItem, PathQuantifier, Pattern, PatternElement, PropertyDefinition,
+    PropertyRef, PropertyTypeAst, Query, RemoveClause, ReturnClause, ReturnItem, SetClause,
+    SetItem, SetValidation, Statement, UnaryOperator, UnwindClause, ValidationModeAst, WhereClause,
     WithClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
@@ -123,6 +125,13 @@ pub fn parse(input: &str) -> Result<Query, ParseError> {
                 "Use parse_statement() for mutation statements".to_string(),
             ))
         }
+        Statement::Ddl(_) => {
+            // For backward compatibility, parse() returns Query
+            // Use parse_statement() for DDL statements
+            Err(ParseError::Syntax(
+                "Use parse_statement() for DDL statements".to_string(),
+            ))
+        }
     }
 }
 
@@ -180,6 +189,9 @@ fn build_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, Parse
             }
             Rule::mutation_statement => {
                 return build_mutation_statement(inner);
+            }
+            Rule::ddl_statement => {
+                return build_ddl_statement(inner);
             }
             Rule::EOI => {}
             _ => {}
@@ -2458,6 +2470,378 @@ fn build_list_comp_binop(pair: &pest::iterators::Pair<Rule>) -> Result<BinaryOpe
             _ => Ok(BinaryOperator::Eq),
         }
     }
+}
+
+// =============================================================================
+// DDL Statement Parsing
+// =============================================================================
+
+/// Build a DDL statement from a pest pair.
+fn build_ddl_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    let ddl = match inner.as_rule() {
+        Rule::create_node_type => DdlStatement::CreateNodeType(build_create_node_type(inner)?),
+        Rule::create_edge_type => DdlStatement::CreateEdgeType(build_create_edge_type(inner)?),
+        Rule::alter_node_type => DdlStatement::AlterNodeType(build_alter_node_type(inner)?),
+        Rule::alter_edge_type => DdlStatement::AlterEdgeType(build_alter_edge_type(inner)?),
+        Rule::drop_node_type => DdlStatement::DropNodeType(build_drop_type(inner)?),
+        Rule::drop_edge_type => DdlStatement::DropEdgeType(build_drop_type(inner)?),
+        Rule::set_schema_validation => DdlStatement::SetValidation(build_set_validation(inner)?),
+        _ => {
+            return Err(ParseError::Syntax(format!(
+                "Unexpected DDL statement type: {:?}",
+                inner.as_rule()
+            )))
+        }
+    };
+
+    Ok(Statement::Ddl(Box::new(ddl)))
+}
+
+/// Build a CREATE NODE TYPE statement.
+///
+/// Grammar: `CREATE NODE TYPE identifier ( property_def_list? )`
+fn build_create_node_type(pair: pest::iterators::Pair<Rule>) -> Result<CreateNodeType, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+    let mut properties = Vec::new();
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                name = Some(inner.as_str().to_string());
+            }
+            Rule::property_def_list => {
+                properties = build_property_def_list(inner)?;
+            }
+            Rule::CREATE | Rule::NODE | Rule::TYPE => {}
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("type name", pair_span))?;
+
+    Ok(CreateNodeType { name, properties })
+}
+
+/// Build a CREATE EDGE TYPE statement.
+///
+/// Grammar: `CREATE EDGE TYPE identifier ( property_def_list? ) FROM type_name_list TO type_name_list`
+fn build_create_edge_type(pair: pest::iterators::Pair<Rule>) -> Result<CreateEdgeType, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+    let mut properties = Vec::new();
+    let mut from_types = Vec::new();
+    let mut to_types = Vec::new();
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                if name.is_none() {
+                    name = Some(inner.as_str().to_string());
+                }
+            }
+            Rule::property_def_list => {
+                properties = build_property_def_list(inner)?;
+            }
+            Rule::edge_endpoint_clause => {
+                let (from, to) = build_edge_endpoint_clause(inner)?;
+                from_types = from;
+                to_types = to;
+            }
+            Rule::CREATE | Rule::EDGE | Rule::TYPE => {}
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("type name", pair_span))?;
+
+    Ok(CreateEdgeType {
+        name,
+        properties,
+        from_types,
+        to_types,
+    })
+}
+
+/// Build edge endpoint clause (FROM ... TO ...).
+fn build_edge_endpoint_clause(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<(Vec<String>, Vec<String>), ParseError> {
+    let mut from_types = Vec::new();
+    let mut to_types = Vec::new();
+    let mut is_from = true;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::type_name_list => {
+                let types = build_type_name_list(inner)?;
+                if is_from {
+                    from_types = types;
+                    is_from = false;
+                } else {
+                    to_types = types;
+                }
+            }
+            Rule::FROM_KW | Rule::TO_KW => {}
+            _ => {}
+        }
+    }
+
+    Ok((from_types, to_types))
+}
+
+/// Build a comma-separated list of type names.
+fn build_type_name_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<String>, ParseError> {
+    let mut types = Vec::new();
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::identifier {
+            types.push(inner.as_str().to_string());
+        }
+    }
+    Ok(types)
+}
+
+/// Build an ALTER NODE TYPE statement.
+fn build_alter_node_type(pair: pest::iterators::Pair<Rule>) -> Result<AlterNodeType, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+    let mut action = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                name = Some(inner.as_str().to_string());
+            }
+            Rule::alter_type_action => {
+                action = Some(build_alter_type_action(inner)?);
+            }
+            Rule::ALTER | Rule::NODE | Rule::TYPE => {}
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("type name", pair_span))?;
+    let action = action.ok_or_else(|| ParseError::missing_clause("alter action", pair_span))?;
+
+    Ok(AlterNodeType { name, action })
+}
+
+/// Build an ALTER EDGE TYPE statement.
+fn build_alter_edge_type(pair: pest::iterators::Pair<Rule>) -> Result<AlterEdgeType, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+    let mut action = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                name = Some(inner.as_str().to_string());
+            }
+            Rule::alter_type_action => {
+                action = Some(build_alter_type_action(inner)?);
+            }
+            Rule::ALTER | Rule::EDGE | Rule::TYPE => {}
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("type name", pair_span))?;
+    let action = action.ok_or_else(|| ParseError::missing_clause("alter action", pair_span))?;
+
+    Ok(AlterEdgeType { name, action })
+}
+
+/// Build an alter type action.
+fn build_alter_type_action(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<AlterTypeAction, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    match inner.as_rule() {
+        Rule::allow_additional_properties => Ok(AlterTypeAction::AllowAdditionalProperties),
+        Rule::add_property_action => {
+            let prop_def = inner
+                .into_inner()
+                .find(|p| p.as_rule() == Rule::property_def)
+                .ok_or(ParseError::Empty)?;
+            Ok(AlterTypeAction::AddProperty(build_property_def(prop_def)?))
+        }
+        Rule::drop_property_action => {
+            let prop_name = inner
+                .into_inner()
+                .find(|p| p.as_rule() == Rule::identifier)
+                .ok_or(ParseError::Empty)?;
+            Ok(AlterTypeAction::DropProperty(
+                prop_name.as_str().to_string(),
+            ))
+        }
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected alter type action: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a DROP TYPE statement (for both node and edge types).
+fn build_drop_type(pair: pest::iterators::Pair<Rule>) -> Result<DropType, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::identifier {
+            name = Some(inner.as_str().to_string());
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("type name", pair_span))?;
+
+    Ok(DropType { name })
+}
+
+/// Build a SET SCHEMA VALIDATION statement.
+fn build_set_validation(pair: pest::iterators::Pair<Rule>) -> Result<SetValidation, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut mode = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::validation_mode {
+            mode = Some(build_validation_mode(inner)?);
+        }
+    }
+
+    let mode = mode.ok_or_else(|| ParseError::missing_clause("validation mode", pair_span))?;
+
+    Ok(SetValidation { mode })
+}
+
+/// Build a validation mode.
+fn build_validation_mode(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<ValidationModeAst, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    match inner.as_rule() {
+        Rule::NONE_KW => Ok(ValidationModeAst::None),
+        Rule::WARN_KW => Ok(ValidationModeAst::Warn),
+        Rule::STRICT => Ok(ValidationModeAst::Strict),
+        Rule::CLOSED => Ok(ValidationModeAst::Closed),
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected validation mode: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a list of property definitions.
+fn build_property_def_list(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Vec<PropertyDefinition>, ParseError> {
+    let mut properties = Vec::new();
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::property_def {
+            properties.push(build_property_def(inner)?);
+        }
+    }
+    Ok(properties)
+}
+
+/// Build a single property definition.
+///
+/// Grammar: `identifier property_type not_null_modifier? default_modifier?`
+fn build_property_def(pair: pest::iterators::Pair<Rule>) -> Result<PropertyDefinition, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+    let mut prop_type = None;
+    let mut required = false;
+    let mut default = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::identifier => {
+                name = Some(inner.as_str().to_string());
+            }
+            Rule::property_type => {
+                prop_type = Some(build_property_type(inner)?);
+            }
+            Rule::not_null_modifier => {
+                required = true;
+            }
+            Rule::default_modifier => {
+                default = build_default_modifier(inner)?;
+            }
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("property name", pair_span))?;
+    let prop_type =
+        prop_type.ok_or_else(|| ParseError::missing_clause("property type", pair_span))?;
+
+    Ok(PropertyDefinition {
+        name,
+        prop_type,
+        required,
+        default,
+    })
+}
+
+/// Build a property type.
+fn build_property_type(pair: pest::iterators::Pair<Rule>) -> Result<PropertyTypeAst, ParseError> {
+    let inner = pair.into_inner().next().ok_or(ParseError::Empty)?;
+
+    match inner.as_rule() {
+        Rule::STRING_TYPE => Ok(PropertyTypeAst::String),
+        Rule::INT_TYPE => Ok(PropertyTypeAst::Int),
+        Rule::FLOAT_TYPE => Ok(PropertyTypeAst::Float),
+        Rule::BOOL_TYPE => Ok(PropertyTypeAst::Bool),
+        Rule::ANY_TYPE => Ok(PropertyTypeAst::Any),
+        Rule::list_type => build_list_type(inner),
+        Rule::map_type => build_map_type(inner),
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected property type: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a LIST type with optional element type.
+fn build_list_type(pair: pest::iterators::Pair<Rule>) -> Result<PropertyTypeAst, ParseError> {
+    let mut element_type = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::property_type {
+            element_type = Some(Box::new(build_property_type(inner)?));
+        }
+    }
+
+    Ok(PropertyTypeAst::List(element_type))
+}
+
+/// Build a MAP type with optional value type.
+fn build_map_type(pair: pest::iterators::Pair<Rule>) -> Result<PropertyTypeAst, ParseError> {
+    let mut value_type = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::property_type {
+            value_type = Some(Box::new(build_property_type(inner)?));
+        }
+    }
+
+    Ok(PropertyTypeAst::Map(value_type))
+}
+
+/// Build a default modifier value.
+fn build_default_modifier(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Option<Literal>, ParseError> {
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::literal {
+            return Ok(Some(build_literal(inner)?));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]

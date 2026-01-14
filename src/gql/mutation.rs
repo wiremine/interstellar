@@ -39,6 +39,10 @@ use crate::gql::ast::{
     ReturnClause, ReturnItem, SetClause, SetItem, Statement, WhereClause,
 };
 use crate::gql::error::CompileError;
+use crate::schema::{
+    validate_edge, validate_property_update, validate_vertex, GraphSchema, ValidationMode,
+    ValidationResult,
+};
 use crate::storage::{GraphStorage, GraphStorageMut};
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -80,6 +84,10 @@ pub enum MutationError {
     /// Edge requires source and target
     #[error("CREATE edge requires both source and target vertices")]
     IncompleteEdge,
+
+    /// Schema validation error
+    #[error("Schema validation error: {0}")]
+    Schema(#[from] crate::schema::SchemaError),
 }
 
 // =============================================================================
@@ -92,6 +100,7 @@ pub enum MutationError {
 /// - Variables bound from MATCH clauses
 /// - Variables for newly created elements
 /// - Access to the underlying storage
+/// - Optional schema for validation
 #[derive(Debug)]
 pub struct MutationContext<'s, S: GraphStorage + GraphStorageMut> {
     /// Mutable reference to storage
@@ -100,6 +109,8 @@ pub struct MutationContext<'s, S: GraphStorage + GraphStorageMut> {
     vertex_bindings: HashMap<String, VertexId>,
     /// Variables bound to edge IDs
     edge_bindings: HashMap<String, EdgeId>,
+    /// Optional schema for validation
+    schema: Option<&'s GraphSchema>,
 }
 
 impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
@@ -109,7 +120,23 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
             storage,
             vertex_bindings: HashMap::new(),
             edge_bindings: HashMap::new(),
+            schema: None,
         }
+    }
+
+    /// Create a new mutation context with optional schema validation.
+    pub fn with_schema(storage: &'s mut S, schema: Option<&'s GraphSchema>) -> Self {
+        Self {
+            storage,
+            vertex_bindings: HashMap::new(),
+            edge_bindings: HashMap::new(),
+            schema,
+        }
+    }
+
+    /// Get the optional schema reference.
+    pub fn schema(&self) -> Option<&GraphSchema> {
+        self.schema
     }
 
     /// Bind a variable to a vertex ID.
@@ -233,6 +260,66 @@ pub fn execute_mutation<S: GraphStorage + GraphStorageMut>(
         Statement::Query(_) | Statement::Union { .. } => Err(MutationError::Compile(
             CompileError::UnsupportedFeature("Expected mutation statement, got read query".into()),
         )),
+        Statement::Ddl(_) => Err(MutationError::Compile(CompileError::UnsupportedFeature(
+            "Expected mutation statement, got DDL statement. Use execute_ddl() instead.".into(),
+        ))),
+    }
+}
+
+/// Execute a GQL mutation statement with optional schema validation.
+///
+/// This variant of [`execute_mutation`] accepts an optional schema for validating
+/// CREATE, SET, and MERGE operations. Validation behavior depends on the schema's
+/// [`ValidationMode`].
+///
+/// # Arguments
+///
+/// * `stmt` - A parsed GQL statement (must be a Mutation variant)
+/// * `storage` - Mutable reference to graph storage
+/// * `schema` - Optional schema for validation
+///
+/// # Validation Behavior
+///
+/// When a schema is provided:
+/// - CREATE vertex: Validates label is known (in CLOSED mode), required properties
+///   are present, and property types match
+/// - CREATE edge: Validates source/target labels and properties
+/// - SET: Validates property updates against schema definitions
+/// - MERGE: When creating new elements, validates like CREATE
+///
+/// # Example
+///
+/// ```ignore
+/// use intersteller::gql::{parse_statement, execute_mutation_with_schema};
+/// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+/// use intersteller::storage::InMemoryGraph;
+///
+/// let mut storage = InMemoryGraph::new();
+/// let schema = SchemaBuilder::new()
+///     .mode(ValidationMode::Strict)
+///     .vertex("Person")
+///         .property("name", PropertyType::String)
+///         .done()
+///     .build();
+///
+/// let stmt = parse_statement("CREATE (n:Person {name: 'Alice'})").unwrap();
+/// execute_mutation_with_schema(&stmt, &mut storage, Some(&schema)).unwrap();
+/// ```
+pub fn execute_mutation_with_schema<S: GraphStorage + GraphStorageMut>(
+    stmt: &Statement,
+    storage: &mut S,
+    schema: Option<&GraphSchema>,
+) -> Result<Vec<Value>, MutationError> {
+    match stmt {
+        Statement::Mutation(mutation) => {
+            execute_mutation_query_with_schema(mutation.as_ref(), storage, schema)
+        }
+        Statement::Query(_) | Statement::Union { .. } => Err(MutationError::Compile(
+            CompileError::UnsupportedFeature("Expected mutation statement, got read query".into()),
+        )),
+        Statement::Ddl(_) => Err(MutationError::Compile(CompileError::UnsupportedFeature(
+            "Expected mutation statement, got DDL statement. Use execute_ddl() instead.".into(),
+        ))),
     }
 }
 
@@ -241,7 +328,16 @@ pub fn execute_mutation_query<S: GraphStorage + GraphStorageMut>(
     query: &MutationQuery,
     storage: &mut S,
 ) -> Result<Vec<Value>, MutationError> {
-    let mut ctx = MutationContext::new(storage);
+    execute_mutation_query_with_schema(query, storage, None)
+}
+
+/// Execute a mutation query with optional schema validation.
+pub fn execute_mutation_query_with_schema<S: GraphStorage + GraphStorageMut>(
+    query: &MutationQuery,
+    storage: &mut S,
+    schema: Option<&GraphSchema>,
+) -> Result<Vec<Value>, MutationError> {
+    let mut ctx = MutationContext::with_schema(storage, schema);
     let mut results = Vec::new();
 
     // If there's a MATCH clause, execute mutations for each match result
@@ -674,6 +770,26 @@ where
 // Mutation Clause Execution
 // =============================================================================
 
+/// Check validation results and return error if any failed.
+///
+/// In WARN mode, validation failures are logged but don't block the operation.
+/// In STRICT/CLOSED mode, any error result will be returned.
+fn check_validation_results(
+    results: &[ValidationResult],
+    mode: ValidationMode,
+) -> Result<(), MutationError> {
+    for result in results {
+        if let ValidationResult::Error(err) = result {
+            // In Warn mode, errors were already converted to warnings during validation
+            // So if we see an Error here, we're in Strict/Closed mode
+            if mode != ValidationMode::Warn {
+                return Err(MutationError::Schema(err.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Execute a single mutation clause.
 fn execute_mutation_clause<S: GraphStorage + GraphStorageMut>(
     ctx: &mut MutationContext<S>,
@@ -706,16 +822,23 @@ fn create_pattern<S: GraphStorage + GraphStorageMut>(
     pattern: &Pattern,
 ) -> Result<(), MutationError> {
     let mut prev_vertex_id: Option<VertexId> = None;
-    let mut pending_edge: Option<(&crate::gql::ast::EdgePattern, VertexId)> = None;
+    let mut prev_vertex_label: Option<String> = None;
+    let mut pending_edge: Option<(&crate::gql::ast::EdgePattern, VertexId, String)> = None;
 
     for element in &pattern.elements {
         match element {
             PatternElement::Node(node) => {
                 // Check if this variable is already bound (reference to existing vertex)
-                let vertex_id = if let Some(var) = &node.variable {
+                let (vertex_id, vertex_label) = if let Some(var) = &node.variable {
                     if let Some(existing_id) = ctx.get_vertex(var) {
                         // Variable already bound - use existing vertex
-                        existing_id
+                        // Get the label from storage
+                        let label = ctx
+                            .storage()
+                            .get_vertex(existing_id)
+                            .map(|v| v.label.clone())
+                            .unwrap_or_default();
+                        (existing_id, label)
                     } else {
                         // Create new vertex
                         let label = node.labels.first().ok_or(MutationError::MissingLabel)?;
@@ -726,9 +849,15 @@ fn create_pattern<S: GraphStorage + GraphStorageMut>(
                             .map(|(k, v)| (k.clone(), v.clone().into()))
                             .collect();
 
+                        // Validate vertex against schema before creating
+                        if let Some(schema) = ctx.schema() {
+                            let results = validate_vertex(schema, label, &properties)?;
+                            check_validation_results(&results, schema.mode)?;
+                        }
+
                         let id = ctx.storage_mut().add_vertex(label, properties);
                         ctx.bind_vertex(var, id);
-                        id
+                        (id, label.to_string())
                     }
                 } else {
                     // Anonymous vertex - always create new
@@ -740,16 +869,25 @@ fn create_pattern<S: GraphStorage + GraphStorageMut>(
                         .map(|(k, v)| (k.clone(), v.clone().into()))
                         .collect();
 
-                    ctx.storage_mut().add_vertex(label, properties)
+                    // Validate vertex against schema before creating
+                    if let Some(schema) = ctx.schema() {
+                        let results = validate_vertex(schema, label, &properties)?;
+                        check_validation_results(&results, schema.mode)?;
+                    }
+
+                    let id = ctx.storage_mut().add_vertex(label, properties);
+                    (id, label.to_string())
                 };
 
                 // If we have a pending edge, create it now
-                if let Some((edge_pattern, from_id)) = pending_edge.take() {
+                if let Some((edge_pattern, from_id, from_label)) = pending_edge.take() {
                     let to_id = vertex_id;
-                    let (src, dst) = match edge_pattern.direction {
-                        EdgeDirection::Outgoing => (from_id, to_id),
-                        EdgeDirection::Incoming => (to_id, from_id),
-                        EdgeDirection::Both => (from_id, to_id), // Default to outgoing for bidirectional in CREATE
+                    let to_label = &vertex_label;
+
+                    let (src, dst, src_label, dst_label) = match edge_pattern.direction {
+                        EdgeDirection::Outgoing => (from_id, to_id, &from_label, to_label),
+                        EdgeDirection::Incoming => (to_id, from_id, to_label, &from_label),
+                        EdgeDirection::Both => (from_id, to_id, &from_label, to_label), // Default to outgoing for bidirectional in CREATE
                     };
 
                     let edge_label = edge_pattern
@@ -764,6 +902,18 @@ fn create_pattern<S: GraphStorage + GraphStorageMut>(
                         .map(|(k, v)| (k.clone(), v.clone().into()))
                         .collect();
 
+                    // Validate edge against schema before creating
+                    if let Some(schema) = ctx.schema() {
+                        let results = validate_edge(
+                            schema,
+                            edge_label,
+                            src_label,
+                            dst_label,
+                            &edge_properties,
+                        )?;
+                        check_validation_results(&results, schema.mode)?;
+                    }
+
                     let edge_id =
                         ctx.storage_mut()
                             .add_edge(src, dst, edge_label, edge_properties)?;
@@ -774,11 +924,15 @@ fn create_pattern<S: GraphStorage + GraphStorageMut>(
                 }
 
                 prev_vertex_id = Some(vertex_id);
+                prev_vertex_label = Some(vertex_label);
             }
             PatternElement::Edge(edge) => {
                 // Store edge to create after the next node
                 let from_id = prev_vertex_id.ok_or(MutationError::IncompleteEdge)?;
-                pending_edge = Some((edge, from_id));
+                let from_label = prev_vertex_label
+                    .clone()
+                    .ok_or(MutationError::IncompleteEdge)?;
+                pending_edge = Some((edge, from_id, from_label));
             }
         }
     }
@@ -819,10 +973,38 @@ fn execute_set_item<S: GraphStorage + GraphStorageMut>(
 
     match element {
         Element::Vertex(vid) => {
+            // Validate property update against schema
+            if let Some(schema) = ctx.schema() {
+                if let Some(vertex) = ctx.storage().get_vertex(vid) {
+                    let results = validate_property_update(
+                        schema,
+                        &vertex.label,
+                        &item.target.property,
+                        &value,
+                        true, // is_vertex
+                    )?;
+                    check_validation_results(&results, schema.mode)?;
+                }
+            }
+
             ctx.storage_mut()
                 .set_vertex_property(vid, &item.target.property, value)?;
         }
         Element::Edge(eid) => {
+            // Validate property update against schema
+            if let Some(schema) = ctx.schema() {
+                if let Some(edge) = ctx.storage().get_edge(eid) {
+                    let results = validate_property_update(
+                        schema,
+                        &edge.label,
+                        &item.target.property,
+                        &value,
+                        false, // is_vertex
+                    )?;
+                    check_validation_results(&results, schema.mode)?;
+                }
+            }
+
             ctx.storage_mut()
                 .set_edge_property(eid, &item.target.property, value)?;
         }

@@ -376,6 +376,7 @@
 
 mod ast;
 mod compiler;
+mod ddl;
 mod error;
 mod mutation;
 mod parser;
@@ -384,8 +385,10 @@ pub use ast::*;
 pub use compiler::{
     compile, compile_statement, compile_statement_with_params, compile_with_params, Parameters,
 };
+pub use ddl::execute_ddl;
 pub use error::{CompileError, GqlError, ParseError, Span};
 pub use mutation::{
-    execute_mutation, execute_mutation_query, Element, MutationContext, MutationError,
+    execute_mutation, execute_mutation_query, execute_mutation_query_with_schema,
+    execute_mutation_with_schema, Element, MutationContext, MutationError,
 };
 pub use parser::{parse, parse_statement};

@@ -103,6 +103,279 @@ pub enum Statement {
     /// MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = 123
     /// ```
     Mutation(Box<MutationQuery>),
+    /// A DDL statement (schema definition/modification)
+    ///
+    /// Represents a GQL statement that defines or modifies the schema.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// CREATE NODE TYPE Person (name STRING NOT NULL, age INT)
+    ///
+    /// CREATE EDGE TYPE KNOWS (since INT) FROM Person TO Person
+    ///
+    /// ALTER NODE TYPE Person ADD bio STRING
+    ///
+    /// DROP NODE TYPE Person
+    ///
+    /// SET SCHEMA VALIDATION STRICT
+    /// ```
+    Ddl(Box<DdlStatement>),
+}
+
+// =============================================================================
+// DDL Statement Types (Schema Definition)
+// =============================================================================
+
+/// A DDL (Data Definition Language) statement for schema management.
+///
+/// DDL statements define the structure of the graph schema, including
+/// vertex types, edge types, property constraints, and validation modes.
+///
+/// # Examples
+///
+/// ```text
+/// -- Create a node type
+/// CREATE NODE TYPE Person (
+///     name STRING NOT NULL,
+///     age INT,
+///     active BOOL DEFAULT true
+/// )
+///
+/// -- Create an edge type with endpoint constraints
+/// CREATE EDGE TYPE KNOWS (
+///     since INT,
+///     weight FLOAT DEFAULT 1.0
+/// ) FROM Person TO Person
+///
+/// -- Modify existing type
+/// ALTER NODE TYPE Person ALLOW ADDITIONAL PROPERTIES
+/// ALTER NODE TYPE Person ADD bio STRING
+///
+/// -- Remove type definition
+/// DROP NODE TYPE Person
+///
+/// -- Set validation mode
+/// SET SCHEMA VALIDATION STRICT
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub enum DdlStatement {
+    /// CREATE NODE TYPE statement
+    CreateNodeType(CreateNodeType),
+    /// CREATE EDGE TYPE statement
+    CreateEdgeType(CreateEdgeType),
+    /// ALTER NODE TYPE statement
+    AlterNodeType(AlterNodeType),
+    /// ALTER EDGE TYPE statement
+    AlterEdgeType(AlterEdgeType),
+    /// DROP NODE TYPE statement
+    DropNodeType(DropType),
+    /// DROP EDGE TYPE statement
+    DropEdgeType(DropType),
+    /// SET SCHEMA VALIDATION statement
+    SetValidation(SetValidation),
+}
+
+/// CREATE NODE TYPE statement.
+///
+/// Defines a vertex type with optional property constraints.
+///
+/// # Example
+///
+/// ```text
+/// CREATE NODE TYPE Person (
+///     name STRING NOT NULL,
+///     age INT,
+///     email STRING DEFAULT 'unknown'
+/// )
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateNodeType {
+    /// The name of the node type (becomes the vertex label)
+    pub name: String,
+    /// Property definitions for this type
+    pub properties: Vec<PropertyDefinition>,
+}
+
+/// CREATE EDGE TYPE statement.
+///
+/// Defines an edge type with endpoint constraints and optional property constraints.
+///
+/// # Example
+///
+/// ```text
+/// CREATE EDGE TYPE KNOWS (
+///     since INT,
+///     weight FLOAT DEFAULT 1.0
+/// ) FROM Person TO Person
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateEdgeType {
+    /// The name of the edge type (becomes the edge label)
+    pub name: String,
+    /// Property definitions for this type
+    pub properties: Vec<PropertyDefinition>,
+    /// Allowed source vertex labels
+    pub from_types: Vec<String>,
+    /// Allowed target vertex labels
+    pub to_types: Vec<String>,
+}
+
+/// ALTER NODE TYPE statement.
+///
+/// Modifies an existing node type definition.
+///
+/// # Examples
+///
+/// ```text
+/// ALTER NODE TYPE Person ALLOW ADDITIONAL PROPERTIES
+/// ALTER NODE TYPE Person ADD bio STRING
+/// ALTER NODE TYPE Person DROP bio
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct AlterNodeType {
+    /// The name of the node type to alter
+    pub name: String,
+    /// The alteration to apply
+    pub action: AlterTypeAction,
+}
+
+/// ALTER EDGE TYPE statement.
+///
+/// Modifies an existing edge type definition.
+///
+/// # Examples
+///
+/// ```text
+/// ALTER EDGE TYPE KNOWS ALLOW ADDITIONAL PROPERTIES
+/// ALTER EDGE TYPE KNOWS ADD notes STRING
+/// ALTER EDGE TYPE KNOWS DROP notes
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct AlterEdgeType {
+    /// The name of the edge type to alter
+    pub name: String,
+    /// The alteration to apply
+    pub action: AlterTypeAction,
+}
+
+/// Actions that can be performed in an ALTER TYPE statement.
+#[derive(Debug, Clone, Serialize)]
+pub enum AlterTypeAction {
+    /// Allow properties not defined in the schema
+    AllowAdditionalProperties,
+    /// Add a new property definition
+    AddProperty(PropertyDefinition),
+    /// Drop a property definition (by name)
+    DropProperty(String),
+}
+
+/// DROP TYPE statement (for both node and edge types).
+///
+/// Removes a type definition from the schema. Note that dropping a type
+/// does NOT delete existing vertices/edges with that label - they simply
+/// become "unschemaed" (no validation for that label).
+///
+/// # Examples
+///
+/// ```text
+/// DROP NODE TYPE Person
+/// DROP EDGE TYPE KNOWS
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct DropType {
+    /// The name of the type to drop
+    pub name: String,
+}
+
+/// SET SCHEMA VALIDATION statement.
+///
+/// Sets the validation mode for the graph schema.
+///
+/// # Examples
+///
+/// ```text
+/// SET SCHEMA VALIDATION NONE    -- No validation (schema is documentation only)
+/// SET SCHEMA VALIDATION WARN    -- Log warnings but allow invalid data
+/// SET SCHEMA VALIDATION STRICT  -- Validate types with schemas, allow unknown types
+/// SET SCHEMA VALIDATION CLOSED  -- All types must have schemas defined
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct SetValidation {
+    /// The validation mode to set
+    pub mode: ValidationModeAst,
+}
+
+/// Validation modes for schema enforcement.
+///
+/// | Mode | Unknown Label | Schema Violation | Additional Properties |
+/// |------|---------------|------------------|----------------------|
+/// | `None` | Allowed | Allowed | Allowed |
+/// | `Warn` | Allowed (log) | Allowed (log) | Allowed (log) |
+/// | `Strict` | Allowed | Rejected | Rejected (unless allowed) |
+/// | `Closed` | Rejected | Rejected | Rejected (unless allowed) |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ValidationModeAst {
+    /// No validation (schema is documentation only)
+    None,
+    /// Log warnings but allow invalid data
+    Warn,
+    /// Validate types with schemas, allow unknown types
+    Strict,
+    /// All types must have schemas defined
+    Closed,
+}
+
+/// A property definition in a type declaration.
+///
+/// # Example
+///
+/// ```text
+/// name STRING NOT NULL DEFAULT 'unknown'
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct PropertyDefinition {
+    /// The property key name
+    pub name: String,
+    /// The expected value type
+    pub prop_type: PropertyTypeAst,
+    /// Whether this property is required (NOT NULL)
+    pub required: bool,
+    /// Default value if not provided (query-time application)
+    pub default: Option<Literal>,
+}
+
+/// Property types in DDL statements.
+///
+/// Maps to `PropertyType` in the schema module at execution time.
+///
+/// | GQL Type | PropertyTypeAst | Value Variant |
+/// |----------|-----------------|---------------|
+/// | `STRING` | `String` | `Value::String` |
+/// | `INT` | `Int` | `Value::Int` |
+/// | `FLOAT` | `Float` | `Value::Float` |
+/// | `BOOL` | `Bool` | `Value::Bool` |
+/// | `LIST` | `List(None)` | `Value::List` |
+/// | `LIST<T>` | `List(Some(T))` | `Value::List` of T |
+/// | `MAP` | `Map(None)` | `Value::Map` |
+/// | `MAP<T>` | `Map(Some(T))` | `Value::Map` with T values |
+/// | `ANY` | `Any` | Any variant |
+#[derive(Debug, Clone, Serialize)]
+pub enum PropertyTypeAst {
+    /// STRING type
+    String,
+    /// INT type (i64)
+    Int,
+    /// FLOAT type (f64)
+    Float,
+    /// BOOL type
+    Bool,
+    /// LIST type with optional element type
+    List(Option<Box<PropertyTypeAst>>),
+    /// MAP type with optional value type
+    Map(Option<Box<PropertyTypeAst>>),
+    /// ANY type (accepts any value)
+    Any,
 }
 
 // =============================================================================

@@ -1,0 +1,21 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  CreateEdgeType:
+    name: KNOWS
+    properties:
+      - name: since
+        prop_type: Int
+        required: false
+        default: ~
+      - name: weight
+        prop_type: Float
+        required: false
+        default:
+          Float: 1
+    from_types:
+      - Person
+    to_types:
+      - Person

@@ -13,7 +13,6 @@
 use intersteller::graph::Graph;
 use intersteller::storage::mmap::MmapGraph;
 use intersteller::value::Value;
-use std::sync::Arc;
 
 const DB_PATH: &str = "examples/data/nba_graph.db";
 
@@ -25,7 +24,7 @@ fn main() {
     // Open the existing MmapGraph database
     // =========================================================================
     let storage = match MmapGraph::open(DB_PATH) {
-        Ok(s) => Arc::new(s),
+        Ok(s) => s,
         Err(e) => {
             eprintln!("Error: Failed to open database: {}", e);
             eprintln!("\nMake sure you've run the write example first:");

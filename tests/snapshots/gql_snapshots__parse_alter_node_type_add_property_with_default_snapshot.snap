@@ -1,0 +1,14 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  AlterNodeType:
+    name: Person
+    action:
+      AddProperty:
+        name: verified
+        prop_type: Bool
+        required: false
+        default:
+          Bool: false

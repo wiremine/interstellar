@@ -68,8 +68,37 @@ DETACH   = @{ ^"detach" ~ !ASCII_ALPHANUMERIC }
 MERGE    = @{ ^"merge" ~ !ASCII_ALPHANUMERIC }
 ON       = @{ ^"on" ~ !ASCII_ALPHANUMERIC }
 
-// Entry point - statement which may be a read query, UNION, or mutation
-statement = { SOI ~ (mutation_statement | read_statement) ~ EOI }
+// Schema/DDL keywords
+TYPE       = @{ ^"type" ~ !ASCII_ALPHANUMERIC }
+NODE       = @{ ^"node" ~ !ASCII_ALPHANUMERIC }
+EDGE       = @{ ^"edge" ~ !ASCII_ALPHANUMERIC }
+GRAPH      = @{ ^"graph" ~ !ASCII_ALPHANUMERIC }
+FROM_KW    = @{ ^"from" ~ !ASCII_ALPHANUMERIC }
+TO_KW      = @{ ^"to" ~ !ASCII_ALPHANUMERIC }
+ALTER      = @{ ^"alter" ~ !ASCII_ALPHANUMERIC }
+DROP_KW    = @{ ^"drop" ~ !ASCII_ALPHANUMERIC }
+ADD        = @{ ^"add" ~ !ASCII_ALPHANUMERIC }
+ALLOW      = @{ ^"allow" ~ !ASCII_ALPHANUMERIC }
+ADDITIONAL = @{ ^"additional" ~ !ASCII_ALPHANUMERIC }
+PROPERTIES = @{ ^"properties" ~ !ASCII_ALPHANUMERIC }
+VALIDATION = @{ ^"validation" ~ !ASCII_ALPHANUMERIC }
+SCHEMA     = @{ ^"schema" ~ !ASCII_ALPHANUMERIC }
+STRICT     = @{ ^"strict" ~ !ASCII_ALPHANUMERIC }
+CLOSED     = @{ ^"closed" ~ !ASCII_ALPHANUMERIC }
+WARN_KW    = @{ ^"warn" ~ !ASCII_ALPHANUMERIC }
+DEFAULT    = @{ ^"default" ~ !ASCII_ALPHANUMERIC }
+
+// Property type keywords
+STRING_TYPE = @{ ^"string" ~ !ASCII_ALPHANUMERIC }
+INT_TYPE    = @{ ^"int" ~ !ASCII_ALPHANUMERIC }
+FLOAT_TYPE  = @{ ^"float" ~ !ASCII_ALPHANUMERIC }
+BOOL_TYPE   = @{ ^"bool" ~ !ASCII_ALPHANUMERIC }
+LIST_TYPE   = @{ ^"list" ~ !ASCII_ALPHANUMERIC }
+MAP_TYPE    = @{ ^"map" ~ !ASCII_ALPHANUMERIC }
+ANY_TYPE    = @{ ^"any" ~ !ASCII_ALPHANUMERIC }
+
+// Entry point - statement which may be a read query, UNION, mutation, or DDL
+statement = { SOI ~ (ddl_statement | mutation_statement | read_statement) ~ EOI }
 
 // Read-only statement (existing query structure with UNION support)
 read_statement = { query ~ (union_clause ~ query)* }
@@ -104,6 +133,107 @@ match_mutation_statement = {
 // MERGE statement - upsert operation
 // e.g., MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = 123
 merge_statement = { merge_clause ~ merge_action* ~ return_clause? }
+
+// ============================================================
+// DDL Statements (Schema Definition)
+// ============================================================
+
+ddl_statement = {
+    create_node_type
+    | create_edge_type
+    | alter_node_type
+    | alter_edge_type
+    | drop_node_type
+    | drop_edge_type
+    | set_schema_validation
+}
+
+// CREATE NODE TYPE Person (name STRING NOT NULL, age INT)
+create_node_type = {
+    CREATE ~ NODE ~ TYPE ~ identifier ~
+    "(" ~ property_def_list? ~ ")"
+}
+
+// CREATE EDGE TYPE KNOWS (since INT) FROM Person TO Person
+create_edge_type = {
+    CREATE ~ EDGE ~ TYPE ~ identifier ~
+    "(" ~ property_def_list? ~ ")" ~
+    edge_endpoint_clause
+}
+
+// FROM Person, Employee TO Company, Startup
+edge_endpoint_clause = {
+    FROM_KW ~ type_name_list ~ TO_KW ~ type_name_list
+}
+
+// Comma-separated list of type names
+type_name_list = { identifier ~ ("," ~ identifier)* }
+
+// Property definitions
+property_def_list = { property_def ~ ("," ~ property_def)* }
+
+// name STRING NOT NULL DEFAULT 'unknown'
+property_def = {
+    identifier ~ property_type ~ not_null_modifier? ~ default_modifier?
+}
+
+// NOT NULL modifier
+not_null_modifier = { NOT ~ NULL }
+
+// DEFAULT literal
+default_modifier = { DEFAULT ~ literal }
+
+// Property types
+property_type = {
+    list_type
+    | map_type
+    | STRING_TYPE
+    | INT_TYPE
+    | FLOAT_TYPE
+    | BOOL_TYPE
+    | ANY_TYPE
+}
+
+// LIST or LIST<STRING>
+list_type = { LIST_TYPE ~ ("<" ~ property_type ~ ">")? }
+
+// MAP or MAP<INT>
+map_type = { MAP_TYPE ~ ("<" ~ property_type ~ ">")? }
+
+// ALTER NODE TYPE Person ALLOW ADDITIONAL PROPERTIES
+// ALTER NODE TYPE Person ADD email STRING
+// ALTER NODE TYPE Person DROP email
+alter_node_type = {
+    ALTER ~ NODE ~ TYPE ~ identifier ~ alter_type_action
+}
+
+// ALTER EDGE TYPE KNOWS ALLOW ADDITIONAL PROPERTIES
+alter_edge_type = {
+    ALTER ~ EDGE ~ TYPE ~ identifier ~ alter_type_action
+}
+
+alter_type_action = {
+    allow_additional_properties
+    | add_property_action
+    | drop_property_action
+}
+
+allow_additional_properties = { ALLOW ~ ADDITIONAL ~ PROPERTIES }
+
+add_property_action = { ADD ~ property_def }
+
+drop_property_action = { DROP_KW ~ identifier }
+
+// DROP NODE TYPE Person
+drop_node_type = { DROP_KW ~ NODE ~ TYPE ~ identifier }
+
+// DROP EDGE TYPE KNOWS
+drop_edge_type = { DROP_KW ~ EDGE ~ TYPE ~ identifier }
+
+// SET SCHEMA VALIDATION STRICT
+set_schema_validation = { SET ~ SCHEMA ~ VALIDATION ~ validation_mode }
+
+validation_mode = { STRICT | CLOSED | WARN_KW | NONE_KW }
 
 // ============================================================
 // Mutation Clauses
@@ -469,7 +599,11 @@ keyword = {
     IN | IS | CONTAINS | STARTS | ENDS | WITH | DISTINCT | EXISTS |
     CASE | WHEN | THEN | ELSE | END | UNION | ALL | OPTIONAL |
     PATH | UNWIND | CREATE | SET | REMOVE | DELETE | DETACH | MERGE | ON | LET |
-    REDUCE | ANY_KW | NONE_KW | SINGLE | CALL
+    REDUCE | ANY_KW | NONE_KW | SINGLE | CALL |
+    // DDL keywords
+    TYPE | NODE | EDGE | GRAPH | FROM_KW | TO_KW | ALTER | DROP_KW | ADD |
+    ALLOW | ADDITIONAL | PROPERTIES | VALIDATION | SCHEMA | STRICT | CLOSED | WARN_KW | DEFAULT |
+    STRING_TYPE | INT_TYPE | FLOAT_TYPE | BOOL_TYPE | LIST_TYPE | MAP_TYPE | ANY_TYPE
 }
 
 // ============================================================

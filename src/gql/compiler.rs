@@ -362,6 +362,14 @@ pub fn compile_statement_with_params<'g>(
                 "Mutation statements require mutable graph access. Use compile_mutation() with GraphMut.".to_string(),
             ))
         }
+        Statement::Ddl(_) => {
+            // DDL statements modify the schema, not query data
+            // Use execute_ddl() instead
+            Err(CompileError::UnsupportedFeature(
+                "DDL statements modify schema, not query data. Use execute_ddl() instead."
+                    .to_string(),
+            ))
+        }
     }
 }
 
@@ -8786,13 +8794,13 @@ mod tests {
             CALL {
                 WITH p
                 MATCH (p)-[:LIKES]->(m:Movie)
-                RETURN m.title AS item, 'movie' AS type
+                RETURN m.title AS item, 'movie' AS kind
                 UNION
                 WITH p
                 MATCH (p)-[:KNOWS]->(f:Person)
-                RETURN f.name AS item, 'friend' AS type
+                RETURN f.name AS item, 'friend' AS kind
             }
-            RETURN p.name, item, type
+            RETURN p.name, item, kind
             "#,
         )
         .unwrap();

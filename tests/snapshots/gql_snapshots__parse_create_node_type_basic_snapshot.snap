@@ -1,0 +1,16 @@
+---
+source: tests/gql_snapshots.rs
+expression: stmt
+---
+Ddl:
+  CreateNodeType:
+    name: Person
+    properties:
+      - name: name
+        prop_type: String
+        required: true
+        default: ~
+      - name: age
+        prop_type: Int
+        required: false
+        default: ~

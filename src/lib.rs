@@ -370,6 +370,7 @@ pub mod algorithms;
 pub mod error;
 pub mod gql;
 pub mod graph;
+pub mod schema;
 pub mod storage;
 pub mod traversal;
 pub mod value;

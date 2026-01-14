@@ -13,7 +13,7 @@ pub const MAGIC: u32 = 0x47524D4C;
 pub const VERSION: u32 = 1;
 
 /// Size of the file header in bytes
-pub const HEADER_SIZE: usize = 104;
+pub const HEADER_SIZE: usize = 136;
 
 /// Size of a node record in bytes
 pub const NODE_RECORD_SIZE: usize = 48;
@@ -25,7 +25,7 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 // FileHeader
 // =============================================================================
 
-/// File header at offset 0 (104 bytes total)
+/// File header at offset 0 (136 bytes total)
 ///
 /// The header contains metadata about the database file, including counts,
 /// capacities, and offsets to major file sections.
@@ -49,6 +49,10 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 /// 80     | 8    | free_edge_head
 /// 88     | 8    | next_node_id
 /// 96     | 8    | next_edge_id
+/// 104    | 8    | schema_offset
+/// 112    | 8    | schema_size
+/// 120    | 4    | schema_version
+/// 124    | 12   | _schema_reserved
 /// ```
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
@@ -94,6 +98,18 @@ pub struct FileHeader {
 
     /// Next edge ID to allocate (high-water mark for iteration)
     pub next_edge_id: u64,
+
+    /// Byte offset to schema region (0 = no schema)
+    pub schema_offset: u64,
+
+    /// Size of schema data in bytes
+    pub schema_size: u64,
+
+    /// Schema format version for compatibility checking
+    pub schema_version: u32,
+
+    /// Reserved for future schema-related fields
+    pub _schema_reserved: [u8; 12],
 }
 
 impl FileHeader {
@@ -114,6 +130,10 @@ impl FileHeader {
             free_edge_head: u64::MAX,
             next_node_id: 0,
             next_edge_id: 0,
+            schema_offset: 0,
+            schema_size: 0,
+            schema_version: 0,
+            _schema_reserved: [0u8; 12],
         }
     }
 
@@ -578,11 +598,11 @@ mod tests {
 
     #[test]
     fn test_file_header_size() {
-        // FileHeader must be exactly 104 bytes
+        // FileHeader must be exactly 136 bytes
         assert_eq!(
             std::mem::size_of::<FileHeader>(),
             HEADER_SIZE,
-            "FileHeader size must be exactly 104 bytes"
+            "FileHeader size must be exactly 136 bytes"
         );
     }
 
@@ -591,13 +611,15 @@ mod tests {
         // Verify the packed struct has expected layout
 
         // magic and version are u32 (4 bytes each) = 8 bytes
-        // 12 u64 fields (12 × 8 bytes) = 96 bytes
-        // Total: 8 + 96 = 104 bytes
+        // 14 u64 fields (14 × 8 bytes) = 112 bytes
+        // 1 u32 field (schema_version) = 4 bytes
+        // 1 [u8; 12] field (_schema_reserved) = 12 bytes
+        // Total: 8 + 112 + 4 + 12 = 136 bytes
 
         assert_eq!(
             std::mem::size_of::<FileHeader>(),
-            4 + 4 + (12 * 8),
-            "FileHeader fields should sum to 104 bytes"
+            4 + 4 + (14 * 8) + 4 + 12,
+            "FileHeader fields should sum to 136 bytes"
         );
     }
 
@@ -620,6 +642,9 @@ mod tests {
         let free_edge_head = header.free_edge_head;
         let next_node_id = header.next_node_id;
         let next_edge_id = header.next_edge_id;
+        let schema_offset = header.schema_offset;
+        let schema_size = header.schema_size;
+        let schema_version = header.schema_version;
 
         assert_eq!(magic, MAGIC);
         assert_eq!(version, VERSION);
@@ -635,6 +660,9 @@ mod tests {
         assert_eq!(free_edge_head, u64::MAX);
         assert_eq!(next_node_id, 0);
         assert_eq!(next_edge_id, 0);
+        assert_eq!(schema_offset, 0);
+        assert_eq!(schema_size, 0);
+        assert_eq!(schema_version, 0);
     }
 
     #[test]
@@ -653,6 +681,9 @@ mod tests {
         header.free_edge_head = 99;
         header.next_node_id = 150;
         header.next_edge_id = 600;
+        header.schema_offset = 900000;
+        header.schema_size = 2048;
+        header.schema_version = 1;
 
         // Copy original values
         let orig_magic = header.magic;
@@ -669,6 +700,9 @@ mod tests {
         let orig_free_edge_head = header.free_edge_head;
         let orig_next_node_id = header.next_node_id;
         let orig_next_edge_id = header.next_edge_id;
+        let orig_schema_offset = header.schema_offset;
+        let orig_schema_size = header.schema_size;
+        let orig_schema_version = header.schema_version;
 
         // Convert to bytes
         let bytes = header.to_bytes();
@@ -694,6 +728,9 @@ mod tests {
         let rec_free_edge_head = recovered.free_edge_head;
         let rec_next_node_id = recovered.next_node_id;
         let rec_next_edge_id = recovered.next_edge_id;
+        let rec_schema_offset = recovered.schema_offset;
+        let rec_schema_size = recovered.schema_size;
+        let rec_schema_version = recovered.schema_version;
 
         // Verify all fields match
         assert_eq!(rec_magic, orig_magic);
@@ -710,6 +747,9 @@ mod tests {
         assert_eq!(rec_free_edge_head, orig_free_edge_head);
         assert_eq!(rec_next_node_id, orig_next_node_id);
         assert_eq!(rec_next_edge_id, orig_next_edge_id);
+        assert_eq!(rec_schema_offset, orig_schema_offset);
+        assert_eq!(rec_schema_size, orig_schema_size);
+        assert_eq!(rec_schema_version, orig_schema_version);
     }
 
     #[test]
@@ -754,7 +794,7 @@ mod tests {
     fn test_constants() {
         assert_eq!(MAGIC, 0x47524D4C); // "GRML"
         assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 104);
+        assert_eq!(HEADER_SIZE, 136);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
     }
@@ -1367,7 +1407,7 @@ mod tests {
         // Verify all constant values are as specified
         assert_eq!(MAGIC, 0x47524D4C);
         assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 104);
+        assert_eq!(HEADER_SIZE, 136);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
         assert_eq!(PROPERTY_ENTRY_HEADER_SIZE, 17);

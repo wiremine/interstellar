@@ -3070,6 +3070,189 @@ impl MmapGraph {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Schema Persistence
+    // =========================================================================
+
+    /// Load the schema from the database file.
+    ///
+    /// Returns `None` if no schema has been saved, or `Some(schema)` if one exists.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::InvalidFormat`] - Schema data is corrupted
+    /// - [`StorageError::Io`] - I/O error reading from file
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use intersteller::storage::MmapGraph;
+    ///
+    /// let graph = MmapGraph::open("my_graph.db").unwrap();
+    /// if let Some(schema) = graph.load_schema().unwrap() {
+    ///     println!("Schema mode: {:?}", schema.mode);
+    /// }
+    /// ```
+    pub fn load_schema(&self) -> Result<Option<crate::schema::GraphSchema>, StorageError> {
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        // Check if schema exists
+        if header.schema_offset == 0 || header.schema_size == 0 {
+            return Ok(None);
+        }
+
+        let offset = header.schema_offset as usize;
+        let size = header.schema_size as usize;
+
+        // Verify bounds
+        if offset + size > mmap.len() {
+            return Err(StorageError::InvalidFormat);
+        }
+
+        // Read schema data from mmap
+        let schema_data = &mmap[offset..offset + size];
+
+        // Deserialize
+        let schema = crate::schema::deserialize_schema(schema_data)
+            .map_err(|_e| StorageError::InvalidFormat)?;
+
+        Ok(Some(schema))
+    }
+
+    /// Save a schema to the database file.
+    ///
+    /// The schema is serialized and stored in a region after the string table.
+    /// The operation is logged to the WAL for durability.
+    ///
+    /// # Arguments
+    ///
+    /// * `schema` - The graph schema to save
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error writing to file
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use intersteller::storage::MmapGraph;
+    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    ///
+    /// let graph = MmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// let schema = SchemaBuilder::new()
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// graph.save_schema(&schema).unwrap();
+    /// ```
+    pub fn save_schema(&self, schema: &crate::schema::GraphSchema) -> Result<(), StorageError> {
+        // Serialize the schema
+        let schema_data = crate::schema::serialize_schema(schema);
+
+        // Get current file state
+        let file = self.file.read();
+        let metadata = file.metadata()?;
+        let current_file_size = metadata.len();
+        drop(file);
+
+        // Read header to get current layout
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        // Determine where to write the schema
+        // Schema goes after the string table end
+        let schema_offset = header.string_table_end.max(
+            header.property_arena_offset + 64 * 1024, // After arena at minimum
+        );
+
+        // Ensure file is large enough
+        let required_size = schema_offset + schema_data.len() as u64;
+        if required_size > current_file_size {
+            let file = self.file.read();
+            file.set_len(required_size)?;
+            drop(file);
+        }
+
+        // Log to WAL first for durability
+        {
+            let mut wal = self.wal.write();
+            let tx_id = wal.begin_transaction()?;
+            wal.log(WalEntry::SchemaUpdate {
+                offset: schema_offset,
+                data: schema_data.clone(),
+            })?;
+            wal.log(WalEntry::CommitTx { tx_id })?;
+            wal.sync()?;
+        }
+
+        // Write schema data to file
+        {
+            let file = self.file.read();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileExt;
+                file.write_all_at(&schema_data, schema_offset)?;
+            }
+
+            #[cfg(not(unix))]
+            {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut file = &*file;
+                file.seek(SeekFrom::Start(schema_offset))?;
+                file.write_all(&schema_data)?;
+            }
+        }
+
+        // Update header with schema location
+        header.schema_offset = schema_offset;
+        header.schema_size = schema_data.len() as u64;
+        header.schema_version = crate::schema::SCHEMA_FORMAT_VERSION;
+
+        let file = self.file.read();
+        Self::write_header(&file, &header)?;
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see changes
+        self.remap()?;
+
+        Ok(())
+    }
+
+    /// Remove the schema from the database.
+    ///
+    /// This clears the schema metadata in the header but does not reclaim the
+    /// disk space used by the schema data.
+    ///
+    /// # Errors
+    ///
+    /// - [`StorageError::Io`] - I/O error writing to file
+    pub fn clear_schema(&self) -> Result<(), StorageError> {
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        // Clear schema fields
+        header.schema_offset = 0;
+        header.schema_size = 0;
+        header.schema_version = 0;
+
+        let file = self.file.read();
+        Self::write_header(&file, &header)?;
+        file.sync_data()?;
+        drop(file);
+
+        // Remap to see changes
+        self.remap()?;
+
+        Ok(())
+    }
 }
 
 // =========================================================================
@@ -8436,5 +8619,203 @@ mod tests {
 
         let edge_ids: Vec<_> = graph.all_edges().map(|e| e.id).collect();
         assert!(edge_ids.contains(&e3));
+    }
+
+    // =========================================================================
+    // Schema Persistence Tests
+    // =========================================================================
+
+    #[test]
+    fn test_load_schema_returns_none_when_no_schema() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        let result = graph.load_schema().unwrap();
+        assert!(result.is_none(), "Should return None when no schema saved");
+    }
+
+    #[test]
+    fn test_save_and_load_schema_roundtrip() {
+        use crate::schema::{PropertyType, SchemaBuilder, ValidationMode};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create a schema
+        let schema = SchemaBuilder::new()
+            .mode(ValidationMode::Strict)
+            .vertex("Person")
+            .property("name", PropertyType::String)
+            .property("age", PropertyType::Int)
+            .done()
+            .vertex("Company")
+            .property("name", PropertyType::String)
+            .done()
+            .edge("WORKS_AT")
+            .from(&["Person"])
+            .to(&["Company"])
+            .property("since", PropertyType::Int)
+            .done()
+            .build();
+
+        // Save schema
+        graph.save_schema(&schema).unwrap();
+
+        // Load schema back
+        let loaded = graph.load_schema().unwrap().expect("Schema should exist");
+
+        // Verify contents
+        assert_eq!(loaded.mode, ValidationMode::Strict);
+        assert!(loaded.vertex_schemas.contains_key("Person"));
+        assert!(loaded.vertex_schemas.contains_key("Company"));
+        assert!(loaded.edge_schemas.contains_key("WORKS_AT"));
+
+        let person = &loaded.vertex_schemas["Person"];
+        assert!(person.properties.contains_key("name"));
+        assert!(person.properties.contains_key("age"));
+    }
+
+    #[test]
+    fn test_schema_persists_across_reopen() {
+        use crate::schema::{PropertyType, SchemaBuilder, ValidationMode};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        // Create and save schema
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+
+            let schema = SchemaBuilder::new()
+                .mode(ValidationMode::Warn)
+                .vertex("User")
+                .property("email", PropertyType::String)
+                .done()
+                .build();
+
+            graph.save_schema(&schema).unwrap();
+        }
+
+        // Reopen and verify
+        {
+            let graph = MmapGraph::open(&path).unwrap();
+            let loaded = graph.load_schema().unwrap().expect("Schema should exist");
+
+            assert_eq!(loaded.mode, ValidationMode::Warn);
+            assert!(loaded.vertex_schemas.contains_key("User"));
+
+            let user = &loaded.vertex_schemas["User"];
+            let email_prop = &user.properties["email"];
+            assert!(email_prop.required);
+        }
+    }
+
+    #[test]
+    fn test_clear_schema() {
+        use crate::schema::{PropertyType, SchemaBuilder};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Save a schema
+        let schema = SchemaBuilder::new()
+            .vertex("Test")
+            .property("name", PropertyType::String)
+            .done()
+            .build();
+
+        graph.save_schema(&schema).unwrap();
+        assert!(graph.load_schema().unwrap().is_some());
+
+        // Clear the schema
+        graph.clear_schema().unwrap();
+        assert!(graph.load_schema().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_schema_with_complex_types() {
+        use crate::schema::{PropertyType, SchemaBuilder, ValidationMode};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Create schema with complex types
+        let schema = SchemaBuilder::new()
+            .mode(ValidationMode::Strict)
+            .vertex("Document")
+            .property(
+                "tags",
+                PropertyType::List(Some(Box::new(PropertyType::String))),
+            )
+            .property(
+                "metadata",
+                PropertyType::Map(Some(Box::new(PropertyType::String))),
+            )
+            .property("data", PropertyType::Any)
+            .done()
+            .build();
+
+        // Save and reload
+        graph.save_schema(&schema).unwrap();
+        let loaded = graph.load_schema().unwrap().expect("Schema should exist");
+
+        let doc = &loaded.vertex_schemas["Document"];
+
+        // Verify complex types
+        match &doc.properties["tags"].value_type {
+            PropertyType::List(Some(inner)) => {
+                assert!(matches!(inner.as_ref(), PropertyType::String));
+            }
+            _ => panic!("Expected List(String)"),
+        }
+
+        match &doc.properties["metadata"].value_type {
+            PropertyType::Map(Some(inner)) => {
+                assert!(matches!(inner.as_ref(), PropertyType::String));
+            }
+            _ => panic!("Expected Map(String)"),
+        }
+
+        assert!(matches!(
+            doc.properties["data"].value_type,
+            PropertyType::Any
+        ));
+    }
+
+    #[test]
+    fn test_schema_overwrite() {
+        use crate::schema::{PropertyType, SchemaBuilder, ValidationMode};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let graph = MmapGraph::open(&path).unwrap();
+
+        // Save first schema
+        let schema1 = SchemaBuilder::new()
+            .mode(ValidationMode::None)
+            .vertex("A")
+            .property("x", PropertyType::Int)
+            .done()
+            .build();
+        graph.save_schema(&schema1).unwrap();
+
+        // Save second schema (overwrite)
+        let schema2 = SchemaBuilder::new()
+            .mode(ValidationMode::Strict)
+            .vertex("B")
+            .property("y", PropertyType::String)
+            .done()
+            .build();
+        graph.save_schema(&schema2).unwrap();
+
+        // Verify second schema is loaded
+        let loaded = graph.load_schema().unwrap().expect("Schema should exist");
+        assert_eq!(loaded.mode, ValidationMode::Strict);
+        assert!(!loaded.vertex_schemas.contains_key("A"));
+        assert!(loaded.vertex_schemas.contains_key("B"));
     }
 }

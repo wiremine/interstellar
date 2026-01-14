@@ -885,3 +885,220 @@ fn test_parse_introspection_combined_snapshot() {
     .unwrap();
     assert_yaml_snapshot!(ast);
 }
+
+// =============================================================================
+// DDL Statement Parsing Snapshots (GQL Schema)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// CREATE NODE TYPE Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_create_node_type_basic_snapshot() {
+    let stmt = parse_statement("CREATE NODE TYPE Person (name STRING NOT NULL, age INT)").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_empty_snapshot() {
+    let stmt = parse_statement("CREATE NODE TYPE Tag ()").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_with_default_snapshot() {
+    let stmt = parse_statement(
+        "CREATE NODE TYPE Person (name STRING NOT NULL, age INT, active BOOL DEFAULT true)",
+    )
+    .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_all_types_snapshot() {
+    let stmt = parse_statement(
+        "CREATE NODE TYPE DataContainer (str STRING, num INT, flt FLOAT, flag BOOL, anything ANY)",
+    )
+    .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_list_type_snapshot() {
+    let stmt =
+        parse_statement("CREATE NODE TYPE Product (name STRING NOT NULL, tags LIST)").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_list_typed_snapshot() {
+    let stmt =
+        parse_statement("CREATE NODE TYPE Product (name STRING NOT NULL, tags LIST<STRING>)")
+            .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_map_type_snapshot() {
+    let stmt =
+        parse_statement("CREATE NODE TYPE Product (name STRING NOT NULL, metadata MAP)").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_node_type_map_typed_snapshot() {
+    let stmt =
+        parse_statement("CREATE NODE TYPE Product (name STRING NOT NULL, metadata MAP<ANY>)")
+            .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// CREATE EDGE TYPE Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_create_edge_type_basic_snapshot() {
+    let stmt = parse_statement("CREATE EDGE TYPE KNOWS (since INT) FROM Person TO Person").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_edge_type_empty_props_snapshot() {
+    let stmt = parse_statement("CREATE EDGE TYPE FOLLOWS () FROM Person TO Person").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_edge_type_with_default_snapshot() {
+    let stmt = parse_statement(
+        "CREATE EDGE TYPE KNOWS (since INT, weight FLOAT DEFAULT 1.0) FROM Person TO Person",
+    )
+    .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_edge_type_multiple_sources_snapshot() {
+    let stmt = parse_statement(
+        "CREATE EDGE TYPE TAGGED (created_at INT NOT NULL) FROM Post, Comment, Photo TO Tag",
+    )
+    .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_create_edge_type_different_types_snapshot() {
+    let stmt = parse_statement(
+        "CREATE EDGE TYPE WORKS_AT (role STRING NOT NULL, start_date INT) FROM Person TO Company",
+    )
+    .unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// ALTER TYPE Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_alter_node_type_allow_additional_snapshot() {
+    let stmt = parse_statement("ALTER NODE TYPE Person ALLOW ADDITIONAL PROPERTIES").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_alter_node_type_add_property_snapshot() {
+    let stmt = parse_statement("ALTER NODE TYPE Person ADD bio STRING").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_alter_node_type_add_property_with_default_snapshot() {
+    let stmt = parse_statement("ALTER NODE TYPE Person ADD verified BOOL DEFAULT false").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_alter_node_type_drop_property_snapshot() {
+    let stmt = parse_statement("ALTER NODE TYPE Person DROP bio").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_alter_edge_type_allow_additional_snapshot() {
+    let stmt = parse_statement("ALTER EDGE TYPE KNOWS ALLOW ADDITIONAL PROPERTIES").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_alter_edge_type_add_property_snapshot() {
+    let stmt = parse_statement("ALTER EDGE TYPE KNOWS ADD notes STRING").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_alter_edge_type_drop_property_snapshot() {
+    let stmt = parse_statement("ALTER EDGE TYPE KNOWS DROP notes").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// DROP TYPE Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_drop_node_type_snapshot() {
+    let stmt = parse_statement("DROP NODE TYPE Person").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_drop_edge_type_snapshot() {
+    let stmt = parse_statement("DROP EDGE TYPE KNOWS").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// SET SCHEMA VALIDATION Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_set_schema_validation_none_snapshot() {
+    let stmt = parse_statement("SET SCHEMA VALIDATION NONE").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_set_schema_validation_warn_snapshot() {
+    let stmt = parse_statement("SET SCHEMA VALIDATION WARN").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_set_schema_validation_strict_snapshot() {
+    let stmt = parse_statement("SET SCHEMA VALIDATION STRICT").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_set_schema_validation_closed_snapshot() {
+    let stmt = parse_statement("SET SCHEMA VALIDATION CLOSED").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+// -----------------------------------------------------------------------------
+// Case Insensitivity Tests for DDL
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_parse_ddl_case_insensitive_snapshot() {
+    let stmt = parse_statement("create node type person (name string not null, age int)").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
+
+#[test]
+fn test_parse_ddl_mixed_case_snapshot() {
+    let stmt = parse_statement("Create Edge Type KNOWS (since Int) From Person To Person").unwrap();
+    assert_yaml_snapshot!(stmt);
+}
