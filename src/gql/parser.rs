@@ -1813,19 +1813,220 @@ fn build_power(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseErr
 fn build_unary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
     let pair_span = span_from_pair(&pair);
     let mut negated = false;
-    let mut primary_pair = None;
+    let mut postfix_pair = None;
 
     for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::neg_op => negated = true,
-            Rule::primary => primary_pair = Some(inner),
+            Rule::postfix_expr => postfix_pair = Some(inner),
+            // Fallback for backward compatibility (in case grammar changes)
+            Rule::primary => postfix_pair = Some(inner),
             _ => {}
         }
     }
 
-    let expr = build_primary(
-        primary_pair.ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?,
+    let expr = build_postfix_expr(
+        postfix_pair.ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?,
     )?;
+
+    if negated {
+        Ok(Expression::UnaryOp {
+            op: UnaryOperator::Neg,
+            expr: Box::new(expr),
+        })
+    } else {
+        Ok(expr)
+    }
+}
+
+/// Build a postfix expression from a pest pair.
+///
+/// Grammar: `postfix_expr = { primary ~ index_access* }`
+///
+/// Handles chained index and slice access on expressions:
+/// - `list[0]` - single index
+/// - `list[1..3]` - slice
+/// - `matrix[0][1]` - chained indexing
+/// - `p.scores[-1]` - negative index on property
+fn build_postfix_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+
+    // If this is just a primary (backward compatibility), handle it directly
+    if pair.as_rule() == Rule::primary {
+        return build_primary(pair);
+    }
+
+    let mut inner = pair.into_inner();
+
+    // First element must be a primary expression
+    let primary_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("primary expression", pair_span))?;
+    let mut expr = build_primary(primary_pair)?;
+
+    // Apply any index/slice accesses
+    for access in inner {
+        if access.as_rule() == Rule::index_access {
+            expr = build_index_access(expr, access)?;
+        }
+    }
+
+    Ok(expr)
+}
+
+/// Build an index or slice access from a pest pair.
+///
+/// Grammar: `index_access = { "[" ~ (slice_range | expression) ~ "]" }`
+///
+/// Determines whether this is an index access `[expr]` or slice access `[start..end]`
+/// and builds the appropriate AST node.
+fn build_index_access(
+    list: Expression,
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("index or slice", pair_span))?;
+
+    match inner.as_rule() {
+        Rule::slice_range => {
+            // This is a slice: list[start..end]
+            let (start, end) = build_slice_range(inner)?;
+            Ok(Expression::Slice {
+                list: Box::new(list),
+                start,
+                end,
+            })
+        }
+        Rule::expression => {
+            // This is an index: list[expr]
+            let index = build_expression(inner)?;
+            Ok(Expression::Index {
+                list: Box::new(list),
+                index: Box::new(index),
+            })
+        }
+        _ => Err(ParseError::unexpected_token(
+            span_from_pair(&inner),
+            inner.as_str(),
+            "slice range or expression",
+        )),
+    }
+}
+
+/// Build a slice range from a pest pair.
+///
+/// Grammar: `slice_range = { slice_start? ~ ".." ~ slice_end? }`
+///
+/// Returns (start, end) where each is an optional boxed expression.
+fn build_slice_range(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<(Option<Box<Expression>>, Option<Box<Expression>>), ParseError> {
+    let mut start = None;
+    let mut end = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::slice_start => {
+                start = Some(Box::new(build_slice_bound(inner)?));
+            }
+            Rule::slice_end => {
+                end = Some(Box::new(build_slice_bound(inner)?));
+            }
+            _ => {}
+        }
+    }
+
+    Ok((start, end))
+}
+
+/// Build a slice bound expression (start or end).
+///
+/// Grammar: `slice_start = { slice_atom ~ (add_op ~ slice_atom)* }`
+///
+/// Supports arithmetic expressions like `-1`, `n + 1`, `len(list) - 2`, etc.
+fn build_slice_bound(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut children: Vec<_> = pair.into_inner().collect();
+
+    if children.is_empty() {
+        return Err(ParseError::missing_clause("slice bound", pair_span));
+    }
+
+    // First element is a slice_atom
+    let first = children.remove(0);
+    let mut left = build_slice_atom(first)?;
+
+    // Process remaining: add_op, slice_atom, add_op, slice_atom, ...
+    let mut iter = children.into_iter();
+    while let Some(op_pair) = iter.next() {
+        if op_pair.as_rule() == Rule::add_op {
+            let op_span = span_from_pair(&op_pair);
+            let op = match op_pair.as_str() {
+                "+" => BinaryOperator::Add,
+                "-" => BinaryOperator::Sub,
+                _ => {
+                    return Err(ParseError::unexpected_token(
+                        op_span,
+                        op_pair.as_str(),
+                        "+ or -",
+                    ))
+                }
+            };
+            if let Some(right_pair) = iter.next() {
+                let right = build_slice_atom(right_pair)?;
+                left = Expression::BinaryOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+            }
+        }
+    }
+
+    Ok(left)
+}
+
+/// Build a slice atom (the basic units in slice bounds).
+///
+/// Grammar: `slice_atom = { neg_op? ~ (function_call | literal | property_access | variable | "(" ~ expression ~ ")") }`
+///
+/// Handles negation and the allowed primary expressions in slice bounds.
+fn build_slice_atom(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut negated = false;
+    let mut expr = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::neg_op => negated = true,
+            Rule::function_call => expr = Some(build_function_call(inner)?),
+            Rule::literal => expr = Some(Expression::Literal(build_literal(inner)?)),
+            Rule::property_access => {
+                let span = span_from_pair(&inner);
+                let mut parts = inner.into_inner();
+                let variable = parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                    .as_str()
+                    .to_string();
+                let property = parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("property", span))?
+                    .as_str()
+                    .to_string();
+                expr = Some(Expression::Property { variable, property });
+            }
+            Rule::variable => expr = Some(Expression::Variable(inner.as_str().to_string())),
+            Rule::expression => expr = Some(build_expression(inner)?),
+            _ => {}
+        }
+    }
+
+    let expr =
+        expr.ok_or_else(|| ParseError::missing_clause("slice atom expression", pair_span))?;
 
     if negated {
         Ok(Expression::UnaryOp {
@@ -5222,6 +5423,324 @@ mod tests {
             assert_eq!(importing.items[0].alias, Some("person".to_string()));
         } else {
             panic!("Expected Single CallBody");
+        }
+    }
+
+    // ============================================
+    // List Index and Slice Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_index_access_literal() {
+        // Index access on a list literal
+        let query = parse("MATCH (n) RETURN [1, 2, 3][0]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Index { list, index } = &query.return_clause.items[0].expression {
+            // List should be a list literal [1, 2, 3]
+            if let Expression::List(items) = list.as_ref() {
+                assert_eq!(items.len(), 3);
+            } else {
+                panic!("Expected list literal");
+            }
+            // Index should be integer literal 0
+            if let Expression::Literal(Literal::Int(i)) = index.as_ref() {
+                assert_eq!(*i, 0);
+            } else {
+                panic!("Expected integer literal index");
+            }
+        } else {
+            panic!("Expected Index expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_access_property() {
+        // Index access on a property
+        let query = parse("MATCH (p:Person) RETURN p.scores[0]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Index { list, index } = &query.return_clause.items[0].expression {
+            // List should be property access p.scores
+            if let Expression::Property { variable, property } = list.as_ref() {
+                assert_eq!(variable, "p");
+                assert_eq!(property, "scores");
+            } else {
+                panic!("Expected property access for list");
+            }
+            // Index should be integer literal 0
+            if let Expression::Literal(Literal::Int(i)) = index.as_ref() {
+                assert_eq!(*i, 0);
+            } else {
+                panic!("Expected integer literal index");
+            }
+        } else {
+            panic!("Expected Index expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_access_negative() {
+        // Negative index access
+        let query = parse("MATCH (n) RETURN [1, 2, 3][-1]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Index { index, .. } = &query.return_clause.items[0].expression {
+            // Index should be unary negation of 1
+            if let Expression::UnaryOp { op, expr } = index.as_ref() {
+                assert!(matches!(op, UnaryOperator::Neg));
+                if let Expression::Literal(Literal::Int(i)) = expr.as_ref() {
+                    assert_eq!(*i, 1);
+                } else {
+                    panic!("Expected integer literal in negation");
+                }
+            } else {
+                panic!("Expected unary negation for negative index");
+            }
+        } else {
+            panic!("Expected Index expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_full_range() {
+        // Full slice with start and end
+        let query = parse("MATCH (n) RETURN [1, 2, 3, 4][1..3]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { list, start, end } = &query.return_clause.items[0].expression {
+            // List should be [1, 2, 3, 4]
+            if let Expression::List(items) = list.as_ref() {
+                assert_eq!(items.len(), 4);
+            } else {
+                panic!("Expected list literal");
+            }
+            // Start should be 1
+            assert!(start.is_some());
+            if let Expression::Literal(Literal::Int(s)) = start.as_ref().unwrap().as_ref() {
+                assert_eq!(*s, 1);
+            } else {
+                panic!("Expected integer literal for start");
+            }
+            // End should be 3
+            assert!(end.is_some());
+            if let Expression::Literal(Literal::Int(e)) = end.as_ref().unwrap().as_ref() {
+                assert_eq!(*e, 3);
+            } else {
+                panic!("Expected integer literal for end");
+            }
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_open_start() {
+        // Slice with only end: [..3]
+        let query = parse("MATCH (n) RETURN [1, 2, 3, 4][..3]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { start, end, .. } = &query.return_clause.items[0].expression {
+            assert!(start.is_none(), "Start should be None");
+            assert!(end.is_some(), "End should be Some");
+            if let Expression::Literal(Literal::Int(e)) = end.as_ref().unwrap().as_ref() {
+                assert_eq!(*e, 3);
+            }
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_open_end() {
+        // Slice with only start: [2..]
+        let query = parse("MATCH (n) RETURN [1, 2, 3, 4][2..]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { start, end, .. } = &query.return_clause.items[0].expression {
+            assert!(start.is_some(), "Start should be Some");
+            assert!(end.is_none(), "End should be None");
+            if let Expression::Literal(Literal::Int(s)) = start.as_ref().unwrap().as_ref() {
+                assert_eq!(*s, 2);
+            }
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_fully_open() {
+        // Full copy slice: [..]
+        let query = parse("MATCH (n) RETURN [1, 2, 3][..]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { start, end, .. } = &query.return_clause.items[0].expression {
+            assert!(start.is_none(), "Start should be None");
+            assert!(end.is_none(), "End should be None");
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_negative_indices() {
+        // Slice with negative start: [-3..]
+        let query = parse("MATCH (n) RETURN [1, 2, 3, 4, 5][-3..]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { start, end, .. } = &query.return_clause.items[0].expression {
+            assert!(start.is_some(), "Start should be Some");
+            assert!(end.is_none(), "End should be None");
+            // Start should be -3 (unary negation of 3)
+            if let Expression::UnaryOp { op, expr } = start.as_ref().unwrap().as_ref() {
+                assert!(matches!(op, UnaryOperator::Neg));
+                if let Expression::Literal(Literal::Int(i)) = expr.as_ref() {
+                    assert_eq!(*i, 3);
+                }
+            } else {
+                panic!("Expected unary negation for negative start");
+            }
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_negative_end() {
+        // Slice with negative end: [..-1]
+        let query = parse("MATCH (n) RETURN [1, 2, 3, 4][..-1]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { start, end, .. } = &query.return_clause.items[0].expression {
+            assert!(start.is_none(), "Start should be None");
+            assert!(end.is_some(), "End should be Some");
+            // End should be -1 (unary negation of 1)
+            if let Expression::UnaryOp { op, expr } = end.as_ref().unwrap().as_ref() {
+                assert!(matches!(op, UnaryOperator::Neg));
+                if let Expression::Literal(Literal::Int(i)) = expr.as_ref() {
+                    assert_eq!(*i, 1);
+                }
+            } else {
+                panic!("Expected unary negation for negative end");
+            }
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_chained_index() {
+        // Chained index access: matrix[0][1]
+        let query = parse("MATCH (n) RETURN [[1, 2], [3, 4]][0][1]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        // Should be Index { list: Index { list: [[1,2],[3,4]], index: 0 }, index: 1 }
+        if let Expression::Index { list, index } = &query.return_clause.items[0].expression {
+            // Inner should also be an Index expression
+            if let Expression::Index {
+                list: inner_list, ..
+            } = list.as_ref()
+            {
+                if let Expression::List(items) = inner_list.as_ref() {
+                    assert_eq!(items.len(), 2);
+                } else {
+                    panic!("Expected nested list literal");
+                }
+            } else {
+                panic!("Expected inner Index expression");
+            }
+            // Outer index should be 1
+            if let Expression::Literal(Literal::Int(i)) = index.as_ref() {
+                assert_eq!(*i, 1);
+            } else {
+                panic!("Expected integer literal for outer index");
+            }
+        } else {
+            panic!("Expected Index expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_on_variable() {
+        // Index access on a variable
+        let query = parse("MATCH (n) RETURN n[0]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Index { list, index } = &query.return_clause.items[0].expression {
+            if let Expression::Variable(var) = list.as_ref() {
+                assert_eq!(var, "n");
+            } else {
+                panic!("Expected variable for list");
+            }
+            if let Expression::Literal(Literal::Int(i)) = index.as_ref() {
+                assert_eq!(*i, 0);
+            }
+        } else {
+            panic!("Expected Index expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_with_expression() {
+        // Index access with expression as index: list[n + 1]
+        let query = parse("MATCH (n) RETURN [1, 2, 3][1 + 1]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Index { index, .. } = &query.return_clause.items[0].expression {
+            if let Expression::BinaryOp { op, .. } = index.as_ref() {
+                assert!(matches!(op, BinaryOperator::Add));
+            } else {
+                panic!("Expected binary op in index expression");
+            }
+        } else {
+            panic!("Expected Index expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_slice_on_property() {
+        // Slice on a property: p.history[..10]
+        let query = parse("MATCH (p:Person) RETURN p.history[..10]").unwrap();
+        assert_eq!(query.return_clause.items.len(), 1);
+
+        if let Expression::Slice { list, start, end } = &query.return_clause.items[0].expression {
+            if let Expression::Property { variable, property } = list.as_ref() {
+                assert_eq!(variable, "p");
+                assert_eq!(property, "history");
+            } else {
+                panic!("Expected property access for list");
+            }
+            assert!(start.is_none());
+            assert!(end.is_some());
+        } else {
+            panic!("Expected Slice expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_in_where() {
+        // Index access in WHERE clause
+        let query = parse("MATCH (p:Person) WHERE p.tags[0] = 'admin' RETURN p").unwrap();
+        assert!(query.where_clause.is_some());
+
+        let where_clause = query.where_clause.unwrap();
+        if let Expression::BinaryOp { left, op, .. } = where_clause.expression {
+            assert!(matches!(op, BinaryOperator::Eq));
+            if let Expression::Index { list, index } = *left {
+                if let Expression::Property { variable, property } = *list {
+                    assert_eq!(variable, "p");
+                    assert_eq!(property, "tags");
+                } else {
+                    panic!("Expected property access");
+                }
+                if let Expression::Literal(Literal::Int(i)) = *index {
+                    assert_eq!(i, 0);
+                }
+            } else {
+                panic!("Expected Index expression on left of comparison");
+            }
+        } else {
+            panic!("Expected BinaryOp");
         }
     }
 }

@@ -5034,6 +5034,10 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 condition,
                 element,
             ),
+            Expression::Index { list, index } => self.evaluate_index(list, index, element),
+            Expression::Slice { list, start, end } => {
+                self.evaluate_slice(list, start.as_deref(), end.as_deref(), element)
+            }
             _ => Value::Null, // Unsupported expressions
         }
     }
@@ -5179,6 +5183,151 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         }
 
         Value::List(results)
+    }
+
+    /// Evaluate an index access expression: `list[index]`
+    ///
+    /// Accesses a single element from a list by index.
+    /// - Indices are 0-based.
+    /// - Negative indices count from the end: `-1` is last, `-2` is second-to-last, etc.
+    /// - Out-of-bounds indices return NULL.
+    /// - Non-list inputs return NULL.
+    /// - Non-integer indices return NULL.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// [1, 2, 3][0]  => 1
+    /// [1, 2, 3][-1] => 3
+    /// [1, 2, 3][5]  => NULL
+    /// ```
+    fn evaluate_index(
+        &self,
+        list_expr: &Expression,
+        index_expr: &Expression,
+        element: &Value,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_value(list_expr, element);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        // Evaluate the index expression
+        let index_value = self.evaluate_value(index_expr, element);
+
+        // Index must be an integer
+        let index = match index_value {
+            Value::Int(i) => i,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        let len = items.len() as i64;
+
+        // Handle negative indices (count from end)
+        let resolved_index = if index < 0 {
+            len + index // -1 becomes len-1, etc.
+        } else {
+            index
+        };
+
+        // Bounds check
+        if resolved_index < 0 || resolved_index >= len {
+            return Value::Null;
+        }
+
+        items
+            .into_iter()
+            .nth(resolved_index as usize)
+            .unwrap_or(Value::Null)
+    }
+
+    /// Evaluate a slice access expression: `list[start..end]`
+    ///
+    /// Extracts a sublist from start (inclusive) to end (exclusive).
+    /// - Omitted bounds default to start of list or end of list.
+    /// - Negative indices are supported.
+    /// - Out-of-bounds indices are clamped (no error).
+    /// - Non-list inputs return NULL.
+    /// - Non-integer bounds return NULL.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// [1, 2, 3, 4][1..3]  => [2, 3]
+    /// [1, 2, 3, 4][..2]   => [1, 2]
+    /// [1, 2, 3, 4][2..]   => [3, 4]
+    /// [1, 2, 3, 4][-2..]  => [3, 4]
+    /// [1, 2, 3, 4][..-1]  => [1, 2, 3]
+    /// [1, 2, 3, 4][10..20] => []
+    /// ```
+    fn evaluate_slice(
+        &self,
+        list_expr: &Expression,
+        start_expr: Option<&Expression>,
+        end_expr: Option<&Expression>,
+        element: &Value,
+    ) -> Value {
+        // Evaluate the list expression
+        let list_value = self.evaluate_value(list_expr, element);
+
+        // Handle non-list inputs
+        let items = match list_value {
+            Value::List(items) => items,
+            Value::Null => return Value::Null,
+            _ => return Value::Null,
+        };
+
+        let len = items.len() as i64;
+
+        // Evaluate start bound (default to 0)
+        let start = if let Some(expr) = start_expr {
+            match self.evaluate_value(expr, element) {
+                Value::Int(i) => i,
+                Value::Null => return Value::Null,
+                _ => return Value::Null,
+            }
+        } else {
+            0
+        };
+
+        // Evaluate end bound (default to len)
+        let end = if let Some(expr) = end_expr {
+            match self.evaluate_value(expr, element) {
+                Value::Int(i) => i,
+                Value::Null => return Value::Null,
+                _ => return Value::Null,
+            }
+        } else {
+            len
+        };
+
+        // Resolve negative indices
+        let resolved_start = if start < 0 { len + start } else { start };
+        let resolved_end = if end < 0 { len + end } else { end };
+
+        // Clamp to bounds
+        let clamped_start = resolved_start.clamp(0, len) as usize;
+        let clamped_end = resolved_end.clamp(0, len) as usize;
+
+        // Handle invalid range (start > end after clamping)
+        if clamped_start >= clamped_end {
+            return Value::List(vec![]);
+        }
+
+        // Extract the slice
+        let slice: Vec<Value> = items
+            .into_iter()
+            .skip(clamped_start)
+            .take(clamped_end - clamped_start)
+            .collect();
+
+        Value::List(slice)
     }
 
     /// Evaluate a function call expression.
@@ -5976,6 +6125,22 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 let _ = variable;
                 let _ = condition;
             }
+            Expression::Index { list, index } => {
+                // Validate both the list and index expressions
+                self.validate_expression_variables(list)?;
+                self.validate_expression_variables(index)?;
+            }
+            Expression::Slice { list, start, end } => {
+                // Validate the list expression
+                self.validate_expression_variables(list)?;
+                // Validate optional start and end expressions
+                if let Some(s) = start {
+                    self.validate_expression_variables(s)?;
+                }
+                if let Some(e) = end {
+                    self.validate_expression_variables(e)?;
+                }
+            }
         }
         Ok(())
     }
@@ -6019,6 +6184,20 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                     .any(|(c, r)| Self::expr_has_aggregate(c) || Self::expr_has_aggregate(r))
                     || case_expr
                         .else_clause
+                        .as_ref()
+                        .map(|e| Self::expr_has_aggregate(e))
+                        .unwrap_or(false)
+            }
+            Expression::Index { list, index } => {
+                Self::expr_has_aggregate(list) || Self::expr_has_aggregate(index)
+            }
+            Expression::Slice { list, start, end } => {
+                Self::expr_has_aggregate(list)
+                    || start
+                        .as_ref()
+                        .map(|s| Self::expr_has_aggregate(s))
+                        .unwrap_or(false)
+                    || end
                         .as_ref()
                         .map(|e| Self::expr_has_aggregate(e))
                         .unwrap_or(false)

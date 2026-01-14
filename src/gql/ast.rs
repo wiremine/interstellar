@@ -1870,6 +1870,83 @@ pub enum Expression {
         /// Condition that must be true for exactly one element.
         condition: Box<Expression>,
     },
+
+    /// Index access: `list[index]`
+    ///
+    /// Accesses a single element from a list by index.
+    /// Indices are 0-based. Negative indices count from the end:
+    /// `-1` is the last element, `-2` is second-to-last, etc.
+    ///
+    /// Returns NULL if:
+    /// - The list is NULL
+    /// - The index is out of bounds
+    /// - The index is not an integer
+    /// - The expression is not a list
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- First element
+    /// list[0]
+    ///
+    /// -- Last element
+    /// list[-1]
+    ///
+    /// -- Third element
+    /// list[2]
+    ///
+    /// -- Property that is a list
+    /// p.scores[0]
+    ///
+    /// -- Chained indexing
+    /// matrix[0][1]
+    /// ```
+    Index {
+        /// The list expression to index into.
+        list: Box<Expression>,
+        /// The index expression (should evaluate to integer).
+        index: Box<Expression>,
+    },
+
+    /// Slice access: `list[start..end]`
+    ///
+    /// Extracts a sublist from start (inclusive) to end (exclusive).
+    /// Omitted bounds default to start of list or end of list.
+    /// Negative indices are supported.
+    /// Out-of-bounds indices are clamped (no error).
+    ///
+    /// Returns NULL if the list is NULL.
+    /// Returns empty list if the slice is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Elements at index 1 and 2
+    /// list[1..3]
+    ///
+    /// -- First 3 elements
+    /// list[..3]
+    ///
+    /// -- From index 2 to end
+    /// list[2..]
+    ///
+    /// -- Copy entire list
+    /// list[..]
+    ///
+    /// -- Last 3 elements
+    /// list[-3..]
+    ///
+    /// -- All but last element
+    /// list[..-1]
+    /// ```
+    Slice {
+        /// The list expression to slice.
+        list: Box<Expression>,
+        /// Start index (None = beginning of list).
+        start: Option<Box<Expression>>,
+        /// End index (None = end of list).
+        end: Option<Box<Expression>>,
+    },
 }
 
 /// A CASE expression with WHEN/THEN/ELSE branches.

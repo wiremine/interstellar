@@ -12164,3 +12164,502 @@ fn test_gql_with_distinct_parse() {
     assert_eq!(query.with_clauses.len(), 1);
     assert!(query.with_clauses[0].distinct);
 }
+
+// =============================================================================
+// List Indexing Tests
+// =============================================================================
+
+/// Helper to create a graph with a single dummy vertex for testing expressions
+/// without needing actual graph data (GQL requires MATCH before RETURN)
+fn create_dummy_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+    storage.add_vertex("Dummy", HashMap::new());
+    Graph::new(storage)
+}
+
+#[test]
+fn test_gql_index_access_literal_list() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Access first element
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][0]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(1));
+
+    // Access middle element
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][1]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(2));
+
+    // Access last element by index
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][2]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(3));
+}
+
+#[test]
+fn test_gql_index_access_negative_index() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // -1 = last element
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][-1]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(3));
+
+    // -2 = second to last
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][-2]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(2));
+
+    // -3 = first element (for a 3-element list)
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][-3]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(1));
+}
+
+#[test]
+fn test_gql_index_access_out_of_bounds() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Index too large -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][10]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+
+    // Negative index too large -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][-10]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_index_access_on_null() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // NULL[0] -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN null[0]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_index_access_on_non_list() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // String is not a list -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN 'hello'[0]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+
+    // Integer is not a list -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN 42[0]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_index_access_non_integer_index() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // String index -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3]['foo']").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+
+    // Float index -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][1.5]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_index_access_empty_list() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Empty list[0] -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN [][0]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_chained_index_access() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Nested list: [[1,2], [3,4]][0][1] = 2
+    let results = snapshot
+        .gql("MATCH (x) RETURN [[1, 2], [3, 4]][0][1]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(2));
+
+    // [[1,2], [3,4]][1][0] = 3
+    let results = snapshot
+        .gql("MATCH (x) RETURN [[1, 2], [3, 4]][1][0]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(3));
+}
+
+#[test]
+fn test_gql_index_with_expression() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Index is an expression: [10, 20, 30][1 + 1] = 30
+    let results = snapshot
+        .gql("MATCH (x) RETURN [10, 20, 30][1 + 1]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(30));
+}
+
+#[test]
+fn test_gql_index_access_on_property() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert(
+        "scores".to_string(),
+        Value::List(vec![Value::Int(95), Value::Int(87), Value::Int(92)]),
+    );
+    storage.add_vertex("Student", props);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Access property that is a list
+    let results = snapshot
+        .gql("MATCH (s:Student) RETURN s.scores[0]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(95));
+
+    let results = snapshot
+        .gql("MATCH (s:Student) RETURN s.scores[-1]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(92));
+}
+
+// =============================================================================
+// List Slicing Tests
+// =============================================================================
+
+#[test]
+fn test_gql_slice_full_range() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3,4,5][1..3] = [2,3] (end exclusive)
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][1..3]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![Value::Int(2), Value::Int(3)]));
+}
+
+#[test]
+fn test_gql_slice_open_start() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3,4,5][..3] = [1,2,3]
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][..3]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+}
+
+#[test]
+fn test_gql_slice_open_end() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3,4,5][2..] = [3,4,5]
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][2..]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(3), Value::Int(4), Value::Int(5)])
+    );
+}
+
+#[test]
+fn test_gql_slice_fully_open() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3][..] = [1,2,3] (copy)
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][..]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+}
+
+#[test]
+fn test_gql_slice_negative_start() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3,4,5][-3..] = [3,4,5] (last 3 elements)
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][-3..]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(3), Value::Int(4), Value::Int(5)])
+    );
+}
+
+#[test]
+fn test_gql_slice_negative_end() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3,4,5][..-1] = [1,2,3,4] (all but last)
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][..-1]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4)
+        ])
+    );
+}
+
+#[test]
+fn test_gql_slice_negative_both() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // [1,2,3,4,5][-3..-1] = [3,4] (from 3rd-to-last to 2nd-to-last)
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][-3..-1]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![Value::Int(3), Value::Int(4)]));
+}
+
+#[test]
+fn test_gql_slice_bounds_clamping() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Start > len -> empty list
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][10..20]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![]));
+
+    // End > len -> clamped to len
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][1..100]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![Value::Int(2), Value::Int(3)]));
+
+    // Negative start beyond beginning -> clamped to 0
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][-100..2]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![Value::Int(1), Value::Int(2)]));
+}
+
+#[test]
+fn test_gql_slice_empty_range() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Start == end -> empty
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][1..1]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![]));
+
+    // Start > end -> empty
+    let results = snapshot.gql("MATCH (x) RETURN [1, 2, 3][2..1]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![]));
+}
+
+#[test]
+fn test_gql_slice_empty_list() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Empty list slice -> empty list
+    let results = snapshot.gql("MATCH (x) RETURN [][0..10]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![]));
+}
+
+#[test]
+fn test_gql_slice_on_null() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // NULL[0..2] -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN null[0..2]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_slice_on_non_list() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // String is not a list -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN 'hello'[0..2]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+
+    // Integer is not a list -> NULL
+    let results = snapshot.gql("MATCH (x) RETURN 42[0..2]").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Null);
+}
+
+#[test]
+fn test_gql_slice_on_property() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert(
+        "history".to_string(),
+        Value::List(vec![
+            Value::Int(100),
+            Value::Int(200),
+            Value::Int(300),
+            Value::Int(400),
+            Value::Int(500),
+        ]),
+    );
+    storage.add_vertex("Account", props);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Slice a property list
+    let results = snapshot
+        .gql("MATCH (a:Account) RETURN a.history[..3]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(100), Value::Int(200), Value::Int(300)])
+    );
+
+    let results = snapshot
+        .gql("MATCH (a:Account) RETURN a.history[-2..]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(400), Value::Int(500)])
+    );
+}
+
+#[test]
+fn test_gql_index_in_where_clause() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props1 = HashMap::new();
+    props1.insert(
+        "tags".to_string(),
+        Value::List(vec![
+            Value::String("rust".to_string()),
+            Value::String("graph".to_string()),
+        ]),
+    );
+    storage.add_vertex("Project", props1);
+
+    let mut props2 = HashMap::new();
+    props2.insert(
+        "tags".to_string(),
+        Value::List(vec![
+            Value::String("python".to_string()),
+            Value::String("ml".to_string()),
+        ]),
+    );
+    storage.add_vertex("Project", props2);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Filter by first tag
+    let results = snapshot
+        .gql("MATCH (p:Project) WHERE p.tags[0] = 'rust' RETURN p")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn test_gql_slice_in_return() {
+    let mut storage = InMemoryGraph::new();
+
+    let mut props = HashMap::new();
+    props.insert(
+        "numbers".to_string(),
+        Value::List(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4),
+            Value::Int(5),
+        ]),
+    );
+    storage.add_vertex("Data", props);
+
+    let graph = Graph::new(storage);
+    let snapshot = graph.snapshot();
+
+    // Return a slice
+    let results = snapshot
+        .gql("MATCH (d:Data) RETURN d.numbers[1..4] AS middle")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    // When returning a single aliased expression, the value is returned directly
+    assert_eq!(
+        results[0],
+        Value::List(vec![Value::Int(2), Value::Int(3), Value::Int(4)])
+    );
+}
+
+#[test]
+fn test_gql_combined_index_and_slice() {
+    let graph = create_dummy_graph();
+    let snapshot = graph.snapshot();
+
+    // Slice then index: [1,2,3,4,5][1..4][0] = 2
+    let results = snapshot
+        .gql("MATCH (x) RETURN [1, 2, 3, 4, 5][1..4][0]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(2));
+
+    // Nested list: slice outer, then index inner
+    let results = snapshot
+        .gql("MATCH (x) RETURN [[1,2], [3,4], [5,6]][1..3][0]")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::List(vec![Value::Int(3), Value::Int(4)]));
+}

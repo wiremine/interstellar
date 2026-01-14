@@ -472,8 +472,39 @@ power = { unary ~ (pow_op ~ unary)* }
 pow_op = { "^" }
 
 // Unary minus
-unary = { neg_op? ~ primary }
+unary = { neg_op? ~ postfix_expr }
 neg_op = { "-" }
+
+// Postfix expressions: primary followed by zero or more index/slice accesses
+// e.g., list[0], list[-1], list[1..3], p.scores[0], [1,2,3][-1]
+postfix_expr = { primary ~ index_access* }
+
+// Index or slice access: [expr] or [start..end]
+// Must try slice_range first since it can start with an expression
+index_access = { "[" ~ (slice_range | expression) ~ "]" }
+
+// Slice range: start..end, ..end, start.., or ..
+// All bounds are optional
+// e.g., [1..3] [..3] [2..] [..]
+slice_range = { slice_start? ~ ".." ~ slice_end? }
+
+// Slice start expression - must stop before ".."
+// Using a simpler expression form to avoid consuming the ".."
+slice_start = { slice_atom ~ (add_op ~ slice_atom)* }
+
+// Slice end expression - same as start
+slice_end = { slice_atom ~ (add_op ~ slice_atom)* }
+
+// Atoms allowed in slice bounds - literals, variables, property access, function calls, parens
+slice_atom = {
+    neg_op? ~ (
+        function_call
+        | literal
+        | property_access
+        | variable
+        | "(" ~ expression ~ ")"
+    )
+}
 
 // Primary expressions (highest precedence)
 primary = { 
