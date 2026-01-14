@@ -518,6 +518,7 @@ primary = {
     | parameter
     | literal
     | function_call
+    | pattern_comprehension  // [(pattern) | expr] - must come before list_comprehension
     | list_comprehension  // Must come before list_expr to take precedence
     | property_access
     | variable
@@ -525,6 +526,15 @@ primary = {
     | list_expr
     | map_expr  // Map literal expression
 }
+
+// Pattern comprehension: [(pattern) | transform_expression]
+// Matches a pattern and transforms each match into a list element.
+// The pattern typically references variables from the outer scope.
+// e.g., [(p)-[:FRIEND]->(f) | f.name]
+// e.g., [(p)-[r:KNOWS]->(other) | {person: other.name, since: r.since}]
+// Note: WHERE clause inside pattern comprehension is optional (for filtering)
+pattern_comprehension = { "[" ~ pattern ~ pattern_comp_where? ~ pipe_token ~ expression ~ "]" }
+pattern_comp_where = { WHERE ~ expression }
 
 // Map literal expression: {key: value, key2: value2}
 // Keys can be identifiers or string literals

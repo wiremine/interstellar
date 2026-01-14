@@ -1947,6 +1947,47 @@ pub enum Expression {
         /// End index (None = end of list).
         end: Option<Box<Expression>>,
     },
+
+    /// Pattern comprehension: `[(pattern) | expression]`
+    ///
+    /// Matches a pattern starting from variables in the outer scope and
+    /// transforms each match into a list element. Similar to list comprehension
+    /// but uses a graph pattern as the source instead of an existing list.
+    ///
+    /// The pattern must reference at least one variable from the outer scope
+    /// (correlation). If no matches are found, returns an empty list.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// -- Get friend names
+    /// MATCH (p:Person)
+    /// RETURN p.name, [(p)-[:FRIEND]->(f) | f.name] AS friendNames
+    ///
+    /// -- Get relationship properties
+    /// MATCH (p:Person)
+    /// RETURN [(p)-[r:KNOWS]->(other) | r.since] AS knowsSince
+    ///
+    /// -- Complex transform with map
+    /// MATCH (company:Company)
+    /// RETURN [(company)<-[:WORKS_AT]-(emp) | {name: emp.name, role: emp.role}] AS employees
+    ///
+    /// -- With filter (WHERE inside pattern comprehension)
+    /// MATCH (p:Person)
+    /// RETURN [(p)-[:FRIEND]->(f) WHERE f.age > 21 | f.name] AS adultFriends
+    ///
+    /// -- Multi-hop pattern
+    /// MATCH (p:Person)
+    /// RETURN [(p)-[:FRIEND]->()-[:FRIEND]->(fof) | fof.name] AS friendsOfFriends
+    /// ```
+    PatternComprehension {
+        /// The pattern to match.
+        pattern: Pattern,
+        /// Optional WHERE filter applied to each match.
+        filter: Option<Box<Expression>>,
+        /// Expression to evaluate for each match.
+        transform: Box<Expression>,
+    },
 }
 
 /// A CASE expression with WHEN/THEN/ELSE branches.

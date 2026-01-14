@@ -1921,6 +1921,7 @@ fn build_index_access(
 /// Grammar: `slice_range = { slice_start? ~ ".." ~ slice_end? }`
 ///
 /// Returns (start, end) where each is an optional boxed expression.
+#[allow(clippy::type_complexity)]
 fn build_slice_range(
     pair: pest::iterators::Pair<Rule>,
 ) -> Result<(Option<Box<Expression>>, Option<Box<Expression>>), ParseError> {
@@ -2085,6 +2086,7 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         }
         Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
         Rule::list_comprehension => build_list_comprehension(inner),
+        Rule::pattern_comprehension => build_pattern_comprehension(inner),
         Rule::map_expr => build_map_expr(inner),
         Rule::reduce_expr => build_reduce_expr(inner),
         Rule::all_predicate => build_list_predicate(inner, ListPredicateKind::All),
@@ -2094,7 +2096,7 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
-            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, list comprehension, map literal, REDUCE, or list predicate",
+            "literal, variable, property access, function call, parameter, CASE, EXISTS expression, list comprehension, pattern comprehension, map literal, REDUCE, or list predicate",
         )),
     }
 }
@@ -2590,6 +2592,72 @@ fn build_list_comprehension(pair: pest::iterators::Pair<Rule>) -> Result<Express
     })
 }
 
+/// Build a pattern comprehension expression from a pest pair.
+///
+/// Pattern comprehensions match a pattern and transform each match into a list.
+///
+/// # Grammar
+///
+/// ```text
+/// pattern_comprehension = { "[" ~ pattern ~ pattern_comp_where? ~ pipe_token ~ expression ~ "]" }
+/// pattern_comp_where = { WHERE ~ expression }
+/// ```
+///
+/// # Examples
+///
+/// ```text
+/// [(p)-[:FRIEND]->(f) | f.name]                    -- basic pattern
+/// [(p)-[:FRIEND]->(f) WHERE f.age > 21 | f.name]   -- with filter
+/// [(p)-[r:KNOWS]->(other) | {name: other.name}]    -- map transform
+/// ```
+fn build_pattern_comprehension(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut inner = pair.into_inner();
+
+    // First element: the pattern (required)
+    let pattern_pair = inner
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("pattern", pair_span))?;
+    let pattern = build_pattern(pattern_pair)?;
+
+    // Remaining elements: optional pattern_comp_where, pipe_token, and transform expression
+    let mut filter = None;
+    let mut transform = None;
+
+    for item in inner {
+        match item.as_rule() {
+            Rule::pattern_comp_where => {
+                // Extract the expression from WHERE clause
+                for where_inner in item.into_inner() {
+                    if where_inner.as_rule() == Rule::expression {
+                        filter = Some(Box::new(build_expression(where_inner)?));
+                        break;
+                    }
+                }
+            }
+            Rule::pipe_token => {
+                // Skip the pipe token - it's just a delimiter
+            }
+            Rule::expression => {
+                // This is the transform expression (after the |)
+                transform = Some(Box::new(build_expression(item)?));
+            }
+            _ => {}
+        }
+    }
+
+    let transform =
+        transform.ok_or_else(|| ParseError::missing_clause("transform expression", pair_span))?;
+
+    Ok(Expression::PatternComprehension {
+        pattern,
+        filter,
+        transform,
+    })
+}
+
 /// Build an expression from list comprehension source/filter rules.
 ///
 /// These rules use a simplified grammar to avoid ambiguity with the `|` token.
@@ -2700,6 +2768,7 @@ fn build_list_comp_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expressi
         Rule::function_call => build_function_call(inner),
         Rule::list_expr => Ok(Expression::List(build_list_expr(inner)?)),
         Rule::list_comprehension => build_list_comprehension(inner),
+        Rule::pattern_comprehension => build_pattern_comprehension(inner),
         Rule::literal => Ok(Expression::Literal(build_literal(inner)?)),
         Rule::property_access => {
             let span = span_from_pair(&inner);
@@ -2721,7 +2790,7 @@ fn build_list_comp_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expressi
         _ => Err(ParseError::unexpected_token(
             span_from_pair(&inner),
             inner.as_str(),
-            "function call, list literal, list comprehension, literal, property access, variable, or parenthesized expression",
+            "function call, list literal, list comprehension, pattern comprehension, literal, property access, variable, or parenthesized expression",
         )),
     }
 }
@@ -5741,6 +5810,295 @@ mod tests {
             }
         } else {
             panic!("Expected BinaryOp");
+        }
+    }
+
+    // =========================================================================
+    // Pattern Comprehension Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_pattern_comprehension_simple() {
+        // Basic pattern comprehension: [(p)-[:FRIEND]->(f) | f.name]
+        let query =
+            parse("MATCH (p:Person) RETURN p.name, [(p)-[:FRIEND]->(f) | f.name] AS friendNames")
+                .unwrap();
+        assert_eq!(query.return_clause.items.len(), 2);
+
+        // Check the second return item is a pattern comprehension
+        let item = &query.return_clause.items[1];
+        assert_eq!(item.alias, Some("friendNames".to_string()));
+
+        if let Expression::PatternComprehension {
+            pattern,
+            filter,
+            transform,
+        } = &item.expression
+        {
+            // Check pattern has 3 elements: node, edge, node
+            assert_eq!(pattern.elements.len(), 3);
+
+            // First node is (p)
+            if let PatternElement::Node(node) = &pattern.elements[0] {
+                assert_eq!(node.variable, Some("p".to_string()));
+            } else {
+                panic!("Expected node pattern");
+            }
+
+            // Edge is [:FRIEND]
+            if let PatternElement::Edge(edge) = &pattern.elements[1] {
+                assert_eq!(edge.labels, vec!["FRIEND".to_string()]);
+                assert!(matches!(edge.direction, EdgeDirection::Outgoing));
+            } else {
+                panic!("Expected edge pattern");
+            }
+
+            // Last node is (f)
+            if let PatternElement::Node(node) = &pattern.elements[2] {
+                assert_eq!(node.variable, Some("f".to_string()));
+            } else {
+                panic!("Expected node pattern");
+            }
+
+            // No filter
+            assert!(filter.is_none());
+
+            // Transform is f.name
+            if let Expression::Property { variable, property } = transform.as_ref() {
+                assert_eq!(variable, "f");
+                assert_eq!(property, "name");
+            } else {
+                panic!("Expected property access in transform");
+            }
+        } else {
+            panic!("Expected PatternComprehension expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_pattern_comprehension_with_filter() {
+        // Pattern comprehension with WHERE filter: [(p)-[:FRIEND]->(f) WHERE f.age > 21 | f.name]
+        let query = parse(
+            "MATCH (p:Person) RETURN [(p)-[:FRIEND]->(f) WHERE f.age > 21 | f.name] AS adultFriends",
+        )
+        .unwrap();
+
+        let item = &query.return_clause.items[0];
+        if let Expression::PatternComprehension {
+            pattern,
+            filter,
+            transform,
+        } = &item.expression
+        {
+            // Pattern should have 3 elements
+            assert_eq!(pattern.elements.len(), 3);
+
+            // Should have a filter
+            assert!(filter.is_some());
+            let filter_expr = filter.as_ref().unwrap();
+            if let Expression::BinaryOp { left, op, right } = filter_expr.as_ref() {
+                assert!(matches!(op, BinaryOperator::Gt));
+                if let Expression::Property { variable, property } = left.as_ref() {
+                    assert_eq!(variable, "f");
+                    assert_eq!(property, "age");
+                }
+                if let Expression::Literal(Literal::Int(val)) = right.as_ref() {
+                    assert_eq!(*val, 21);
+                }
+            } else {
+                panic!("Expected comparison in filter");
+            }
+
+            // Transform is f.name
+            if let Expression::Property { variable, property } = transform.as_ref() {
+                assert_eq!(variable, "f");
+                assert_eq!(property, "name");
+            } else {
+                panic!("Expected property access in transform");
+            }
+        } else {
+            panic!("Expected PatternComprehension expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_pattern_comprehension_multi_hop() {
+        // Multi-hop pattern: [(p)-[:FRIEND]->()-[:FRIEND]->(fof) | fof.name]
+        let query = parse(
+            "MATCH (p:Person) RETURN [(p)-[:FRIEND]->()-[:FRIEND]->(fof) | fof.name] AS fofNames",
+        )
+        .unwrap();
+
+        let item = &query.return_clause.items[0];
+        if let Expression::PatternComprehension { pattern, .. } = &item.expression {
+            // Pattern should have 5 elements: node, edge, node, edge, node
+            assert_eq!(pattern.elements.len(), 5);
+
+            // Check structure
+            assert!(matches!(&pattern.elements[0], PatternElement::Node(_)));
+            assert!(matches!(&pattern.elements[1], PatternElement::Edge(_)));
+            assert!(matches!(&pattern.elements[2], PatternElement::Node(_)));
+            assert!(matches!(&pattern.elements[3], PatternElement::Edge(_)));
+            assert!(matches!(&pattern.elements[4], PatternElement::Node(_)));
+
+            // Last node should be (fof)
+            if let PatternElement::Node(node) = &pattern.elements[4] {
+                assert_eq!(node.variable, Some("fof".to_string()));
+            }
+        } else {
+            panic!("Expected PatternComprehension expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_pattern_comprehension_map_transform() {
+        // Pattern comprehension with map transform
+        let query = parse(
+            "MATCH (p:Person) RETURN [(p)-[r:KNOWS]->(other) | {name: other.name}] AS contacts",
+        )
+        .unwrap();
+
+        let item = &query.return_clause.items[0];
+        if let Expression::PatternComprehension { transform, .. } = &item.expression {
+            // Transform should be a map expression
+            if let Expression::Map(entries) = transform.as_ref() {
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].0, "name");
+                if let Expression::Property { variable, property } = &entries[0].1 {
+                    assert_eq!(variable, "other");
+                    assert_eq!(property, "name");
+                }
+            } else {
+                panic!("Expected Map expression in transform");
+            }
+        } else {
+            panic!("Expected PatternComprehension expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_pattern_comprehension_with_labels() {
+        // Pattern with labels on target node
+        let query = parse(
+            "MATCH (p:Person) RETURN [(p)-[:PURCHASED]->(item:Product) | item.name] AS purchases",
+        )
+        .unwrap();
+
+        let item = &query.return_clause.items[0];
+        if let Expression::PatternComprehension { pattern, .. } = &item.expression {
+            // Last node should have label Product
+            if let PatternElement::Node(node) = &pattern.elements[2] {
+                assert_eq!(node.variable, Some("item".to_string()));
+                assert_eq!(node.labels, vec!["Product".to_string()]);
+            } else {
+                panic!("Expected node pattern");
+            }
+        } else {
+            panic!("Expected PatternComprehension expression");
+        }
+    }
+
+    // =========================================================================
+    // FOREACH Parser Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_foreach_single_set() {
+        // Basic FOREACH with a single SET mutation (must be in a mutation statement)
+        let stmt = parse_statement(
+            "MATCH (p:Person) SET p.processed = false FOREACH (n IN [1, 2, 3] | SET p.count = n)",
+        )
+        .unwrap();
+
+        if let Statement::Mutation(mutation) = stmt {
+            assert_eq!(mutation.foreach_clauses.len(), 1);
+
+            let foreach = &mutation.foreach_clauses[0];
+            assert_eq!(foreach.variable, "n");
+            assert_eq!(foreach.mutations.len(), 1);
+
+            // Check list expression
+            if let Expression::List(items) = &foreach.list {
+                assert_eq!(items.len(), 3);
+            } else {
+                panic!("Expected list expression");
+            }
+
+            // Check mutation is SET
+            assert!(matches!(&foreach.mutations[0], ForeachMutation::Set(_)));
+        } else {
+            panic!("Expected Mutation statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_foreach_multiple_mutations() {
+        // FOREACH with multiple mutations
+        let stmt = parse_statement(
+            "MATCH (p:Person) SET p.init = true FOREACH (n IN [1, 2] | SET p.x = 1 SET p.y = 2)",
+        )
+        .unwrap();
+
+        if let Statement::Mutation(mutation) = stmt {
+            assert_eq!(mutation.foreach_clauses.len(), 1);
+            let foreach = &mutation.foreach_clauses[0];
+            assert_eq!(foreach.mutations.len(), 2);
+
+            // Both should be SET mutations
+            assert!(matches!(&foreach.mutations[0], ForeachMutation::Set(_)));
+            assert!(matches!(&foreach.mutations[1], ForeachMutation::Set(_)));
+        } else {
+            panic!("Expected Mutation statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_foreach_with_remove() {
+        // FOREACH with REMOVE mutation
+        let stmt = parse_statement(
+            "MATCH (p:Person) SET p.processed = true FOREACH (n IN [1] | REMOVE p.temp)",
+        )
+        .unwrap();
+
+        if let Statement::Mutation(mutation) = stmt {
+            let foreach = &mutation.foreach_clauses[0];
+            assert!(matches!(&foreach.mutations[0], ForeachMutation::Remove(_)));
+        } else {
+            panic!("Expected Mutation statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_foreach_in_mutation_statement() {
+        // FOREACH inside a mutation statement (MATCH ... SET ... FOREACH ...)
+        let stmt = parse_statement(
+            "MATCH (p:Person)-[:KNOWS]->(f) SET p.hasKnown = true FOREACH (x IN [f] | SET x.known = true)",
+        )
+        .unwrap();
+
+        if let Statement::Mutation(mutation) = stmt {
+            // Should have at least one mutation and one foreach
+            assert!(!mutation.mutations.is_empty());
+            assert_eq!(mutation.foreach_clauses.len(), 1);
+        } else {
+            panic!("Expected Mutation statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_foreach_clauses() {
+        // Multiple FOREACH clauses in sequence
+        let stmt = parse_statement(
+            "MATCH (p:Person) SET p.init = true FOREACH (x IN [1] | SET p.a = x) FOREACH (y IN [2] | SET p.b = y)",
+        )
+        .unwrap();
+
+        if let Statement::Mutation(mutation) = stmt {
+            assert_eq!(mutation.foreach_clauses.len(), 2);
+            assert_eq!(mutation.foreach_clauses[0].variable, "x");
+            assert_eq!(mutation.foreach_clauses[1].variable, "y");
+        } else {
+            panic!("Expected Mutation statement");
         }
     }
 }

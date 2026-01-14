@@ -110,6 +110,8 @@ pub struct MutationContext<'s, S: GraphStorage + GraphStorageMut> {
     vertex_bindings: HashMap<String, VertexId>,
     /// Variables bound to edge IDs
     edge_bindings: HashMap<String, EdgeId>,
+    /// Variables bound to primitive values (for FOREACH iteration)
+    value_bindings: HashMap<String, Value>,
     /// Optional schema for validation
     schema: Option<&'s GraphSchema>,
 }
@@ -121,6 +123,7 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
             storage,
             vertex_bindings: HashMap::new(),
             edge_bindings: HashMap::new(),
+            value_bindings: HashMap::new(),
             schema: None,
         }
     }
@@ -131,6 +134,7 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
             storage,
             vertex_bindings: HashMap::new(),
             edge_bindings: HashMap::new(),
+            value_bindings: HashMap::new(),
             schema,
         }
     }
@@ -150,6 +154,11 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
         self.edge_bindings.insert(variable.to_string(), id);
     }
 
+    /// Bind a variable to a primitive value (for FOREACH iteration).
+    pub fn bind_value(&mut self, variable: &str, value: Value) {
+        self.value_bindings.insert(variable.to_string(), value);
+    }
+
     /// Get the vertex ID for a variable.
     pub fn get_vertex(&self, variable: &str) -> Option<VertexId> {
         self.vertex_bindings.get(variable).copied()
@@ -158,6 +167,11 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
     /// Get the edge ID for a variable.
     pub fn get_edge(&self, variable: &str) -> Option<EdgeId> {
         self.edge_bindings.get(variable).copied()
+    }
+
+    /// Get a primitive value for a variable (for FOREACH iteration).
+    pub fn get_value(&self, variable: &str) -> Option<&Value> {
+        self.value_bindings.get(variable)
     }
 
     /// Get the element (vertex or edge) for a variable.
@@ -173,7 +187,9 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
 
     /// Check if a variable is bound.
     pub fn is_bound(&self, variable: &str) -> bool {
-        self.vertex_bindings.contains_key(variable) || self.edge_bindings.contains_key(variable)
+        self.vertex_bindings.contains_key(variable)
+            || self.edge_bindings.contains_key(variable)
+            || self.value_bindings.contains_key(variable)
     }
 
     /// Get mutable storage reference.
@@ -190,11 +206,27 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
     pub fn clear_bindings(&mut self) {
         self.vertex_bindings.clear();
         self.edge_bindings.clear();
+        self.value_bindings.clear();
     }
 
     /// Clone current bindings (for nested operations).
     pub fn clone_bindings(&self) -> (HashMap<String, VertexId>, HashMap<String, EdgeId>) {
         (self.vertex_bindings.clone(), self.edge_bindings.clone())
+    }
+
+    /// Clone current bindings including value bindings (for nested operations).
+    pub fn clone_all_bindings(
+        &self,
+    ) -> (
+        HashMap<String, VertexId>,
+        HashMap<String, EdgeId>,
+        HashMap<String, Value>,
+    ) {
+        (
+            self.vertex_bindings.clone(),
+            self.edge_bindings.clone(),
+            self.value_bindings.clone(),
+        )
     }
 
     /// Restore bindings from a previous state.
@@ -205,6 +237,11 @@ impl<'s, S: GraphStorage + GraphStorageMut> MutationContext<'s, S> {
     ) {
         self.vertex_bindings = vertex_bindings;
         self.edge_bindings = edge_bindings;
+    }
+
+    /// Remove a value binding.
+    pub fn remove_value_binding(&mut self, variable: &str) {
+        self.value_bindings.remove(variable);
     }
 }
 
@@ -633,10 +670,14 @@ fn evaluate_expression<S: GraphStorage + GraphStorageMut>(
         Expression::Literal(lit) => lit.clone().into(),
         Expression::Variable(var) => {
             // Look up variable in bindings and return as Value
+            // Check vertex bindings first
             if let Some(vid) = bindings.vertices.get(var) {
                 Value::Vertex(*vid)
             } else if let Some(eid) = bindings.edges.get(var) {
                 Value::Edge(*eid)
+            } else if let Some(value) = ctx.get_value(var) {
+                // Check value_bindings for FOREACH iteration variables
+                value.clone()
             } else {
                 Value::Null
             }
@@ -745,6 +786,14 @@ fn evaluate_expression<S: GraphStorage + GraphStorageMut>(
                 val == item_val
             });
             Value::Bool(if *negated { !in_list } else { in_list })
+        }
+        Expression::List(items) => {
+            // Evaluate each item in the list and return a Value::List
+            let evaluated: Vec<Value> = items
+                .iter()
+                .map(|item| evaluate_expression(ctx, item, bindings))
+                .collect();
+            Value::List(evaluated)
         }
         _ => Value::Null,
     }
@@ -1163,13 +1212,13 @@ fn execute_foreach<S: GraphStorage + GraphStorageMut>(
     ctx: &mut MutationContext<S>,
     foreach_clause: &ForeachClause,
 ) -> Result<(), MutationError> {
-    // Create bindings for expression evaluation
+    // Create bindings for expression evaluation (include value_bindings)
     let bindings = MatchBindings {
         vertices: ctx.vertex_bindings.clone(),
         edges: ctx.edge_bindings.clone(),
     };
 
-    // Evaluate the list expression
+    // Evaluate the list expression using extended evaluation that supports value_bindings
     let list_value = evaluate_expression(ctx, &foreach_clause.list, &bindings);
 
     // Ensure it's a list
@@ -1190,6 +1239,7 @@ fn execute_foreach<S: GraphStorage + GraphStorageMut>(
     // Save current bindings so we can restore after FOREACH
     let saved_vertex = ctx.vertex_bindings.get(&foreach_clause.variable).copied();
     let saved_edge = ctx.edge_bindings.get(&foreach_clause.variable).copied();
+    let saved_value = ctx.get_value(&foreach_clause.variable).cloned();
 
     // Iterate over each item and apply mutations
     for item in items {
@@ -1197,16 +1247,17 @@ fn execute_foreach<S: GraphStorage + GraphStorageMut>(
         match &item {
             Value::Vertex(vid) => {
                 ctx.bind_vertex(&foreach_clause.variable, *vid);
+                // Clear any value binding with same name
+                ctx.remove_value_binding(&foreach_clause.variable);
             }
             Value::Edge(eid) => {
                 ctx.bind_edge(&foreach_clause.variable, *eid);
+                // Clear any value binding with same name
+                ctx.remove_value_binding(&foreach_clause.variable);
             }
             _ => {
-                // For non-element values, we need to handle differently
-                // Store as a "virtual" binding - but our current system only binds
-                // vertices and edges. For primitive values being iterated,
-                // the variable is typically used for side effects only.
-                // For now, skip binding primitives as they can't be mutated directly.
+                // For primitive values (Int, String, Bool, etc.), bind as value
+                ctx.bind_value(&foreach_clause.variable, item.clone());
             }
         }
 
@@ -1216,7 +1267,7 @@ fn execute_foreach<S: GraphStorage + GraphStorageMut>(
         }
     }
 
-    // Restore original binding if it existed, or remove the iteration variable binding
+    // Restore original bindings or remove the iteration variable binding
     if let Some(vid) = saved_vertex {
         ctx.bind_vertex(&foreach_clause.variable, vid);
     } else {
@@ -1227,6 +1278,12 @@ fn execute_foreach<S: GraphStorage + GraphStorageMut>(
         ctx.bind_edge(&foreach_clause.variable, eid);
     } else {
         ctx.edge_bindings.remove(&foreach_clause.variable);
+    }
+
+    if let Some(val) = saved_value {
+        ctx.bind_value(&foreach_clause.variable, val);
+    } else {
+        ctx.remove_value_binding(&foreach_clause.variable);
     }
 
     Ok(())
@@ -1687,5 +1744,49 @@ mod tests {
         let mut ctx = MutationContext::new(&mut storage);
         // Should execute without error (4 iterations total: 2 outer * 2 inner)
         execute_foreach(&mut ctx, &outer_foreach).unwrap();
+    }
+
+    #[test]
+    fn test_foreach_set_with_iteration_variable() {
+        let mut storage = InMemoryGraph::new();
+
+        // Create a vertex
+        let stmt = parse_statement("CREATE (a:Person {name: 'Alice'})").unwrap();
+        execute_mutation(&stmt, &mut storage).unwrap();
+
+        let vertex_id = storage.all_vertices().next().unwrap().id;
+
+        // Create a FOREACH clause that sets a property using the iteration variable
+        let foreach_clause = ForeachClause {
+            variable: "i".to_string(),
+            list: Expression::List(vec![
+                Expression::Literal(crate::gql::ast::Literal::Int(1)),
+                Expression::Literal(crate::gql::ast::Literal::Int(2)),
+                Expression::Literal(crate::gql::ast::Literal::Int(3)),
+            ]),
+            mutations: vec![ForeachMutation::Set(SetClause {
+                items: vec![SetItem {
+                    target: crate::gql::ast::PropertyRef {
+                        variable: "p".to_string(),
+                        property: "counter".to_string(),
+                    },
+                    value: Expression::Variable("i".to_string()),
+                }],
+            })],
+        };
+
+        let mut ctx = MutationContext::new(&mut storage);
+        // Bind the vertex to variable 'p'
+        ctx.bind_vertex("p", vertex_id);
+
+        execute_foreach(&mut ctx, &foreach_clause).unwrap();
+
+        // Verify the property was set to the last iteration value (3)
+        let vertex = storage.get_vertex(vertex_id).unwrap();
+        assert_eq!(
+            vertex.properties.get("counter"),
+            Some(&Value::Int(3)),
+            "Counter should be 3 (last value)"
+        );
     }
 }

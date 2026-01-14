@@ -12663,3 +12663,223 @@ fn test_gql_combined_index_and_slice() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::List(vec![Value::Int(3), Value::Int(4)]));
 }
+
+// =============================================================================
+// Pattern Comprehension Tests
+// =============================================================================
+
+fn create_pattern_comprehension_graph() -> Graph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("age".to_string(), Value::from(30));
+    let alice = storage.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    bob_props.insert("age".to_string(), Value::from(25));
+    let bob = storage.add_vertex("Person", bob_props);
+
+    let mut carol_props = HashMap::new();
+    carol_props.insert("name".to_string(), Value::from("Carol"));
+    carol_props.insert("age".to_string(), Value::from(35));
+    let carol = storage.add_vertex("Person", carol_props);
+
+    let mut dave_props = HashMap::new();
+    dave_props.insert("name".to_string(), Value::from("Dave"));
+    dave_props.insert("age".to_string(), Value::from(20));
+    let dave = storage.add_vertex("Person", dave_props);
+
+    // Create FRIEND edges:
+    // Alice -[FRIEND]-> Bob
+    // Alice -[FRIEND]-> Carol
+    // Bob -[FRIEND]-> Dave
+    // Carol -[FRIEND]-> Dave
+    storage
+        .add_edge(alice, bob, "FRIEND", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice, carol, "FRIEND", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(bob, dave, "FRIEND", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(carol, dave, "FRIEND", HashMap::new())
+        .unwrap();
+
+    Graph::new(storage)
+}
+
+#[test]
+fn test_gql_pattern_comprehension_basic() {
+    let graph = create_pattern_comprehension_graph();
+    let snapshot = graph.snapshot();
+
+    // Get Alice's friend names using pattern comprehension
+    let results = snapshot
+        .gql("MATCH (p:Person {name: 'Alice'}) RETURN p.name, [(p)-[:FRIEND]->(f) | f.name] AS friendNames")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("p.name"), Some(&Value::from("Alice")));
+
+        if let Some(Value::List(friends)) = map.get("friendNames") {
+            assert_eq!(friends.len(), 2);
+            // Friends are Bob and Carol (order may vary)
+            let friend_names: Vec<&str> = friends.iter().filter_map(|v| v.as_str()).collect();
+            assert!(friend_names.contains(&"Bob"));
+            assert!(friend_names.contains(&"Carol"));
+        } else {
+            panic!(
+                "Expected friendNames to be a list, got: {:?}",
+                map.get("friendNames")
+            );
+        }
+    } else {
+        panic!("Expected map result");
+    }
+}
+
+#[test]
+fn test_gql_pattern_comprehension_empty_matches() {
+    let graph = create_pattern_comprehension_graph();
+    let snapshot = graph.snapshot();
+
+    // Dave has no outgoing FRIEND edges, so should return empty list
+    let results = snapshot
+        .gql("MATCH (p:Person {name: 'Dave'}) RETURN p.name, [(p)-[:FRIEND]->(f) | f.name] AS friendNames")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("p.name"), Some(&Value::from("Dave")));
+
+        if let Some(Value::List(friends)) = map.get("friendNames") {
+            assert!(friends.is_empty(), "Dave should have no friends");
+        } else {
+            panic!("Expected friendNames to be a list");
+        }
+    } else {
+        panic!("Expected map result");
+    }
+}
+
+#[test]
+fn test_gql_pattern_comprehension_with_filter() {
+    let graph = create_pattern_comprehension_graph();
+    let snapshot = graph.snapshot();
+
+    // Get Alice's friends who are older than 30 (only Carol)
+    let results = snapshot
+        .gql("MATCH (p:Person {name: 'Alice'}) RETURN p.name, [(p)-[:FRIEND]->(f) WHERE f.age > 30 | f.name] AS olderFriends")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::Map(map) = &results[0] {
+        if let Some(Value::List(friends)) = map.get("olderFriends") {
+            assert_eq!(friends.len(), 1);
+            assert_eq!(friends[0], Value::from("Carol"));
+        } else {
+            panic!("Expected olderFriends to be a list");
+        }
+    } else {
+        panic!("Expected map result");
+    }
+}
+
+#[test]
+fn test_gql_pattern_comprehension_map_transform() {
+    let graph = create_pattern_comprehension_graph();
+    let snapshot = graph.snapshot();
+
+    // Get Alice's friends as maps with name and age
+    let results = snapshot
+        .gql("MATCH (p:Person {name: 'Alice'}) RETURN [(p)-[:FRIEND]->(f) | {name: f.name, age: f.age}] AS friends")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::List(friends) = &results[0] {
+        assert_eq!(friends.len(), 2);
+        // Each friend should be a map with name and age
+        for friend in friends {
+            if let Value::Map(friend_map) = friend {
+                assert!(friend_map.contains_key("name"));
+                assert!(friend_map.contains_key("age"));
+            } else {
+                panic!("Expected friend to be a map");
+            }
+        }
+    } else {
+        panic!("Expected list result");
+    }
+}
+
+#[test]
+fn test_gql_pattern_comprehension_multiple_people() {
+    let graph = create_pattern_comprehension_graph();
+    let snapshot = graph.snapshot();
+
+    // Get friend names for all people
+    let results = snapshot
+        .gql("MATCH (p:Person) RETURN p.name, [(p)-[:FRIEND]->(f) | f.name] AS friendNames ORDER BY p.name")
+        .unwrap();
+
+    // 4 people: Alice, Bob, Carol, Dave
+    assert_eq!(results.len(), 4);
+
+    // Results are ordered by name
+    if let Value::Map(alice) = &results[0] {
+        assert_eq!(alice.get("p.name"), Some(&Value::from("Alice")));
+        if let Some(Value::List(friends)) = alice.get("friendNames") {
+            assert_eq!(friends.len(), 2); // Bob and Carol
+        }
+    }
+
+    if let Value::Map(bob) = &results[1] {
+        assert_eq!(bob.get("p.name"), Some(&Value::from("Bob")));
+        if let Some(Value::List(friends)) = bob.get("friendNames") {
+            assert_eq!(friends.len(), 1); // Dave
+        }
+    }
+
+    if let Value::Map(carol) = &results[2] {
+        assert_eq!(carol.get("p.name"), Some(&Value::from("Carol")));
+        if let Some(Value::List(friends)) = carol.get("friendNames") {
+            assert_eq!(friends.len(), 1); // Dave
+        }
+    }
+
+    if let Value::Map(dave) = &results[3] {
+        assert_eq!(dave.get("p.name"), Some(&Value::from("Dave")));
+        if let Some(Value::List(friends)) = dave.get("friendNames") {
+            assert!(friends.is_empty()); // No friends
+        }
+    }
+}
+
+#[test]
+fn test_gql_pattern_comprehension_with_labels() {
+    let graph = create_pattern_comprehension_graph();
+    let snapshot = graph.snapshot();
+
+    // Pattern with label filter on target node
+    let results = snapshot
+        .gql("MATCH (p:Person {name: 'Alice'}) RETURN [(p)-[:FRIEND]->(f:Person) | f.name] AS friends")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    if let Value::List(friends) = &results[0] {
+        assert_eq!(friends.len(), 2);
+    } else {
+        panic!("Expected list result");
+    }
+}

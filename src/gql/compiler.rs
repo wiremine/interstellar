@@ -79,7 +79,7 @@ use crate::gql::ast::{
 use crate::gql::error::CompileError;
 use crate::graph::GraphSnapshot;
 use crate::traversal::{BoundTraversal, Traversal, __};
-use crate::value::Value;
+use crate::value::{Value, VertexId};
 
 /// Parameters passed to query execution.
 ///
@@ -2275,6 +2275,16 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 condition,
                 row,
             ),
+            Expression::PatternComprehension {
+                pattern,
+                filter,
+                transform,
+            } => self.evaluate_pattern_comprehension_from_row(
+                pattern,
+                filter.as_deref(),
+                transform,
+                row,
+            ),
             _ => Value::Null,
         }
     }
@@ -2827,6 +2837,203 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             ListPredicateKind::None => true, // None matched (we would have returned early if any)
             ListPredicateKind::Single => match_count == 1,
         })
+    }
+
+    /// Evaluate a pattern comprehension expression using a row for variable lookup.
+    ///
+    /// Pattern comprehension allows inline pattern matching within expressions:
+    /// `[(p)-[:FRIEND]->(f) | f.name]` returns a list of friend names for person p.
+    ///
+    /// # Semantics
+    /// - The pattern must reference at least one outer variable (correlation)
+    /// - For each match of the pattern, the transform expression is evaluated
+    /// - Results are collected into a list
+    /// - If pattern matches nothing, returns empty list
+    /// - Optional WHERE filter can eliminate matches before transformation
+    ///
+    /// # Example
+    /// ```text
+    /// MATCH (p:Person)
+    /// RETURN p.name, [(p)-[:FRIEND]->(f) | f.name] AS friendNames
+    /// ```
+    fn evaluate_pattern_comprehension_from_row(
+        &self,
+        pattern: &Pattern,
+        filter: Option<&Expression>,
+        transform: &Expression,
+        row: &HashMap<String, Value>,
+    ) -> Value {
+        // Find the starting vertex from the outer context
+        // The first node in the pattern should reference an outer variable
+        let start_vertex_id = match pattern.elements.first() {
+            Some(PatternElement::Node(node)) => {
+                if let Some(var) = &node.variable {
+                    // Get the vertex from the row
+                    match row.get(var) {
+                        Some(Value::Vertex(vid)) => *vid,
+                        Some(Value::Map(map)) => {
+                            // Handle case where variable is bound to a map containing id
+                            match map.get("id") {
+                                Some(Value::Vertex(vid)) => *vid,
+                                Some(Value::Int(id)) => VertexId(*id as u64),
+                                _ => return Value::List(vec![]),
+                            }
+                        }
+                        _ => return Value::List(vec![]), // No correlation point
+                    }
+                } else {
+                    return Value::List(vec![]); // Pattern must start with a variable
+                }
+            }
+            _ => return Value::List(vec![]), // Invalid pattern structure
+        };
+
+        // Build a traversal starting from the correlated vertex
+        let g = self.snapshot.traversal();
+        let traversal = g.v_ids([start_vertex_id]).with_path();
+
+        // Apply the remaining pattern elements (skip the first node which is the correlation point)
+        // We need to apply label/property filters from the first node, then traverse edges and nodes
+        let traversal = match self.compile_pattern_elements_for_comprehension(pattern, traversal) {
+            Ok(t) => t,
+            Err(_) => return Value::List(vec![]),
+        };
+
+        // Collect all matches
+        let matches: Vec<Value> = traversal.to_list();
+
+        // For each match, build a context with pattern bindings and evaluate transform
+        let mut results = Vec::new();
+
+        for match_value in matches {
+            // Build row with pattern variables bound
+            let mut match_row = row.clone();
+
+            // Extract bindings from the match based on pattern structure
+            self.bind_pattern_variables_from_match(pattern, &match_value, &mut match_row);
+
+            // Apply optional filter
+            if let Some(filter_expr) = filter {
+                if !self.evaluate_predicate_from_row(filter_expr, &match_row) {
+                    continue; // Skip this match
+                }
+            }
+
+            // Evaluate transform expression
+            let transformed = self.evaluate_expression_from_row(transform, &match_row);
+            results.push(transformed);
+        }
+
+        Value::List(results)
+    }
+
+    /// Compile pattern elements for pattern comprehension traversal.
+    ///
+    /// This is similar to compile_pattern but handles the correlation point specially:
+    /// - The first node's variable is already bound from outer context
+    /// - We still apply label/property filters from the first node
+    /// - Then traverse the remaining edges and nodes
+    fn compile_pattern_elements_for_comprehension(
+        &self,
+        pattern: &Pattern,
+        mut traversal: BoundTraversal<'g, (), Value>,
+    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        for (idx, element) in pattern.elements.iter().enumerate() {
+            match element {
+                PatternElement::Node(node) => {
+                    if idx == 0 {
+                        // First node: apply filters but don't add as_() (already bound)
+                        if !node.labels.is_empty() {
+                            let labels: Vec<&str> =
+                                node.labels.iter().map(|s| s.as_str()).collect();
+                            traversal = traversal.has_label_any(labels);
+                        }
+                        for (key, value) in &node.properties {
+                            let val: Value = value.clone().into();
+                            traversal = traversal.has_value(key.as_str(), val);
+                        }
+                        // Note: first node's variable comes from outer scope
+                    } else {
+                        // Subsequent nodes: apply full node compilation
+                        if !node.labels.is_empty() {
+                            let labels: Vec<&str> =
+                                node.labels.iter().map(|s| s.as_str()).collect();
+                            traversal = traversal.has_label_any(labels);
+                        }
+                        for (key, value) in &node.properties {
+                            let val: Value = value.clone().into();
+                            traversal = traversal.has_value(key.as_str(), val);
+                        }
+                        // Add as_() step to label this position for later binding
+                        if let Some(var) = &node.variable {
+                            traversal = traversal.as_(var);
+                        }
+                    }
+                }
+                PatternElement::Edge(edge) => {
+                    // Compile edge navigation
+                    let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
+
+                    traversal = match edge.direction {
+                        EdgeDirection::Outgoing => {
+                            if labels.is_empty() {
+                                traversal.out()
+                            } else {
+                                traversal.out_labels(&labels)
+                            }
+                        }
+                        EdgeDirection::Incoming => {
+                            if labels.is_empty() {
+                                traversal.in_()
+                            } else {
+                                traversal.in_labels(&labels)
+                            }
+                        }
+                        EdgeDirection::Both => {
+                            if labels.is_empty() {
+                                traversal.both()
+                            } else {
+                                traversal.both_labels(&labels)
+                            }
+                        }
+                    };
+                }
+            }
+        }
+        Ok(traversal)
+    }
+
+    /// Bind pattern variables from a match result into the row.
+    ///
+    /// Extracts variable bindings from a traversal result based on pattern structure.
+    fn bind_pattern_variables_from_match(
+        &self,
+        pattern: &Pattern,
+        match_value: &Value,
+        row: &mut HashMap<String, Value>,
+    ) {
+        // The match_value is the final vertex in the traversal
+        // For patterns like (p)-[:FRIEND]->(f), the match_value is the 'f' vertex
+
+        // Find the last node variable in the pattern (this is what the traversal returns)
+        if let Some(PatternElement::Node(last_node)) = pattern.elements.last() {
+            if let Some(var) = &last_node.variable {
+                row.insert(var.clone(), match_value.clone());
+            }
+        }
+
+        // Note: For more complex patterns with intermediate variables bound via as_(),
+        // we would need to extract from the path. For now, we handle the simple case
+        // where the last node is the main variable of interest.
+        // If the match_value is a Map with path information, we could extract more bindings.
+        if let Value::Map(map) = match_value {
+            // If the traversal produced a map (e.g., from select()), copy bindings
+            for (key, value) in map {
+                if !row.contains_key(key) {
+                    row.insert(key.clone(), value.clone());
+                }
+            }
+        }
     }
 
     /// Evaluate a CASE expression using a row for variable lookup.
@@ -5038,6 +5245,30 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             Expression::Slice { list, start, end } => {
                 self.evaluate_slice(list, start.as_deref(), end.as_deref(), element)
             }
+            Expression::PatternComprehension {
+                pattern,
+                filter,
+                transform,
+            } => {
+                // For pattern comprehension in single-variable context,
+                // we need to build a row with the element bound to the start variable
+                if let Some(PatternElement::Node(node)) = pattern.elements.first() {
+                    if let Some(var) = &node.variable {
+                        let mut row = HashMap::new();
+                        row.insert(var.clone(), element.clone());
+                        self.evaluate_pattern_comprehension_from_row(
+                            pattern,
+                            filter.as_deref(),
+                            transform,
+                            &row,
+                        )
+                    } else {
+                        Value::List(vec![])
+                    }
+                } else {
+                    Value::List(vec![])
+                }
+            }
             _ => Value::Null, // Unsupported expressions
         }
     }
@@ -6140,6 +6371,28 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 if let Some(e) = end {
                     self.validate_expression_variables(e)?;
                 }
+            }
+            Expression::PatternComprehension {
+                pattern,
+                filter,
+                transform,
+            } => {
+                // Validate variables referenced in the pattern comprehension.
+                // At least one node variable in the pattern should reference a bound variable
+                // from the outer scope - this is how the pattern is correlated.
+                // We check if the first node has a variable that exists in bindings.
+                if let Some(PatternElement::Node(node)) = pattern.elements.first() {
+                    if let Some(var) = &node.variable {
+                        if !self.bindings.contains_key(var) {
+                            return Err(CompileError::undefined_variable(var));
+                        }
+                    }
+                }
+                // Other variables in the pattern are local to the comprehension.
+                // The filter and transform expressions can reference both outer variables
+                // and local pattern variables - skip deep validation similar to ListComprehension.
+                let _ = filter;
+                let _ = transform;
             }
         }
         Ok(())

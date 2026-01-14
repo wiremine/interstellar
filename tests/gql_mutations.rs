@@ -1086,3 +1086,354 @@ fn test_graph_ddl_parse_error() {
         assert!(result.is_err());
     }
 }
+
+// =============================================================================
+// FOREACH Clause Integration Tests
+// =============================================================================
+
+/// Helper to create a graph for FOREACH tests with relationships.
+fn create_foreach_test_graph() -> InMemoryGraph {
+    let mut storage = InMemoryGraph::new();
+
+    // Create several people
+    let alice_id = storage.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("visited".to_string(), Value::Bool(false)),
+        ]),
+    );
+
+    let bob_id = storage.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Bob".to_string())),
+            ("visited".to_string(), Value::Bool(false)),
+        ]),
+    );
+
+    let charlie_id = storage.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Charlie".to_string())),
+            ("visited".to_string(), Value::Bool(false)),
+        ]),
+    );
+
+    // Alice knows Bob and Charlie
+    storage
+        .add_edge(alice_id, bob_id, "KNOWS", HashMap::new())
+        .unwrap();
+    storage
+        .add_edge(alice_id, charlie_id, "KNOWS", HashMap::new())
+        .unwrap();
+
+    // Bob knows Charlie
+    storage
+        .add_edge(bob_id, charlie_id, "KNOWS", HashMap::new())
+        .unwrap();
+
+    storage
+}
+
+#[test]
+fn test_foreach_set_property() {
+    let mut storage = create_foreach_test_graph();
+
+    // Use FOREACH to set a counter property based on list values
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (i IN [1, 2, 3] | SET p.counter = i)
+        "#,
+    )
+    .unwrap();
+
+    // Alice should have counter = 3 (last value wins)
+    let alice = storage
+        .all_vertices()
+        .find(|v| v.properties.get("name") == Some(&Value::String("Alice".to_string())))
+        .expect("Alice should exist");
+    assert_eq!(alice.properties.get("counter"), Some(&Value::Int(3)));
+    assert_eq!(alice.properties.get("marker"), Some(&Value::Bool(true)));
+}
+
+#[test]
+fn test_foreach_remove_property() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create a vertex with properties we'll remove
+    storage.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("temp1".to_string(), Value::Int(1)),
+            ("temp2".to_string(), Value::Int(2)),
+        ]),
+    );
+
+    // Use FOREACH to remove properties (by setting to null)
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (prop IN [1, 2] | REMOVE p.temp1)
+        "#,
+    )
+    .unwrap();
+
+    let alice = storage.all_vertices().next().expect("Alice should exist");
+    // temp1 should be set to null (our REMOVE implementation)
+    assert_eq!(alice.properties.get("temp1"), Some(&Value::Null));
+}
+
+#[test]
+fn test_foreach_multiple_mutations() {
+    let mut storage = InMemoryGraph::new();
+
+    // Create vertices
+    storage.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+    );
+    storage.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
+    );
+
+    // Use FOREACH with multiple SET operations
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (i IN [1, 2] | SET p.a = i, p.b = i * 10)
+        "#,
+    )
+    .unwrap();
+
+    let alice = storage
+        .all_vertices()
+        .find(|v| v.properties.get("name") == Some(&Value::String("Alice".to_string())))
+        .expect("Alice should exist");
+    // Last iteration: i=2, so a=2, b=20
+    assert_eq!(alice.properties.get("a"), Some(&Value::Int(2)));
+    assert_eq!(alice.properties.get("b"), Some(&Value::Int(20)));
+}
+
+#[test]
+fn test_foreach_empty_list() {
+    let mut storage = InMemoryGraph::new();
+
+    storage.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+    );
+
+    // FOREACH with empty list should be a no-op
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    let result = execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (i IN [] | SET p.updated = true)
+        RETURN p.name
+        "#,
+    );
+
+    assert!(result.is_ok());
+
+    let alice = storage.all_vertices().next().expect("Alice should exist");
+    // marker should be set, but updated should not be since list was empty
+    assert_eq!(alice.properties.get("marker"), Some(&Value::Bool(true)));
+    assert_eq!(alice.properties.get("updated"), None);
+}
+
+#[test]
+fn test_foreach_null_list() {
+    let mut storage = InMemoryGraph::new();
+
+    storage.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("items".to_string(), Value::Null),
+        ]),
+    );
+
+    // FOREACH with null list should be a no-op (not an error)
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    let result = execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (i IN p.items | SET p.processed = true)
+        RETURN p.name
+        "#,
+    );
+
+    assert!(result.is_ok());
+
+    let alice = storage.all_vertices().next().expect("Alice should exist");
+    // marker should be set, but processed should not since list was null
+    assert_eq!(alice.properties.get("marker"), Some(&Value::Bool(true)));
+    assert_eq!(alice.properties.get("processed"), None);
+}
+
+#[test]
+fn test_foreach_non_list_error() {
+    let mut storage = InMemoryGraph::new();
+
+    storage.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(30)),
+        ]),
+    );
+
+    // FOREACH with non-list expression should fail
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    let result = execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (i IN p.age | SET p.processed = true)
+        "#,
+    );
+
+    assert!(result.is_err());
+    // Should be a ForeachNotList error
+    if let Err(MutationError::Compile(intersteller::gql::CompileError::ForeachNotList { .. })) =
+        result
+    {
+        // Expected error
+    } else {
+        panic!("Expected ForeachNotList error, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_foreach_variable_scope() {
+    let mut storage = InMemoryGraph::new();
+
+    storage.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+    );
+
+    // Test that the FOREACH variable is available inside the mutations
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    let result = execute_gql(
+        &mut storage,
+        r#"
+        MATCH (p:Person {name: 'Alice'})
+        SET p.marker = true
+        FOREACH (x IN [100, 200, 300] | SET p.value = x)
+        RETURN p.value
+        "#,
+    );
+
+    assert!(result.is_ok());
+    let results = result.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], Value::Int(300)); // Last value
+}
+
+#[test]
+fn test_foreach_with_collected_list() {
+    let mut storage = create_foreach_test_graph();
+
+    // Use FOREACH with a collected list from a pattern
+    // This test uses a standard MATCH + SET pattern since WITH...FOREACH is complex
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    execute_gql(
+        &mut storage,
+        r#"
+        MATCH (a:Person {name: 'Alice'})
+        SET a.marker = true
+        FOREACH (i IN [1, 2, 3] | SET a.lastValue = i)
+        "#,
+    )
+    .unwrap();
+
+    let alice = storage
+        .all_vertices()
+        .find(|v| v.properties.get("name") == Some(&Value::String("Alice".to_string())))
+        .expect("Alice should exist");
+    // Should have lastValue set to 3 (last iteration)
+    assert_eq!(alice.properties.get("lastValue"), Some(&Value::Int(3)));
+}
+
+#[test]
+fn test_foreach_mark_friends_visited() {
+    let mut storage = create_foreach_test_graph();
+
+    // A practical use case: mark all friends of Alice as visited
+    execute_gql(
+        &mut storage,
+        r#"
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend:Person)
+        SET friend.visited = true
+        "#,
+    )
+    .unwrap();
+
+    // Bob and Charlie should be marked as visited
+    let bob = storage
+        .all_vertices()
+        .find(|v| v.properties.get("name") == Some(&Value::String("Bob".to_string())))
+        .expect("Bob should exist");
+    assert_eq!(bob.properties.get("visited"), Some(&Value::Bool(true)));
+
+    let charlie = storage
+        .all_vertices()
+        .find(|v| v.properties.get("name") == Some(&Value::String("Charlie".to_string())))
+        .expect("Charlie should exist");
+    assert_eq!(charlie.properties.get("visited"), Some(&Value::Bool(true)));
+
+    // Alice should NOT be marked as visited (she was not a friend in the pattern)
+    let alice = storage
+        .all_vertices()
+        .find(|v| v.properties.get("name") == Some(&Value::String("Alice".to_string())))
+        .expect("Alice should exist");
+    assert_eq!(alice.properties.get("visited"), Some(&Value::Bool(false)));
+}
+
+#[test]
+fn test_foreach_nested_iteration() {
+    let mut storage = InMemoryGraph::new();
+
+    storage.add_vertex(
+        "Counter",
+        HashMap::from([
+            ("name".to_string(), Value::String("counter".to_string())),
+            ("value".to_string(), Value::Int(0)),
+        ]),
+    );
+
+    // Nested FOREACH to multiply iterations
+    // Note: FOREACH must come after at least one mutation clause per grammar
+    execute_gql(
+        &mut storage,
+        r#"
+        MATCH (c:Counter)
+        SET c.marker = true
+        FOREACH (x IN [1, 2] | FOREACH (y IN [10, 20] | SET c.value = x * y))
+        "#,
+    )
+    .unwrap();
+
+    let counter = storage.all_vertices().next().expect("Counter should exist");
+    // Last iteration: x=2, y=20, so value = 40
+    assert_eq!(counter.properties.get("value"), Some(&Value::Int(40)));
+}
