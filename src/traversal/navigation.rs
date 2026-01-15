@@ -64,50 +64,6 @@ impl OutStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
-
-    /// Expand a single traverser to output traversers.
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> Vec<Traverser> {
-        let vertex_id = match t.as_vertex_id() {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        // Resolve label IDs if labels are specified
-        // If labels are specified but none resolve, return empty (no matching edges)
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            let resolved =
-                ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            if resolved.is_empty() {
-                // Labels were specified but none exist in the graph
-                return Vec::new();
-            }
-            resolved
-        };
-
-        let track_paths = ctx.is_tracking_paths();
-
-        ctx.snapshot()
-            .storage()
-            .out_edges(vertex_id)
-            .filter_map(|edge| {
-                // Filter by label if specified
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                // Get target vertex
-                let mut new_t = t.split(Value::Vertex(edge.dst));
-                if track_paths {
-                    new_t.extend_path_unlabeled();
-                }
-                Some(new_t)
-            })
-            .collect()
-    }
 }
 
 impl Default for OutStep {
@@ -122,8 +78,49 @@ impl AnyStep for OutStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        // Pre-resolve labels once (not per-traverser) for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Return lazy iterator - no .collect()!
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids = label_ids.clone();
+            Box::new(
+                ctx.snapshot()
+                    .storage()
+                    .out_edges(vertex_id)
+                    .filter_map(move |edge| {
+                        // Filter by label if specified
+                        if !label_ids.is_empty() {
+                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                            if !label_ids.contains(&edge_label_id) {
+                                return None;
+                            }
+                        }
+                        // Get target vertex
+                        let mut new_t = t.split(Value::Vertex(edge.dst));
+                        if track_paths {
+                            new_t.extend_path_unlabeled();
+                        }
+                        Some(new_t)
+                    }),
+            ) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -173,49 +170,6 @@ impl InStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
-
-    /// Expand a single traverser to output traversers.
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> Vec<Traverser> {
-        let vertex_id = match t.as_vertex_id() {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        // Resolve label IDs if labels are specified
-        // If labels are specified but none resolve, return empty (no matching edges)
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            let resolved =
-                ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            if resolved.is_empty() {
-                return Vec::new();
-            }
-            resolved
-        };
-
-        let track_paths = ctx.is_tracking_paths();
-
-        ctx.snapshot()
-            .storage()
-            .in_edges(vertex_id)
-            .filter_map(|edge| {
-                // Filter by label if specified
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                // Get source vertex
-                let mut new_t = t.split(Value::Vertex(edge.src));
-                if track_paths {
-                    new_t.extend_path_unlabeled();
-                }
-                Some(new_t)
-            })
-            .collect()
-    }
 }
 
 impl Default for InStep {
@@ -230,8 +184,49 @@ impl AnyStep for InStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        // Pre-resolve labels once (not per-traverser) for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Return lazy iterator - no .collect()!
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids = label_ids.clone();
+            Box::new(
+                ctx.snapshot()
+                    .storage()
+                    .in_edges(vertex_id)
+                    .filter_map(move |edge| {
+                        // Filter by label if specified
+                        if !label_ids.is_empty() {
+                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                            if !label_ids.contains(&edge_label_id) {
+                                return None;
+                            }
+                        }
+                        // Get source vertex
+                        let mut new_t = t.split(Value::Vertex(edge.src));
+                        if track_paths {
+                            new_t.extend_path_unlabeled();
+                        }
+                        Some(new_t)
+                    }),
+            ) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -281,63 +276,6 @@ impl BothStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
-
-    /// Expand a single traverser to output traversers.
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> Vec<Traverser> {
-        let vertex_id = match t.as_vertex_id() {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        // Resolve label IDs if labels are specified
-        // If labels are specified but none resolve, return empty (no matching edges)
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            let resolved =
-                ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            if resolved.is_empty() {
-                return Vec::new();
-            }
-            resolved
-        };
-
-        let storage = ctx.snapshot().storage();
-        let interner = ctx.interner();
-        let track_paths = ctx.is_tracking_paths();
-
-        // Get outgoing neighbors
-        let out_iter = storage.out_edges(vertex_id).filter_map(|edge| {
-            if !label_ids.is_empty() {
-                let edge_label_id = interner.lookup(&edge.label)?;
-                if !label_ids.contains(&edge_label_id) {
-                    return None;
-                }
-            }
-            let mut new_t = t.split(Value::Vertex(edge.dst));
-            if track_paths {
-                new_t.extend_path_unlabeled();
-            }
-            Some(new_t)
-        });
-
-        // Get incoming neighbors
-        let in_iter = storage.in_edges(vertex_id).filter_map(|edge| {
-            if !label_ids.is_empty() {
-                let edge_label_id = interner.lookup(&edge.label)?;
-                if !label_ids.contains(&edge_label_id) {
-                    return None;
-                }
-            }
-            let mut new_t = t.split(Value::Vertex(edge.src));
-            if track_paths {
-                new_t.extend_path_unlabeled();
-            }
-            Some(new_t)
-        });
-
-        out_iter.chain(in_iter).collect()
-    }
 }
 
 impl Default for BothStep {
@@ -352,8 +290,71 @@ impl AnyStep for BothStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        // Pre-resolve labels once (not per-traverser) for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Return lazy iterator - no .collect()!
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids_out = label_ids.clone();
+            let label_ids_in = label_ids.clone();
+            let t_for_in = t.clone();
+
+            // Get outgoing neighbors
+            let out_iter = ctx
+                .snapshot()
+                .storage()
+                .out_edges(vertex_id)
+                .filter_map(move |edge| {
+                    if !label_ids_out.is_empty() {
+                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                        if !label_ids_out.contains(&edge_label_id) {
+                            return None;
+                        }
+                    }
+                    let mut new_t = t.split(Value::Vertex(edge.dst));
+                    if track_paths {
+                        new_t.extend_path_unlabeled();
+                    }
+                    Some(new_t)
+                });
+
+            // Get incoming neighbors
+            let in_iter = ctx
+                .snapshot()
+                .storage()
+                .in_edges(vertex_id)
+                .filter_map(move |edge| {
+                    if !label_ids_in.is_empty() {
+                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                        if !label_ids_in.contains(&edge_label_id) {
+                            return None;
+                        }
+                    }
+                    let mut new_t = t_for_in.split(Value::Vertex(edge.src));
+                    if track_paths {
+                        new_t.extend_path_unlabeled();
+                    }
+                    Some(new_t)
+                });
+
+            Box::new(out_iter.chain(in_iter)) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -401,45 +402,6 @@ impl OutEStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
-
-    /// Expand a single traverser to output traversers.
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> Vec<Traverser> {
-        let vertex_id = match t.as_vertex_id() {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            let resolved =
-                ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            if resolved.is_empty() {
-                return Vec::new();
-            }
-            resolved
-        };
-
-        let track_paths = ctx.is_tracking_paths();
-
-        ctx.snapshot()
-            .storage()
-            .out_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                let mut new_t = t.split(Value::Edge(edge.id));
-                if track_paths {
-                    new_t.extend_path_unlabeled();
-                }
-                Some(new_t)
-            })
-            .collect()
-    }
 }
 
 impl Default for OutEStep {
@@ -454,8 +416,47 @@ impl AnyStep for OutEStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        // Pre-resolve labels once (not per-traverser) for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Return lazy iterator - no .collect()!
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids = label_ids.clone();
+            Box::new(
+                ctx.snapshot()
+                    .storage()
+                    .out_edges(vertex_id)
+                    .filter_map(move |edge| {
+                        if !label_ids.is_empty() {
+                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                            if !label_ids.contains(&edge_label_id) {
+                                return None;
+                            }
+                        }
+                        let mut new_t = t.split(Value::Edge(edge.id));
+                        if track_paths {
+                            new_t.extend_path_unlabeled();
+                        }
+                        Some(new_t)
+                    }),
+            ) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -503,45 +504,6 @@ impl InEStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
-
-    /// Expand a single traverser to output traversers.
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> Vec<Traverser> {
-        let vertex_id = match t.as_vertex_id() {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            let resolved =
-                ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            if resolved.is_empty() {
-                return Vec::new();
-            }
-            resolved
-        };
-
-        let track_paths = ctx.is_tracking_paths();
-
-        ctx.snapshot()
-            .storage()
-            .in_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                let mut new_t = t.split(Value::Edge(edge.id));
-                if track_paths {
-                    new_t.extend_path_unlabeled();
-                }
-                Some(new_t)
-            })
-            .collect()
-    }
 }
 
 impl Default for InEStep {
@@ -556,8 +518,47 @@ impl AnyStep for InEStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        // Pre-resolve labels once (not per-traverser) for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Return lazy iterator - no .collect()!
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids = label_ids.clone();
+            Box::new(
+                ctx.snapshot()
+                    .storage()
+                    .in_edges(vertex_id)
+                    .filter_map(move |edge| {
+                        if !label_ids.is_empty() {
+                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                            if !label_ids.contains(&edge_label_id) {
+                                return None;
+                            }
+                        }
+                        let mut new_t = t.split(Value::Edge(edge.id));
+                        if track_paths {
+                            new_t.extend_path_unlabeled();
+                        }
+                        Some(new_t)
+                    }),
+            ) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -605,61 +606,6 @@ impl BothEStep {
     pub fn with_labels(labels: Vec<String>) -> Self {
         Self { labels }
     }
-
-    /// Expand a single traverser to output traversers.
-    fn expand<'a>(&self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> Vec<Traverser> {
-        let vertex_id = match t.as_vertex_id() {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        let label_ids: Vec<u32> = if self.labels.is_empty() {
-            Vec::new()
-        } else {
-            let resolved =
-                ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            if resolved.is_empty() {
-                return Vec::new();
-            }
-            resolved
-        };
-
-        let storage = ctx.snapshot().storage();
-        let interner = ctx.interner();
-        let track_paths = ctx.is_tracking_paths();
-
-        // Get outgoing edges
-        let out_iter = storage.out_edges(vertex_id).filter_map(|edge| {
-            if !label_ids.is_empty() {
-                let edge_label_id = interner.lookup(&edge.label)?;
-                if !label_ids.contains(&edge_label_id) {
-                    return None;
-                }
-            }
-            let mut new_t = t.split(Value::Edge(edge.id));
-            if track_paths {
-                new_t.extend_path_unlabeled();
-            }
-            Some(new_t)
-        });
-
-        // Get incoming edges
-        let in_iter = storage.in_edges(vertex_id).filter_map(|edge| {
-            if !label_ids.is_empty() {
-                let edge_label_id = interner.lookup(&edge.label)?;
-                if !label_ids.contains(&edge_label_id) {
-                    return None;
-                }
-            }
-            let mut new_t = t.split(Value::Edge(edge.id));
-            if track_paths {
-                new_t.extend_path_unlabeled();
-            }
-            Some(new_t)
-        });
-
-        out_iter.chain(in_iter).collect()
-    }
 }
 
 impl Default for BothEStep {
@@ -674,8 +620,71 @@ impl AnyStep for BothEStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        let step = self.clone();
-        Box::new(input.flat_map(move |t| step.expand(ctx, t)))
+        // Pre-resolve labels once (not per-traverser) for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            ctx.resolve_labels(&self.labels.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Return lazy iterator - no .collect()!
+        Box::new(input.flat_map(move |t| {
+            let vertex_id = match t.as_vertex_id() {
+                Some(id) => id,
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
+            };
+
+            let label_ids_out = label_ids.clone();
+            let label_ids_in = label_ids.clone();
+            let t_for_in = t.clone();
+
+            // Get outgoing edges
+            let out_iter = ctx
+                .snapshot()
+                .storage()
+                .out_edges(vertex_id)
+                .filter_map(move |edge| {
+                    if !label_ids_out.is_empty() {
+                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                        if !label_ids_out.contains(&edge_label_id) {
+                            return None;
+                        }
+                    }
+                    let mut new_t = t.split(Value::Edge(edge.id));
+                    if track_paths {
+                        new_t.extend_path_unlabeled();
+                    }
+                    Some(new_t)
+                });
+
+            // Get incoming edges
+            let in_iter = ctx
+                .snapshot()
+                .storage()
+                .in_edges(vertex_id)
+                .filter_map(move |edge| {
+                    if !label_ids_in.is_empty() {
+                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                        if !label_ids_in.contains(&edge_label_id) {
+                            return None;
+                        }
+                    }
+                    let mut new_t = t_for_in.split(Value::Edge(edge.id));
+                    if track_paths {
+                        new_t.extend_path_unlabeled();
+                    }
+                    Some(new_t)
+                });
+
+            Box::new(out_iter.chain(in_iter)) as Box<dyn Iterator<Item = Traverser>>
+        }))
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {
@@ -856,7 +865,7 @@ impl AnyStep for BothVStep {
         Box::new(input.flat_map(move |t| {
             let edge_id = match t.as_edge_id() {
                 Some(id) => id,
-                None => return Vec::new(),
+                None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
             };
 
             match ctx.snapshot().storage().get_edge(edge_id) {
@@ -868,9 +877,10 @@ impl AnyStep for BothVStep {
                         src.extend_path_unlabeled();
                         dst.extend_path_unlabeled();
                     }
-                    vec![src, dst]
+                    // Use array iterator instead of Vec for fixed-size output
+                    Box::new([src, dst].into_iter()) as Box<dyn Iterator<Item = Traverser>>
                 }
-                None => Vec::new(),
+                None => Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
             }
         }))
     }
