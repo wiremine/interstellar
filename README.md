@@ -340,6 +340,51 @@ cargo bench                          # Run traversal benchmarks
 cargo bench --features mmap          # Include mmap benchmarks
 ```
 
+## Formal Verification
+
+Intersteller uses [Kani](https://github.com/model-checking/kani) for formal verification of critical code paths. Kani exhaustively checks all possible inputs within defined bounds, providing mathematical proofs of correctness.
+
+### Verified Properties
+
+- **Packed struct layout**: All `#[repr(C, packed)]` structs match their size constants
+- **Serialization roundtrips**: FileHeader, NodeRecord, EdgeRecord serialize/deserialize correctly
+- **Type conversions**: Value type conversions preserve data within safe ranges
+- **Offset calculations**: File offset arithmetic cannot overflow for reasonable capacities
+- **Data structure invariants**: FreeList and ArenaAllocator maintain their contracts
+
+### Running Verification
+
+```bash
+# Install Kani (one-time setup)
+cargo install --locked kani-verifier
+kani setup
+
+# Run all proofs
+cargo kani
+
+# Run specific proof
+cargo kani --harness verify_node_record_roundtrip
+
+# Run with verbose output
+cargo kani --verbose
+```
+
+### Proof Harnesses
+
+| Category | Proof | Description |
+|----------|-------|-------------|
+| Records | `verify_struct_sizes_match_constants` | All packed struct sizes match constants |
+| Records | `verify_file_header_roundtrip` | FileHeader serialization roundtrip |
+| Records | `verify_node_record_roundtrip` | NodeRecord serialization roundtrip |
+| Records | `verify_edge_record_roundtrip` | EdgeRecord serialization roundtrip |
+| Value | `verify_u64_to_value_safe_range` | Safe u64 to Value conversion |
+| Value | `verify_i64_to_value` | i64 to Value conversion |
+| Value | `verify_bool_to_value` | bool to Value conversion |
+| Offset | `verify_node_offset_no_overflow` | Node offset calculation safety |
+| Offset | `verify_edge_offset_no_overflow` | Edge offset calculation safety |
+| FreeList | `verify_freelist_push_pop` | FreeList LIFO behavior |
+| Arena | `verify_arena_allocation_bounded` | Arena bounds checking |
+
 ## Documentation
 
 ```bash

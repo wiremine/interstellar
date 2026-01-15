@@ -3,6 +3,9 @@ name = "intersteller"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [features]
 default = ["inmemory"]
 inmemory = []
@@ -65,3 +68,7 @@ required-features = ["mmap"]
 [[example]]
 name = "schema_mmap_validate"
 required-features = ["mmap"]
+
+[package.metadata.kani]
+# Default unwind bound for loops (can be overridden per-proof)
+default-unwind = 10

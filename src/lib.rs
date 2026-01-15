@@ -375,6 +375,9 @@ pub mod storage;
 pub mod traversal;
 pub mod value;
 
+#[cfg(kani)]
+mod kani_proofs;
+
 /// The prelude module re-exports commonly used types.
 ///
 /// Import the prelude to get started quickly:
