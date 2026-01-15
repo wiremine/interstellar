@@ -13,6 +13,26 @@ use crate::traversal::step::{execute_traversal_from, AnyStep};
 use crate::traversal::{ExecutionContext, Traversal, Traverser};
 use crate::value::Value;
 
+/// Convert a Value to a string key for use in Value::Map.
+///
+/// Value::Map uses String keys, so when we want to output a grouped result
+/// as a Value::Map, we need to convert the grouped Value keys to strings.
+/// This conversion happens only at the output stage, not during grouping.
+#[inline]
+fn value_to_map_key(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Vertex(id) => format!("v[{}]", id.0),
+        Value::Edge(id) => format!("e[{}]", id.0),
+        Value::Null => "null".to_string(),
+        Value::List(_) => "[list]".to_string(),
+        Value::Map(_) => "[map]".to_string(),
+    }
+}
+
 /// Specification for how to extract the grouping key from a traverser.
 ///
 /// Used by `GroupStep` and `GroupCountStep` to determine which group
@@ -242,7 +262,8 @@ impl AnyStep for GroupStep {
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         // Collect all input into groups (barrier)
-        let mut groups: HashMap<String, Vec<Value>> = HashMap::new();
+        // Use Value directly as key since it implements Hash + Eq
+        let mut groups: HashMap<Value, Vec<Value>> = HashMap::new();
         let mut last_path = None;
 
         for traverser in input {
@@ -250,30 +271,26 @@ impl AnyStep for GroupStep {
 
             // Get the grouping key
             if let Some(key) = self.get_key(ctx, &traverser) {
+                // Skip non-hashable keys (List, Map) - while Value does implement Hash,
+                // using complex nested structures as keys is semantically questionable
+                // and matches Gremlin's behavior
+                if matches!(key, Value::List(_) | Value::Map(_)) {
+                    continue;
+                }
+
                 // Get the value to collect
                 if let Some(value) = self.get_value(ctx, &traverser) {
-                    // Convert key to string for map key
-                    let key_str = match &key {
-                        Value::String(s) => s.clone(),
-                        Value::Int(n) => n.to_string(),
-                        Value::Float(f) => f.to_string(),
-                        Value::Bool(b) => b.to_string(),
-                        Value::Vertex(id) => format!("v[{}]", id.0),
-                        Value::Edge(id) => format!("e[{}]", id.0),
-                        Value::Null => "null".to_string(),
-                        Value::List(_) => continue, // Skip non-hashable keys
-                        Value::Map(_) => continue,  // Skip non-hashable keys
-                    };
-
-                    groups.entry(key_str).or_default().push(value);
+                    groups.entry(key).or_default().push(value);
                 }
             }
         }
 
         // Convert groups to a single Value::Map
+        // Value::Map uses String keys, so convert Value keys to strings
         let mut result_map: HashMap<String, Value> = HashMap::new();
         for (key, values) in groups {
-            result_map.insert(key, Value::List(values));
+            let key_str = value_to_map_key(&key);
+            result_map.insert(key_str, Value::List(values));
         }
 
         // Emit a single traverser with the grouped result
@@ -609,36 +626,32 @@ impl AnyStep for GroupCountStep {
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         // Collect all input and count by group key
-        let mut counts: HashMap<String, i64> = HashMap::new();
+        // Use Value directly as key since it implements Hash + Eq
+        let mut counts: HashMap<Value, i64> = HashMap::new();
         let mut last_path = None;
 
         for traverser in input {
             last_path = Some(traverser.path.clone());
 
             if let Some(key_value) = self.get_key(ctx, &traverser) {
-                // Convert value to string for hashmap key
-                // Skip non-hashable types (List, Map)
-                let key_str = match key_value {
-                    Value::String(s) => s,
-                    Value::Int(i) => i.to_string(),
-                    Value::Float(f) => f.to_string(),
-                    Value::Bool(b) => b.to_string(),
-                    Value::Vertex(id) => format!("v[{}]", id.0),
-                    Value::Edge(id) => format!("e[{}]", id.0),
-                    Value::Null => "null".to_string(),
-                    Value::List(_) => continue, // Skip non-hashable keys
-                    Value::Map(_) => continue,  // Skip non-hashable keys
-                };
+                // Skip non-hashable keys (List, Map) - while Value does implement Hash,
+                // using complex nested structures as keys is semantically questionable
+                // and matches Gremlin's behavior
+                if matches!(key_value, Value::List(_) | Value::Map(_)) {
+                    continue;
+                }
 
                 // Increment count by traverser bulk
-                *counts.entry(key_str).or_insert(0) += traverser.bulk as i64;
+                *counts.entry(key_value).or_insert(0) += traverser.bulk as i64;
             }
         }
 
         // Convert counts to a single Value::Map
+        // Value::Map uses String keys, so convert Value keys to strings
         let mut result_map: HashMap<String, Value> = HashMap::new();
         for (key, count) in counts {
-            result_map.insert(key, Value::Int(count));
+            let key_str = value_to_map_key(&key);
+            result_map.insert(key_str, Value::Int(count));
         }
 
         // Emit a single traverser with the counted result
