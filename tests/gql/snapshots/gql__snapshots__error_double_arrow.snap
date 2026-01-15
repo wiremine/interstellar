@@ -1,0 +1,5 @@
+---
+source: tests/gql/snapshots.rs
+expression: "format!(\"{}\", err)"
+---
+"Syntax error:  --> 1:10\n  |\n1 | MATCH (a)-->>>(b) RETURN a\n  |          ^---\n  |\n  = expected RETURN, WHERE, WITH, OPTIONAL, UNWIND, LET, CALL, mutation_clause, or left_arrow"

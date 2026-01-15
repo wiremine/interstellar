@@ -1,0 +1,87 @@
+---
+source: tests/gql/snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: user
+            labels:
+              - User
+            properties:
+              - - status
+                - String: active
+            where_clause: ~
+        - Edge:
+            variable: ~
+            labels:
+              - FOLLOWS
+            direction: Outgoing
+            quantifier:
+              min: 1
+              max: 2
+            properties: []
+            where_clause: ~
+        - Node:
+            variable: followed
+            labels:
+              - User
+            properties: []
+            where_clause: ~
+optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
+where_clause:
+  expression:
+    BinaryOp:
+      left:
+        BinaryOp:
+          left:
+            Property:
+              variable: followed
+              property: verified
+          op: Eq
+          right:
+            Literal:
+              Bool: true
+      op: And
+      right:
+        BinaryOp:
+          left:
+            Property:
+              variable: followed
+              property: id
+          op: Neq
+          right:
+            Property:
+              variable: user
+              property: id
+call_clauses: []
+let_clauses: []
+with_clauses: []
+return_clause:
+  distinct: true
+  items:
+    - expression:
+        Property:
+          variable: followed
+          property: username
+      alias: ~
+    - expression:
+        Property:
+          variable: followed
+          property: followers
+      alias: ~
+group_by_clause: ~
+having_clause: ~
+order_clause:
+  items:
+    - expression:
+        Property:
+          variable: followed
+          property: followers
+      descending: true
+limit_clause:
+  limit: 50
+  offset: ~

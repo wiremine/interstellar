@@ -8,8 +8,6 @@
 //!
 //! Tests use tempfile for isolation and are independent of each other.
 
-#![cfg(feature = "mmap")]
-
 use intersteller::storage::{GraphStorage, MmapGraph};
 use std::collections::HashMap;
 use tempfile::TempDir;

@@ -1,3 +1,7 @@
+//! Integration tests for InMemoryGraph storage.
+//!
+//! These tests verify the in-memory storage backend functionality.
+
 use intersteller::graph::Graph;
 use intersteller::storage::{GraphStorage, InMemoryGraph};
 use intersteller::value::Value;

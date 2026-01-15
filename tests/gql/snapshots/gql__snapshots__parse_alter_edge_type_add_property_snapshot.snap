@@ -1,0 +1,13 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Ddl:
+  AlterEdgeType:
+    name: KNOWS
+    action:
+      AddProperty:
+        name: notes
+        prop_type: String
+        required: false
+        default: ~

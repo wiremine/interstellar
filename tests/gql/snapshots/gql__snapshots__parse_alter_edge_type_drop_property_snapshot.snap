@@ -1,0 +1,9 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Ddl:
+  AlterEdgeType:
+    name: KNOWS
+    action:
+      DropProperty: notes

@@ -1,0 +1,51 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Mutation:
+  match_clause:
+    patterns:
+      - elements:
+          - Node:
+              variable: p
+              labels:
+                - Person
+              properties:
+                - - name
+                  - String: Alice
+              where_clause: ~
+  optional_match_clauses: []
+  where_clause:
+    expression:
+      BinaryOp:
+        left:
+          Property:
+            variable: p
+            property: active
+        op: Eq
+        right:
+          Literal:
+            Bool: true
+  mutations:
+    - Set:
+        items:
+          - target:
+              variable: p
+              property: lastLogin
+            value:
+              Literal:
+                String: today
+  foreach_clauses: []
+  return_clause:
+    distinct: false
+    items:
+      - expression:
+          Property:
+            variable: p
+            property: name
+        alias: ~
+      - expression:
+          Property:
+            variable: p
+            property: lastLogin
+        alias: ~

@@ -1,0 +1,5 @@
+---
+source: tests/gql/snapshots.rs
+expression: "format!(\"{}\", err)"
+---
+"Syntax error:  --> 1:16\n  |\n1 | MATCH (n {age: @invalid}) RETURN n\n  |                ^---\n  |\n  = expected literal"

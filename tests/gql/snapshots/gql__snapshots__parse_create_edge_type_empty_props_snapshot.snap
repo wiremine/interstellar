@@ -1,0 +1,12 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Ddl:
+  CreateEdgeType:
+    name: FOLLOWS
+    properties: []
+    from_types:
+      - Person
+    to_types:
+      - Person

@@ -1,0 +1,18 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Ddl:
+  CreateEdgeType:
+    name: TAGGED
+    properties:
+      - name: created_at
+        prop_type: Int
+        required: true
+        default: ~
+    from_types:
+      - Post
+      - Comment
+      - Photo
+    to_types:
+      - Tag

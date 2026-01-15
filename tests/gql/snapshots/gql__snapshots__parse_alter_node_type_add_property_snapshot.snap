@@ -1,0 +1,13 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Ddl:
+  AlterNodeType:
+    name: Person
+    action:
+      AddProperty:
+        name: bio
+        prop_type: String
+        required: false
+        default: ~

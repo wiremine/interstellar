@@ -1,0 +1,20 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Mutation:
+  match_clause: ~
+  optional_match_clauses: []
+  where_clause: ~
+  mutations:
+    - Create:
+        patterns:
+          - elements:
+              - Node:
+                  variable: n
+                  labels:
+                    - Node
+                  properties: []
+                  where_clause: ~
+  foreach_clauses: []
+  return_clause: ~

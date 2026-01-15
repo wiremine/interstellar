@@ -1,0 +1,72 @@
+---
+source: tests/gql/snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+            where_clause: ~
+optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
+where_clause: ~
+call_clauses: []
+let_clauses: []
+with_clauses: []
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Property:
+          variable: p
+          property: name
+      alias: ~
+    - expression:
+        Case:
+          when_clauses:
+            - - BinaryOp:
+                  left:
+                    Property:
+                      variable: p
+                      property: ppg
+                  op: Gte
+                  right:
+                    Literal:
+                      Int: 25
+              - Literal:
+                  String: Elite
+            - - BinaryOp:
+                  left:
+                    Property:
+                      variable: p
+                      property: ppg
+                  op: Gte
+                  right:
+                    Literal:
+                      Int: 15
+              - Literal:
+                  String: Starter
+            - - BinaryOp:
+                  left:
+                    Property:
+                      variable: p
+                      property: ppg
+                  op: Gte
+                  right:
+                    Literal:
+                      Int: 5
+              - Literal:
+                  String: Role Player
+          else_clause:
+            Literal:
+              String: Bench
+      alias: tier
+group_by_clause: ~
+having_clause: ~
+order_clause: ~
+limit_clause: ~

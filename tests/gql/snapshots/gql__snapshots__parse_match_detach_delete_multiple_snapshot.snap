@@ -1,0 +1,32 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Mutation:
+  match_clause:
+    patterns:
+      - elements:
+          - Node:
+              variable: p
+              labels:
+                - Person
+              properties: []
+              where_clause: ~
+  optional_match_clauses: []
+  where_clause:
+    expression:
+      BinaryOp:
+        left:
+          Property:
+            variable: p
+            property: inactive
+        op: Eq
+        right:
+          Literal:
+            Bool: true
+  mutations:
+    - DetachDelete:
+        variables:
+          - p
+  foreach_clauses: []
+  return_clause: ~

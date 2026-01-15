@@ -1,0 +1,66 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Mutation:
+  match_clause:
+    patterns:
+      - elements:
+          - Node:
+              variable: a
+              labels:
+                - Person
+              properties:
+                - - name
+                  - String: Alice
+              where_clause: ~
+      - elements:
+          - Node:
+              variable: b
+              labels:
+                - Person
+              properties:
+                - - name
+                  - String: Bob
+              where_clause: ~
+  optional_match_clauses: []
+  where_clause: ~
+  mutations:
+    - Create:
+        patterns:
+          - elements:
+              - Node:
+                  variable: a
+                  labels: []
+                  properties: []
+                  where_clause: ~
+              - Edge:
+                  variable: ~
+                  labels:
+                    - KNOWS
+                  direction: Outgoing
+                  quantifier: ~
+                  properties: []
+                  where_clause: ~
+              - Node:
+                  variable: b
+                  labels: []
+                  properties: []
+                  where_clause: ~
+    - Set:
+        items:
+          - target:
+              variable: a
+              property: friendCount
+            value:
+              BinaryOp:
+                left:
+                  Property:
+                    variable: a
+                    property: friendCount
+                op: Add
+                right:
+                  Literal:
+                    Int: 1
+  foreach_clauses: []
+  return_clause: ~

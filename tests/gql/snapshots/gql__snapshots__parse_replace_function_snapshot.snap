@@ -1,0 +1,39 @@
+---
+source: tests/gql/snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: p
+            labels:
+              - player
+            properties: []
+            where_clause: ~
+optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
+where_clause: ~
+call_clauses: []
+let_clauses: []
+with_clauses: []
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        FunctionCall:
+          name: replace
+          args:
+            - Property:
+                variable: p
+                property: name
+            - Literal:
+                String: " "
+            - Literal:
+                String: _
+      alias: ~
+group_by_clause: ~
+having_clause: ~
+order_clause: ~
+limit_clause: ~

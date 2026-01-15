@@ -1,0 +1,7 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Ddl:
+  DropEdgeType:
+    name: KNOWS

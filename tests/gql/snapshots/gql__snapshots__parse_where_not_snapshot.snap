@@ -1,0 +1,37 @@
+---
+source: tests/gql/snapshots.rs
+expression: ast
+---
+match_clause:
+  patterns:
+    - elements:
+        - Node:
+            variable: n
+            labels:
+              - Person
+            properties: []
+            where_clause: ~
+optional_match_clauses: []
+with_path_clause: ~
+unwind_clauses: []
+where_clause:
+  expression:
+    UnaryOp:
+      op: Not
+      expr:
+        Property:
+          variable: n
+          property: archived
+call_clauses: []
+let_clauses: []
+with_clauses: []
+return_clause:
+  distinct: false
+  items:
+    - expression:
+        Variable: n
+      alias: ~
+group_by_clause: ~
+having_clause: ~
+order_clause: ~
+limit_clause: ~

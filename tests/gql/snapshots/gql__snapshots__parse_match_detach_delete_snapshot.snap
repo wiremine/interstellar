@@ -1,0 +1,24 @@
+---
+source: tests/gql/snapshots.rs
+expression: stmt
+---
+Mutation:
+  match_clause:
+    patterns:
+      - elements:
+          - Node:
+              variable: p
+              labels:
+                - Person
+              properties:
+                - - name
+                  - String: Alice
+              where_clause: ~
+  optional_match_clauses: []
+  where_clause: ~
+  mutations:
+    - DetachDelete:
+        variables:
+          - p
+  foreach_clauses: []
+  return_clause: ~
