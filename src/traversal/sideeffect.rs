@@ -134,6 +134,14 @@ impl AnyStep for StoreStep {
 /// allowing any to continue. This is useful when you need all values to be
 /// stored before subsequent steps execute.
 ///
+/// # Memory Warning
+///
+/// **This step requires O(n) memory** where n is the total number of input
+/// traversers. All traversers must be collected into memory before any are
+/// re-emitted. For very large traversals, this may cause significant memory
+/// usage. Consider using `store()` instead if you don't need barrier semantics
+/// (i.e., if it's acceptable for values to be stored as they flow through).
+///
 /// # Behavior
 ///
 /// - Collects all input traversers into memory

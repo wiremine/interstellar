@@ -12,6 +12,8 @@
 //! - `HasIdStep`: Filters elements by ID
 //! - `FilterStep`: Generic filter with custom predicate
 
+use std::collections::VecDeque;
+
 use crate::impl_filter_step;
 use crate::traversal::step::AnyStep;
 use crate::traversal::{ExecutionContext, Traverser};
@@ -1335,8 +1337,15 @@ impl_filter_step!(CyclicPathStep, "cyclicPath");
 
 /// Filter step that returns only the last n elements from the traversal.
 ///
-/// This is a **barrier step** - it must collect all elements to determine
+/// This is a **barrier step** - it must consume all elements to determine
 /// which are the last n. The elements are returned in their original order.
+///
+/// # Memory Efficiency
+///
+/// Unlike most barrier steps, `TailStep` uses O(n) memory where n is the
+/// requested count (not the total input size). It uses a ring buffer to
+/// only retain the last n elements seen, making it efficient even for
+/// very large traversals.
 ///
 /// # Behavior
 ///
@@ -1402,14 +1411,23 @@ impl AnyStep for TailStep {
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        // Collect all traversers - this is a barrier step
-        let all: Vec<Traverser> = input.collect();
+        // Special case: tail(0) returns nothing
+        if self.count == 0 {
+            return Box::new(std::iter::empty());
+        }
 
-        // Calculate how many to skip to get the last `count` elements
-        let skip_count = all.len().saturating_sub(self.count);
+        // Use a ring buffer to keep only the last `count` elements.
+        // This is O(count) memory instead of O(n) for the full input.
+        let mut ring_buffer: VecDeque<Traverser> = VecDeque::with_capacity(self.count);
 
-        // Return iterator over the last `count` elements
-        Box::new(all.into_iter().skip(skip_count))
+        for traverser in input {
+            if ring_buffer.len() == self.count {
+                ring_buffer.pop_front();
+            }
+            ring_buffer.push_back(traverser);
+        }
+
+        Box::new(ring_buffer.into_iter())
     }
 
     fn clone_box(&self) -> Box<dyn AnyStep> {

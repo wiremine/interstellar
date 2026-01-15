@@ -47,6 +47,15 @@ pub enum OrderKey {
 ///
 /// Multiple sort keys can be specified for multi-level sorting.
 ///
+/// # Memory Warning
+///
+/// **This step requires O(n) memory** where n is the total number of input
+/// traversers. For very large traversals, this may cause significant memory
+/// usage. Sorting inherently requires all elements to be collected before
+/// any output can be produced. Consider using `limit()` before `order()` if
+/// you only need the top N elements, or use range-based filtering to reduce
+/// input size.
+///
 /// # Gremlin Equivalent
 ///
 /// ```groovy

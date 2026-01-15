@@ -90,6 +90,14 @@ impl GroupValue {
 /// - Keys are the grouping keys (as Values)
 /// - Values are lists of collected values for each group
 ///
+/// # Memory Warning
+///
+/// **This step requires O(n) memory** where n is the total number of input
+/// traversers. All input values must be collected and stored in the group map.
+/// For very large traversals with high cardinality grouping keys, this may
+/// cause significant memory usage. Consider using `limit()` before `group()`
+/// or filtering the traversal to reduce input size.
+///
 /// # Gremlin Equivalent
 ///
 /// ```groovy
@@ -507,6 +515,14 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
 /// The result is a single traverser containing a `Value::Map` where:
 /// - Keys are the grouping keys (as Values)
 /// - Values are integer counts (respecting traverser bulk)
+///
+/// # Memory Usage
+///
+/// **This step requires O(k) memory** where k is the number of unique keys,
+/// not the total input size. Unlike `GroupStep`, only counts are stored per
+/// key (not all values), making it more memory-efficient for large traversals.
+/// However, for high-cardinality keys (many unique values), memory usage will
+/// still scale with the number of unique keys.
 ///
 /// # Gremlin Equivalent
 ///
