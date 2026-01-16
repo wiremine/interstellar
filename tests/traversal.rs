@@ -53,3 +53,9 @@ mod errors;
 
 #[path = "traversal/math.rs"]
 mod math;
+
+#[path = "traversal/builder_coverage.rs"]
+mod builder_coverage;
+
+#[path = "traversal/anonymous_coverage.rs"]
+mod anonymous_coverage;
