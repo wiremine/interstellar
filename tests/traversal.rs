@@ -50,3 +50,6 @@ mod complex;
 
 #[path = "traversal/errors.rs"]
 mod errors;
+
+#[path = "traversal/math.rs"]
+mod math;

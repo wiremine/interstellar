@@ -1142,9 +1142,6 @@ impl MathStep {
 
     /// Evaluate the expression for a given traverser.
     fn evaluate(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Option<Value> {
-        // Get current value as f64
-        let current_value = self.value_to_f64(&traverser.value)?;
-
         // Collect variable names and values in order
         let mut var_names: Vec<String> = Vec::new();
         let mut var_values: Vec<f64> = Vec::new();
@@ -1155,6 +1152,9 @@ impl MathStep {
             var_values.push(value);
         }
 
+        // Try to get current value as f64 (may be None if current value is not numeric)
+        let current_value = self.value_to_f64(&traverser.value);
+
         // Evaluate the expression
         let result = self.evaluate_expression(current_value, &var_names, &var_values)?;
 
@@ -1164,7 +1164,7 @@ impl MathStep {
     /// Helper to evaluate the expression with given variable bindings.
     fn evaluate_expression(
         &self,
-        current: f64,
+        current: Option<f64>,
         var_names: &[String],
         var_values: &[f64],
     ) -> Option<f64> {
@@ -1175,7 +1175,9 @@ impl MathStep {
         let compiled = parsed.compile(&var_name_refs).ok()?;
 
         let result = if compiled.uses_current_value() {
-            compiled.eval_with_current(current, var_values).ok()?
+            // If expression uses current value, we need a valid numeric current value
+            let current_val = current?;
+            compiled.eval_with_current(current_val, var_values).ok()?
         } else {
             compiled.eval(var_values).ok()?
         };
