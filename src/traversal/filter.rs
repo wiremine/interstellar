@@ -456,10 +456,21 @@ impl AnyStep for DedupStep {
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         // Use a stateful iterator with HashSet to track seen values
         // The HashSet is created fresh for each apply() call
+        //
+        // Optimization: We use a two-phase check to avoid cloning values that
+        // are already present. First we check if the value exists (no clone),
+        // then only clone if it's actually new.
         let mut seen = std::collections::HashSet::new();
         Box::new(input.filter(move |t| {
-            // Insert returns true if the value was NOT already present
-            seen.insert(t.value.clone())
+            // Check if already seen without cloning - this is the fast path
+            // for duplicates which are discarded anyway
+            if seen.contains(&t.value) {
+                false
+            } else {
+                // Only clone if this is a new value
+                seen.insert(t.value.clone());
+                true
+            }
         }))
     }
 

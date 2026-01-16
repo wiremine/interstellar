@@ -107,6 +107,64 @@ pub mod p {
     use crate::value::Value;
 
     // -------------------------------------------------------------------------
+    // Internal comparison helper functions
+    // -------------------------------------------------------------------------
+    // These are used by range predicates to avoid cloning on every test() call.
+    // They perform the same comparison logic as Lt, Gt, Lte, Gte predicates.
+
+    /// Less-than comparison without allocating a predicate.
+    #[inline]
+    fn lt_cmp(value: &Value, bound: &Value) -> bool {
+        match (value, bound) {
+            (Value::Int(a), Value::Int(b)) => a < b,
+            (Value::Float(a), Value::Float(b)) => a < b,
+            (Value::Int(a), Value::Float(b)) => (*a as f64) < *b,
+            (Value::Float(a), Value::Int(b)) => *a < (*b as f64),
+            (Value::String(a), Value::String(b)) => a < b,
+            _ => false,
+        }
+    }
+
+    /// Greater-than comparison without allocating a predicate.
+    #[inline]
+    fn gt_cmp(value: &Value, bound: &Value) -> bool {
+        match (value, bound) {
+            (Value::Int(a), Value::Int(b)) => a > b,
+            (Value::Float(a), Value::Float(b)) => a > b,
+            (Value::Int(a), Value::Float(b)) => (*a as f64) > *b,
+            (Value::Float(a), Value::Int(b)) => *a > (*b as f64),
+            (Value::String(a), Value::String(b)) => a > b,
+            _ => false,
+        }
+    }
+
+    /// Less-than-or-equal comparison without allocating a predicate.
+    #[inline]
+    fn lte_cmp(value: &Value, bound: &Value) -> bool {
+        match (value, bound) {
+            (Value::Int(a), Value::Int(b)) => a <= b,
+            (Value::Float(a), Value::Float(b)) => a <= b,
+            (Value::Int(a), Value::Float(b)) => (*a as f64) <= *b,
+            (Value::Float(a), Value::Int(b)) => *a <= (*b as f64),
+            (Value::String(a), Value::String(b)) => a <= b,
+            _ => false,
+        }
+    }
+
+    /// Greater-than-or-equal comparison without allocating a predicate.
+    #[inline]
+    fn gte_cmp(value: &Value, bound: &Value) -> bool {
+        match (value, bound) {
+            (Value::Int(a), Value::Int(b)) => a >= b,
+            (Value::Float(a), Value::Float(b)) => a >= b,
+            (Value::Int(a), Value::Float(b)) => (*a as f64) >= *b,
+            (Value::Float(a), Value::Int(b)) => *a >= (*b as f64),
+            (Value::String(a), Value::String(b)) => a >= b,
+            _ => false,
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Comparison Predicates (Phase 1.2)
     // -------------------------------------------------------------------------
 
@@ -127,6 +185,7 @@ pub mod p {
     pub struct Eq(Value);
 
     impl Predicate for Eq {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             value == &self.0
         }
@@ -177,6 +236,7 @@ pub mod p {
     pub struct Neq(Value);
 
     impl Predicate for Neq {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             value != &self.0
         }
@@ -224,15 +284,9 @@ pub mod p {
     pub struct Lt(Value);
 
     impl Predicate for Lt {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
-            match (value, &self.0) {
-                (Value::Int(a), Value::Int(b)) => a < b,
-                (Value::Float(a), Value::Float(b)) => a < b,
-                (Value::Int(a), Value::Float(b)) => (*a as f64) < *b,
-                (Value::Float(a), Value::Int(b)) => *a < (*b as f64),
-                (Value::String(a), Value::String(b)) => a < b,
-                _ => false,
-            }
+            lt_cmp(value, &self.0)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -278,15 +332,9 @@ pub mod p {
     pub struct Lte(Value);
 
     impl Predicate for Lte {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
-            match (value, &self.0) {
-                (Value::Int(a), Value::Int(b)) => a <= b,
-                (Value::Float(a), Value::Float(b)) => a <= b,
-                (Value::Int(a), Value::Float(b)) => (*a as f64) <= *b,
-                (Value::Float(a), Value::Int(b)) => *a <= (*b as f64),
-                (Value::String(a), Value::String(b)) => a <= b,
-                _ => false,
-            }
+            lte_cmp(value, &self.0)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -332,15 +380,9 @@ pub mod p {
     pub struct Gt(Value);
 
     impl Predicate for Gt {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
-            match (value, &self.0) {
-                (Value::Int(a), Value::Int(b)) => a > b,
-                (Value::Float(a), Value::Float(b)) => a > b,
-                (Value::Int(a), Value::Float(b)) => (*a as f64) > *b,
-                (Value::Float(a), Value::Int(b)) => *a > (*b as f64),
-                (Value::String(a), Value::String(b)) => a > b,
-                _ => false,
-            }
+            gt_cmp(value, &self.0)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -386,15 +428,9 @@ pub mod p {
     pub struct Gte(Value);
 
     impl Predicate for Gte {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
-            match (value, &self.0) {
-                (Value::Int(a), Value::Int(b)) => a >= b,
-                (Value::Float(a), Value::Float(b)) => a >= b,
-                (Value::Int(a), Value::Float(b)) => (*a as f64) >= *b,
-                (Value::Float(a), Value::Int(b)) => *a >= (*b as f64),
-                (Value::String(a), Value::String(b)) => a >= b,
-                _ => false,
-            }
+            gte_cmp(value, &self.0)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -427,7 +463,7 @@ pub mod p {
     /// Between predicate (inclusive start, exclusive end).
     ///
     /// Tests if the value is within the range [start, end).
-    /// Uses the existing Gte and Lt predicates for comparison.
+    /// Comparison is performed directly without intermediate predicate construction.
     ///
     /// # Example
     ///
@@ -441,12 +477,17 @@ pub mod p {
     /// assert!(!pred.test(&Value::Int(5)));  // below range
     /// ```
     #[derive(Clone)]
-    pub struct Between(Value, Value);
+    pub struct Between {
+        start: Value,
+        end: Value,
+    }
 
     impl Predicate for Between {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             // value >= start && value < end
-            Gte(self.0.clone()).test(value) && Lt(self.1.clone()).test(value)
+            // Inline the comparison logic to avoid per-test cloning
+            gte_cmp(value, &self.start) && lt_cmp(value, &self.end)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -472,13 +513,17 @@ pub mod p {
     /// let pred = p::between(18, 65);
     /// ```
     pub fn between<T: Into<Value>>(start: T, end: T) -> Between {
-        Between(start.into(), end.into())
+        Between {
+            start: start.into(),
+            end: end.into(),
+        }
     }
 
     /// Inside predicate (exclusive both ends).
     ///
     /// Tests if the value is strictly inside the range (start, end).
     /// Both endpoints are excluded.
+    /// Comparison is performed directly without intermediate predicate construction.
     ///
     /// # Example
     ///
@@ -491,12 +536,17 @@ pub mod p {
     /// assert!(!pred.test(&Value::Int(20))); // exclusive end
     /// ```
     #[derive(Clone)]
-    pub struct Inside(Value, Value);
+    pub struct Inside {
+        start: Value,
+        end: Value,
+    }
 
     impl Predicate for Inside {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             // value > start && value < end
-            Gt(self.0.clone()).test(value) && Lt(self.1.clone()).test(value)
+            // Inline the comparison logic to avoid per-test cloning
+            gt_cmp(value, &self.start) && lt_cmp(value, &self.end)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -522,13 +572,17 @@ pub mod p {
     /// let pred = p::inside(0, 100);
     /// ```
     pub fn inside<T: Into<Value>>(start: T, end: T) -> Inside {
-        Inside(start.into(), end.into())
+        Inside {
+            start: start.into(),
+            end: end.into(),
+        }
     }
 
     /// Outside predicate.
     ///
     /// Tests if the value is outside the range [start, end].
     /// Returns true if value < start OR value > end.
+    /// Comparison is performed directly without intermediate predicate construction.
     ///
     /// # Example
     ///
@@ -543,12 +597,17 @@ pub mod p {
     /// assert!(pred.test(&Value::Int(25)));  // above range
     /// ```
     #[derive(Clone)]
-    pub struct Outside(Value, Value);
+    pub struct Outside {
+        start: Value,
+        end: Value,
+    }
 
     impl Predicate for Outside {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             // value < start || value > end
-            Lt(self.0.clone()).test(value) || Gt(self.1.clone()).test(value)
+            // Inline the comparison logic to avoid per-test cloning
+            lt_cmp(value, &self.start) || gt_cmp(value, &self.end)
         }
 
         fn clone_box(&self) -> Box<dyn Predicate> {
@@ -575,7 +634,10 @@ pub mod p {
     /// let pred = p::outside(0, 100);
     /// ```
     pub fn outside<T: Into<Value>>(start: T, end: T) -> Outside {
-        Outside(start.into(), end.into())
+        Outside {
+            start: start.into(),
+            end: end.into(),
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -599,6 +661,7 @@ pub mod p {
     pub struct Within(Vec<Value>);
 
     impl Predicate for Within {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             self.0.contains(value)
         }
@@ -656,6 +719,7 @@ pub mod p {
     pub struct Without(Vec<Value>);
 
     impl Predicate for Without {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             !self.0.contains(value)
         }
@@ -716,6 +780,7 @@ pub mod p {
     pub struct Containing(String);
 
     impl Predicate for Containing {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => s.contains(&self.0),
@@ -770,6 +835,7 @@ pub mod p {
     pub struct StartingWith(String);
 
     impl Predicate for StartingWith {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => s.starts_with(&self.0),
@@ -824,6 +890,7 @@ pub mod p {
     pub struct EndingWith(String);
 
     impl Predicate for EndingWith {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => s.ends_with(&self.0),
@@ -878,6 +945,7 @@ pub mod p {
     pub struct NotContaining(String);
 
     impl Predicate for NotContaining {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => !s.contains(&self.0),
@@ -932,6 +1000,7 @@ pub mod p {
     pub struct NotStartingWith(String);
 
     impl Predicate for NotStartingWith {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => !s.starts_with(&self.0),
@@ -986,6 +1055,7 @@ pub mod p {
     pub struct NotEndingWith(String);
 
     impl Predicate for NotEndingWith {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => !s.ends_with(&self.0),
@@ -1046,6 +1116,7 @@ pub mod p {
     pub struct Regex(regex::Regex);
 
     impl Predicate for Regex {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             match value {
                 Value::String(s) => self.0.is_match(s),
@@ -1153,6 +1224,7 @@ pub mod p {
         P1: Predicate + Clone + 'static,
         P2: Predicate + Clone + 'static,
     {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             self.0.test(value) && self.1.test(value)
         }
@@ -1219,6 +1291,7 @@ pub mod p {
         P1: Predicate + Clone + 'static,
         P2: Predicate + Clone + 'static,
     {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             self.0.test(value) || self.1.test(value)
         }
@@ -1284,6 +1357,7 @@ pub mod p {
     where
         P: Predicate + Clone + 'static,
     {
+        #[inline]
         fn test(&self, value: &Value) -> bool {
             !self.0.test(value)
         }

@@ -146,6 +146,7 @@ impl PathValue {
     }
 
     /// Get the vertex ID if this is a vertex.
+    #[inline]
     pub fn as_vertex_id(&self) -> Option<VertexId> {
         match self {
             PathValue::Vertex(id) => Some(*id),
@@ -154,6 +155,7 @@ impl PathValue {
     }
 
     /// Get the edge ID if this is an edge.
+    #[inline]
     pub fn as_edge_id(&self) -> Option<EdgeId> {
         match self {
             PathValue::Edge(id) => Some(*id),

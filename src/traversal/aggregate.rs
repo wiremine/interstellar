@@ -51,16 +51,19 @@ pub enum GroupKey {
 
 impl GroupKey {
     /// Create a GroupKey that groups by label.
+    #[inline]
     pub fn by_label() -> Self {
         GroupKey::Label
     }
 
     /// Create a GroupKey that groups by a property.
+    #[inline]
     pub fn by_property(key: impl Into<String>) -> Self {
         GroupKey::Property(key.into())
     }
 
     /// Create a GroupKey that groups by a traversal result.
+    #[inline]
     pub fn by_traversal(traversal: Traversal<crate::Value, crate::Value>) -> Self {
         GroupKey::Traversal(Box::new(traversal))
     }

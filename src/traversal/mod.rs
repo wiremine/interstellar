@@ -9,6 +9,61 @@
 //!
 //! The design uses `Value` internally for type erasure while maintaining
 //! compile-time type safety at API boundaries through phantom type parameters.
+//!
+//! # Error Handling Policy
+//!
+//! The traversal engine uses a **filter-out-on-error** strategy, which aligns
+//! with Gremlin's standard behavior. This means:
+//!
+//! - **Missing elements are silently filtered out** rather than causing errors
+//! - **Invalid operations yield empty results** rather than panicking
+//!
+//! This design choice enables robust traversals over potentially inconsistent
+//! graph data without requiring explicit error handling at each step.
+//!
+//! ## Step-Specific Behavior
+//!
+//! | Step Type | Missing Element Behavior |
+//! |-----------|--------------------------|
+//! | Navigation (`out`, `in`, `both`) | Returns empty iterator (no neighbors found) |
+//! | Filter (`has_label`, `has`, `has_where`) | Returns `false` (filters out the element) |
+//! | Property extraction (`values`, `properties`) | Returns `Value::Null` or skips the property |
+//! | Mutation (`add_v`, `add_e`, `property`) | Silently skips invalid targets |
+//!
+//! ## Rationale
+//!
+//! This approach was chosen because:
+//!
+//! 1. **Consistency with Gremlin**: Standard Gremlin implementations filter
+//!    rather than error on missing elements
+//! 2. **Composability**: Traversals can chain freely without null checks
+//! 3. **Performance**: No exception overhead for common "not found" cases
+//! 4. **Safety**: Graph data may be modified concurrently; filtering provides
+//!    graceful degradation
+//!
+//! ## Example
+//!
+//! ```ignore
+//! // This traversal won't error even if some vertices lack the "age" property
+//! let ages = g.v()
+//!     .has_label("person")
+//!     .values("age")  // Missing properties become Null and are filtered
+//!     .to_list();
+//!
+//! // Navigation from a deleted vertex returns empty
+//! let neighbors = g.v_by_id(deleted_id)
+//!     .out("knows")  // Returns empty if vertex doesn't exist
+//!     .to_list();
+//! ```
+//!
+//! ## When You Need Errors
+//!
+//! If your use case requires explicit error handling for missing elements,
+//! consider these alternatives:
+//!
+//! 1. Check counts: `g.v_by_id(id).count()` returns 0 if missing
+//! 2. Use `coalesce`: Provide fallback values for missing elements
+//! 3. Pre-validate: Check element existence before traversal
 
 // -----------------------------------------------------------------------------
 // Module declarations

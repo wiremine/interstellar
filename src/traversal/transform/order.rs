@@ -140,6 +140,7 @@ impl OrderStep {
     }
 
     /// Compare two values.
+    #[inline]
     fn compare_values(a: &Value, b: &Value) -> CmpOrdering {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => a.cmp(b),
@@ -160,6 +161,7 @@ impl OrderStep {
     }
 
     /// Compare two optional values.
+    #[inline]
     fn compare_option_values(a: &Option<Value>, b: &Option<Value>) -> CmpOrdering {
         match (a, b) {
             (Some(a), Some(b)) => Self::compare_values(a, b),
@@ -170,6 +172,7 @@ impl OrderStep {
     }
 
     /// Apply sort order to a comparison result.
+    #[inline]
     fn apply_order(ord: CmpOrdering, order: Order) -> CmpOrdering {
         match order {
             Order::Asc => ord,

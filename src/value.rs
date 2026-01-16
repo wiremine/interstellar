@@ -833,6 +833,7 @@ impl Value {
     /// assert_eq!(val.as_vertex_id(), Some(VertexId(42)));
     /// assert_eq!(Value::Edge(EdgeId(42)).as_vertex_id(), None);
     /// ```
+    #[inline]
     pub fn as_vertex_id(&self) -> Option<VertexId> {
         match self {
             Value::Vertex(id) => Some(*id),
@@ -853,6 +854,7 @@ impl Value {
     /// assert_eq!(val.as_edge_id(), Some(EdgeId(99)));
     /// assert_eq!(Value::Vertex(VertexId(99)).as_edge_id(), None);
     /// ```
+    #[inline]
     pub fn as_edge_id(&self) -> Option<EdgeId> {
         match self {
             Value::Edge(id) => Some(*id),
@@ -873,6 +875,7 @@ impl Value {
     /// assert!(!Value::Edge(EdgeId(1)).is_vertex());
     /// assert!(!Value::Int(1).is_vertex());
     /// ```
+    #[inline]
     pub fn is_vertex(&self) -> bool {
         matches!(self, Value::Vertex(_))
     }
@@ -890,6 +893,7 @@ impl Value {
     /// assert!(!Value::Vertex(VertexId(1)).is_edge());
     /// assert!(!Value::Int(1).is_edge());
     /// ```
+    #[inline]
     pub fn is_edge(&self) -> bool {
         matches!(self, Value::Edge(_))
     }
