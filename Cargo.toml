@@ -45,28 +45,18 @@ name = "mmap"
 harness = false
 required-features = ["mmap"]
 
+[[bench]]
+name = "mmap_writes"
+harness = false
+required-features = ["mmap"]
+
+# Consolidated examples that require mmap feature
 [[example]]
-name = "bench_writes"
+name = "nba"
 required-features = ["mmap"]
 
 [[example]]
-name = "nba_mmap_write"
-required-features = ["mmap"]
-
-[[example]]
-name = "nba_mmap_read"
-required-features = ["mmap"]
-
-[[example]]
-name = "nba_gql"
-required-features = ["mmap"]
-
-[[example]]
-name = "schema_mmap_write"
-required-features = ["mmap"]
-
-[[example]]
-name = "schema_mmap_validate"
+name = "persistence"
 required-features = ["mmap"]
 
 [package.metadata.kani]

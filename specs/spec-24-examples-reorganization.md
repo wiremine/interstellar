@@ -338,6 +338,56 @@ Before deleting any examples, verify no unique test cases are lost:
 
 ---
 
+## Gap Analysis Results
+
+The following test gaps were identified during Phase 1 analysis. These must be addressed before deleting examples:
+
+### CRITICAL Gaps (entire features untested)
+
+1. **`math()` traversal step** - Zero tests exist for the math step
+   - Source: `examples/math_expressions.rs`
+   - Tests needed: basic arithmetic, functions (sqrt, abs, etc.), constants (pi, e), filtering behavior
+
+2. **`CALL { }` GQL subquery** - Zero tests exist  
+   - Source: `examples/call_subquery.rs`
+   - Tests needed: uncorrelated CALL, correlated CALL, aggregations, WHERE filter, ORDER BY/LIMIT, UNION, multiple CALL
+
+### HIGH Priority Gaps
+
+| Gap | Source Example | Existing Test File |
+|-----|----------------|-------------------|
+| `has_next()` on traversals | basic_traversal.rs | tests/traversal/basic.rs |
+| `iter()` terminal | terminal_steps.rs | tests/traversal/terminal.rs |
+| `traversers()` terminal | terminal_steps.rs | tests/traversal/terminal.rs |
+| `min()`/`max()` with strings | terminal_steps.rs | tests/traversal/terminal.rs |
+| `in_e_labels()` step | navigation_steps.rs | tests/traversal/navigation.rs |
+| `both_e_labels()` step | navigation_steps.rs | tests/traversal/navigation.rs |
+| `out_labels()` with multiple labels | navigation_steps.rs | tests/traversal/navigation.rs |
+| `__::in_labels()` / `__::in_()` | anonymous_predicates.rs | tests/traversal/anonymous.rs |
+| Anonymous mutation factories | mutations.rs | tests/mutations.rs |
+
+### MEDIUM Priority Gaps
+
+| Gap | Source Example | Existing Test File |
+|-----|----------------|-------------------|
+| `e().has_label_any()` edges | filter_steps.rs | tests/traversal/filter.rs |
+| `where_p(p::or())` predicate | filter_steps.rs | tests/traversal/filter.rs |
+| `dedup_by_key("name")` | filter_steps.rs | tests/traversal/filter.rs |
+| `sum()` ignores non-numeric | terminal_steps.rs | tests/traversal/terminal.rs |
+| `take(n)` > available items | terminal_steps.rs | tests/traversal/terminal.rs |
+| Branch combinations (union+coalesce, choose+optional) | branch_combinations.rs | tests/traversal/branch.rs |
+| Combined `.times(N).until()` | repeat_steps.rs | tests/traversal/repeat.rs |
+| Multi-point sequential store | side_effect_steps.rs | tests/sideeffect.rs |
+| `inject()` with mixed Value types | basic_traversal.rs | tests/traversal/basic.rs |
+
+### Resolution Strategy
+
+1. **For CRITICAL gaps**: Tests MUST be added before examples can be deleted
+2. **For HIGH/MEDIUM gaps**: Add tests where practical, accept some loss if coverage exists elsewhere
+3. The consolidated examples will continue to demonstrate these features for users
+
+---
+
 ## Success Criteria
 
 1. Example count reduced from 23 to 5
