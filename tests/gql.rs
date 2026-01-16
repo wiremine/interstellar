@@ -49,3 +49,9 @@ mod mutations;
 
 #[path = "gql/snapshots.rs"]
 mod snapshots;
+
+#[path = "gql/compiler_coverage.rs"]
+mod compiler_coverage;
+
+#[path = "gql/mutation_coverage.rs"]
+mod mutation_coverage;

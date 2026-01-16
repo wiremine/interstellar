@@ -59,3 +59,6 @@ mod builder_coverage;
 
 #[path = "traversal/anonymous_coverage.rs"]
 mod anonymous_coverage;
+
+#[path = "traversal/mutation_coverage.rs"]
+mod mutation_coverage;
