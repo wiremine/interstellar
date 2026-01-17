@@ -2085,5 +2085,728 @@ mod tests {
             assert!(debug_str.contains("sub_steps"));
             assert!(debug_str.contains("config"));
         }
+
+        // -------------------------------------------------------------------------
+        // Terminal Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_to_set_executes() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let results = builder.times(2).emit().to_set();
+            // Should contain Bob (VertexId(1)) and TechCorp (VertexId(2))
+            assert_eq!(results.len(), 2);
+            assert!(results.contains(&Value::Vertex(VertexId(1))));
+            assert!(results.contains(&Value::Vertex(VertexId(2))));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_has_next_returns_true() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            assert!(builder.times(1).has_next());
+        }
+
+        #[test]
+        fn repeat_traversal_builder_has_next_returns_false_for_empty() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from TechCorp (leaf) - no outgoing edges
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(2)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            // Filter to non-existent label after repeat
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let result = builder.times(1).has_label("nonexistent").has_next();
+            assert!(!result);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_take_executes() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // emit() produces 2 results, take(1) should return just 1
+            let results = builder.times(2).emit().take(1);
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_iterate_consumes() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // iterate() should not panic and consume the traversal
+            builder.times(2).iterate();
+        }
+
+        // -------------------------------------------------------------------------
+        // Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_has_label_any() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let results = builder
+                .times(2)
+                .emit()
+                .has_label_any(vec!["person", "company"])
+                .to_list();
+            // Both Bob (person) and TechCorp (company) match
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_has() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // All vertices have "name" property
+            let results = builder.times(1).has("name").to_list();
+            assert_eq!(results.len(), 1); // Bob has "name"
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_has_value() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let results = builder.times(1).has_value("name", "Bob").to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1)));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_limit() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // emit() produces 2 results, limit(1) keeps only first
+            let results = builder.times(2).emit().limit(1).to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_skip() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // emit() produces 2 results (Bob, TechCorp), skip(1) skips first
+            let results = builder.times(2).emit().skip(1).to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2))); // TechCorp
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_id() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let results = builder.times(1).id().to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Int(1)); // Bob's ID
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_label() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let results = builder.times(2).label().to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::String("company".to_string())); // TechCorp's label
+        }
+
+        // -------------------------------------------------------------------------
+        // Navigation Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_out() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from Alice
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> Bob, then .out() -> TechCorp
+            let results = builder.times(1).out().to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2))); // TechCorp
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_out_labels() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> Bob, then out_labels(["works_at"]) -> TechCorp
+            let results = builder.times(1).out_labels(&["works_at"]).to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2)));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_in() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from TechCorp
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(2)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::InStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> Bob, then .in_() -> Alice
+            let results = builder.times(1).in_().to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(0))); // Alice
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_in_labels() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from TechCorp
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(2)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::InStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> Bob, then in_labels(["knows"]) -> Alice
+            let results = builder.times(1).in_labels(&["knows"]).to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(0)));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_both() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from Bob (middle of chain)
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(1)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> TechCorp, then both() -> Bob (the only neighbor)
+            let results = builder.times(1).both().to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_both_labels() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from Bob
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(1)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> TechCorp, then both_labels(["works_at"]) -> Bob
+            let results = builder.times(1).both_labels(&["works_at"]).to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        // -------------------------------------------------------------------------
+        // Edge Navigation Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_out_e() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> Bob, then out_e() -> edge Bob->TechCorp
+            let results = builder.times(1).out_e().to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_in_e() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from TechCorp
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(2)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::InStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> Bob, then in_e() -> edge Alice->Bob
+            let results = builder.times(1).in_e().to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_both_e() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            // Start from Bob (middle vertex)
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(1)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // times(1) -> TechCorp, then both_e() -> edge Bob->TechCorp
+            let results = builder.times(1).both_e().to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        // -------------------------------------------------------------------------
+        // Path and Selection Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_path() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            // Enable path tracking
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, true);
+
+            let results = builder.times(2).path().to_list();
+            assert_eq!(results.len(), 1);
+            // Path should be a list
+            if let Value::List(path) = &results[0] {
+                assert!(path.len() >= 2); // At least start and end
+            } else {
+                panic!("Expected path to be a List");
+            }
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_as_and_select() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, true);
+
+            // times(1).as_("end").select(["end"])
+            let results = builder.times(1).as_("end").select(&["end"]).to_list();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_select_one() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, true);
+
+            let results = builder
+                .times(1)
+                .as_("result")
+                .select_one("result")
+                .to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob
+        }
+
+        // -------------------------------------------------------------------------
+        // Filter Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_where() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // where_ with a condition that filters to person label
+            let where_cond =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("person"));
+
+            let results = builder.times(2).emit().where_(where_cond).to_list();
+            // Only Bob (person) should pass, not TechCorp (company)
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1)));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_not() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // not(has_label("person")) - should filter OUT persons, keep companies
+            let not_cond =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("person"));
+
+            let results = builder.times(2).emit().not(not_cond).to_list();
+            // Only TechCorp (company) should pass
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2)));
+        }
+
+        // -------------------------------------------------------------------------
+        // Branch Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_union() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // union of id() and label() on Bob
+            let id_branch = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::transform::metadata::IdStep::new());
+            let label_branch = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::transform::metadata::LabelStep::new());
+
+            let results = builder
+                .times(1)
+                .union(vec![id_branch, label_branch])
+                .to_list();
+            assert_eq!(results.len(), 2); // id and label
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_coalesce() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // coalesce: try values("nonexistent"), then values("name")
+            let first_branch = Traversal::<Value, Value>::new().add_step(
+                crate::traversal::transform::values::ValuesStep::new("nonexistent"),
+            );
+            let fallback_branch = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::transform::values::ValuesStep::new("name"));
+
+            let results = builder
+                .times(1)
+                .coalesce(vec![first_branch, fallback_branch])
+                .to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::String("Bob".to_string()));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_choose() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // choose(has_label("person"), id(), label())
+            let condition =
+                Traversal::<Value, Value>::new().add_step(HasLabelStep::single("person"));
+            let if_true = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::transform::metadata::IdStep::new());
+            let if_false = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::transform::metadata::LabelStep::new());
+
+            let results = builder
+                .times(1)
+                .choose(condition, if_true, if_false)
+                .to_list();
+            // Bob is a person, so id() is chosen -> 1
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Int(1));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_optional() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // optional(out()) from Bob - should go to TechCorp
+            let optional_sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let results = builder.times(1).optional(optional_sub).to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(2))); // TechCorp
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_local() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // local(identity()) - should just pass through
+            let local_sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::step::IdentityStep::new());
+
+            let results = builder.times(1).local(local_sub).to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob
+        }
+
+        // -------------------------------------------------------------------------
+        // Identity and Loops Continuation Step Coverage Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn repeat_traversal_builder_continuation_identity() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // identity() just passes through
+            let results = builder.times(1).identity().to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::Vertex(VertexId(1))); // Bob
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_loops() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            // loops() returns the loop count for each traverser
+            let results = builder.times(2).emit().loops().to_list();
+            // emit() produces traversers at loop 1 and loop 2
+            assert_eq!(results.len(), 2);
+            assert!(results.contains(&Value::Int(1)));
+            assert!(results.contains(&Value::Int(2)));
+        }
+
+        #[test]
+        fn repeat_traversal_builder_continuation_values() {
+            let graph = create_chain_graph();
+            let snapshot = graph.snapshot();
+
+            let base: Traversal<(), Value> =
+                Traversal::with_source(TraversalSource::Vertices(vec![VertexId(0)]));
+
+            let sub = Traversal::<Value, Value>::new()
+                .add_step(crate::traversal::navigation::OutStep::new());
+
+            let builder = RepeatTraversal::new(&snapshot, snapshot.interner(), base, sub, false);
+
+            let results = builder.times(1).values("name").to_list();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], Value::String("Bob".to_string()));
+        }
     }
 }

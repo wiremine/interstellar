@@ -55,3 +55,12 @@ mod compiler_coverage;
 
 #[path = "gql/mutation_coverage.rs"]
 mod mutation_coverage;
+
+#[path = "gql/parser_coverage.rs"]
+mod parser_coverage;
+
+#[path = "gql/compiler_coverage_extended.rs"]
+mod compiler_coverage_extended;
+
+#[path = "gql/compiler_unit.rs"]
+mod compiler_unit;

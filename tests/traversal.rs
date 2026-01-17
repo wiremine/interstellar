@@ -62,3 +62,12 @@ mod anonymous_coverage;
 
 #[path = "traversal/mutation_coverage.rs"]
 mod mutation_coverage;
+
+#[path = "traversal/order_coverage.rs"]
+mod order_coverage;
+
+#[path = "traversal/aggregate_coverage.rs"]
+mod aggregate_coverage;
+
+#[path = "traversal/properties_coverage.rs"]
+mod properties_coverage;
