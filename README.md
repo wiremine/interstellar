@@ -1,16 +1,19 @@
 # Intersteller
 
-A high-performance Rust graph traversal library with Gremlin-style fluent API.
+A high-performance Rust graph database with dual query APIs: Gremlin-style fluent traversals and GQL (Graph Query Language).
 
 ## Features
 
-- **Gremlin-style Fluent API**: Chainable traversal steps with lazy evaluation
+- **Dual Query APIs**: Gremlin-style fluent API and SQL-like GQL syntax
+- **Rhai Scripting**: Embedded scripting for dynamic queries without recompilation
+- **GQL Schema & DDL**: Define vertex/edge types with validation (`CREATE NODE TYPE`, `CREATE EDGE TYPE`)
 - **Dual Storage Backends**: In-memory (HashMap-based) and memory-mapped (persistent)
 - **Anonymous Traversals**: Composable fragments via the `__` factory module
 - **Zero-cost Abstractions**: Monomorphized traversal pipelines
 - **Rich Predicate System**: `eq`, `neq`, `gt`, `lt`, `within`, `containing`, `regex`, and more
 - **Path Tracking**: Full path history with `as_()` labels and `select()`
 - **Thread-Safe**: All backends support concurrent read access
+- **Formal Verification**: Critical code paths verified with Kani
 
 ## Quick Start
 
@@ -299,20 +302,186 @@ g.v().where_(__::out("knows").count().is_(p::gt(3)));
 g.v().repeat(__::out("parent")).until(__::has_label("root"));
 ```
 
+## GQL (Graph Query Language)
+
+Intersteller includes a full GQL implementation with SQL-like syntax for querying and mutating graphs.
+
+### Basic Queries
+
+```rust
+use intersteller::prelude::*;
+
+let snapshot = graph.snapshot();
+
+// Pattern matching with MATCH
+let results = snapshot.gql("
+    MATCH (p:Person)-[:KNOWS]->(friend:Person)
+    WHERE p.age > 25
+    RETURN p.name, friend.name
+").unwrap();
+
+// Aggregation
+let results = snapshot.gql("
+    MATCH (p:Person)
+    RETURN p.city, COUNT(*) AS count
+    GROUP BY p.city
+    ORDER BY count DESC
+").unwrap();
+```
+
+### Mutations
+
+```rust
+use intersteller::gql::execute_mutation;
+
+// Create vertices and edges
+execute_mutation(&mut storage, "
+    CREATE (alice:Person {name: 'Alice', age: 30})
+    CREATE (bob:Person {name: 'Bob', age: 25})
+    CREATE (alice)-[:KNOWS {since: 2020}]->(bob)
+").unwrap();
+
+// Update properties
+execute_mutation(&mut storage, "
+    MATCH (p:Person {name: 'Alice'})
+    SET p.age = 31
+").unwrap();
+
+// MERGE (create if not exists)
+execute_mutation(&mut storage, "
+    MERGE (p:Person {name: 'Charlie'})
+    ON CREATE SET p.created = true
+    ON MATCH SET p.updated = true
+").unwrap();
+```
+
+### Schema Definition (DDL)
+
+Define vertex and edge types with validation:
+
+```sql
+-- Create vertex type with property constraints
+CREATE NODE TYPE Person (
+    name STRING NOT NULL,
+    age INT,
+    email STRING,
+    active BOOL DEFAULT true
+)
+
+-- Create edge type with endpoint constraints
+CREATE EDGE TYPE WORKS_AT (
+    since INT,
+    role STRING
+) FROM Person TO Company
+
+-- Set validation mode
+SET SCHEMA VALIDATION STRICT
+```
+
+### Advanced Features
+
+- **UNION / UNION ALL**: Combine query results
+- **OPTIONAL MATCH**: Left outer join semantics
+- **EXISTS / NOT EXISTS**: Subquery predicates
+- **CASE expressions**: Conditional logic
+- **List comprehensions**: `[x IN list WHERE x > 0 | x * 2]`
+- **Pattern comprehension**: `[(p)-[:FRIEND]->(f) | f.name]`
+- **FOREACH**: Iterate and mutate: `FOREACH (n IN nodes(path) | SET n.visited = true)`
+- **REDUCE**: Fold over lists: `REDUCE(sum = 0, x IN list | sum + x)`
+- **CALL subqueries**: Correlated and uncorrelated subqueries
+
+## Rhai Scripting
+
+The optional `rhai` feature enables embedded scripting for dynamic graph queries.
+
+```toml
+[dependencies]
+intersteller = { version = "0.1", features = ["rhai"] }
+```
+
+### Basic Usage
+
+```rust
+use intersteller::rhai::RhaiEngine;
+
+let engine = RhaiEngine::new();
+
+// Execute Gremlin-style queries from scripts
+let results: Vec<String> = engine.eval_with_graph(&graph, r#"
+    let g = graph.traversal();
+    g.v()
+        .has_label("person")
+        .has_where("age", gt(25))
+        .order_by("age")
+        .values("name")
+        .to_list()
+"#).unwrap();
+```
+
+### Predicates in Scripts
+
+```javascript
+// All predicates available
+g.v().has_where("age", gt(30))
+g.v().has_where("age", between(25, 40))
+g.v().has_where("name", containing("ali"))
+g.v().has_where("email", regex(".*@gmail.com"))
+g.v().has_where("status", within(["active", "pending"]))
+```
+
+### Anonymous Traversals
+
+```javascript
+// Compose traversal fragments
+let friends = anon().out("knows").has_label("person");
+
+g.v().has_label("person")
+    .where_(friends)
+    .values("name")
+    .to_list()
+
+// Use in repeat
+g.v().has_value("name", "Alice")
+    .repeat_emit(anon().out("knows"), 3)
+    .dedup()
+    .values("name")
+    .to_list()
+```
+
+### Mutations
+
+```javascript
+// Add vertices
+let g = graph.traversal();
+g.add_v("person")
+    .property("name", "Eve")
+    .property("age", 28)
+    .id()
+
+// Add edges
+g.v().has_value("name", "Alice").as_("a")
+    .v().has_value("name", "Bob").as_("b")
+    .add_e("knows").from_("a").to_("b")
+```
+
 ## Examples
 
 Run the included examples:
 
 ```bash
-cargo run --example basic_traversal
+# Gremlin-style traversals
 cargo run --example british_royals
-cargo run --example filter_steps
-cargo run --example navigation_steps
-cargo run --example repeat_steps
-cargo run --example branch_combinations
+cargo run --example marvel
+cargo run --example nba --features mmap
 
-# MmapGraph example (requires mmap feature)
-cargo run --example bench_writes --features mmap
+# GQL queries
+cargo run --example gql
+
+# Rhai scripting (requires rhai feature)
+cargo run --example rhai_scripting --features rhai
+
+# Persistence (requires mmap feature)
+cargo run --example persistence --features mmap
 ```
 
 ## Building
@@ -321,17 +490,22 @@ cargo run --example bench_writes --features mmap
 cargo build                          # Debug build
 cargo build --release                # Release build
 cargo build --features mmap          # With mmap support
-cargo build --features full-text     # With full-text search (planned)
+cargo build --features rhai          # With Rhai scripting
+cargo build --features "mmap,rhai"   # Multiple features
 ```
 
 ## Testing
 
 ```bash
-cargo test                           # Run all tests
-cargo test --features mmap           # Include mmap tests
-cargo clippy -- -D warnings          # Lint
-cargo fmt --check                    # Check formatting
+cargo test                                      # Run default tests
+cargo test --features mmap                      # Include mmap tests
+cargo test --features rhai                      # Include Rhai scripting tests
+cargo test --features "inmemory,mmap,rhai"      # Run ALL tests (recommended)
+cargo clippy -- -D warnings                     # Lint
+cargo fmt --check                               # Check formatting
 ```
+
+> **Note**: The `full-text` feature (tantivy) has a known upstream dependency conflict and is excluded from the full test suite.
 
 ## Benchmarks
 

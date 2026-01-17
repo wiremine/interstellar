@@ -163,7 +163,7 @@ pub(super) fn apply_binary_op(op: BinaryOperator, left: Value, right: Value) -> 
             (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
             (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 + b),
             (Value::Float(a), Value::Int(b)) => Value::Float(a + b as f64),
-            (Value::String(a), Value::String(b)) => Value::String(a + &b),
+            (Value::String(a), Value::String(b)) => Value::String(a + b.as_str()),
             _ => Value::Null,
         },
         BinaryOperator::Sub => match (left, right) {

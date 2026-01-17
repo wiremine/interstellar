@@ -67,8 +67,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use mathexpr::Expression as MathExpr;
-
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CallBody, CallClause, CallQuery, CaseExpression, EdgeDirection,
     EdgePattern, Expression, GroupByClause, HavingClause, LetClause, LimitClause, Literal,
@@ -7895,8 +7893,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
 // =============================================================================
 
 use super::helpers::{
-    apply_binary_op, apply_comparison, compare_values, eval_inline_predicate, eval_inline_value,
-    extract_property_from_snapshot, value_to_bool, value_to_string, ComparableValue,
+    apply_binary_op, apply_comparison, compare_values, eval_inline_predicate, ComparableValue,
 };
 use super::math::evaluate_math_expr_internal;
 

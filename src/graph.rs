@@ -876,6 +876,38 @@ impl Graph {
         self.schema.read().clone()
     }
 
+    /// Create a new `Graph` that shares the same storage and schema.
+    ///
+    /// This creates a new `Graph` instance with its own lock but sharing
+    /// the underlying `Arc<dyn GraphStorage>` and schema. This is useful
+    /// for scenarios where you need multiple `Graph` handles to the same
+    /// underlying data, such as scripting integrations.
+    ///
+    /// # Note
+    ///
+    /// Each `Graph` created by `share()` has its own independent lock. This means
+    /// that locking one graph does not affect the other. Both graphs share the same
+    /// underlying storage and schema data.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intersteller::prelude::*;
+    ///
+    /// let graph1 = Graph::in_memory();
+    /// let graph2 = graph1.share();
+    ///
+    /// // Both graphs share the same storage
+    /// assert_eq!(graph1.storage().vertex_count(), graph2.storage().vertex_count());
+    /// ```
+    pub fn share(&self) -> Graph {
+        Graph {
+            storage: Arc::clone(&self.storage),
+            lock: Arc::clone(&self.lock),
+            schema: Arc::clone(&self.schema),
+        }
+    }
+
     /// Set or replace the graph schema.
     ///
     /// The new schema will be used for all subsequent mutation operations.

@@ -378,6 +378,9 @@ pub mod value;
 #[cfg(kani)]
 mod kani_proofs;
 
+#[cfg(feature = "rhai")]
+pub mod rhai;
+
 /// The prelude module re-exports commonly used types.
 ///
 /// Import the prelude to get started quickly:
