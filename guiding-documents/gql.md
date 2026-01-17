@@ -1,4 +1,4 @@
-# Intersteller: GQL Subset Implementation
+# Interstellar: GQL Subset Implementation
 
 **Note**: This document describes a **Phase 2 feature**. The initial Phase 1 implementation focuses on the core Gremlin-style fluent API with dual storage architecture (in-memory + memory-mapped), simple RwLock-based concurrency, and essential traversal operations. GQL support will be added after the core traversal engine is stable and well-tested. See the [Roadmap](./overview.md#5-roadmap) section in overview.md for the complete development timeline.
 
@@ -746,7 +746,7 @@ fn build_quantifier(pair: pest::iterators::Pair<Rule>) -> Result<PathQuantifier,
 
 ### 6.1 Query Planner
 
-The query planner compiles GQL queries to Intersteller's traversal API. The
+The query planner compiles GQL queries to Interstellar's traversal API. The
 actual implementation will use `BoundTraversal` which provides the fluent API.
 
 **Key API mappings:**
@@ -1233,7 +1233,7 @@ impl Projection {
 ## 8. Usage Example
 
 ```rust
-use intersteller::gql;
+use interstellar::gql;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let graph = Graph::open("social.db")?;

@@ -1,6 +1,6 @@
 //! GQL (Graph Query Language) Comprehensive Example
 //!
-//! This example demonstrates the full range of GQL capabilities in Intersteller:
+//! This example demonstrates the full range of GQL capabilities in Interstellar:
 //!
 //! **Part 1: Basic Queries and Advanced Features**
 //! - Inline WHERE in patterns: `(n:Person WHERE n.age > 21)`
@@ -25,13 +25,13 @@
 //!
 //! Run: `cargo run --example gql`
 
-use intersteller::gql::{
+use interstellar::gql::{
     execute_mutation, execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
-use intersteller::graph::Graph;
-use intersteller::prelude::*;
-use intersteller::schema::{PropertyType, SchemaBuilder, ValidationMode};
-use intersteller::storage::{GraphStorage, InMemoryGraph};
+use interstellar::graph::Graph;
+use interstellar::prelude::*;
+use interstellar::schema::{PropertyType, SchemaBuilder, ValidationMode};
+use interstellar::storage::{GraphStorage, InMemoryGraph};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -51,7 +51,7 @@ fn execute(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, Mutat
 fn execute_with_schema(
     storage: &mut InMemoryGraph,
     query: &str,
-    schema: Option<&intersteller::schema::GraphSchema>,
+    schema: Option<&interstellar::schema::GraphSchema>,
 ) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
         MutationError::Compile(CompileError::UnsupportedFeature(format!(
@@ -632,7 +632,7 @@ fn demo_validation_modes() {
 // =============================================================================
 
 fn main() {
-    println!("=== Intersteller GQL Comprehensive Example ===\n");
+    println!("=== Interstellar GQL Comprehensive Example ===\n");
 
     demo_advanced_queries();
     demo_mutations();

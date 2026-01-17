@@ -7,10 +7,10 @@
 //! - GroupValue::Traversal returning multiple results
 //! - Empty traversal results
 
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::traversal::__;
-use intersteller::value::{Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::traversal::__;
+use interstellar::value::{Value, VertexId};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -77,7 +77,7 @@ fn create_graph_with_edges() -> Graph {
 
 mod group_key_constructors {
     use super::*;
-    use intersteller::traversal::aggregate::{GroupKey, GroupValue};
+    use interstellar::traversal::aggregate::{GroupKey, GroupValue};
 
     #[test]
     fn group_key_by_label() {

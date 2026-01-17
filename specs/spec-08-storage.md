@@ -1807,7 +1807,7 @@ mod tests {
 ```rust
 // tests/mmap.rs
 
-use intersteller::storage::{GraphStorage, MmapGraph};
+use interstellar::storage::{GraphStorage, MmapGraph};
 use std::collections::HashMap;
 use tempfile::TempDir;
 
@@ -1887,7 +1887,7 @@ fn test_reopen_and_append() {
 ```rust
 // tests/crash_scenarios.rs
 
-use intersteller::storage::MmapGraph;
+use interstellar::storage::MmapGraph;
 use std::process::{Command, exit};
 use tempfile::TempDir;
 
@@ -2021,7 +2021,7 @@ Based on similar systems:
 ### InMemoryGraph → MmapGraph
 
 ```rust
-use intersteller::storage::{InMemoryGraph, MmapGraph};
+use interstellar::storage::{InMemoryGraph, MmapGraph};
 
 fn export_to_disk(
     memory: &InMemoryGraph,

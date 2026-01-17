@@ -9,9 +9,9 @@
 
 use std::collections::HashMap;
 
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::{EdgeId, Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::{EdgeId, Value, VertexId};
 
 /// Standard test graph with vertices and their IDs for assertions.
 ///
@@ -49,7 +49,7 @@ impl TestGraph {
     /// let snapshot = tg.graph.snapshot();
     /// let results = snapshot.traversal().v().has_label("person").to_list();
     /// ```
-    pub fn snapshot(&self) -> intersteller::graph::GraphSnapshot<'_> {
+    pub fn snapshot(&self) -> interstellar::graph::GraphSnapshot<'_> {
         self.graph.snapshot()
     }
 }

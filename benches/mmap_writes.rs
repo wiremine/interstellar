@@ -13,8 +13,8 @@
 #![cfg(feature = "mmap")]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use intersteller::storage::{InMemoryGraph, MmapGraph};
-use intersteller::value::VertexId;
+use interstellar::storage::{InMemoryGraph, MmapGraph};
+use interstellar::value::VertexId;
 use std::collections::HashMap;
 use tempfile::TempDir;
 

@@ -691,7 +691,7 @@ pub enum ForeachMutation {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// let query = parse("MATCH (n:Person) WHERE n.age > 21 RETURN n.name ORDER BY n.name LIMIT 10").unwrap();
 ///
@@ -979,7 +979,7 @@ pub struct ImportingWith {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// // Single pattern
 /// let query = parse("MATCH (n:Person) RETURN n").unwrap();
@@ -1090,8 +1090,8 @@ pub struct UnwindClause {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::PatternElement;
+/// use interstellar::gql::parse;
+/// use interstellar::gql::PatternElement;
 ///
 /// let query = parse("MATCH (a)-[:KNOWS]->(b) RETURN a, b").unwrap();
 /// let pattern = &query.match_clause.patterns[0];
@@ -1143,8 +1143,8 @@ pub enum PatternElement {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::{PatternElement, Literal};
+/// use interstellar::gql::parse;
+/// use interstellar::gql::{PatternElement, Literal};
 ///
 /// let query = parse("MATCH (n:Person {name: 'Alice'}) RETURN n").unwrap();
 /// if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
@@ -1190,8 +1190,8 @@ pub struct NodePattern {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::{PatternElement, EdgeDirection};
+/// use interstellar::gql::parse;
+/// use interstellar::gql::{PatternElement, EdgeDirection};
 ///
 /// let query = parse("MATCH (a)-[:KNOWS]->(b) RETURN a, b").unwrap();
 /// if let PatternElement::Edge(edge) = &query.match_clause.patterns[0].elements[1] {
@@ -1255,8 +1255,8 @@ pub enum EdgeDirection {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::PatternElement;
+/// use interstellar::gql::parse;
+/// use interstellar::gql::PatternElement;
 ///
 /// let query = parse("MATCH (a)-[*2..5]->(b) RETURN b").unwrap();
 /// if let PatternElement::Edge(edge) = &query.match_clause.patterns[0].elements[1] {
@@ -1285,8 +1285,8 @@ pub struct PathQuantifier {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::Expression;
+/// use interstellar::gql::parse;
+/// use interstellar::gql::Expression;
 ///
 /// let query = parse("MATCH (n:Person) WHERE n.age > 21 RETURN n").unwrap();
 /// let where_clause = query.where_clause.unwrap();
@@ -1312,7 +1312,7 @@ pub struct WhereClause {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// // Return multiple values with aliases
 /// let query = parse("MATCH (n:Person) RETURN n.name AS name, n.age AS age").unwrap();
@@ -1339,8 +1339,8 @@ pub struct ReturnClause {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::Expression;
+/// use interstellar::gql::parse;
+/// use interstellar::gql::Expression;
 ///
 /// let query = parse("MATCH (n) RETURN n.name AS personName").unwrap();
 /// let item = &query.return_clause.items[0];
@@ -1368,7 +1368,7 @@ pub struct ReturnItem {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// let query = parse("MATCH (n:Person) RETURN n ORDER BY n.age DESC, n.name").unwrap();
 /// let order = query.order_clause.unwrap();
@@ -1407,7 +1407,7 @@ pub struct OrderItem {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// // Count players by position
 /// let query = parse("MATCH (p:player) RETURN p.position, count(*) GROUP BY p.position").unwrap();
@@ -1433,7 +1433,7 @@ pub struct GroupByClause {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// // Filter groups with more than 2 members
 /// let query = parse("MATCH (p:Person) RETURN p.city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 2").unwrap();
@@ -1458,7 +1458,7 @@ pub struct HavingClause {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
+/// use interstellar::gql::parse;
 ///
 /// // LIMIT only
 /// let query = parse("MATCH (n) RETURN n LIMIT 10").unwrap();
@@ -1509,8 +1509,8 @@ pub struct LimitClause {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::{Expression, BinaryOperator};
+/// use interstellar::gql::parse;
+/// use interstellar::gql::{Expression, BinaryOperator};
 ///
 /// let query = parse("MATCH (n) WHERE n.age >= 21 AND n.name STARTS WITH 'A' RETURN n").unwrap();
 /// let expr = &query.where_clause.unwrap().expression;
@@ -2108,8 +2108,8 @@ pub enum BinaryOperator {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::{Expression, AggregateFunc};
+/// use interstellar::gql::parse;
+/// use interstellar::gql::{Expression, AggregateFunc};
 ///
 /// let query = parse("MATCH (n:Person) RETURN COUNT(DISTINCT n)").unwrap();
 /// if let Expression::Aggregate { func, distinct, .. } = &query.return_clause.items[0].expression {
@@ -2154,8 +2154,8 @@ pub enum AggregateFunc {
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::parse;
-/// use intersteller::gql::{Expression, Literal};
+/// use interstellar::gql::parse;
+/// use interstellar::gql::{Expression, Literal};
 ///
 /// let query = parse("MATCH (n) WHERE n.name = 'Alice' RETURN n").unwrap();
 /// // The literal 'Alice' is parsed as Literal::String("Alice")

@@ -41,7 +41,7 @@
 //! # Example
 //!
 //! ```
-//! use intersteller::storage::{GraphStorage, InMemoryGraph};
+//! use interstellar::storage::{GraphStorage, InMemoryGraph};
 //! use std::collections::HashMap;
 //!
 //! let mut graph = InMemoryGraph::new();
@@ -93,7 +93,7 @@ use crate::value::{EdgeId, Value, VertexId};
 /// # Example
 ///
 /// ```
-/// use intersteller::storage::{GraphStorage, InMemoryGraph, Vertex};
+/// use interstellar::storage::{GraphStorage, InMemoryGraph, Vertex};
 /// use std::collections::HashMap;
 ///
 /// let mut graph = InMemoryGraph::new();
@@ -132,7 +132,7 @@ pub struct Vertex {
 /// # Example
 ///
 /// ```
-/// use intersteller::storage::{GraphStorage, InMemoryGraph, Edge};
+/// use interstellar::storage::{GraphStorage, InMemoryGraph, Edge};
 /// use std::collections::HashMap;
 ///
 /// let mut graph = InMemoryGraph::new();
@@ -180,7 +180,7 @@ pub struct Edge {
 /// # Example
 ///
 /// ```
-/// use intersteller::storage::{GraphStorage, InMemoryGraph};
+/// use interstellar::storage::{GraphStorage, InMemoryGraph};
 /// use std::collections::HashMap;
 ///
 /// fn count_friends<S: GraphStorage>(storage: &S, person_label: &str) -> usize {
@@ -324,7 +324,7 @@ pub trait GraphStorage: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use interstellar::storage::{GraphStorage, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -358,8 +358,8 @@ pub trait GraphStorage: Send + Sync {
 /// # Example
 ///
 /// ```
-/// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
-/// use intersteller::Value;
+/// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+/// use interstellar::Value;
 /// use std::collections::HashMap;
 ///
 /// let mut graph = InMemoryGraph::new();
@@ -391,7 +391,7 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -421,7 +421,7 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{GraphStorageMut, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -455,8 +455,8 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
-    /// use intersteller::Value;
+    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::Value;
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -496,8 +496,8 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
-    /// use intersteller::Value;
+    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::Value;
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -533,7 +533,7 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();
@@ -565,7 +565,7 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
     /// use std::collections::HashMap;
     ///
     /// let mut graph = InMemoryGraph::new();

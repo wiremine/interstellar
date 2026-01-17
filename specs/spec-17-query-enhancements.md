@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of query language enhancements to extend GQL capabilities. These features address gaps identified in the current implementation and bring Intersteller closer to full GQL/Cypher compatibility.
+This specification defines the implementation of query language enhancements to extend GQL capabilities. These features address gaps identified in the current implementation and bring Interstellar closer to full GQL/Cypher compatibility.
 
 The target is to support queries like:
 

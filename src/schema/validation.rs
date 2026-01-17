@@ -18,11 +18,11 @@
 //! # Example
 //!
 //! ```
-//! use intersteller::schema::{
+//! use interstellar::schema::{
 //!     SchemaBuilder, PropertyType, ValidationMode,
 //!     validate_vertex, ValidationResult,
 //! };
-//! use intersteller::value::Value;
+//! use interstellar::value::Value;
 //! use std::collections::HashMap;
 //!
 //! let schema = SchemaBuilder::new()
@@ -112,8 +112,8 @@ impl ValidationResult {
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode, validate_vertex};
-/// use intersteller::value::Value;
+/// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode, validate_vertex};
+/// use interstellar::value::Value;
 /// use std::collections::HashMap;
 ///
 /// let schema = SchemaBuilder::new()

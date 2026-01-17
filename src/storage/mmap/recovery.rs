@@ -78,8 +78,8 @@ use super::wal::{WalEntry, WriteAheadLog};
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::storage::mmap::recovery::recover;
-/// use intersteller::storage::mmap::wal::WriteAheadLog;
+/// use interstellar::storage::mmap::recovery::recover;
+/// use interstellar::storage::mmap::wal::WriteAheadLog;
 /// use std::fs::File;
 ///
 /// let mut wal = WriteAheadLog::open("my_graph.wal")?;

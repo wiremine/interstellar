@@ -25,8 +25,8 @@
 //! Use the [`SchemaBuilder`] fluent API:
 //!
 //! ```
-//! use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
-//! use intersteller::value::Value;
+//! use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
+//! use interstellar::value::Value;
 //!
 //! let schema = SchemaBuilder::new()
 //!     .mode(ValidationMode::Strict)
@@ -59,11 +59,11 @@
 //! Use the validation functions to check data against a schema:
 //!
 //! ```
-//! use intersteller::schema::{
+//! use interstellar::schema::{
 //!     SchemaBuilder, PropertyType, ValidationMode,
 //!     validate_vertex, validate_edge, apply_defaults,
 //! };
-//! use intersteller::value::Value;
+//! use interstellar::value::Value;
 //! use std::collections::HashMap;
 //!
 //! let schema = SchemaBuilder::new()
@@ -120,7 +120,7 @@ pub use validation::{
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::{GraphSchema, ValidationMode, SchemaBuilder, PropertyType};
+/// use interstellar::schema::{GraphSchema, ValidationMode, SchemaBuilder, PropertyType};
 ///
 /// // Create schema using builder
 /// let schema = SchemaBuilder::new()
@@ -158,7 +158,7 @@ impl GraphSchema {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{GraphSchema, ValidationMode};
+    /// use interstellar::schema::{GraphSchema, ValidationMode};
     ///
     /// let schema = GraphSchema::with_mode(ValidationMode::Strict);
     /// assert_eq!(schema.mode, ValidationMode::Strict);
@@ -175,7 +175,7 @@ impl GraphSchema {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person").done()
@@ -226,7 +226,7 @@ impl GraphSchema {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person").done()
@@ -296,7 +296,7 @@ impl GraphSchema {
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::{ValidationMode, GraphSchema};
+/// use interstellar::schema::{ValidationMode, GraphSchema};
 ///
 /// let mut schema = GraphSchema::new();
 /// schema.mode = ValidationMode::Strict;

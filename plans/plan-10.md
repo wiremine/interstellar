@@ -1443,8 +1443,8 @@ impl<'a, 'g> Compiler<'a, 'g> {
 //! This example demonstrates querying the NBA graph using GQL,
 //! comparing equivalent queries to the traversal API.
 
-use intersteller::graph::Graph;
-use intersteller::storage::mmap::MmapGraph;
+use interstellar::graph::Graph;
+use interstellar::storage::mmap::MmapGraph;
 use std::sync::Arc;
 
 fn main() {
@@ -1604,7 +1604,7 @@ fn demonstrate_multi_variable(snapshot: &GraphSnapshot) {
 
 ```rust
 use insta::assert_yaml_snapshot;
-use intersteller::gql::parse;
+use interstellar::gql::parse;
 
 #[test]
 fn test_parse_exists_snapshot() {

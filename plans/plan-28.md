@@ -2,7 +2,7 @@
 
 ## Overview
 
-This plan implements Rhai scripting integration as specified in `specs/spec-28-rhai-scripting.md`. Rhai is an embedded scripting language that will expose Intersteller's Gremlin-style traversal API to scripts, enabling interactive exploration and dynamic query construction.
+This plan implements Rhai scripting integration as specified in `specs/spec-28-rhai-scripting.md`. Rhai is an embedded scripting language that will expose Interstellar's Gremlin-style traversal API to scripts, enabling interactive exploration and dynamic query construction.
 
 **Estimated effort**: 3-4 days  
 **Complexity**: Medium (new module, no changes to existing code)  
@@ -451,7 +451,7 @@ This plan implements Rhai scripting integration as specified in `specs/spec-28-r
 
 4. **Implement RhaiEngine::with_engine()**
    - Accept pre-configured Engine
-   - Add Intersteller bindings
+   - Add Interstellar bindings
 
 5. **Implement eval_with_graph()**
    - Clone engine

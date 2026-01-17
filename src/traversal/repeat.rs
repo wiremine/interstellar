@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! // Get friends-of-friends (2 hops exactly)
 //! let fof = g.v()
@@ -595,7 +595,7 @@ use crate::traversal::source::BoundTraversal;
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::prelude::*;
+/// use interstellar::prelude::*;
 ///
 /// // Fixed iteration count
 /// let fof = g.v().has_value("name", "Alice")

@@ -6,8 +6,8 @@
 //! - OFFSET and SKIP
 //! - Combinations with WHERE
 
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 /// Helper function to create a graph with people of various ages for ORDER BY tests

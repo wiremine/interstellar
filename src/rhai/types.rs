@@ -1,17 +1,17 @@
 //! Type registrations for Rhai.
 //!
 //! This module registers `Value`, `VertexId`, and `EdgeId` with Rhai's type system,
-//! and provides conversion functions between Rhai's `Dynamic` and Intersteller's `Value`.
+//! and provides conversion functions between Rhai's `Dynamic` and Interstellar's `Value`.
 
 use rhai::{Dynamic, Engine, ImmutableString, Map as RhaiMap};
 use std::collections::HashMap;
 
 use crate::value::{EdgeId, Value, VertexId};
 
-/// Converts a Rhai `Dynamic` value to an Intersteller `Value`.
+/// Converts a Rhai `Dynamic` value to an Interstellar `Value`.
 ///
 /// This function handles conversion from Rhai's dynamic type system to
-/// Intersteller's `Value` enum. Native Rhai types are converted to their
+/// Interstellar's `Value` enum. Native Rhai types are converted to their
 /// corresponding `Value` variants.
 ///
 /// # Type Mapping
@@ -87,9 +87,9 @@ pub fn dynamic_to_value(d: Dynamic) -> Value {
     Value::Null
 }
 
-/// Converts an Intersteller `Value` to a Rhai `Dynamic`.
+/// Converts an Interstellar `Value` to a Rhai `Dynamic`.
 ///
-/// This function handles conversion from Intersteller's `Value` enum to
+/// This function handles conversion from Interstellar's `Value` enum to
 /// Rhai's dynamic type system.
 ///
 /// # Type Mapping

@@ -7,9 +7,9 @@
 //! - List operations (IN, NOT IN)
 //! - Null checks (IS NULL, IS NOT NULL)
 
-use intersteller::gql::GqlError;
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::GqlError;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 /// Helper to create a graph for WHERE clause tests

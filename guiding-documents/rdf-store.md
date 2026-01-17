@@ -1,6 +1,6 @@
 # RDF Store Extension
 
-This document describes the modifications needed to use Intersteller as an RDF (Resource Description Framework) triple/quad store.
+This document describes the modifications needed to use Interstellar as an RDF (Resource Description Framework) triple/quad store.
 
 ## Overview
 
@@ -15,13 +15,13 @@ Where:
 - **Predicate**: A property (always a URI/IRI)
 - **Object**: A resource, blank node, or literal value
 
-Intersteller's property graph model has structural similarities but key differences that must be addressed.
+Interstellar's property graph model has structural similarities but key differences that must be addressed.
 
 ## Current State
 
 ### Structural Mapping
 
-| RDF Concept | Intersteller Equivalent | Location |
+| RDF Concept | Interstellar Equivalent | Location |
 |-------------|----------------------|----------|
 | Subject | `edge.src` (VertexId) | `src/storage/mod.rs:149` |
 | Predicate | `edge.label` (String) | `src/storage/mod.rs:147` |
@@ -34,7 +34,7 @@ Intersteller's property graph model has structural similarities but key differen
 
 ### Fundamental Gaps
 
-1. **Literal objects** - RDF allows edges to point to literal values; Intersteller requires vertex destinations
+1. **Literal objects** - RDF allows edges to point to literal values; Interstellar requires vertex destinations
 2. **URI/IRI type** - No first-class support for URIs as identifiers
 3. **RDF datatypes** - Missing XSD type system (xsd:date, xsd:decimal, etc.)
 4. **Named graphs** - No quad (context) support for RDF datasets
@@ -619,8 +619,8 @@ impl SparqlCompiler {
 ### Creating and Querying RDF Data
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::rdf::*;
+use interstellar::prelude::*;
+use interstellar::rdf::*;
 
 let mut store = InMemoryRdfStore::new();
 
@@ -727,7 +727,7 @@ for row in results {
 
 ## Comparison with Other RDF Stores
 
-| Feature | Apache Jena | Oxigraph | Intersteller (proposed) |
+| Feature | Apache Jena | Oxigraph | Interstellar (proposed) |
 |---------|-------------|----------|------------------------|
 | Triple storage | ✅ | ✅ | ✅ (Phase 3) |
 | Named graphs | ✅ | ✅ | ✅ (Phase 4) |
@@ -819,7 +819,7 @@ let friends = g.V()
 
 ## Conclusion
 
-Adding RDF support to Intersteller requires significant extensions, primarily:
+Adding RDF support to Interstellar requires significant extensions, primarily:
 
 1. **Value system changes** - URI/IRI type, typed literals, language tags
 2. **Storage layer** - Triple indexing, named graphs
@@ -832,4 +832,4 @@ The result would be a unique hybrid store supporting both property graph (Gremli
 - Integrating RDF data sources with property graph analytics
 - Semantic web applications requiring graph traversal capabilities
 
-This positions Intersteller as a bridge between the property graph and semantic web worlds.
+This positions Interstellar as a bridge between the property graph and semantic web worlds.

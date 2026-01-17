@@ -6,8 +6,8 @@
 //! # Example
 //!
 //! ```
-//! use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
-//! use intersteller::value::Value;
+//! use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
+//! use interstellar::value::Value;
 //!
 //! let schema = SchemaBuilder::new()
 //!     .mode(ValidationMode::Strict)
@@ -51,7 +51,7 @@ use super::{EdgeSchema, GraphSchema, PropertyDef, PropertyType, ValidationMode, 
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+/// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
 ///
 /// let schema = SchemaBuilder::new()
 ///     .mode(ValidationMode::Strict)
@@ -91,7 +91,7 @@ impl SchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person")
@@ -120,7 +120,7 @@ impl SchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person").done()
@@ -174,7 +174,7 @@ impl VertexSchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person")
@@ -202,7 +202,7 @@ impl VertexSchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person")
@@ -231,8 +231,8 @@ impl VertexSchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
-    /// use intersteller::value::Value;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::value::Value;
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person")
@@ -267,7 +267,7 @@ impl VertexSchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Metadata")
@@ -312,7 +312,7 @@ impl EdgeSchemaBuilder {
     /// # Example
     ///
     /// ```
-    /// use intersteller::schema::SchemaBuilder;
+    /// use interstellar::schema::SchemaBuilder;
     ///
     /// let schema = SchemaBuilder::new()
     ///     .vertex("Person").done()

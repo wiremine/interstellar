@@ -481,7 +481,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// 
     /// # Example
     /// ```rust
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     /// 
     /// // Route based on vertex label
     /// let results = g.v()
@@ -523,7 +523,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// 
     /// # Example
     /// ```rust
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     /// 
     /// let results = g.v()
     ///     .choose_by(__::values("type"))

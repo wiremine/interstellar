@@ -11,9 +11,9 @@
 //! - List indexing and slicing
 //! - Pattern comprehension
 
-use intersteller::gql::parse;
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::parse;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
@@ -414,7 +414,7 @@ fn test_gql_list_comprehension_nested() {
 
 #[test]
 fn test_gql_list_comprehension_parse_only() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query =
         parse("MATCH (n:Person) LET doubled = [x IN items | x * 2] RETURN doubled").unwrap();
@@ -435,7 +435,7 @@ fn test_gql_list_comprehension_parse_only() {
 
 #[test]
 fn test_gql_list_comprehension_parse_with_filter() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query =
         parse("MATCH (n:Person) LET filtered = [x IN items WHERE x > 10 | x * 2] RETURN filtered")
@@ -832,7 +832,7 @@ fn test_gql_map_literal_multiple_entries() {
 
 #[test]
 fn test_gql_map_literal_parse() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query = parse("MATCH (n:Person) RETURN {name: n.name, age: 30} AS data").unwrap();
 
@@ -1095,7 +1095,7 @@ fn test_gql_regex_digit_pattern() {
 
 #[test]
 fn test_gql_regex_parse() {
-    use intersteller::gql::{BinaryOperator, Expression};
+    use interstellar::gql::{BinaryOperator, Expression};
 
     let query = parse("MATCH (p:Person) WHERE p.email =~ '.*@gmail\\.com$' RETURN p").unwrap();
 
@@ -1236,7 +1236,7 @@ fn test_gql_reduce_max_value() {
 
 #[test]
 fn test_gql_reduce_parse() {
-    use intersteller::gql::{Expression, Literal};
+    use interstellar::gql::{Expression, Literal};
 
     let query = parse("MATCH (n) RETURN REDUCE(total = 0, x IN items | total + x) AS sum").unwrap();
 
@@ -1508,7 +1508,7 @@ fn test_gql_list_predicate_nested() {
 
 #[test]
 fn test_gql_all_predicate_parse() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query = parse("MATCH (n) RETURN ALL(x IN items WHERE x > 0)").unwrap();
     assert_eq!(query.return_clause.items.len(), 1);
@@ -1531,7 +1531,7 @@ fn test_gql_all_predicate_parse() {
 
 #[test]
 fn test_gql_any_predicate_parse() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query = parse("MATCH (n) RETURN ANY(x IN items WHERE x = 0)").unwrap();
     assert_eq!(query.return_clause.items.len(), 1);
@@ -1554,7 +1554,7 @@ fn test_gql_any_predicate_parse() {
 
 #[test]
 fn test_gql_none_predicate_parse() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query = parse("MATCH (n) RETURN NONE(x IN items WHERE x < 0)").unwrap();
     assert_eq!(query.return_clause.items.len(), 1);
@@ -1573,7 +1573,7 @@ fn test_gql_none_predicate_parse() {
 
 #[test]
 fn test_gql_single_predicate_parse() {
-    use intersteller::gql::Expression;
+    use interstellar::gql::Expression;
 
     let query = parse("MATCH (n) RETURN SINGLE(x IN items WHERE x = 1)").unwrap();
     assert_eq!(query.return_clause.items.len(), 1);

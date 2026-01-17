@@ -15,13 +15,13 @@
 
 use std::collections::HashMap;
 
-use intersteller::gql::{
+use interstellar::gql::{
     compile, compile_statement, compile_statement_with_params, compile_with_params, parse,
     parse_statement, CompileError, Parameters,
 };
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::Value;
-use intersteller::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::Value;
+use interstellar::Graph;
 
 // =============================================================================
 // Helper Functions
@@ -82,7 +82,7 @@ fn create_test_graph() -> Graph {
         HashMap::from([
             (
                 "name".to_string(),
-                Value::String("Intersteller".to_string()),
+                Value::String("Interstellar".to_string()),
             ),
             ("lang".to_string(), Value::String("Rust".to_string())),
         ]),
@@ -558,7 +558,7 @@ fn test_optional_match_basic() {
     let results = compile(&query, &snapshot).unwrap();
 
     // Alice -> Gremlin
-    // Bob -> Intersteller
+    // Bob -> Interstellar
     // Charlie -> null
     // Diana -> null
     assert_eq!(results.len(), 4);

@@ -1,6 +1,6 @@
 # Spec 01: Core Foundation (Phase 1)
 
-Defines the foundational types and traits for Intersteller. Derived from `implementation.md` and aligned with `overview.md` and anonymous traversal semantics.
+Defines the foundational types and traits for Interstellar. Derived from `implementation.md` and aligned with `overview.md` and anonymous traversal semantics.
 
 ---
 

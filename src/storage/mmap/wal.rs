@@ -152,7 +152,7 @@ impl WalEntryHeader {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::storage::mmap::wal::{WalEntry, WalEntryHeader};
+/// use interstellar::storage::mmap::wal::{WalEntry, WalEntryHeader};
 ///
 /// // Create a begin transaction entry
 /// let entry = WalEntry::BeginTx {
@@ -398,7 +398,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// # Usage
 ///
 /// ```ignore
-/// use intersteller::storage::mmap::wal::{WriteAheadLog, WalEntry};
+/// use interstellar::storage::mmap::wal::{WriteAheadLog, WalEntry};
 ///
 /// let mut wal = WriteAheadLog::open("my_graph.wal")?;
 ///

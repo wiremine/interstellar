@@ -1,6 +1,6 @@
-# Intersteller: Multi-Version Concurrency Control (MVCC)
+# Interstellar: Multi-Version Concurrency Control (MVCC)
 
-This document describes the MVCC implementation for Intersteller, enabling lock-free reads with snapshot isolation while maintaining high write throughput.
+This document describes the MVCC implementation for Interstellar, enabling lock-free reads with snapshot isolation while maintaining high write throughput.
 
 ---
 
@@ -8,7 +8,7 @@ This document describes the MVCC implementation for Intersteller, enabling lock-
 
 ### 1.1 Why MVCC?
 
-Intersteller Phase 1 uses a simple `RwLock`-based concurrency model:
+Interstellar Phase 1 uses a simple `RwLock`-based concurrency model:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -78,7 +78,7 @@ MVCC solves these problems by maintaining multiple versions of data:
 
 ### 1.4 Isolation Levels
 
-Intersteller MVCC supports two isolation levels:
+Interstellar MVCC supports two isolation levels:
 
 ```rust
 /// Supported isolation levels
@@ -298,7 +298,7 @@ impl VersionedEdgeRecord {
 
 ### 2.5 Version Chain Storage Strategies
 
-Intersteller supports two version chain storage strategies:
+Interstellar supports two version chain storage strategies:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

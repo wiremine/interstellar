@@ -119,7 +119,7 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::p;
+    /// use interstellar::traversal::p;
     ///
     /// // Create an anonymous traversal that filters to adults
     /// let anon = Traversal::<Value, Value>::new().has_where("age", p::gte(18));
@@ -146,7 +146,7 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::p;
+    /// use interstellar::traversal::p;
     ///
     /// // Filter ages greater than 25
     /// let anon = Traversal::<Value, Value>::new().is_(p::gt(25));
@@ -554,7 +554,7 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::p;
+    /// use interstellar::traversal::p;
     ///
     /// // Create an anonymous traversal that filters values > 25
     /// let anon = Traversal::<Value, Value>::new().where_p(p::gt(25));
@@ -1236,8 +1236,8 @@ impl<In> Traversal<In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::*;
-    /// use intersteller::traversal::__;
+    /// use interstellar::*;
+    /// use interstellar::traversal::__;
     ///
     /// // Count vertices by label
     /// let t = __::v().group_count().by_label().build();

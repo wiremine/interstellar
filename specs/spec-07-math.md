@@ -4,7 +4,7 @@
 
 ## Overview
 
-This specification details the implementation of the `MathStep` transform step for the Intersteller graph database. The `math()` step evaluates mathematical expressions on traverser values, supporting both the current value (`_`) and labeled values from the path.
+This specification details the implementation of the `MathStep` transform step for the Interstellar graph database. The `math()` step evaluates mathematical expressions on traverser values, supporting both the current value (`_`) and labeled values from the path.
 
 **Duration**: 2-3 hours  
 **Priority**: Medium  

@@ -2,7 +2,7 @@
 
 **Status**: Draft  
 **Dependencies**: web-ui.md, Phase 3 (Traversal Engine)  
-**Purpose**: Define interactive graph exploration patterns for the Intersteller Web UI
+**Purpose**: Define interactive graph exploration patterns for the Interstellar Web UI
 
 ---
 
@@ -568,7 +568,7 @@ Keep important nodes accessible during exploration.
 **Complete Interface:**
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Intersteller          [◀][▶][↺]    🔍 [_______________]    [Stats][Schema][?]│
+│  Interstellar          [◀][▶][↺]    🔍 [_______________]    [Stats][Schema][?]│
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ Trail: [Alice] → knows → [Bob] → works_at → [Acme Corp]                [×] │
 ├───────────────┬─────────────────────────────────────────────┬───────────────┤

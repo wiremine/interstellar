@@ -19,7 +19,7 @@
 //! ## Handling parse errors
 //!
 //! ```
-//! use intersteller::gql::{parse, ParseError};
+//! use interstellar::gql::{parse, ParseError};
 //!
 //! match parse("MATCH (n) RETURN") {
 //!     Ok(_) => println!("Query parsed successfully"),
@@ -33,8 +33,8 @@
 //! ## Handling compile errors
 //!
 //! ```
-//! use intersteller::gql::{parse, compile, CompileError};
-//! use intersteller::Graph;
+//! use interstellar::gql::{parse, compile, CompileError};
+//! use interstellar::Graph;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();

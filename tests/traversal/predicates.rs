@@ -4,10 +4,10 @@
 
 use std::collections::HashMap;
 
-use intersteller::p;
-use intersteller::storage::InMemoryGraph;
-use intersteller::traversal::__;
-use intersteller::value::{Value, VertexId};
+use interstellar::p;
+use interstellar::storage::InMemoryGraph;
+use interstellar::traversal::__;
+use interstellar::value::{Value, VertexId};
 
 use crate::common::graphs::create_small_graph;
 
@@ -703,7 +703,7 @@ fn has_where_in_union_branches() {
 
 /// Test graph structure for spec-alignment tests.
 struct SpecTestGraph {
-    graph: intersteller::graph::Graph,
+    graph: interstellar::graph::Graph,
     alice: VertexId,
     bob: VertexId,
     #[allow(dead_code)]
@@ -767,7 +767,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         .unwrap();
 
     SpecTestGraph {
-        graph: intersteller::graph::Graph::new(storage),
+        graph: interstellar::graph::Graph::new(storage),
         alice,
         bob,
         carol,

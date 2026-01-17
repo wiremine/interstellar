@@ -1,10 +1,10 @@
-# AGENTS.md - Intersteller Graph Database
+# AGENTS.md - Interstellar Graph Database
 
 Guidelines for AI coding agents working in this codebase.
 
 ## Project Overview
 
-Intersteller is a high-performance Rust graph traversal library with:
+Interstellar is a high-performance Rust graph traversal library with:
 - **Dual storage backends**: In-memory (HashMap-based) and memory-mapped (persistent)
 - **Gremlin-style fluent API**: Chainable traversal steps with lazy evaluation
 - **Anonymous traversals**: Composable fragments via the `__` factory module

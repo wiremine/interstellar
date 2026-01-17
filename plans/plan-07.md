@@ -1,6 +1,6 @@
 # Plan 07: Completing the Gremlin API
 
-**Phase 7 of Intersteller Implementation**
+**Phase 7 of Interstellar Implementation**
 
 Based on: `specs/spec-07-finish-api.md`
 

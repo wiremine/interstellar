@@ -6,9 +6,9 @@
 //! - Error handling tests
 //! - API integration tests
 
-use intersteller::gql::{compile, parse, GqlError};
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::{compile, parse, GqlError};
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 /// Helper to create a test graph with sample data

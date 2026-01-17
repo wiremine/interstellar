@@ -1,6 +1,6 @@
 # Spec-20: GQL Schema and DDL Support
 
-This specification defines the GQL Data Definition Language (DDL) for Intersteller, enabling users to define graph schemas using ISO GQL-inspired syntax with automatic validation of mutations.
+This specification defines the GQL Data Definition Language (DDL) for Interstellar, enabling users to define graph schemas using ISO GQL-inspired syntax with automatic validation of mutations.
 
 ---
 
@@ -2712,8 +2712,8 @@ Create `tests/schema.rs` for end-to-end schema tests:
 ```rust
 // tests/schema.rs
 
-use intersteller::prelude::*;
-use intersteller::schema::*;
+use interstellar::prelude::*;
+use interstellar::schema::*;
 use std::collections::HashMap;
 
 #[test]

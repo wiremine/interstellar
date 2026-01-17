@@ -219,7 +219,7 @@ mod tests {
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::step::IdentityStep;
     use crate::traversal::traverser::{TraversalSource, Traverser};
-    use crate::value::{EdgeId, Value, VertexId};
+    use crate::value::{Value, VertexId};
 
     #[test]
     fn new_creates_empty_traversal() {

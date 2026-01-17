@@ -1,6 +1,6 @@
 //! Complex traversal tests.
 
-use intersteller::value::Value;
+use interstellar::value::Value;
 
 use crate::common::graphs::create_small_graph;
 

@@ -1,7 +1,7 @@
 //! Anonymous traversal tests.
 
-use intersteller::traversal::__;
-use intersteller::value::Value;
+use interstellar::traversal::__;
+use interstellar::value::Value;
 
 use crate::common::graphs::create_small_graph;
 

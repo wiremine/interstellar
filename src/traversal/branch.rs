@@ -11,7 +11,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use intersteller::traversal::__;
+//! use interstellar::traversal::__;
 //!
 //! // Filter to vertices that have outgoing "knows" edges
 //! g.v().where_(__.out_labels(&["knows"])).to_list()
@@ -42,7 +42,7 @@ use crate::value::Value;
 /// # Example
 ///
 /// ```rust
-/// use intersteller::traversal::branch::OptionKey;
+/// use interstellar::traversal::branch::OptionKey;
 ///
 /// // Create keys from various types
 /// let key1 = OptionKey::from("person");
@@ -63,7 +63,7 @@ impl OptionKey {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::traversal::branch::OptionKey;
+    /// use interstellar::traversal::branch::OptionKey;
     ///
     /// let key = OptionKey::value("person");
     /// ```
@@ -76,7 +76,7 @@ impl OptionKey {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::traversal::branch::OptionKey;
+    /// use interstellar::traversal::branch::OptionKey;
     ///
     /// let key = OptionKey::none();
     /// ```
@@ -642,7 +642,7 @@ impl AnyStep for LocalStep {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Route based on vertex label
 /// g.v()
@@ -675,8 +675,8 @@ impl BranchStep {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::traversal::{Traversal, branch::BranchStep};
-    /// use intersteller::value::Value;
+    /// use interstellar::traversal::{Traversal, branch::BranchStep};
+    /// use interstellar::value::Value;
     ///
     /// let label_traversal = Traversal::<Value, Value>::new();
     /// let step = BranchStep::new(label_traversal);
@@ -704,8 +704,8 @@ impl BranchStep {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::traversal::{Traversal, branch::BranchStep};
-    /// use intersteller::value::Value;
+    /// use interstellar::traversal::{Traversal, branch::BranchStep};
+    /// use interstellar::value::Value;
     ///
     /// let label_traversal = Traversal::<Value, Value>::new();
     /// let step = BranchStep::new(label_traversal)
@@ -741,8 +741,8 @@ impl BranchStep {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::traversal::{Traversal, branch::BranchStep};
-    /// use intersteller::value::Value;
+    /// use interstellar::traversal::{Traversal, branch::BranchStep};
+    /// use interstellar::value::Value;
     ///
     /// let label_traversal = Traversal::<Value, Value>::new();
     /// let step = BranchStep::new(label_traversal)

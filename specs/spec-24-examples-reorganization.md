@@ -130,7 +130,7 @@ Combine 4 files into 1:
 ```rust
 //! NBA Graph Example
 //! 
-//! Demonstrates Intersteller features using NBA players, teams, and games.
+//! Demonstrates Interstellar features using NBA players, teams, and games.
 //! 
 //! Sections:
 //! 1. Building the graph (in-memory)
@@ -185,7 +185,7 @@ Combine 3 files into 1:
 ```rust
 //! GQL (Graph Query Language) Example
 //! 
-//! Comprehensive demonstration of Intersteller's GQL support.
+//! Comprehensive demonstration of Interstellar's GQL support.
 //! 
 //! Sections:
 //! 1. Schema/DDL - CREATE GRAPH TYPE, etc.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of Gremlin mutation steps for Intersteller. Mutation steps allow creating, updating, and deleting vertices and edges in the graph.
+This specification defines the implementation of Gremlin mutation steps for Interstellar. Mutation steps allow creating, updating, and deleting vertices and edges in the graph.
 
 ## Goals
 
@@ -285,7 +285,7 @@ let vertex = traversal.next();  // <-- Mutation executed here
    - Cons: More complex implementation
 
 3. **Hybrid** - `addV`/`addE` are lazy, but return a handle for chaining
-   - Recommended approach for Intersteller
+   - Recommended approach for Interstellar
 
 ### 4.2 Mutation Context
 
@@ -453,7 +453,7 @@ g.v_id(alice.id())
 ## 8. Example Usage
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let graph = InMemoryGraph::new();

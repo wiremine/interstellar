@@ -1,10 +1,10 @@
 # Spec 07: Completing the Gremlin API
 
-**Phase 7 of Intersteller Implementation**
+**Phase 7 of Interstellar Implementation**
 
 ## Overview
 
-This specification details the implementation of the remaining Gremlin-compatible API steps. A comprehensive comparison between the current Intersteller implementation and the Gremlin reference API (`guiding-documents/gremlin.md`) identified 15 steps that need implementation to achieve full API coverage.
+This specification details the implementation of the remaining Gremlin-compatible API steps. A comprehensive comparison between the current Interstellar implementation and the Gremlin reference API (`guiding-documents/gremlin.md`) identified 15 steps that need implementation to achieve full API coverage.
 
 **Duration**: 2-3 weeks  
 **Priority**: High  

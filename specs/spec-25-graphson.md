@@ -4,7 +4,7 @@
 
 ### 1.1 Motivation
 
-Intersteller needs a standard format for graph data interchange. GraphSON is the JSON-based format
+Interstellar needs a standard format for graph data interchange. GraphSON is the JSON-based format
 used by Apache TinkerPop, the de facto standard for graph databases. Supporting GraphSON enables:
 
 1. **Interoperability** - Import/export with Neo4j, JanusGraph, Amazon Neptune, and other TinkerPop-compatible databases
@@ -17,9 +17,9 @@ used by Apache TinkerPop, the de facto standard for graph databases. Supporting 
 This specification covers:
 
 - GraphSON 3.0 format support (the latest and most complete version)
-- Serialization of Intersteller graphs to GraphSON
-- Deserialization of GraphSON to Intersteller graphs
-- Custom extension for schema metadata (`intersteller:Schema`)
+- Serialization of Interstellar graphs to GraphSON
+- Deserialization of GraphSON to Interstellar graphs
+- Custom extension for schema metadata (`interstellar:Schema`)
 - Public API for import/export operations
 
 Out of scope:
@@ -156,9 +156,9 @@ A complete graph export uses a top-level object:
 
 ## 3. Type Mappings
 
-### 3.1 Intersteller to GraphSON
+### 3.1 Interstellar to GraphSON
 
-| Intersteller Type | GraphSON Type | Notes |
+| Interstellar Type | GraphSON Type | Notes |
 |-------------------|---------------|-------|
 | `Value::Null` | JSON `null` | Untyped |
 | `Value::Bool` | JSON `true`/`false` | Untyped |
@@ -172,9 +172,9 @@ A complete graph export uses a top-level object:
 | `VertexId` | `g:Int64` | Vertex identifier |
 | `EdgeId` | `g:Int64` | Edge identifier |
 
-### 3.2 GraphSON to Intersteller
+### 3.2 GraphSON to Interstellar
 
-| GraphSON Type | Intersteller Type | Notes |
+| GraphSON Type | Interstellar Type | Notes |
 |---------------|-------------------|-------|
 | JSON `null` | `Value::Null` | |
 | JSON `true`/`false` | `Value::Bool` | |
@@ -209,10 +209,10 @@ For schema-aware imports, property types are validated:
 src/graphson/
 ├── mod.rs              # Public API and re-exports
 ├── types.rs            # Rust types for GraphSON structures
-├── serialize.rs        # Intersteller -> GraphSON
-├── deserialize.rs      # GraphSON -> Intersteller
+├── serialize.rs        # Interstellar -> GraphSON
+├── deserialize.rs      # GraphSON -> Interstellar
 ├── error.rs            # Error types
-└── schema_ext.rs       # Schema extension (intersteller:Schema)
+└── schema_ext.rs       # Schema extension (interstellar:Schema)
 ```
 
 ### 4.1 Dependency Changes
@@ -478,7 +478,7 @@ impl TypedGraph {
 use crate::value::{Value, VertexId, EdgeId};
 use super::types::GraphSONValue;
 
-/// Convert an Intersteller Value to a GraphSON value.
+/// Convert an Interstellar Value to a GraphSON value.
 pub fn value_to_graphson(value: &Value) -> GraphSONValue {
     match value {
         Value::Null => GraphSONValue::null(),
@@ -734,7 +734,7 @@ use super::types::GraphSONValue;
 use super::error::{GraphSONError, Result};
 use serde_json::Value as JsonValue;
 
-/// Convert a GraphSON value to an Intersteller Value.
+/// Convert a GraphSON value to an Interstellar Value.
 pub fn graphson_to_value(gs_value: &GraphSONValue) -> Result<Value> {
     match gs_value {
         GraphSONValue::Untyped(json) => json_to_value(json),
@@ -811,7 +811,7 @@ pub fn graphson_to_value(gs_value: &GraphSONValue) -> Result<Value> {
     }
 }
 
-/// Convert a plain JSON value to an Intersteller Value.
+/// Convert a plain JSON value to an Interstellar Value.
 fn json_to_value(json: &JsonValue) -> Result<Value> {
     match json {
         JsonValue::Null => Ok(Value::Null),
@@ -1008,13 +1008,13 @@ impl DeserializeOptions {
 ## 8. Schema Extension
 
 GraphSON does not have native schema support, so we define a custom extension type
-`intersteller:Schema` to embed schema metadata in exports.
+`interstellar:Schema` to embed schema metadata in exports.
 
 ### 8.1 Schema Type Format
 
 ```json
 {
-  "@type": "intersteller:Schema",
+  "@type": "interstellar:Schema",
   "@value": {
     "mode": "strict",
     "vertexSchemas": [
@@ -1174,7 +1174,7 @@ pub fn schema_to_graphson(schema: &GraphSchema) -> serde_json::Value {
     };
 
     serde_json::json!({
-        "@type": "intersteller:Schema",
+        "@type": "interstellar:Schema",
         "@value": gs_schema
     })
 }
@@ -1189,7 +1189,7 @@ fn property_def_to_graphson(prop: &PropertyDef) -> GraphSONPropertyDef {
 }
 
 fn value_to_json(value: &crate::value::Value) -> serde_json::Value {
-    // Convert Intersteller Value to JSON for default values
+    // Convert Interstellar Value to JSON for default values
     match value {
         crate::value::Value::Null => serde_json::Value::Null,
         crate::value::Value::Bool(b) => serde_json::Value::Bool(*b),
@@ -1220,9 +1220,9 @@ When `include_schema: true`, the output includes schema:
 
 ```json
 {
-  "@type": "intersteller:GraphWithSchema",
+  "@type": "interstellar:GraphWithSchema",
   "@value": {
-    "schema": {"@type": "intersteller:Schema", "@value": {...}},
+    "schema": {"@type": "interstellar:Schema", "@value": {...}},
     "graph": {"@type": "tinker:graph", "@value": {...}}
   }
 }
@@ -1241,8 +1241,8 @@ When `include_schema: true`, the output includes schema:
 //! # Example: Export a graph
 //!
 //! ```rust
-//! use intersteller::graphson;
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::graphson;
+//! use interstellar::storage::InMemoryGraph;
 //!
 //! let graph = InMemoryGraph::new();
 //! // ... populate graph ...
@@ -1254,7 +1254,7 @@ When `include_schema: true`, the output includes schema:
 //! # Example: Import a graph
 //!
 //! ```rust
-//! use intersteller::graphson;
+//! use interstellar::graphson;
 //!
 //! let json = r#"{"@type": "tinker:graph", "@value": {"vertices": [], "edges": []}}"#;
 //! let graph = graphson::from_str(json).unwrap();
@@ -1302,7 +1302,7 @@ pub fn to_string_with_schema<S: GraphStorage>(
     let schema_json = schema_to_graphson(schema);
     
     let output = serde_json::json!({
-        "@type": "intersteller:GraphWithSchema",
+        "@type": "interstellar:GraphWithSchema",
         "@value": {
             "schema": schema_json,
             "graph": graph
@@ -1316,10 +1316,10 @@ pub fn to_string_with_schema<S: GraphStorage>(
 ### 9.2 Usage Examples
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::graphson;
-use intersteller::storage::InMemoryGraph;
-use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+use interstellar::prelude::*;
+use interstellar::graphson;
+use interstellar::storage::InMemoryGraph;
+use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
 use std::collections::HashMap;
 
 // Create a graph
@@ -1422,16 +1422,16 @@ pub fn import_from_file<P: AsRef<Path>>(path: P) -> Result<crate::storage::InMem
 
 ```bash
 # Export
-intersteller export --format graphson --output graph.json
+interstellar export --format graphson --output graph.json
 
 # Export with schema
-intersteller export --format graphson --include-schema --output graph.json
+interstellar export --format graphson --include-schema --output graph.json
 
 # Import
-intersteller import --format graphson --input graph.json
+interstellar import --format graphson --input graph.json
 
 # Validate without importing
-intersteller validate --format graphson --input graph.json
+interstellar validate --format graphson --input graph.json
 ```
 
 ## 11. Testing Strategy
@@ -1546,8 +1546,8 @@ mod tests {
 ```rust
 // tests/graphson.rs
 
-use intersteller::graphson;
-use intersteller::storage::InMemoryGraph;
+use interstellar::graphson;
+use interstellar::storage::InMemoryGraph;
 use std::fs;
 
 #[test]

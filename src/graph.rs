@@ -1,6 +1,6 @@
 //! Graph container with snapshot-based concurrency control.
 //!
-//! This module provides the main entry points for working with graphs in Intersteller:
+//! This module provides the main entry points for working with graphs in Interstellar:
 //!
 //! - [`Graph`] - The thread-safe container that owns graph storage
 //! - [`GraphSnapshot`] - A read-only view for concurrent traversals
@@ -8,7 +8,7 @@
 //!
 //! # Concurrency Model
 //!
-//! Intersteller uses a readers-writer lock to provide safe concurrent access:
+//! Interstellar uses a readers-writer lock to provide safe concurrent access:
 //!
 //! - **Multiple readers**: Any number of [`GraphSnapshot`]s can exist simultaneously,
 //!   allowing concurrent read-only traversals across threads.
@@ -21,8 +21,8 @@
 //! # Example
 //!
 //! ```rust
-//! use intersteller::prelude::*;
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::prelude::*;
+//! use interstellar::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //!
 //! // Create an in-memory graph
@@ -67,7 +67,7 @@
 //! The typical pattern for concurrent access is to wrap the graph in an `Arc`:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //! use std::sync::Arc;
 //! use std::thread;
 //!
@@ -107,8 +107,8 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 /// There are two ways to create a `Graph`:
 ///
 /// ```rust
-/// use intersteller::prelude::*;
-/// use intersteller::storage::InMemoryGraph;
+/// use interstellar::prelude::*;
+/// use interstellar::storage::InMemoryGraph;
 ///
 /// // Method 1: Convenience constructor for in-memory graphs
 /// let graph = Graph::in_memory();
@@ -123,7 +123,7 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 /// To read from the graph, create a [`GraphSnapshot`] using [`snapshot()`](Graph::snapshot):
 ///
 /// ```rust
-/// use intersteller::prelude::*;
+/// use interstellar::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -175,7 +175,7 @@ pub struct Graph {
 /// querying the graph:
 ///
 /// ```rust
-/// use intersteller::prelude::*;
+/// use interstellar::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -191,7 +191,7 @@ pub struct Graph {
 /// Multiple snapshots can exist simultaneously, even across threads:
 ///
 /// ```rust
-/// use intersteller::prelude::*;
+/// use interstellar::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 ///
@@ -221,7 +221,7 @@ impl<'g> GraphSnapshot<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     /// let snapshot = graph.snapshot();
@@ -262,8 +262,8 @@ impl<'g> GraphSnapshot<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::storage::InMemoryGraph;
+    /// use interstellar::prelude::*;
+    /// use interstellar::storage::InMemoryGraph;
     ///
     /// // Create storage with data
     /// let mut storage = InMemoryGraph::new();
@@ -299,9 +299,9 @@ impl<'g> GraphSnapshot<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::storage::InMemoryGraph;
-    /// use intersteller::gql::Parameters;
+    /// use interstellar::prelude::*;
+    /// use interstellar::storage::InMemoryGraph;
+    /// use interstellar::gql::Parameters;
     ///
     /// // Create storage with data
     /// let mut storage = InMemoryGraph::new();
@@ -349,8 +349,8 @@ impl<'g> GraphSnapshot<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::prelude::*;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .mode(ValidationMode::Strict)
@@ -391,7 +391,7 @@ impl<'g> GraphSnapshot<'g> {
 /// # Example
 ///
 /// ```rust
-/// use intersteller::prelude::*;
+/// use interstellar::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 ///
@@ -446,9 +446,9 @@ impl<'g> GraphMut<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
-    /// use intersteller::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::prelude::*;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
     ///
     /// // Create a graph with schema
     /// let schema = SchemaBuilder::new()
@@ -500,8 +500,8 @@ impl<'g> GraphMut<'g> {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::schema::ValidationMode;
+    /// use interstellar::prelude::*;
+    /// use interstellar::schema::ValidationMode;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -563,8 +563,8 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::storage::InMemoryGraph;
+    /// use interstellar::prelude::*;
+    /// use interstellar::storage::InMemoryGraph;
     ///
     /// let storage = InMemoryGraph::new();
     /// let graph = Graph::new(storage);
@@ -585,9 +585,9 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::storage::InMemoryGraph;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::prelude::*;
+    /// use interstellar::storage::InMemoryGraph;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
     /// let storage = InMemoryGraph::new();
     /// let schema = SchemaBuilder::new()
@@ -616,8 +616,8 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
+    /// use interstellar::prelude::*;
+    /// use interstellar::storage::{GraphStorage, InMemoryGraph};
     /// use std::sync::Arc;
     ///
     /// let storage: Arc<dyn GraphStorage> = Arc::new(InMemoryGraph::new());
@@ -639,9 +639,9 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::storage::{GraphStorage, InMemoryGraph};
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::prelude::*;
+    /// use interstellar::storage::{GraphStorage, InMemoryGraph};
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     /// use std::sync::Arc;
     ///
     /// let storage: Arc<dyn GraphStorage> = Arc::new(InMemoryGraph::new());
@@ -675,7 +675,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -715,7 +715,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -750,7 +750,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -782,7 +782,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -803,8 +803,8 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::prelude::*;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .mode(ValidationMode::Strict)
@@ -834,7 +834,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
     ///
@@ -855,8 +855,8 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::prelude::*;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
     /// let schema = SchemaBuilder::new()
     ///     .mode(ValidationMode::Strict)
@@ -892,7 +892,7 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
+    /// use interstellar::prelude::*;
     ///
     /// let graph1 = Graph::in_memory();
     /// let graph2 = graph1.share();
@@ -916,8 +916,8 @@ impl Graph {
     /// # Example
     ///
     /// ```rust
-    /// use intersteller::prelude::*;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    /// use interstellar::prelude::*;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
     /// let graph = Graph::in_memory();
     ///

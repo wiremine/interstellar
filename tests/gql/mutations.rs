@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 
-use intersteller::gql::{execute_mutation, parse_statement, MutationError};
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::value::Value;
+use interstellar::gql::{execute_mutation, parse_statement, MutationError};
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::value::Value;
 
 // =============================================================================
 // Helper Functions
@@ -52,7 +52,7 @@ fn create_test_graph() -> InMemoryGraph {
 /// Execute a GQL mutation query against storage.
 fn execute_gql(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
-        MutationError::Compile(intersteller::gql::CompileError::UnsupportedFeature(
+        MutationError::Compile(interstellar::gql::CompileError::UnsupportedFeature(
             format!("Parse error: {}", e),
         ))
     })?;
@@ -488,11 +488,11 @@ fn test_delete_unbound_variable_fails() {
 // Schema Validation Tests
 // =============================================================================
 
-use intersteller::gql::execute_mutation_with_schema;
-use intersteller::schema::{PropertyType, SchemaBuilder, SchemaError, ValidationMode};
+use interstellar::gql::execute_mutation_with_schema;
+use interstellar::schema::{PropertyType, SchemaBuilder, SchemaError, ValidationMode};
 
 /// Create a test schema for validation tests.
-fn create_test_schema(mode: ValidationMode) -> intersteller::schema::GraphSchema {
+fn create_test_schema(mode: ValidationMode) -> interstellar::schema::GraphSchema {
     SchemaBuilder::new()
         .mode(mode)
         .vertex("Person")
@@ -520,7 +520,7 @@ fn create_test_schema(mode: ValidationMode) -> intersteller::schema::GraphSchema
 fn execute_gql_with_schema(
     storage: &mut InMemoryGraph,
     query: &str,
-    schema: &intersteller::schema::GraphSchema,
+    schema: &interstellar::schema::GraphSchema,
 ) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).unwrap();
     execute_mutation_with_schema(&stmt, storage, Some(schema))
@@ -876,7 +876,7 @@ fn test_mutation_with_none_schema() {
 // Graph API DDL Integration Tests
 // =============================================================================
 
-use intersteller::prelude::Graph;
+use interstellar::prelude::Graph;
 
 #[test]
 fn test_graph_ddl_create_node_type() {
@@ -1009,7 +1009,7 @@ fn test_graph_ddl_drop_node_type() {
 #[test]
 fn test_graph_ddl_full_workflow() {
     let storage = InMemoryGraph::new();
-    let graph = Graph::with_schema(storage, intersteller::schema::GraphSchema::new());
+    let graph = Graph::with_schema(storage, interstellar::schema::GraphSchema::new());
 
     {
         let mut_handle = graph.mutate();
@@ -1313,7 +1313,7 @@ fn test_foreach_non_list_error() {
 
     assert!(result.is_err());
     // Should be a ForeachNotList error
-    if let Err(MutationError::Compile(intersteller::gql::CompileError::ForeachNotList { .. })) =
+    if let Err(MutationError::Compile(interstellar::gql::CompileError::ForeachNotList { .. })) =
         result
     {
         // Expected error

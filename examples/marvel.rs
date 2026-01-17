@@ -22,10 +22,10 @@
 //!
 //! Run with: `cargo run --example marvel`
 
-use intersteller::graph::Graph;
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::traversal::{p, __};
-use intersteller::value::{Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::traversal::{p, __};
+use interstellar::value::{Value, VertexId};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;

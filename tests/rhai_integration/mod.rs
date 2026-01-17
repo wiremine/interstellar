@@ -9,9 +9,9 @@ mod predicates;
 mod traversal;
 mod types;
 
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 /// Create a social graph for testing.

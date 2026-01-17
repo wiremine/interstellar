@@ -8,7 +8,7 @@
 //!
 //! Tests use tempfile for isolation and are independent of each other.
 
-use intersteller::storage::{GraphStorage, MmapGraph};
+use interstellar::storage::{GraphStorage, MmapGraph};
 use std::collections::HashMap;
 use tempfile::TempDir;
 
@@ -240,7 +240,7 @@ fn test_add_vertex() {
         .add_vertex(
             "software",
             HashMap::from([
-                ("name".to_string(), "Intersteller".into()),
+                ("name".to_string(), "Interstellar".into()),
                 ("version".to_string(), "0.1.0".into()),
             ]),
         )
@@ -258,7 +258,7 @@ fn test_add_vertex() {
     assert_eq!(vertex2.label, "software");
     assert_eq!(
         vertex2.properties.get("name").and_then(|v| v.as_str()),
-        Some("Intersteller")
+        Some("Interstellar")
     );
     assert_eq!(
         vertex2.properties.get("version").and_then(|v| v.as_str()),
@@ -691,7 +691,7 @@ fn test_reopen_and_append() {
         let v4 = graph
             .add_vertex(
                 "software",
-                HashMap::from([("name".to_string(), "Intersteller".into())]),
+                HashMap::from([("name".to_string(), "Interstellar".into())]),
             )
             .expect("add v4");
 
@@ -1285,7 +1285,7 @@ fn test_batch_mode_read_during_write() {
 // Phase 5.7: Property Roundtrip Tests
 // =============================================================================
 
-use intersteller::value::{EdgeId, Value, VertexId};
+use interstellar::value::{EdgeId, Value, VertexId};
 
 /// Test that Null property values roundtrip correctly.
 #[test]
@@ -2029,7 +2029,7 @@ fn test_all_value_types_combined() {
 // Phase 5.8: Error Handling Tests
 // =============================================================================
 
-use intersteller::error::StorageError;
+use interstellar::error::StorageError;
 
 /// Test that opening a file with invalid magic number returns InvalidFormat error.
 ///
@@ -2267,7 +2267,7 @@ fn test_error_remove_nonexistent_edge() {
 // Phase 10: Mutation Tests for MmapGraph
 // =============================================================================
 
-use intersteller::traversal::{MutationExecutor, PendingMutation};
+use interstellar::traversal::{MutationExecutor, PendingMutation};
 
 /// Test that set_vertex_property adds a new property to an existing vertex.
 #[test]

@@ -7,8 +7,8 @@
 //! # Usage
 //!
 //! ```
-//! use intersteller::gql::{parse_statement, execute_ddl, Statement};
-//! use intersteller::schema::GraphSchema;
+//! use interstellar::gql::{parse_statement, execute_ddl, Statement};
+//! use interstellar::schema::GraphSchema;
 //!
 //! let mut schema = GraphSchema::new();
 //!
@@ -54,8 +54,8 @@ use std::collections::HashMap;
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::{parse_statement, execute_ddl, Statement};
-/// use intersteller::schema::{GraphSchema, ValidationMode};
+/// use interstellar::gql::{parse_statement, execute_ddl, Statement};
+/// use interstellar::schema::{GraphSchema, ValidationMode};
 ///
 /// let mut schema = GraphSchema::new();
 ///

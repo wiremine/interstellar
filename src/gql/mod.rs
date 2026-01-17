@@ -1,6 +1,6 @@
 //! # GQL Parser, Compiler, and Mutation Executor
 //!
-//! This module provides GQL (Graph Query Language) support for Intersteller.
+//! This module provides GQL (Graph Query Language) support for Interstellar.
 //! GQL is a declarative query language for property graphs, offering a
 //! SQL-like syntax for pattern matching, data retrieval, and mutations.
 //!
@@ -22,8 +22,8 @@
 //! The simplest way to execute a GQL query is through [`GraphSnapshot::gql()`](crate::graph::GraphSnapshot::gql):
 //!
 //! ```rust
-//! use intersteller::prelude::*;
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::prelude::*;
+//! use interstellar::storage::InMemoryGraph;
 //! use std::sync::Arc;
 //!
 //! // Create a graph with data
@@ -46,8 +46,8 @@
 //! For mutations (CREATE, SET, DELETE, etc.), use [`execute_mutation`] with mutable storage:
 //!
 //! ```rust
-//! use intersteller::gql::{parse_statement, execute_mutation};
-//! use intersteller::storage::{GraphStorage, InMemoryGraph};
+//! use interstellar::gql::{parse_statement, execute_mutation};
+//! use interstellar::storage::{GraphStorage, InMemoryGraph};
 //!
 //! let mut storage = InMemoryGraph::new();
 //!
@@ -104,7 +104,7 @@
 //!
 //! **Complete pattern example:**
 //! ```rust
-//! # use intersteller::prelude::*;
+//! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! let results = snapshot.gql(r#"
@@ -141,7 +141,7 @@
 //!
 //! **Examples:**
 //! ```rust
-//! # use intersteller::prelude::*;
+//! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // Numeric comparison
@@ -200,7 +200,7 @@
 //!
 //! **Examples:**
 //! ```rust
-//! # use intersteller::prelude::*;
+//! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // Return multiple properties as a map
@@ -226,7 +226,7 @@
 //! Sort results by one or more expressions.
 //!
 //! ```rust
-//! # use intersteller::prelude::*;
+//! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // Ascending (default)
@@ -248,7 +248,7 @@
 //! Limit the number of results and skip initial results.
 //!
 //! ```rust
-//! # use intersteller::prelude::*;
+//! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // First 10 results
@@ -261,7 +261,7 @@
 //! ## Complete Query Example
 //!
 //! ```rust
-//! # use intersteller::prelude::*;
+//! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! let results = snapshot.gql(r#"
@@ -283,8 +283,8 @@
 //! Both are wrapped in [`GqlError`] when using [`GraphSnapshot::gql()`](crate::graph::GraphSnapshot::gql).
 //!
 //! ```rust
-//! use intersteller::prelude::*;
-//! use intersteller::gql::GqlError;
+//! use interstellar::prelude::*;
+//! use interstellar::gql::GqlError;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();

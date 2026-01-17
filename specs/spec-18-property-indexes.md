@@ -1,6 +1,6 @@
 # Spec 18: Property Indexes (B+ Tree and Unique)
 
-This specification defines property index support for Intersteller, enabling efficient property-based lookups that avoid full graph scans.
+This specification defines property index support for Interstellar, enabling efficient property-based lookups that avoid full graph scans.
 
 ---
 

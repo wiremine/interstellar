@@ -10,10 +10,10 @@
 
 use std::collections::HashMap;
 
-use intersteller::gql::{compile, parse};
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::Value;
-use intersteller::Graph;
+use interstellar::gql::{compile, parse};
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::Value;
+use interstellar::Graph;
 
 // =============================================================================
 // Helper Functions
@@ -87,7 +87,7 @@ fn create_test_graph() -> Graph {
         HashMap::from([
             (
                 "name".to_string(),
-                Value::String("Intersteller".to_string()),
+                Value::String("Interstellar".to_string()),
             ),
             ("lang".to_string(), Value::String("Rust".to_string())),
             ("version".to_string(), Value::Float(1.0)),
@@ -2251,8 +2251,8 @@ fn test_union_basic() {
         RETURN p.name AS name
     "#;
 
-    let statement = intersteller::gql::parse_statement(query_text).unwrap();
-    let results = intersteller::gql::compile_statement(&statement, &snapshot).unwrap();
+    let statement = interstellar::gql::parse_statement(query_text).unwrap();
+    let results = interstellar::gql::compile_statement(&statement, &snapshot).unwrap();
 
     // Should have Alice and Bob (deduplicated)
     assert_eq!(results.len(), 2);
@@ -2273,8 +2273,8 @@ fn test_union_all_keeps_duplicates() {
         RETURN p.name AS name
     "#;
 
-    let statement = intersteller::gql::parse_statement(query_text).unwrap();
-    let results = intersteller::gql::compile_statement(&statement, &snapshot).unwrap();
+    let statement = interstellar::gql::parse_statement(query_text).unwrap();
+    let results = interstellar::gql::compile_statement(&statement, &snapshot).unwrap();
 
     // UNION ALL keeps duplicates - should have 2 Alice entries
     assert_eq!(results.len(), 2);

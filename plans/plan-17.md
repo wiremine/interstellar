@@ -832,7 +832,7 @@ pub mod __ {
 
 **Test Cases:**
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 fn create_test_graph() -> Graph {
     // Create graph with person and software vertices

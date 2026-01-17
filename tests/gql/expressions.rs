@@ -8,8 +8,8 @@
 //! - String functions (upper, lower, length, trim, substring, replace)
 //! - Math functions (abs, round, floor, ceil)
 
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -239,7 +239,7 @@ fn test_gql_exists_with_count() {
 
 #[test]
 fn test_gql_parse_exists_expression() {
-    use intersteller::gql::parse;
+    use interstellar::gql::parse;
 
     // Test that EXISTS expressions parse correctly
     let ast = parse(
@@ -256,7 +256,7 @@ fn test_gql_parse_exists_expression() {
     // The where clause should contain an EXISTS expression
     let where_clause = ast.where_clause.unwrap();
     match where_clause.expression {
-        intersteller::gql::Expression::Exists { negated, pattern } => {
+        interstellar::gql::Expression::Exists { negated, pattern } => {
             assert!(!negated);
             assert!(!pattern.elements.is_empty());
         }
@@ -266,7 +266,7 @@ fn test_gql_parse_exists_expression() {
 
 #[test]
 fn test_gql_parse_not_exists_expression() {
-    use intersteller::gql::parse;
+    use interstellar::gql::parse;
 
     // Test that NOT EXISTS expressions parse correctly
     // NOT EXISTS is parsed as UnaryOp(Not, Exists { negated: false, ... })
@@ -283,17 +283,17 @@ fn test_gql_parse_not_exists_expression() {
 
     let where_clause = ast.where_clause.unwrap();
     match where_clause.expression {
-        intersteller::gql::Expression::UnaryOp { op, expr } => {
-            assert!(matches!(op, intersteller::gql::UnaryOperator::Not));
+        interstellar::gql::Expression::UnaryOp { op, expr } => {
+            assert!(matches!(op, interstellar::gql::UnaryOperator::Not));
             match *expr {
-                intersteller::gql::Expression::Exists { negated, pattern } => {
+                interstellar::gql::Expression::Exists { negated, pattern } => {
                     assert!(!negated);
                     assert!(!pattern.elements.is_empty());
                 }
                 _ => panic!("Expected EXISTS expression inside NOT"),
             }
         }
-        intersteller::gql::Expression::Exists { negated, pattern } => {
+        interstellar::gql::Expression::Exists { negated, pattern } => {
             // Alternative: if grammar is changed to support NOT directly
             assert!(negated);
             assert!(!pattern.elements.is_empty());

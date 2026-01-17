@@ -3,8 +3,8 @@
 //! Run with: `cargo bench`
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 use std::sync::Arc;
 

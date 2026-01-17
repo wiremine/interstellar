@@ -1,6 +1,6 @@
-# Intersteller: GraphQL Interface
+# Interstellar: GraphQL Interface
 
-This document outlines the GraphQL API for exposing Intersteller graph data over HTTP. The interface provides query and mutation operations for vertices, edges, and schema introspection.
+This document outlines the GraphQL API for exposing Interstellar graph data over HTTP. The interface provides query and mutation operations for vertices, edges, and schema introspection.
 
 ---
 
@@ -1306,8 +1306,8 @@ pub async fn serve(graph: Arc<Graph>, config: ServerConfig) -> Result<(), std::i
 ### 7.4 Usage Example
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::graphql::{serve, ServerConfig};
+use interstellar::prelude::*;
+use interstellar::graphql::{serve, ServerConfig};
 use std::sync::Arc;
 
 #[tokio::main]

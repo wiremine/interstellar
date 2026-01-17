@@ -4,9 +4,9 @@
 //! covered by other test modules. These functions create traversal fragments
 //! that can be composed with bound traversals.
 
-use intersteller::traversal::p;
-use intersteller::traversal::__;
-use intersteller::value::Value;
+use interstellar::traversal::p;
+use interstellar::traversal::__;
+use interstellar::value::Value;
 
 use crate::common::graphs::{create_medium_graph, create_small_graph};
 

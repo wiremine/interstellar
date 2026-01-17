@@ -1,6 +1,6 @@
 //! British Royal Family Graph Database Example
 //!
-//! Comprehensive demonstration of Intersteller's graph database capabilities using
+//! Comprehensive demonstration of Interstellar's graph database capabilities using
 //! a family tree dataset with 70+ members of the British Royal Family.
 //!
 //! This example showcases:
@@ -10,10 +10,10 @@
 //!
 //! Run: `cargo run --example british_royals`
 
-use intersteller::graph::Graph;
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::traversal::__;
-use intersteller::value::{Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::traversal::__;
+use interstellar::value::{Value, VertexId};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;

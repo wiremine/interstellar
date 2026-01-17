@@ -1,6 +1,6 @@
 # Plan 08: Memory-Mapped Storage Implementation
 
-**Phase 6 of Intersteller Implementation**
+**Phase 6 of Interstellar Implementation**
 
 Based on: `specs/spec-08-storage.md`
 
@@ -42,7 +42,7 @@ This plan breaks down the Memory-Mapped Storage implementation into granular, te
 - [x] Dependencies added to `Cargo.toml`
 - [x] `cargo check` passes
 - [x] Module structure exists with stub files
-- [x] `use intersteller::storage::mmap::MmapGraph` compiles (empty struct)
+- [x] `use interstellar::storage::mmap::MmapGraph` compiles (empty struct)
 
 ---
 

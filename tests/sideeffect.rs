@@ -14,10 +14,10 @@
 
 use std::collections::HashMap;
 
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::traversal::__;
-use intersteller::value::{Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::traversal::__;
+use interstellar::value::{Value, VertexId};
 
 // =============================================================================
 // Test Graph Setup

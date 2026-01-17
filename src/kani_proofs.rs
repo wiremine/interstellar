@@ -1,4 +1,4 @@
-//! Kani formal verification proofs for Intersteller.
+//! Kani formal verification proofs for Interstellar.
 //!
 //! This module contains proof harnesses that verify correctness properties
 //! of critical code paths using the Kani model checker.

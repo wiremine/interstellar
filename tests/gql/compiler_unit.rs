@@ -7,10 +7,10 @@
 //! - MATH() function with mathexpr expressions
 //! - CALL subquery handling
 
-use intersteller::gql::{compile, parse, CompileError};
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::Value;
-use intersteller::Graph;
+use interstellar::gql::{compile, parse, CompileError};
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::Value;
+use interstellar::Graph;
 use std::collections::HashMap;
 
 #[test]

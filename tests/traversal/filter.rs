@@ -1,8 +1,8 @@
 //! Filter step tests.
 
-use intersteller::p;
-use intersteller::traversal::__;
-use intersteller::value::Value;
+use interstellar::p;
+use interstellar::traversal::__;
+use interstellar::value::Value;
 
 use crate::common::graphs::create_small_graph;
 

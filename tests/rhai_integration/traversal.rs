@@ -1,7 +1,7 @@
 //! Traversal integration tests.
 
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
 
 use super::{create_chain_graph, create_empty_graph, create_social_graph};
 

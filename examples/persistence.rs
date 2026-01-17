@@ -1,6 +1,6 @@
 //! Persistent Graph Database Example (Memory-Mapped Storage)
 //!
-//! This example demonstrates Intersteller's persistent storage capabilities using
+//! This example demonstrates Interstellar's persistent storage capabilities using
 //! memory-mapped files. It covers the full lifecycle of a persistent graph:
 //!
 //! **Part 1: Creating and Writing a Persistent Graph**
@@ -25,13 +25,13 @@
 //!
 //! Run: `cargo run --features mmap --example persistence`
 
-use intersteller::gql::{
+use interstellar::gql::{
     execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
-use intersteller::graph::Graph;
-use intersteller::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
-use intersteller::storage::mmap::MmapGraph;
-use intersteller::value::Value;
+use interstellar::graph::Graph;
+use interstellar::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
+use interstellar::storage::mmap::MmapGraph;
+use interstellar::value::Value;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -480,7 +480,7 @@ fn demo_validation(schema: &GraphSchema) {
 // =============================================================================
 
 fn main() {
-    println!("=== Intersteller Persistent Storage Example ===\n");
+    println!("=== Interstellar Persistent Storage Example ===\n");
 
     // Part 1: Create and write a persistent graph
     let schema = demo_write_graph();

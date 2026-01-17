@@ -1,6 +1,6 @@
 # Plan 05: Query IR and Predicate System Implementation
 
-**Phase 5 of Intersteller Implementation**
+**Phase 5 of Interstellar Implementation**
 
 Based on: `specs/spec-05-ir.md`
 
@@ -829,9 +829,9 @@ impl HasPredicateStep {
 3. Document module with examples
 
 **Acceptance Criteria**:
-- [ ] `use intersteller::query::*` imports all types
-- [ ] `use intersteller::query::p` works for predicates
-- [ ] `use intersteller::prelude::*` includes query types
+- [ ] `use interstellar::query::*` imports all types
+- [ ] `use interstellar::query::p` works for predicates
+- [ ] `use interstellar::prelude::*` includes query types
 
 ---
 

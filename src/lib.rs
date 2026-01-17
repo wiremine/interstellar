@@ -1,8 +1,8 @@
-//! # Intersteller
+//! # Interstellar
 //!
 //! A high-performance Rust graph traversal library with a Gremlin-style fluent API.
 //!
-//! Intersteller provides a type-safe, ergonomic interface for graph operations with
+//! Interstellar provides a type-safe, ergonomic interface for graph operations with
 //! support for both in-memory and persistent (memory-mapped) storage backends.
 //!
 //! ## Features
@@ -17,8 +17,8 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use intersteller::prelude::*;
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::prelude::*;
+//! use interstellar::storage::InMemoryGraph;
 //!
 //! // Create an in-memory graph
 //! let mut storage = InMemoryGraph::new();
@@ -58,7 +58,7 @@
 //! For the simplest setup, use the convenience constructor:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! // Create an empty in-memory graph
 //! let graph = Graph::in_memory();
@@ -87,7 +87,7 @@
 //! transform, branch, and terminal steps:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -132,7 +132,7 @@
 //! The [`p`] module provides predicates for filtering:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! // Comparison predicates
 //! let _ = p::eq(30);                // Equals
@@ -157,7 +157,7 @@
 //! The [`__`] module provides anonymous traversal fragments for composition:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -181,8 +181,8 @@
 //! For declarative queries, use the GQL interface:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::prelude::*;
+//! use interstellar::storage::InMemoryGraph;
 //!
 //! let mut storage = InMemoryGraph::new();
 //! storage.add_vertex("Person", props! {
@@ -199,11 +199,11 @@
 //!
 //! ## Error Handling
 //!
-//! Intersteller uses `Result` types throughout. See the [`error`] module for details
+//! Interstellar uses `Result` types throughout. See the [`error`] module for details
 //! on error types and recovery patterns:
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
@@ -225,7 +225,7 @@
 //! Fast HashMap-based storage for development and small graphs:
 //!
 //! ```rust
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::storage::InMemoryGraph;
 //!
 //! let storage = InMemoryGraph::new();
 //! // Use directly or wrap in Graph for traversal
@@ -237,11 +237,11 @@
 //!
 //! ```toml
 //! [dependencies]
-//! intersteller = { version = "0.1", features = ["mmap"] }
+//! interstellar = { version = "0.1", features = ["mmap"] }
 //! ```
 //!
 //! ```ignore
-//! use intersteller::storage::MmapGraph;
+//! use interstellar::storage::MmapGraph;
 //!
 //! let graph = MmapGraph::open("my_graph.db").unwrap();
 //! // Data persists across restarts
@@ -264,7 +264,7 @@
 //! - Snapshots see a consistent view of the graph
 //!
 //! ```rust
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //! use std::sync::Arc;
 //! use std::thread;
 //!
@@ -315,8 +315,8 @@
 /// # Example
 ///
 /// ```rust
-/// use intersteller::prelude::*;
-/// use intersteller::storage::InMemoryGraph;
+/// use interstellar::prelude::*;
+/// use interstellar::storage::InMemoryGraph;
 ///
 /// let mut storage = InMemoryGraph::new();
 ///
@@ -386,7 +386,7 @@ pub mod rhai;
 /// Import the prelude to get started quickly:
 ///
 /// ```rust
-/// use intersteller::prelude::*;
+/// use interstellar::prelude::*;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();

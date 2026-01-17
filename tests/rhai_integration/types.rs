@@ -1,7 +1,7 @@
 //! Type conversion integration tests.
 
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
 
 use super::create_social_graph;
 

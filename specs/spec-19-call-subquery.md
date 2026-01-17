@@ -2,11 +2,11 @@
 
 ## Overview
 
-This specification defines the CALL subquery feature for Intersteller's GQL implementation. CALL subqueries allow executing a nested query block within a larger query, enabling correlated computations, nested aggregations, and query composition.
+This specification defines the CALL subquery feature for Interstellar's GQL implementation. CALL subqueries allow executing a nested query block within a larger query, enabling correlated computations, nested aggregations, and query composition.
 
 ## Motivation
 
-Currently, Intersteller's GQL lacks the ability to:
+Currently, Interstellar's GQL lacks the ability to:
 
 1. **Compute correlated aggregations** - Calculate per-row aggregates that depend on outer query variables
 2. **Compose query fragments** - Build complex queries from smaller, reusable parts

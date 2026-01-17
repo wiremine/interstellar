@@ -1,6 +1,6 @@
 # Spec 15: Branch and Choose-Option Steps
 
-**Phase 15 of Intersteller Implementation**
+**Phase 15 of Interstellar Implementation**
 
 ## Overview
 
@@ -70,7 +70,7 @@ TinkerPop defines `Pick` with two special values:
 - `Pick.any` - Match any value (first-match semantics)
 - `Pick.none` - Default fallback when no other option matches
 
-Intersteller will implement `Pick::None` for default branches. `Pick::Any` is lower priority.
+Interstellar will implement `Pick::None` for default branches. `Pick::Any` is lower priority.
 
 ---
 

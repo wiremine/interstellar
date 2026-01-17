@@ -1,18 +1,18 @@
 //! Rhai Scripting Integration Example
 //!
 //! This example demonstrates how to use Rhai scripts to query graph data
-//! in Intersteller. Rhai provides a safe, embedded scripting language that
+//! in Interstellar. Rhai provides a safe, embedded scripting language that
 //! exposes the full traversal API.
 //!
 //! Run with: cargo run --example rhai_scripting --features rhai
 
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 fn main() {
-    println!("=== Intersteller Rhai Scripting Example ===\n");
+    println!("=== Interstellar Rhai Scripting Example ===\n");
 
     // Create a sample social graph
     let graph = create_social_graph();

@@ -1,6 +1,6 @@
-# Intersteller: Core Algorithms
+# Interstellar: Core Algorithms
 
-This document details the fundamental algorithms powering the Intersteller graph traversal library. Intersteller supports dual storage backends (in-memory and memory-mapped), both sharing the same traversal execution engine.
+This document details the fundamental algorithms powering the Interstellar graph traversal library. Interstellar supports dual storage backends (in-memory and memory-mapped), both sharing the same traversal execution engine.
 
 ---
 
@@ -1161,7 +1161,7 @@ impl Statistics {
 
 ### 6.1 Simple RwLock-Based Concurrency
 
-Intersteller Phase 1 uses a simple reader-writer lock model for concurrent access:
+Interstellar Phase 1 uses a simple reader-writer lock model for concurrent access:
 
 ```rust
 /// Thread-safe graph handle

@@ -1,10 +1,10 @@
 # Spec 16: Side Effect Steps
 
-**Phase 16 of Intersteller Implementation**
+**Phase 16 of Interstellar Implementation**
 
 ## Overview
 
-This specification defines the implementation of Gremlin side effect steps for Intersteller. Side effect steps perform operations that don't change the traversal stream but produce side effects such as storing values in collections, building subgraphs, or capturing aggregated data.
+This specification defines the implementation of Gremlin side effect steps for Interstellar. Side effect steps perform operations that don't change the traversal stream but produce side effects such as storing values in collections, building subgraphs, or capturing aggregated data.
 
 Side effect steps are unique in that they:
 1. Pass traversers through unchanged (transparent to the stream)

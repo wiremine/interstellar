@@ -1,6 +1,6 @@
-# Intersteller: Optional Schema Support
+# Interstellar: Optional Schema Support
 
-This document outlines the optional schema system for describing the shape of vertices and edges in a Intersteller graph. Schemas are **opt-in** — graphs function without them, but when provided, schemas enable validation, documentation, and tooling support.
+This document outlines the optional schema system for describing the shape of vertices and edges in a Interstellar graph. Schemas are **opt-in** — graphs function without them, but when provided, schemas enable validation, documentation, and tooling support.
 
 ---
 
@@ -547,7 +547,7 @@ impl EdgeSchemaBuilder {
 ### 5.2 Usage Example
 
 ```rust
-use intersteller::schema::*;
+use interstellar::schema::*;
 
 // Define schema for a social network graph
 let schema = SchemaBuilder::new()
@@ -830,7 +830,7 @@ Schema will be serializable for:
 
 ## 11. Summary
 
-Intersteller's optional schema system provides:
+Interstellar's optional schema system provides:
 
 | Feature | Description |
 |---------|-------------|

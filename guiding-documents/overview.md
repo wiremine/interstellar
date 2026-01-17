@@ -1,4 +1,4 @@
-# Intersteller: A Fluent Graph Traversal Library
+# Interstellar: A Fluent Graph Traversal Library
 
 A high-performance, portable Rust library providing a Gremlin-style fluent API for graph traversals, supporting both in-memory and memory-mapped storage backends.
 
@@ -8,7 +8,7 @@ A high-performance, portable Rust library providing a Gremlin-style fluent API f
 
 ### 1.1 Storage Layer: Dual Storage Architecture
 
-Intersteller supports **two storage modes** to accommodate different use cases:
+Interstellar supports **two storage modes** to accommodate different use cases:
 
 - **In-Memory Storage**: HashMap-based, maximum performance, no persistence
 - **Memory-Mapped Storage**: Persistent files via `memmap2`, larger capacity, WAL durability
@@ -169,7 +169,7 @@ impl<'g> GraphSnapshot<'g> {
 ### 1.5 Module Structure
 
 ```
-intersteller/
+interstellar/
 ├── src/
 │   ├── lib.rs              # Public API exports
 │   ├── graph.rs            # Graph, GraphSnapshot, GraphMut
@@ -719,7 +719,7 @@ impl EdgeBuilder {
 ### Basic Traversals
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Open or create graph

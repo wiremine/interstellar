@@ -1,4 +1,4 @@
-# Intersteller
+# Interstellar
 
 A high-performance Rust graph database with dual query APIs: Gremlin-style fluent traversals and GQL (Graph Query Language).
 
@@ -21,18 +21,18 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-intersteller = "0.1"
+interstellar = "0.1"
 
 # For persistent storage (memory-mapped files):
-# intersteller = { version = "0.1", features = ["mmap"] }
+# interstellar = { version = "0.1", features = ["mmap"] }
 ```
 
 ### Basic Usage
 
 ```rust
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::Value;
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -76,7 +76,7 @@ fn main() {
 HashMap-based storage for development and small graphs:
 
 ```rust
-use intersteller::storage::InMemoryGraph;
+use interstellar::storage::InMemoryGraph;
 
 let graph = InMemoryGraph::new();
 ```
@@ -87,11 +87,11 @@ Memory-mapped persistent storage with write-ahead logging. Enable with the `mmap
 
 ```toml
 [dependencies]
-intersteller = { version = "0.1", features = ["mmap"] }
+interstellar = { version = "0.1", features = ["mmap"] }
 ```
 
 ```rust
-use intersteller::storage::MmapGraph;
+use interstellar::storage::MmapGraph;
 use std::collections::HashMap;
 
 // Open or create a database
@@ -108,7 +108,7 @@ let alice = graph.add_vertex("person", HashMap::from([
 For bulk loading, use batch mode to defer fsync until commit (~500x faster):
 
 ```rust
-use intersteller::storage::MmapGraph;
+use interstellar::storage::MmapGraph;
 use std::collections::HashMap;
 
 let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -260,7 +260,7 @@ g.inject([1, 2, 3])      // Inject arbitrary values
 The `p` module provides rich predicates for filtering:
 
 ```rust
-use intersteller::traversal::p;
+use interstellar::traversal::p;
 
 p::eq(30)                          // Equals
 p::neq(30)                         // Not equals
@@ -287,7 +287,7 @@ p::not_(p::eq(30))                 // Logical NOT
 The `__` module provides anonymous traversal fragments for composition:
 
 ```rust
-use intersteller::traversal::__;
+use interstellar::traversal::__;
 
 // Use in branch steps
 g.v().union([
@@ -304,12 +304,12 @@ g.v().repeat(__::out("parent")).until(__::has_label("root"));
 
 ## GQL (Graph Query Language)
 
-Intersteller includes a full GQL implementation with SQL-like syntax for querying and mutating graphs.
+Interstellar includes a full GQL implementation with SQL-like syntax for querying and mutating graphs.
 
 ### Basic Queries
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 let snapshot = graph.snapshot();
 
@@ -332,7 +332,7 @@ let results = snapshot.gql("
 ### Mutations
 
 ```rust
-use intersteller::gql::execute_mutation;
+use interstellar::gql::execute_mutation;
 
 // Create vertices and edges
 execute_mutation(&mut storage, "
@@ -396,13 +396,13 @@ The optional `rhai` feature enables embedded scripting for dynamic graph queries
 
 ```toml
 [dependencies]
-intersteller = { version = "0.1", features = ["rhai"] }
+interstellar = { version = "0.1", features = ["rhai"] }
 ```
 
 ### Basic Usage
 
 ```rust
-use intersteller::rhai::RhaiEngine;
+use interstellar::rhai::RhaiEngine;
 
 let engine = RhaiEngine::new();
 
@@ -516,7 +516,7 @@ cargo bench --features mmap          # Include mmap benchmarks
 
 ## Formal Verification
 
-Intersteller uses [Kani](https://github.com/model-checking/kani) for formal verification of critical code paths. Kani exhaustively checks all possible inputs within defined bounds, providing mathematical proofs of correctness.
+Interstellar uses [Kani](https://github.com/model-checking/kani) for formal verification of critical code paths. Kani exhaustively checks all possible inputs within defined bounds, providing mathematical proofs of correctness.
 
 ### Verified Properties
 

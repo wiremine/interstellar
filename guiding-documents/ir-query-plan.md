@@ -1,4 +1,4 @@
-# Intersteller: Shared Query IR Design
+# Interstellar: Shared Query IR Design
 
 **Status**: Phase 2 Feature - Shared infrastructure for Gremlin and GQL query interfaces.
 
@@ -373,7 +373,7 @@ pub mod p {
 ### 3.6 Usage Examples
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 // Simple equality (existing behavior)
 let alice = g.v().has_value("name", "Alice").to_list();

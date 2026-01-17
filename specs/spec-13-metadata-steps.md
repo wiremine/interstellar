@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of Gremlin metadata/transform steps for Intersteller that extract metadata from traversers and property objects. These steps provide access to property keys/values, stream position indices, and loop depth in repeat operations.
+This specification defines the implementation of Gremlin metadata/transform steps for Interstellar that extract metadata from traversers and property objects. These steps provide access to property keys/values, stream position indices, and loop depth in repeat operations.
 
 ## Goals
 
@@ -558,7 +558,7 @@ let at_depth_3 = g.v()
 ## 10. Example Usage
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 fn main() {
     let graph = create_sample_graph();

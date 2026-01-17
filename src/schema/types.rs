@@ -20,7 +20,7 @@ use crate::value::Value;
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::{VertexSchema, PropertyDef, PropertyType};
+/// use interstellar::schema::{VertexSchema, PropertyDef, PropertyType};
 /// use std::collections::HashMap;
 ///
 /// let mut properties = HashMap::new();
@@ -100,7 +100,7 @@ impl VertexSchema {
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::{EdgeSchema, PropertyDef, PropertyType};
+/// use interstellar::schema::{EdgeSchema, PropertyDef, PropertyType};
 /// use std::collections::HashMap;
 ///
 /// let schema = EdgeSchema {
@@ -203,8 +203,8 @@ pub struct PropertyDef {
 /// # Example
 ///
 /// ```
-/// use intersteller::schema::PropertyType;
-/// use intersteller::value::Value;
+/// use interstellar::schema::PropertyType;
+/// use interstellar::value::Value;
 ///
 /// let pt = PropertyType::Int;
 /// assert!(pt.matches(&Value::Int(42)));
@@ -238,8 +238,8 @@ impl PropertyType {
     /// # Examples
     ///
     /// ```
-    /// use intersteller::schema::PropertyType;
-    /// use intersteller::value::Value;
+    /// use interstellar::schema::PropertyType;
+    /// use interstellar::value::Value;
     ///
     /// // Simple types
     /// assert!(PropertyType::Bool.matches(&Value::Bool(true)));

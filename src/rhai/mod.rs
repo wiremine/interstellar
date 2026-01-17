@@ -1,15 +1,15 @@
 //! # Rhai Scripting Integration
 //!
-//! This module provides Rhai scripting support for Intersteller's graph traversal API.
+//! This module provides Rhai scripting support for Interstellar's graph traversal API.
 //!
-//! Rhai is an embedded scripting language that exposes Intersteller's Gremlin-style
+//! Rhai is an embedded scripting language that exposes Interstellar's Gremlin-style
 //! traversal API to scripts, enabling interactive exploration and dynamic query construction.
 //!
 //! ## Quick Start
 //!
 //! ```rust,ignore
-//! use intersteller::prelude::*;
-//! use intersteller::rhai::RhaiEngine;
+//! use interstellar::prelude::*;
+//! use interstellar::rhai::RhaiEngine;
 //!
 //! let graph = Graph::in_memory();
 //! let engine = RhaiEngine::new();

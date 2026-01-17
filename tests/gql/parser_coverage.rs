@@ -3,7 +3,7 @@
 //! This module covers edge cases and error paths in the GQL parser that
 //! aren't covered by other test modules.
 
-use intersteller::gql::{
+use interstellar::gql::{
     parse, parse_statement, BinaryOperator, EdgeDirection, Expression, Literal, ParseError,
     PatternElement, Statement, UnaryOperator,
 };
@@ -488,7 +488,7 @@ mod exists_expression {
 
 mod function_calls {
     use super::*;
-    use intersteller::gql::AggregateFunc;
+    use interstellar::gql::AggregateFunc;
 
     #[test]
     fn count_star() {
@@ -1056,7 +1056,7 @@ mod edge_patterns {
 
 mod ddl_statements {
     use super::*;
-    use intersteller::gql::DdlStatement;
+    use interstellar::gql::DdlStatement;
 
     #[test]
     fn create_node_type() {
@@ -1241,7 +1241,7 @@ mod ddl_statements {
 
 mod mutation_statements {
     use super::*;
-    use intersteller::gql::MutationClause;
+    use interstellar::gql::MutationClause;
 
     #[test]
     fn create_vertex() {

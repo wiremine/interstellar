@@ -1,4 +1,4 @@
-# Intersteller Web UI Specification
+# Interstellar Web UI Specification
 
 **Status**: Draft  
 **Dependencies**: Phase 3 (Traversal Engine), Phase 6 (CLI)  
@@ -8,11 +8,11 @@
 
 ## 1. Overview
 
-A simple, embedded web UI that ships with the Intersteller binary. The UI provides graph exploration, query execution, and data management capabilities through a browser interface.
+A simple, embedded web UI that ships with the Interstellar binary. The UI provides graph exploration, query execution, and data management capabilities through a browser interface.
 
 ### 1.1 Goals
 
-1. **Embedded**: Single binary deployment via `intersteller serve`
+1. **Embedded**: Single binary deployment via `interstellar serve`
 2. **Read/Write**: Full CRUD operations on graph data
 3. **Local-first**: No authentication required (assumes trusted local network)
 4. **Dual audience**: Usable by both developers and non-technical users
@@ -52,7 +52,7 @@ A simple, embedded web UI that ships with the Intersteller binary. The UI provid
 │        └────────────────────┼────────────────────┘              │
 │                             ▼                                   │
 │                 ┌──────────────────────┐                        │
-│                 │   Intersteller Core   │                        │
+│                 │   Interstellar Core   │                        │
 │                 │  (Graph, Traversal)  │                        │
 │                 └──────────────────────┘                        │
 │                                                                 │
@@ -88,7 +88,7 @@ serde_json = "1.0"
 ### 3.1 Command Structure
 
 ```bash
-intersteller serve [OPTIONS]
+interstellar serve [OPTIONS]
 
 Options:
   -p, --port <PORT>     HTTP port [default: 8080]
@@ -102,16 +102,16 @@ Options:
 
 ```bash
 # Start with in-memory database
-intersteller serve
+interstellar serve
 
 # Start with persistent database
-intersteller serve --db ./my-graph.db
+interstellar serve --db ./my-graph.db
 
 # Start on custom port, auto-open browser
-intersteller serve --port 3000 --open
+interstellar serve --port 3000 --open
 
 # Read-only mode for production data
-intersteller serve --db ./production.db --readonly
+interstellar serve --db ./production.db --readonly
 ```
 
 ---
@@ -264,7 +264,7 @@ POST   /api/samples/:name        → Load sample dataset (marvel, british_royals
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Intersteller                              [Stats] [Schema] [?]  │
+│  Interstellar                              [Stats] [Schema] [?]  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌───────────────────────────────────────────────────────────┐ │

@@ -87,7 +87,7 @@ pub use graphs::{create_small_graph, create_medium_graph, create_social_graph};
 ```rust
 //! Reusable test graph fixtures
 
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 use std::collections::HashMap;
 
 /// Standard test graph with vertices and their IDs for assertions
@@ -382,7 +382,7 @@ Each test file should use consistent imports:
 ```rust
 // tests/traversal/filter.rs
 use crate::common::graphs::{create_small_graph, TestGraph};
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 ```
 
 ### Test Documentation

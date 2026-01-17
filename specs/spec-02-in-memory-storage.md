@@ -967,7 +967,7 @@ mod tests {
 ### Integration Tests (`tests/inmemory.rs`)
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 use std::collections::HashMap;
 
 #[test]
@@ -981,7 +981,7 @@ fn graph_in_memory_basic_usage() {
 
 #[test]
 fn scale_test_10k_vertices_100k_edges() {
-    let mut storage = intersteller::storage::InMemoryGraph::new();
+    let mut storage = interstellar::storage::InMemoryGraph::new();
     
     // Add 10,000 vertices
     let vertex_ids: Vec<_> = (0..10_000)
@@ -1022,7 +1022,7 @@ fn scale_test_10k_vertices_100k_edges() {
 
 #[test]
 fn label_index_performance() {
-    let mut storage = intersteller::storage::InMemoryGraph::new();
+    let mut storage = interstellar::storage::InMemoryGraph::new();
     
     // Add mixed labels
     for _ in 0..1000 {

@@ -7,8 +7,8 @@
 //! - Edge variable binding and properties
 //! - Path expressions
 
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -1494,7 +1494,7 @@ fn test_gql_debug_traverser_path() {
     let alice_results: Vec<_> = g
         .v()
         .has_label("Person")
-        .has_value("name", intersteller::value::Value::from("Alice"))
+        .has_value("name", interstellar::value::Value::from("Alice"))
         .to_list();
     println!("Alice found: {:?}", alice_results);
 
@@ -1504,7 +1504,7 @@ fn test_gql_debug_traverser_path() {
         .v()
         .with_path()
         .has_label("Person")
-        .has_value("name", intersteller::value::Value::from("Alice"))
+        .has_value("name", interstellar::value::Value::from("Alice"))
         .as_("p")
         .out_labels(&["KNOWS"])
         .out_labels(&["KNOWS"])
@@ -1519,7 +1519,7 @@ fn test_gql_debug_traverser_path() {
 /// Debug test to check traverser execution with repeat
 #[test]
 fn test_gql_debug_traverser_repeat_path() {
-    use intersteller::traversal::__;
+    use interstellar::traversal::__;
 
     let graph = create_social_network_graph();
     let snapshot = graph.snapshot();
@@ -1529,7 +1529,7 @@ fn test_gql_debug_traverser_repeat_path() {
         .v()
         .with_path()
         .has_label("Person")
-        .has_value("name", intersteller::value::Value::from("Alice"))
+        .has_value("name", interstellar::value::Value::from("Alice"))
         .as_("p")
         .repeat(__::out_labels(&["KNOWS"]))
         .times(2)

@@ -6,9 +6,9 @@
 //! - WITH PATH and path() function
 //! - UNWIND
 
-use intersteller::gql::{parse, parse_statement, Statement};
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::{parse, parse_statement, Statement};
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================

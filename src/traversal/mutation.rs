@@ -16,7 +16,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use intersteller::prelude::*;
+//! use interstellar::prelude::*;
 //!
 //! // Create a vertex with properties
 //! let vertex = g.add_v("person")
@@ -733,8 +733,8 @@ impl Default for MutationResult {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::storage::InMemoryGraph;
-/// use intersteller::traversal::mutation::MutationExecutor;
+/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::traversal::mutation::MutationExecutor;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let mut executor = MutationExecutor::new(&mut storage);

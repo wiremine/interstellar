@@ -17,8 +17,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use intersteller::gql::{parse_statement, execute_mutation};
-//! use intersteller::storage::InMemoryGraph;
+//! use interstellar::gql::{parse_statement, execute_mutation};
+//! use interstellar::storage::InMemoryGraph;
 //!
 //! let mut storage = InMemoryGraph::new();
 //!
@@ -280,8 +280,8 @@ pub enum Element {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::gql::{parse_statement, execute_mutation};
-/// use intersteller::storage::InMemoryGraph;
+/// use interstellar::gql::{parse_statement, execute_mutation};
+/// use interstellar::storage::InMemoryGraph;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let stmt = parse_statement("CREATE (n:Person {name: 'Alice'})").unwrap();
@@ -328,9 +328,9 @@ pub fn execute_mutation<S: GraphStorage + GraphStorageMut>(
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::gql::{parse_statement, execute_mutation_with_schema};
-/// use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
-/// use intersteller::storage::InMemoryGraph;
+/// use interstellar::gql::{parse_statement, execute_mutation_with_schema};
+/// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
+/// use interstellar::storage::InMemoryGraph;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let schema = SchemaBuilder::new()

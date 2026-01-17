@@ -18,8 +18,8 @@
 //! # Usage
 //!
 //! ```
-//! use intersteller::gql::{parse, compile};
-//! use intersteller::Graph;
+//! use interstellar::gql::{parse, compile};
+//! use interstellar::Graph;
 //!
 //! let graph = Graph::in_memory();
 //! // ... populate graph ...
@@ -88,8 +88,8 @@ use crate::value::{Value, VertexId};
 /// # Example
 ///
 /// ```
-/// use intersteller::gql::Parameters;
-/// use intersteller::Value;
+/// use interstellar::gql::Parameters;
+/// use interstellar::Value;
 ///
 /// let mut params = Parameters::new();
 /// params.insert("personId".to_string(), Value::Int(123));
@@ -130,10 +130,10 @@ pub type Parameters = HashMap<String, Value>;
 /// ## Simple node query
 ///
 /// ```
-/// use intersteller::gql::{parse, compile};
-/// use intersteller::Graph;
-/// use intersteller::storage::InMemoryGraph;
-/// use intersteller::value::Value;
+/// use interstellar::gql::{parse, compile};
+/// use interstellar::Graph;
+/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::value::Value;
 /// use std::collections::HashMap;
 /// use std::sync::Arc;
 ///
@@ -152,10 +152,10 @@ pub type Parameters = HashMap<String, Value>;
 /// ## Query with filtering
 ///
 /// ```
-/// use intersteller::gql::{parse, compile};
-/// use intersteller::Graph;
-/// use intersteller::storage::InMemoryGraph;
-/// use intersteller::value::Value;
+/// use interstellar::gql::{parse, compile};
+/// use interstellar::Graph;
+/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::value::Value;
 /// use std::collections::HashMap;
 /// use std::sync::Arc;
 ///
@@ -174,8 +174,8 @@ pub type Parameters = HashMap<String, Value>;
 /// ## Aggregation query
 ///
 /// ```
-/// use intersteller::gql::{parse, compile};
-/// use intersteller::Graph;
+/// use interstellar::gql::{parse, compile};
+/// use interstellar::Graph;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -222,10 +222,10 @@ pub fn compile<'g>(
 /// # Examples
 ///
 /// ```
-/// use intersteller::gql::{parse, compile_with_params, Parameters};
-/// use intersteller::Graph;
-/// use intersteller::storage::InMemoryGraph;
-/// use intersteller::value::Value;
+/// use interstellar::gql::{parse, compile_with_params, Parameters};
+/// use interstellar::Graph;
+/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::value::Value;
 /// use std::collections::HashMap;
 ///
 /// let mut storage = InMemoryGraph::new();
@@ -274,8 +274,8 @@ pub fn compile_with_params<'g>(
 /// # Examples
 ///
 /// ```
-/// use intersteller::gql::{parse_statement, compile_statement};
-/// use intersteller::Graph;
+/// use interstellar::gql::{parse_statement, compile_statement};
+/// use interstellar::Graph;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -326,9 +326,9 @@ pub fn compile_statement<'g>(
 /// # Examples
 ///
 /// ```
-/// use intersteller::gql::{parse_statement, compile_statement_with_params, Parameters};
-/// use intersteller::Graph;
-/// use intersteller::value::Value;
+/// use interstellar::gql::{parse_statement, compile_statement_with_params, Parameters};
+/// use interstellar::Graph;
+/// use interstellar::value::Value;
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();

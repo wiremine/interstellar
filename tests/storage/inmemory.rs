@@ -2,9 +2,9 @@
 //!
 //! These tests verify the in-memory storage backend functionality.
 
-use intersteller::graph::Graph;
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::value::Value;
+use interstellar::graph::Graph;
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::value::Value;
 use std::collections::HashMap;
 
 #[test]

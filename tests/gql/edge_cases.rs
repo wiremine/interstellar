@@ -16,9 +16,9 @@
 //! - LET clause tests
 //! - IS predicate tests
 
-use intersteller::gql::{parse, GqlError};
-use intersteller::storage::InMemoryGraph;
-use intersteller::{Graph, Value};
+use interstellar::gql::{parse, GqlError};
+use interstellar::storage::InMemoryGraph;
+use interstellar::{Graph, Value};
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
@@ -211,7 +211,7 @@ fn test_gql_compile_error_helpful_message() {
 
 #[test]
 fn test_gql_compile_error_duplicate_variable_message() {
-    use intersteller::gql::CompileError;
+    use interstellar::gql::CompileError;
 
     let err = CompileError::duplicate_variable("n");
     let error_msg = format!("{}", err);
@@ -230,7 +230,7 @@ fn test_gql_compile_error_duplicate_variable_message() {
 
 #[test]
 fn test_gql_parse_error_span_extraction() {
-    use intersteller::gql::{ParseError, Span};
+    use interstellar::gql::{ParseError, Span};
 
     let err = ParseError::invalid_literal("abc", Span::new(5, 8), "expected integer");
 
@@ -248,7 +248,7 @@ fn test_gql_parse_error_span_extraction() {
 
 #[test]
 fn test_gql_compile_error_suggestions() {
-    use intersteller::gql::CompileError;
+    use interstellar::gql::CompileError;
 
     let err = CompileError::undefined_variable("myVar");
     let msg = format!("{}", err);
@@ -268,7 +268,7 @@ fn test_gql_compile_error_suggestions() {
 
 #[test]
 fn test_gql_compile_error_empty_pattern_message() {
-    use intersteller::gql::CompileError;
+    use interstellar::gql::CompileError;
 
     let err = CompileError::EmptyPattern;
     let msg = format!("{}", err);
@@ -287,7 +287,7 @@ fn test_gql_compile_error_empty_pattern_message() {
 
 #[test]
 fn test_gql_compile_error_pattern_start_message() {
-    use intersteller::gql::CompileError;
+    use interstellar::gql::CompileError;
 
     let err = CompileError::PatternMustStartWithNode;
     let msg = format!("{}", err);
@@ -2943,7 +2943,7 @@ fn test_gql_parameter_in_where_clause() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("minAge".to_string(), Value::Int(30));
 
     let results = snapshot
@@ -2966,7 +2966,7 @@ fn test_gql_parameter_equality() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("targetAge".to_string(), Value::Int(25));
 
     let results = snapshot
@@ -2988,7 +2988,7 @@ fn test_gql_parameter_in_list() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("age1".to_string(), Value::Int(25));
     params.insert("age2".to_string(), Value::Int(35));
 
@@ -3012,7 +3012,7 @@ fn test_gql_multiple_parameters() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("minAge".to_string(), Value::Int(25));
     params.insert("maxAge".to_string(), Value::Int(32));
 
@@ -3036,7 +3036,7 @@ fn test_gql_parameter_in_return_expression() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("multiplier".to_string(), Value::Int(2));
 
     let results = snapshot
@@ -3056,7 +3056,7 @@ fn test_gql_unbound_parameter_error() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let params = intersteller::gql::Parameters::new(); // Empty params
+    let params = interstellar::gql::Parameters::new(); // Empty params
 
     let result = snapshot.gql_with_params(
         "MATCH (n:Person) WHERE n.age >= $undefinedParam RETURN n.name",
@@ -3082,7 +3082,7 @@ fn test_gql_parameter_string_value() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("searchName".to_string(), Value::from("Alice"));
 
     let results = snapshot
@@ -3101,7 +3101,7 @@ fn test_gql_parameter_with_null() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("value".to_string(), Value::Null);
 
     // Comparing with null should use IS NULL logic
@@ -3121,7 +3121,7 @@ fn test_gql_parameter_reuse() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("threshold".to_string(), Value::Int(30));
 
     // Use same parameter twice
@@ -3141,7 +3141,7 @@ fn test_gql_empty_params_works_like_regular_query() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let params = intersteller::gql::Parameters::new();
+    let params = interstellar::gql::Parameters::new();
 
     // Query without parameters should work with empty params
     let results_with_params = snapshot
@@ -3174,7 +3174,7 @@ fn test_gql_parameter_float_comparison() {
     let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
-    let mut params = intersteller::gql::Parameters::new();
+    let mut params = interstellar::gql::Parameters::new();
     params.insert("maxPrice".to_string(), Value::Float(25.0));
 
     let results = snapshot
@@ -3477,7 +3477,7 @@ fn test_gql_let_size_of_collect() {
 
 #[test]
 fn test_gql_let_parse_only() {
-    use intersteller::gql::parse;
+    use interstellar::gql::parse;
 
     // Test that LET clause is properly parsed
     let query = parse("MATCH (n:Person) LET x = n.age RETURN x").unwrap();
@@ -3488,7 +3488,7 @@ fn test_gql_let_parse_only() {
 
 #[test]
 fn test_gql_let_parse_multiple() {
-    use intersteller::gql::parse;
+    use interstellar::gql::parse;
 
     // Test parsing multiple LET clauses
     let query = parse("MATCH (n:Person) LET x = n.age LET y = x * 2 RETURN y").unwrap();

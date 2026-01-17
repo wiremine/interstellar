@@ -4,13 +4,13 @@
 
 use std::collections::HashMap;
 
-use intersteller::gql::{
+use interstellar::gql::{
     execute_mutation, execute_mutation_with_schema, parse, parse_statement, CompileError,
     MutationError,
 };
-use intersteller::schema::{PropertyType, SchemaBuilder, ValidationMode};
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::value::Value;
+use interstellar::schema::{PropertyType, SchemaBuilder, ValidationMode};
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::value::Value;
 
 // =============================================================================
 // Helper Functions
@@ -90,7 +90,7 @@ fn test_execute_mutation_with_query_statement_error() {
 
     // Try to execute it as a mutation - should fail
     let result = execute_mutation(
-        &intersteller::gql::Statement::Query(Box::new(query)),
+        &interstellar::gql::Statement::Query(Box::new(query)),
         &mut storage,
     );
 

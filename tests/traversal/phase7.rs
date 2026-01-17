@@ -1,8 +1,8 @@
 //! Phase 7 integration tests - Filter, Transform, and Aggregation Steps
 
-use intersteller::p;
-use intersteller::traversal::__;
-use intersteller::value::{Value, VertexId};
+use interstellar::p;
+use interstellar::traversal::__;
+use interstellar::value::{Value, VertexId};
 
 use crate::common::graphs::create_small_graph;
 

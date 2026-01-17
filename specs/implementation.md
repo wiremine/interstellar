@@ -1,6 +1,6 @@
-# Intersteller Implementation Plan
+# Interstellar Implementation Plan
 
-A detailed implementation roadmap for the Intersteller graph traversal library, derived from the design documents in `overview/`.
+A detailed implementation roadmap for the Interstellar graph traversal library, derived from the design documents in `overview/`.
 
 ---
 
@@ -18,7 +18,7 @@ A detailed implementation roadmap for the Intersteller graph traversal library, 
 
 ## Executive Summary
 
-Intersteller is a high-performance graph traversal library featuring:
+Interstellar is a high-performance graph traversal library featuring:
 
 - **Dual Storage Architecture**: In-memory (HashMap-based) and memory-mapped (persistent) backends
 - **Gremlin-Style Fluent API**: Chainable traversal steps with lazy iterator-based execution
@@ -41,7 +41,7 @@ Intersteller is a high-performance graph traversal library featuring:
 ### High-Level Module Structure
 
 ```
-intersteller/
+interstellar/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs                 # Public API exports, prelude
@@ -1126,7 +1126,7 @@ impl EdgeBuilder {
 
 **`src/lib.rs`**
 ```rust
-//! Intersteller: A Fluent Graph Traversal Library
+//! Interstellar: A Fluent Graph Traversal Library
 
 pub mod graph;
 pub mod value;
@@ -1428,7 +1428,7 @@ tempfile = "3.10"
 ### Basic Usage
 
 ```rust
-use intersteller::prelude::*;
+use interstellar::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create in-memory graph

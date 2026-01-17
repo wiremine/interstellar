@@ -416,7 +416,7 @@ impl Compiler {
 
 ### Public API Preservation
 
-The following public items MUST remain accessible from `intersteller::gql`:
+The following public items MUST remain accessible from `interstellar::gql`:
 
 ```rust
 // Types

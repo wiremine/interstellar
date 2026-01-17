@@ -4,12 +4,12 @@
 
 ## Overview
 
-This spec defines the integration of the [Rhai](https://rhai.rs/) embedded scripting language with Intersteller's Gremlin-style traversal API. Rhai is a simple, fast, and safe embedded scripting language for Rust that compiles to bytecode and provides excellent Rust interoperability.
+This spec defines the integration of the [Rhai](https://rhai.rs/) embedded scripting language with Interstellar's Gremlin-style traversal API. Rhai is a simple, fast, and safe embedded scripting language for Rust that compiles to bytecode and provides excellent Rust interoperability.
 
 The integration will expose the full Gremlin API to Rhai scripts, enabling:
 - Interactive graph exploration via a future REPL
 - User-defined query scripts without Rust compilation
-- Third-party projects to embed Intersteller with scripting support
+- Third-party projects to embed Interstellar with scripting support
 - Dynamic query construction at runtime
 
 **Duration**: 3-4 days  
@@ -60,7 +60,7 @@ The integration will expose the full Gremlin API to Rhai scripts, enabling:
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   Intersteller Core                              │
+│                   Interstellar Core                              │
 │  GraphTraversalSource → Traversal Steps → Terminal Execution    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -172,7 +172,7 @@ use rhai::{CustomType, Engine, TypeBuilder};
 
 use crate::value::{EdgeId, Value, VertexId};
 
-/// Register all core Intersteller types with the Rhai engine
+/// Register all core Interstellar types with the Rhai engine
 pub fn register_types(engine: &mut Engine) {
     register_value(engine);
     register_vertex_id(engine);
@@ -319,7 +319,7 @@ pub fn register_predicates(engine: &mut Engine) {
     });
 }
 
-/// Convert Rhai Dynamic to Intersteller Value
+/// Convert Rhai Dynamic to Interstellar Value
 fn dynamic_to_value(d: Dynamic) -> crate::value::Value {
     use crate::value::Value;
     
@@ -722,7 +722,7 @@ pub fn register_traversal<S: GraphStorage + Clone + Send + Sync + 'static>(
     });
 }
 
-/// Convert Intersteller Value to Rhai Dynamic
+/// Convert Interstellar Value to Rhai Dynamic
 fn value_to_dynamic(v: Value) -> Dynamic {
     match v {
         Value::Int(i) => Dynamic::from(i),
@@ -928,8 +928,8 @@ use super::traversal::RhaiTraversalSource;
 /// # Example
 ///
 /// ```rust
-/// use intersteller::prelude::*;
-/// use intersteller::rhai::RhaiEngine;
+/// use interstellar::prelude::*;
+/// use interstellar::rhai::RhaiEngine;
 ///
 /// let graph = Graph::in_memory();
 /// // ... add vertices and edges ...
@@ -950,7 +950,7 @@ pub struct RhaiEngine {
 }
 
 impl RhaiEngine {
-    /// Create a new RhaiEngine with all Intersteller bindings registered.
+    /// Create a new RhaiEngine with all Interstellar bindings registered.
     pub fn new() -> Self {
         let mut engine = Engine::new();
 
@@ -1058,7 +1058,7 @@ impl Clone for RhaiEngine {
 ```rust
 // src/rhai/mod.rs
 
-//! Rhai scripting integration for Intersteller.
+//! Rhai scripting integration for Interstellar.
 //!
 //! This module provides a way to execute Gremlin-style traversals using
 //! the Rhai embedded scripting language. It enables interactive exploration,
@@ -1068,8 +1068,8 @@ impl Clone for RhaiEngine {
 //! # Quick Start
 //!
 //! ```rust
-//! use intersteller::prelude::*;
-//! use intersteller::rhai::RhaiEngine;
+//! use interstellar::prelude::*;
+//! use interstellar::rhai::RhaiEngine;
 //!
 //! // Create a graph
 //! let graph = Graph::in_memory();
@@ -1147,7 +1147,7 @@ Users who frequently use the Rhai integration can import directly:
 
 ```rust
 // User code
-use intersteller::rhai::{RhaiEngine, RhaiError, RhaiResult};
+use interstellar::rhai::{RhaiEngine, RhaiError, RhaiResult};
 ```
 
 ## Test Cases
@@ -1159,7 +1159,7 @@ use intersteller::rhai::{RhaiEngine, RhaiError, RhaiResult};
 
 #[cfg(feature = "rhai")]
 mod tests {
-    use intersteller::rhai::RhaiEngine;
+    use interstellar::rhai::RhaiEngine;
 
     #[test]
     fn test_value_int_creation() {
@@ -1200,8 +1200,8 @@ mod tests {
 
 #[cfg(feature = "rhai")]
 mod tests {
-    use intersteller::prelude::*;
-    use intersteller::rhai::RhaiEngine;
+    use interstellar::prelude::*;
+    use interstellar::rhai::RhaiEngine;
 
     fn create_test_graph() -> Graph<InMemoryGraph> {
         let graph = Graph::in_memory();
@@ -1295,8 +1295,8 @@ mod tests {
 
 #[cfg(feature = "rhai")]
 mod tests {
-    use intersteller::prelude::*;
-    use intersteller::rhai::RhaiEngine;
+    use interstellar::prelude::*;
+    use interstellar::rhai::RhaiEngine;
 
     fn create_social_graph() -> Graph<InMemoryGraph> {
         let graph = Graph::in_memory();
@@ -1439,8 +1439,8 @@ mod tests {
 
 #[cfg(feature = "rhai")]
 mod tests {
-    use intersteller::prelude::*;
-    use intersteller::rhai::RhaiEngine;
+    use interstellar::prelude::*;
+    use interstellar::rhai::RhaiEngine;
 
     #[test]
     fn test_anonymous_out() {
@@ -1498,7 +1498,7 @@ mod tests {
 
 #[cfg(feature = "rhai")]
 mod tests {
-    use intersteller::rhai::{RhaiEngine, RhaiError};
+    use interstellar::rhai::{RhaiEngine, RhaiError};
 
     #[test]
     fn test_compile_error() {
@@ -1527,7 +1527,7 @@ mod tests {
 
     #[test]
     fn test_traversal_consumed_error() {
-        let graph = intersteller::prelude::Graph::in_memory();
+        let graph = interstellar::prelude::Graph::in_memory();
         let engine = RhaiEngine::new();
         let snapshot = graph.snapshot();
 
@@ -1549,8 +1549,8 @@ mod tests {
 ### Basic Script Execution
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build a graph
@@ -1617,8 +1617,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Pre-compiled Scripts for Performance
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = RhaiEngine::new();
@@ -1646,8 +1646,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Embedding in a Third-Party Application
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::rhai::RhaiEngine;
+use interstellar::prelude::*;
+use interstellar::rhai::RhaiEngine;
 
 /// A query service that executes user-provided scripts
 pub struct QueryService {

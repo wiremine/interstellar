@@ -6,9 +6,9 @@
 //! - Multi-hop traversal
 //! - Property access in RETURN clause
 
-use intersteller::gql::GqlError;
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::GqlError;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
 
 /// Helper to create a test graph with sample data

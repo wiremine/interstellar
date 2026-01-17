@@ -487,7 +487,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::p;
+    /// use interstellar::traversal::p;
     ///
     /// // Get all vertices where age >= 18
     /// let adults = g.v().has_where("age", p::gte(18)).to_list();
@@ -733,7 +733,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::p;
+    /// use interstellar::traversal::p;
     ///
     /// // Filter to ages greater than 25
     /// let older = g.v().values("age").is_(p::gt(25)).to_list();
@@ -1012,7 +1012,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::p;
+    /// use interstellar::traversal::p;
     ///
     /// // Filter values greater than 25
     /// let adults = g.v().values("age").where_p(p::gt(25)).to_list();
@@ -1955,7 +1955,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// let results = g.v().has_label("person")
     ///     .project(&["name", "friend_count"])
@@ -2015,7 +2015,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Group vertices by label
     /// let groups = g.v()
@@ -2090,7 +2090,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Keep only vertices that have outgoing edges
     /// let with_out = g.v().where_(__.out()).to_list();
@@ -2114,7 +2114,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Keep only leaf vertices (no outgoing edges)
     /// let leaves = g.v().not(__.out()).to_list();
@@ -2138,7 +2138,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Keep vertices that have both outgoing AND incoming edges
     /// let connected = g.v().and_(vec![__.out(), __.in_()]).to_list();
@@ -2159,7 +2159,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Keep vertices that are either "person" OR "software"
     /// let entities = g.v().or_(vec![__.has_label("person"), __.has_label("software")]).to_list();
@@ -2184,7 +2184,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Get neighbors in both directions
     /// let neighbors = g.v().union(vec![__.out(), __.in_()]).to_list();
@@ -2205,7 +2205,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Try to get nickname, fall back to name
     /// let names = g.v().coalesce(vec![__.values("nickname"), __.values("name")]).to_list();
@@ -2226,7 +2226,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // If person, get friends; otherwise get all neighbors
     /// let results = g.v().choose(
@@ -2253,7 +2253,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Try to traverse to friends, keep original if none found
     /// let results = g.v().optional(__.out_labels(&["knows"])).to_list();
@@ -2274,7 +2274,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Count neighbors per vertex (not total neighbors)
     /// let neighbor_counts = g.v().local(__.out().count()).to_list();
@@ -2502,7 +2502,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Store counts as side effect while traversing
     /// let names = g.v()
@@ -2580,7 +2580,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Get friends-of-friends (2 hops exactly)
     /// let fof = g.v()
@@ -2965,7 +2965,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Route based on vertex label
     /// let results = g.v()
@@ -3005,7 +3005,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// // Route based on property value
     /// let results = g.v()
@@ -3036,7 +3036,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Route based on vertex label
 /// let results = g.v()
@@ -3097,7 +3097,7 @@ impl<'g, In> BranchBuilder<'g, In> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// let results = g.v()
     ///     .branch(__::label())
@@ -3136,7 +3136,7 @@ impl<'g, In> BranchBuilder<'g, In> {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::traversal::__;
+    /// use interstellar::traversal::__;
     ///
     /// let results = g.v()
     ///     .branch(__::label())

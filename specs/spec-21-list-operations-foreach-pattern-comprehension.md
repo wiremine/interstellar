@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines three GQL features that enhance list handling and iteration capabilities in Intersteller:
+This specification defines three GQL features that enhance list handling and iteration capabilities in Interstellar:
 
 1. **FOREACH Clause** - Apply mutations to each element during iteration
 2. **List Slicing and Indexing** - Access list elements by index and extract sublists

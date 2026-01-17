@@ -1,6 +1,6 @@
 # GQL API Reference
 
-This document provides comprehensive documentation for the GQL (Graph Query Language) implementation in Intersteller.
+This document provides comprehensive documentation for the GQL (Graph Query Language) implementation in Interstellar.
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ This document provides comprehensive documentation for the GQL (Graph Query Lang
 
 ## Overview
 
-GQL is a declarative query language for property graphs, offering a SQL-like syntax for pattern matching, data retrieval, and mutations. The Intersteller GQL implementation provides:
+GQL is a declarative query language for property graphs, offering a SQL-like syntax for pattern matching, data retrieval, and mutations. The Interstellar GQL implementation provides:
 
 - **Pattern Matching**: Find subgraphs using intuitive ASCII-art syntax
 - **Filtering**: WHERE clause with comparison, logical, and string operators
@@ -90,8 +90,8 @@ src/gql/
 The simplest way to execute a GQL query:
 
 ```rust
-use intersteller::prelude::*;
-use intersteller::storage::InMemoryGraph;
+use interstellar::prelude::*;
+use interstellar::storage::InMemoryGraph;
 use std::sync::Arc;
 
 // Create a graph with data
@@ -114,8 +114,8 @@ assert_eq!(results.len(), 1);
 For mutations (CREATE, SET, DELETE, etc.), use `execute_mutation` with mutable storage:
 
 ```rust
-use intersteller::gql::{parse_statement, execute_mutation};
-use intersteller::storage::{GraphStorage, InMemoryGraph};
+use interstellar::gql::{parse_statement, execute_mutation};
+use interstellar::storage::{GraphStorage, InMemoryGraph};
 
 let mut storage = InMemoryGraph::new();
 
@@ -1260,8 +1260,8 @@ RETURN a, b
 **Rust Usage:**
 
 ```rust
-use intersteller::gql::{execute_with_params, Parameters};
-use intersteller::Value;
+use interstellar::gql::{execute_with_params, Parameters};
+use interstellar::Value;
 
 let mut params = Parameters::new();
 params.insert("personId".to_string(), Value::Int(123));
@@ -1524,8 +1524,8 @@ CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
 **Rust Usage:**
 
 ```rust
-use intersteller::gql::{parse_statement, execute_mutation};
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::{parse_statement, execute_mutation};
+use interstellar::storage::InMemoryGraph;
 
 let mut storage = InMemoryGraph::new();
 
@@ -1632,8 +1632,8 @@ RETURN n
 ### Complete Mutation Examples
 
 ```rust
-use intersteller::gql::{parse_statement, execute_mutation};
-use intersteller::storage::{GraphStorage, InMemoryGraph};
+use interstellar::gql::{parse_statement, execute_mutation};
+use interstellar::storage::{GraphStorage, InMemoryGraph};
 
 let mut storage = InMemoryGraph::new();
 
@@ -1692,7 +1692,7 @@ Errors during query parsing (syntax errors).
 **Example:**
 
 ```rust
-use intersteller::gql::{parse, ParseError};
+use interstellar::gql::{parse, ParseError};
 
 match parse("MATCH (n:Person) RETURN") {
     Ok(_) => println!("Parsed successfully"),
@@ -1724,8 +1724,8 @@ Errors during compilation (semantic errors).
 **Example:**
 
 ```rust
-use intersteller::gql::{parse, compile, CompileError};
-use intersteller::Graph;
+use interstellar::gql::{parse, compile, CompileError};
+use interstellar::Graph;
 
 let graph = Graph::in_memory();
 let snapshot = graph.snapshot();
@@ -1757,8 +1757,8 @@ Errors during mutation execution.
 **Example:**
 
 ```rust
-use intersteller::gql::{parse_statement, execute_mutation, MutationError};
-use intersteller::storage::InMemoryGraph;
+use interstellar::gql::{parse_statement, execute_mutation, MutationError};
+use interstellar::storage::InMemoryGraph;
 
 let mut storage = InMemoryGraph::new();
 
@@ -1781,9 +1781,9 @@ match execute_mutation(&stmt, &mut storage) {
 Wraps both parse and compile errors for convenience:
 
 ```rust
-use intersteller::gql::GqlError;
+use interstellar::gql::GqlError;
 
-let graph = intersteller::Graph::in_memory();
+let graph = interstellar::Graph::in_memory();
 let snapshot = graph.snapshot();
 
 match snapshot.gql("MATCH (n:Person) RETURN x") {
@@ -1901,7 +1901,7 @@ impl GraphSnapshot {
 
 ### Re-exports
 
-The `intersteller::gql` module re-exports:
+The `interstellar::gql` module re-exports:
 
 - All AST types from `ast.rs`
 - `compile`, `compile_statement` from `compiler.rs`

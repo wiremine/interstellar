@@ -21,7 +21,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use intersteller::traversal::__;
+//! use interstellar::traversal::__;
 //!
 //! // Create an anonymous traversal
 //! let knows_bob = __::out_labels(&["knows"]).has_value("name", "Bob");
@@ -386,7 +386,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::p;
+/// use interstellar::traversal::p;
 ///
 /// // Filter to adults
 /// let adults = __::has_where("age", p::gte(18));
@@ -413,7 +413,7 @@ pub fn has_where(
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::{__, p};
+/// use interstellar::traversal::{__, p};
 ///
 /// // Filter ages greater than 25
 /// let gt_25 = __::is_(p::gt(25));
@@ -435,7 +435,7 @@ pub fn is_(predicate: impl Predicate + 'static) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Filter to ages equal to 29
 /// let age_29 = __::is_eq(29);
@@ -730,7 +730,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::p;
+/// use interstellar::traversal::p;
 ///
 /// // Filter values greater than 25
 /// let adults = __::where_p(p::gt(25));
@@ -1002,7 +1002,7 @@ pub fn order() -> OrderBuilder<Value> {
 /// # Examples
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Double current values
 /// let doubled = __::math("_ * 2").build();
@@ -1100,7 +1100,7 @@ pub fn group() -> crate::traversal::aggregate::GroupBuilder<Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Count by label
 /// let count_step = __::group_count().by_label().build();
@@ -1304,7 +1304,7 @@ pub fn select_one(label: &str) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Keep only vertices that have outgoing edges
 /// let with_out = __::where_(__.out());
@@ -1321,7 +1321,7 @@ pub fn where_(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Keep only leaf vertices (no outgoing edges)
 /// let leaves = __::not(__.out());
@@ -1338,7 +1338,7 @@ pub fn not(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Keep vertices that have both outgoing AND incoming edges
 /// let connected = __::and_(vec![__.out(), __.in_()]);
@@ -1355,7 +1355,7 @@ pub fn and_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Keep vertices that are either "person" OR "software"
 /// let entities = __::or_(vec![__.has_label("person"), __.has_label("software")]);
@@ -1376,7 +1376,7 @@ pub fn or_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Get neighbors in both directions
 /// let neighbors = __::union(vec![__.out(), __.in_()]);
@@ -1393,7 +1393,7 @@ pub fn union(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> 
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Try to get nickname, fall back to name
 /// let names = __::coalesce(vec![__.values("nickname"), __.values("name")]);
@@ -1410,7 +1410,7 @@ pub fn coalesce(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Valu
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // If person, get friends; otherwise get all neighbors
 /// let results = __::choose(__.has_label("person"), __.out_labels(&["knows"]), __.out());
@@ -1431,7 +1431,7 @@ pub fn choose(
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Try to traverse to friends, keep original if none found
 /// let results = __::optional(__.out_labels(&["knows"]));
@@ -1448,7 +1448,7 @@ pub fn optional(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Count neighbors per vertex
 /// let counts = __::local(__.out().limit(1));
@@ -1471,7 +1471,7 @@ pub fn local(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Create a pending vertex (actual creation happens at execution time)
 /// let vertex_traversal = __::add_v("person")
@@ -1492,8 +1492,8 @@ pub fn add_v(label: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
-/// use intersteller::value::VertexId;
+/// use interstellar::traversal::__;
+/// use interstellar::value::VertexId;
 ///
 /// // Create a pending edge between two vertices
 /// let edge_step = __::add_e("knows")
@@ -1514,7 +1514,7 @@ pub fn add_e(label: impl Into<String>) -> crate::traversal::mutation::AddEStep {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Add a property to current element
 /// let with_name = __::property("name", "Alice");
@@ -1533,7 +1533,7 @@ pub fn property(key: impl Into<String>, value: impl Into<Value>) -> Traversal<Va
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Mark elements for deletion
 /// let deleted = __::drop();
@@ -1560,7 +1560,7 @@ pub fn drop() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Create a basic branch step (options added via bound traversal)
 /// let branch_traversal = __::branch(__::label());
@@ -1582,7 +1582,7 @@ pub fn branch(branch_traversal: Traversal<Value, Value>) -> Traversal<Value, Val
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Store values as they pass through
 /// let stored = __::store("x");
@@ -1600,7 +1600,7 @@ pub fn store(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Aggregate all values
 /// let aggregated = __::aggregate("all");
@@ -1618,7 +1618,7 @@ pub fn aggregate(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Retrieve stored data
 /// let capped = __::cap("x");
@@ -1636,7 +1636,7 @@ pub fn cap(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Execute side effect traversal
 /// let with_side_effect = __::side_effect(__::out().store("neighbors"));
@@ -1654,7 +1654,7 @@ pub fn side_effect(traversal: Traversal<Value, Value>) -> Traversal<Value, Value
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Profile traversal step
 /// let profiled = __::profile();
@@ -1672,7 +1672,7 @@ pub fn profile() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::traversal::__;
+/// use interstellar::traversal::__;
 ///
 /// // Profile with custom key
 /// let profiled = __::profile_as("my_profile");

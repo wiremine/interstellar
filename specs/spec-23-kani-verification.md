@@ -2,7 +2,7 @@
 
 ## Overview
 
-Integrate [Kani](https://github.com/model-checking/kani), a model checker for Rust, to formally verify critical components of the Intersteller graph database. Kani exhaustively checks all possible inputs within defined bounds, providing mathematical proofs of correctness rather than probabilistic testing.
+Integrate [Kani](https://github.com/model-checking/kani), a model checker for Rust, to formally verify critical components of the Interstellar graph database. Kani exhaustively checks all possible inputs within defined bounds, providing mathematical proofs of correctness rather than probabilistic testing.
 
 ## Motivation
 
@@ -68,7 +68,7 @@ default-unwind = 10
 Create `src/kani_proofs.rs` as the centralized location for all verification proofs:
 
 ```rust
-//! Kani formal verification proofs for Intersteller.
+//! Kani formal verification proofs for Interstellar.
 //!
 //! This module contains proof harnesses that verify correctness properties
 //! of critical code paths using the Kani model checker.
@@ -247,7 +247,7 @@ mod arena_proofs {
 The complete implementation combining all phases:
 
 ```rust
-//! Kani formal verification proofs for Intersteller.
+//! Kani formal verification proofs for Interstellar.
 //!
 //! This module contains proof harnesses that verify correctness properties
 //! of critical code paths using the Kani model checker.
@@ -281,7 +281,7 @@ mod arena_proofs;
 Alternatively, all proofs can be in a single file with submodules:
 
 ```rust
-//! Kani formal verification proofs for Intersteller.
+//! Kani formal verification proofs for Interstellar.
 
 #![cfg(kani)]
 

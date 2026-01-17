@@ -1,6 +1,6 @@
 # WASM + JavaScript Bindings
 
-This document outlines the plan for compiling Intersteller to WebAssembly with full JavaScript bindings, enabling browser-based graph traversal for demos and playgrounds.
+This document outlines the plan for compiling Interstellar to WebAssembly with full JavaScript bindings, enabling browser-based graph traversal for demos and playgrounds.
 
 ## Goals
 
@@ -45,12 +45,12 @@ This document outlines the plan for compiling Intersteller to WebAssembly with f
 ### Crate Structure
 
 ```
-intersteller/
+interstellar/
 ├── src/
 │   ├── lib.rs
 │   ├── sync.rs          # NEW: Platform-specific sync primitives
 │   └── ...
-├── intersteller-wasm/    # NEW: WASM bindings crate
+├── interstellar-wasm/    # NEW: WASM bindings crate
 │   ├── Cargo.toml
 │   ├── src/
 │   │   ├── lib.rs       # wasm-bindgen exports
@@ -71,7 +71,7 @@ intersteller/
 
 ### Phase 1: Core Library WASM Compatibility
 
-**Goal:** Make `intersteller` compile for `wasm32-unknown-unknown` target.
+**Goal:** Make `interstellar` compile for `wasm32-unknown-unknown` target.
 
 #### 1.1 Create Sync Abstraction Layer
 
@@ -190,27 +190,27 @@ cargo build --target wasm32-unknown-unknown --no-default-features --features inm
 
 ### Phase 2: WASM Bindings Crate
 
-**Goal:** Create `intersteller-wasm` crate with JavaScript bindings.
+**Goal:** Create `interstellar-wasm` crate with JavaScript bindings.
 
 #### 2.1 Create Crate Structure
 
 ```bash
-mkdir -p intersteller-wasm/src
+mkdir -p interstellar-wasm/src
 ```
 
-**`intersteller-wasm/Cargo.toml`:**
+**`interstellar-wasm/Cargo.toml`:**
 ```toml
 [package]
-name = "intersteller-wasm"
+name = "interstellar-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "WebAssembly bindings for Intersteller graph database"
+description = "WebAssembly bindings for Interstellar graph database"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-intersteller = { path = "..", default-features = false, features = ["inmemory"] }
+interstellar = { path = "..", default-features = false, features = ["inmemory"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -234,7 +234,7 @@ The JS API should feel natural to JavaScript developers while maintaining Gremli
 
 **Graph Construction:**
 ```javascript
-import { Graph } from 'intersteller';
+import { Graph } from 'interstellar';
 
 const graph = new Graph();
 
@@ -283,7 +283,7 @@ const paths = await g.V()
 
 #### 2.3 Wrapper Types
 
-**`intersteller-wasm/src/lib.rs`:**
+**`interstellar-wasm/src/lib.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
 
@@ -303,10 +303,10 @@ pub fn init() {
 }
 ```
 
-**`intersteller-wasm/src/graph.rs`:**
+**`interstellar-wasm/src/graph.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
-use intersteller::{Graph, InMemoryGraph, VertexId, EdgeId, Value};
+use interstellar::{Graph, InMemoryGraph, VertexId, EdgeId, Value};
 use std::collections::HashMap;
 
 #[wasm_bindgen]
@@ -382,10 +382,10 @@ impl JsGraph {
 }
 ```
 
-**`intersteller-wasm/src/traversal.rs`:**
+**`interstellar-wasm/src/traversal.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
-use intersteller::{Graph, GraphTraversal};
+use interstellar::{Graph, GraphTraversal};
 
 #[wasm_bindgen]
 pub struct JsTraversalSource {
@@ -526,7 +526,7 @@ impl JsTraversal {
 }
 ```
 
-**`intersteller-wasm/src/predicate.rs`:**
+**`interstellar-wasm/src/predicate.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
 
@@ -584,7 +584,7 @@ cargo install wasm-pack
 #### 3.2 Build WASM Package
 
 ```bash
-cd intersteller-wasm
+cd interstellar-wasm
 wasm-pack build --target web      # For ES modules
 wasm-pack build --target bundler  # For webpack/rollup
 wasm-pack build --target nodejs   # For Node.js
@@ -593,11 +593,11 @@ wasm-pack build --target nodejs   # For Node.js
 #### 3.3 Output Structure
 
 ```
-intersteller-wasm/pkg/
-├── intersteller_wasm.js      # JS glue code
-├── intersteller_wasm.d.ts    # TypeScript definitions
-├── intersteller_wasm_bg.wasm # WASM binary
-├── intersteller_wasm_bg.js   # Background JS
+interstellar-wasm/pkg/
+├── interstellar_wasm.js      # JS glue code
+├── interstellar_wasm.d.ts    # TypeScript definitions
+├── interstellar_wasm_bg.wasm # WASM binary
+├── interstellar_wasm_bg.js   # Background JS
 └── package.json             # npm package metadata
 ```
 
@@ -609,11 +609,11 @@ intersteller-wasm/pkg/
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Intersteller Playground</title>
+  <title>Interstellar Playground</title>
 </head>
 <body>
   <script type="module">
-    import init, { Graph, P } from './pkg/intersteller_wasm.js';
+    import init, { Graph, P } from './pkg/interstellar_wasm.js';
 
     async function main() {
       await init();
@@ -668,7 +668,7 @@ intersteller-wasm/pkg/
 ### Rust Unit Tests
 
 ```bash
-cd intersteller-wasm
+cd interstellar-wasm
 cargo test
 ```
 

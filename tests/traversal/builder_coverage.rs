@@ -4,9 +4,9 @@
 //! on anonymous traversals. These are used when building traversal fragments
 //! that get appended to bound traversals.
 
-use intersteller::traversal::p;
-use intersteller::traversal::__;
-use intersteller::value::Value;
+use interstellar::traversal::p;
+use interstellar::traversal::__;
+use interstellar::value::Value;
 
 use crate::common::graphs::{create_medium_graph, create_small_graph};
 

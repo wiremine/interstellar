@@ -8,9 +8,9 @@
 //! - None/missing value handling
 //! - Sub-traversal sorting
 
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::{Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::{Value, VertexId};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -378,7 +378,7 @@ mod missing_property_sorting {
 
 mod subtraversal_sorting {
     use super::*;
-    use intersteller::traversal::__;
+    use interstellar::traversal::__;
 
     #[test]
     fn order_by_subtraversal_property() {

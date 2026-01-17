@@ -1,7 +1,7 @@
 //! Repeat step tests
 
-use intersteller::traversal::__;
-use intersteller::value::{Value, VertexId};
+use interstellar::traversal::__;
+use interstellar::value::{Value, VertexId};
 
 use crate::common::graphs::create_small_graph;
 

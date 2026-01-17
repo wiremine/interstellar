@@ -4,15 +4,15 @@
 
 use std::collections::HashMap;
 
-use intersteller::graph::Graph;
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::traversal::mutation::{
+use interstellar::graph::Graph;
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::traversal::mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
     PropertyStep,
 };
-use intersteller::traversal::step::AnyStep;
-use intersteller::traversal::Traverser;
-use intersteller::value::{EdgeId, Value, VertexId};
+use interstellar::traversal::step::AnyStep;
+use interstellar::traversal::Traverser;
+use interstellar::value::{EdgeId, Value, VertexId};
 
 // =============================================================================
 // Helper Functions

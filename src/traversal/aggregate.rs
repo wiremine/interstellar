@@ -555,8 +555,8 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::*;
-/// use intersteller::traversal::__; // Anonymous traversal factory
+/// use interstellar::*;
+/// use interstellar::traversal::__; // Anonymous traversal factory
 ///
 /// let graph = Graph::new(/* ... */);
 /// let snapshot = graph.snapshot();
@@ -691,7 +691,7 @@ impl AnyStep for GroupCountStep {
 /// # Example
 ///
 /// ```ignore
-/// use intersteller::*;
+/// use interstellar::*;
 ///
 /// let graph = Graph::new(/* ... */);
 /// let snapshot = graph.snapshot();

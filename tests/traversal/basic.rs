@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::{EdgeId, Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::{EdgeId, Value, VertexId};
 
 use crate::common::graphs::{create_empty_graph, create_small_graph};
 

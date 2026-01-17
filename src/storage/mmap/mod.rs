@@ -56,7 +56,7 @@ use crate::value::{EdgeId, VertexId};
 /// to ensure durability (~5ms per operation). For bulk loading, use batch mode:
 ///
 /// ```rust,no_run
-/// use intersteller::storage::MmapGraph;
+/// use interstellar::storage::MmapGraph;
 /// use std::collections::HashMap;
 ///
 /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -126,7 +126,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
+    /// use interstellar::storage::MmapGraph;
     ///
     /// // Create or open a database
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -782,7 +782,7 @@ impl MmapGraph {
     ///
     /// ```ignore
     /// use std::collections::HashMap;
-    /// use intersteller::value::Value;
+    /// use interstellar::value::Value;
     ///
     /// let mut props = HashMap::new();
     /// props.insert("name".to_string(), Value::String("Alice".to_string()));
@@ -1118,7 +1118,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```ignore
-    /// use intersteller::storage::MmapGraph;
+    /// use interstellar::storage::MmapGraph;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db")?;
@@ -1192,7 +1192,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
+    /// use interstellar::storage::MmapGraph;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -1314,7 +1314,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
+    /// use interstellar::storage::MmapGraph;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -2365,8 +2365,8 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
-    /// use intersteller::value::Value;
+    /// use interstellar::storage::MmapGraph;
+    /// use interstellar::value::Value;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -2498,8 +2498,8 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
-    /// use intersteller::value::Value;
+    /// use interstellar::storage::MmapGraph;
+    /// use interstellar::value::Value;
     /// use std::collections::HashMap;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
@@ -3087,7 +3087,7 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
+    /// use interstellar::storage::MmapGraph;
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
     /// if let Some(schema) = graph.load_schema().unwrap() {
@@ -3137,8 +3137,8 @@ impl MmapGraph {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use intersteller::storage::MmapGraph;
-    /// use intersteller::schema::{SchemaBuilder, PropertyType};
+    /// use interstellar::storage::MmapGraph;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType};
     ///
     /// let graph = MmapGraph::open("my_graph.db").unwrap();
     ///

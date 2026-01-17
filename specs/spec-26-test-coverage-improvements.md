@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification outlines tasks to improve test coverage across the Intersteller codebase. The current overall line coverage is **86.70%** with branch coverage at **54.34%**. The goal is to achieve **95%+ line coverage** and **75%+ branch coverage** across all modules.
+This specification outlines tasks to improve test coverage across the Interstellar codebase. The current overall line coverage is **86.70%** with branch coverage at **54.34%**. The goal is to achieve **95%+ line coverage** and **75%+ branch coverage** across all modules.
 
 ## Current Coverage Summary
 

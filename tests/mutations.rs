@@ -4,10 +4,10 @@
 
 use std::collections::HashMap;
 
-use intersteller::graph::Graph;
-use intersteller::storage::{GraphStorage, InMemoryGraph};
-use intersteller::traversal::{MutationExecutor, MutationResult, PendingMutation};
-use intersteller::value::{EdgeId, Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::traversal::{MutationExecutor, MutationResult, PendingMutation};
+use interstellar::value::{EdgeId, Value, VertexId};
 
 // =============================================================================
 // Helper functions
@@ -55,7 +55,7 @@ fn create_test_graph() -> InMemoryGraph {
 /// Executes pending mutations from traversal results.
 fn execute_mutations(
     storage: &mut InMemoryGraph,
-    traversers: impl Iterator<Item = intersteller::traversal::Traverser>,
+    traversers: impl Iterator<Item = interstellar::traversal::Traverser>,
 ) -> MutationResult {
     let mut executor = MutationExecutor::new(storage);
     executor.execute(traversers)
@@ -248,7 +248,7 @@ fn add_e_from_bound_traversal() {
         .v_ids([alice_id])
         .add_e("works_with")
         .to_vertex(bob_id)
-        .property("project", "Intersteller")
+        .property("project", "Interstellar")
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -262,7 +262,7 @@ fn add_e_from_bound_traversal() {
         if let Some(Value::Map(props)) = map.get("properties") {
             assert_eq!(
                 props.get("project"),
-                Some(&Value::String("Intersteller".to_string()))
+                Some(&Value::String("Interstellar".to_string()))
             );
         }
     }
@@ -472,12 +472,12 @@ fn mutation_result_tracks_statistics() {
 
     // Create multiple pending mutations
     let traversers = vec![
-        intersteller::traversal::Traverser::new(Value::Map(HashMap::from([
+        interstellar::traversal::Traverser::new(Value::Map(HashMap::from([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("person".to_string())),
             ("properties".to_string(), Value::Map(HashMap::new())),
         ]))),
-        intersteller::traversal::Traverser::new(Value::Map(HashMap::from([
+        interstellar::traversal::Traverser::new(Value::Map(HashMap::from([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("person".to_string())),
             ("properties".to_string(), Value::Map(HashMap::new())),
@@ -496,13 +496,13 @@ fn mutation_result_passes_through_non_mutations() {
 
     // Mix of pending mutations and regular values
     let traversers = vec![
-        intersteller::traversal::Traverser::new(Value::Int(42)),
-        intersteller::traversal::Traverser::new(Value::Map(HashMap::from([
+        interstellar::traversal::Traverser::new(Value::Int(42)),
+        interstellar::traversal::Traverser::new(Value::Map(HashMap::from([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("test".to_string())),
             ("properties".to_string(), Value::Map(HashMap::new())),
         ]))),
-        intersteller::traversal::Traverser::new(Value::String("hello".to_string())),
+        interstellar::traversal::Traverser::new(Value::String("hello".to_string())),
     ];
 
     let result = execute_mutations(&mut storage, traversers.into_iter());

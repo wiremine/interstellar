@@ -25,8 +25,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use intersteller::schema::{SchemaBuilder, PropertyType, ValidationMode};
-//! use intersteller::schema::serialize::{serialize_schema, deserialize_schema};
+//! use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
+//! use interstellar::schema::serialize::{serialize_schema, deserialize_schema};
 //!
 //! let schema = SchemaBuilder::new()
 //!     .mode(ValidationMode::Strict)

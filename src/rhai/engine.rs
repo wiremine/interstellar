@@ -1,13 +1,13 @@
 //! The main Rhai engine for script execution.
 //!
 //! This module provides `RhaiEngine`, the primary interface for executing Rhai scripts
-//! with Intersteller's graph traversal API.
+//! with Interstellar's graph traversal API.
 //!
 //! # Quick Start
 //!
 //! ```rust,ignore
-//! use intersteller::prelude::*;
-//! use intersteller::rhai::RhaiEngine;
+//! use interstellar::prelude::*;
+//! use interstellar::rhai::RhaiEngine;
 //!
 //! // Create an engine
 //! let engine = RhaiEngine::new();
@@ -36,9 +36,9 @@ use super::traversal::{register_traversal, RhaiGraph};
 use super::types::register_types;
 use crate::graph::Graph;
 
-/// The main Rhai engine for executing scripts with Intersteller graph support.
+/// The main Rhai engine for executing scripts with Interstellar graph support.
 ///
-/// `RhaiEngine` wraps a Rhai `Engine` with all Intersteller types and functions
+/// `RhaiEngine` wraps a Rhai `Engine` with all Interstellar types and functions
 /// pre-registered, making it easy to execute graph traversal scripts.
 ///
 /// # Example
@@ -67,11 +67,11 @@ impl Default for RhaiEngine {
 }
 
 impl RhaiEngine {
-    /// Create a new RhaiEngine with all Intersteller bindings registered.
+    /// Create a new RhaiEngine with all Interstellar bindings registered.
     pub fn new() -> Self {
         let mut engine = Engine::new();
 
-        // Register all Intersteller types and functions
+        // Register all Interstellar types and functions
         register_types(&mut engine);
         register_predicates(&mut engine);
         register_traversal(&mut engine);
@@ -82,7 +82,7 @@ impl RhaiEngine {
 
     /// Create a RhaiEngine from an existing Rhai Engine.
     ///
-    /// This adds Intersteller bindings to an existing engine that may have
+    /// This adds Interstellar bindings to an existing engine that may have
     /// custom configuration or additional registered functions.
     pub fn with_engine(mut engine: Engine) -> Self {
         register_types(&mut engine);

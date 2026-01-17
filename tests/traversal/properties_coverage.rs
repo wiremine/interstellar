@@ -8,9 +8,9 @@
 //! - Empty properties handling
 //! - Non-element inputs
 
-use intersteller::graph::Graph;
-use intersteller::storage::InMemoryGraph;
-use intersteller::value::{EdgeId, Value, VertexId};
+use interstellar::graph::Graph;
+use interstellar::storage::InMemoryGraph;
+use interstellar::value::{EdgeId, Value, VertexId};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -498,9 +498,9 @@ mod path_preservation_tests {
 
 mod bulk_preservation_tests {
     use super::*;
-    use intersteller::traversal::step::AnyStep;
-    use intersteller::traversal::transform::PropertiesStep;
-    use intersteller::traversal::{ExecutionContext, Traverser};
+    use interstellar::traversal::step::AnyStep;
+    use interstellar::traversal::transform::PropertiesStep;
+    use interstellar::traversal::{ExecutionContext, Traverser};
 
     #[test]
     fn properties_step_expands_bulk() {
@@ -530,8 +530,8 @@ mod bulk_preservation_tests {
 // =============================================================================
 
 mod step_name_tests {
-    use intersteller::traversal::step::AnyStep;
-    use intersteller::traversal::transform::{
+    use interstellar::traversal::step::AnyStep;
+    use interstellar::traversal::transform::{
         ElementMapStep, PropertiesStep, PropertyMapStep, ValueMapStep,
     };
 
@@ -565,8 +565,8 @@ mod step_name_tests {
 // =============================================================================
 
 mod from_keys_tests {
-    use intersteller::traversal::step::AnyStep;
-    use intersteller::traversal::transform::PropertiesStep;
+    use interstellar::traversal::step::AnyStep;
+    use interstellar::traversal::transform::PropertiesStep;
 
     #[test]
     fn properties_from_keys_iterator() {
