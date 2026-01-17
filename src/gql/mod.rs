@@ -385,7 +385,7 @@ pub use ast::*;
 pub use compiler::{
     compile, compile_statement, compile_statement_with_params, compile_with_params, Parameters,
 };
-pub use ddl::execute_ddl;
+pub use ddl::{create_index_spec, create_index_spec_for_edge, execute_ddl};
 pub use error::{CompileError, GqlError, ParseError, Span};
 pub use mutation::{
     execute_mutation, execute_mutation_query, execute_mutation_query_with_schema,

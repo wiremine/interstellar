@@ -499,6 +499,23 @@ pub enum StorageError {
     /// - Consider archiving old data
     #[error("out of space")]
     OutOfSpace,
+
+    /// An index operation failed.
+    ///
+    /// This occurs when a property index constraint is violated, such as
+    /// inserting a duplicate value into a unique index.
+    ///
+    /// # Common Causes
+    ///
+    /// - Unique index constraint violation (duplicate property value)
+    /// - Index creation failed due to existing duplicates
+    ///
+    /// # Recovery
+    ///
+    /// - Ensure unique property values before inserting
+    /// - Drop and recreate index after cleaning up duplicates
+    #[error("index error: {0}")]
+    IndexError(String),
 }
 
 // =============================================================================

@@ -173,6 +173,166 @@ impl<'g> GraphTraversalSource<'g> {
     }
 
     // -------------------------------------------------------------------------
+    // Index-aware source steps
+    // -------------------------------------------------------------------------
+
+    /// Start traversal from vertices matching a property value.
+    ///
+    /// This method uses property indexes when available for O(log n) or O(1)
+    /// lookups instead of O(n) full scans. If no applicable index exists,
+    /// it falls back to a full scan with filtering.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label filter (None matches all labels)
+    /// * `property` - The property key to match
+    /// * `value` - The property value to find
+    ///
+    /// # Performance
+    ///
+    /// - With index: O(log n) for BTree, O(1) for Unique index
+    /// - Without index: O(n) full scan
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all users with email "alice@example.com" (uses unique index if available)
+    /// let alice = g.v_by_property(Some("user"), "email", "alice@example.com").next();
+    ///
+    /// // Find all vertices with age 30 (any label)
+    /// let age_30 = g.v_by_property(None, "age", 30i64).to_list();
+    /// ```
+    pub fn v_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: impl Into<Value>,
+    ) -> BoundTraversal<'g, (), Value> {
+        let value = value.into();
+        // Use the storage's indexed lookup method
+        let vertex_ids: Vec<VertexId> = self
+            .snapshot
+            .storage()
+            .vertices_by_property(label, property, &value)
+            .map(|v| v.id)
+            .collect();
+
+        BoundTraversal::new(
+            self.snapshot,
+            self.interner,
+            Traversal::with_source(TraversalSource::Vertices(vertex_ids)),
+        )
+    }
+
+    /// Start traversal from vertices matching a property range.
+    ///
+    /// This method uses BTree indexes when available for O(log n) range lookups.
+    /// If no applicable index exists, it falls back to a full scan with filtering.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label filter (None matches all labels)
+    /// * `property` - The property key to match
+    /// * `start` - Start bound of the range
+    /// * `end` - End bound of the range
+    ///
+    /// # Performance
+    ///
+    /// - With BTree index: O(log n) + O(k) where k is result count
+    /// - Without index: O(n) full scan
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::ops::Bound;
+    ///
+    /// // Find people aged 25-35 (inclusive)
+    /// let young_adults = g.v_by_property_range(
+    ///     Some("person"),
+    ///     "age",
+    ///     Bound::Included(&Value::Int(25)),
+    ///     Bound::Included(&Value::Int(35)),
+    /// ).to_list();
+    ///
+    /// // Find events after timestamp 1000 (unbounded end)
+    /// let recent = g.v_by_property_range(
+    ///     Some("event"),
+    ///     "timestamp",
+    ///     Bound::Excluded(&Value::Int(1000)),
+    ///     Bound::Unbounded,
+    /// ).to_list();
+    /// ```
+    pub fn v_by_property_range(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        start: std::ops::Bound<&Value>,
+        end: std::ops::Bound<&Value>,
+    ) -> BoundTraversal<'g, (), Value> {
+        // Use the storage's indexed range lookup method
+        let vertex_ids: Vec<VertexId> = self
+            .snapshot
+            .storage()
+            .vertices_by_property_range(label, property, start, end)
+            .map(|v| v.id)
+            .collect();
+
+        BoundTraversal::new(
+            self.snapshot,
+            self.interner,
+            Traversal::with_source(TraversalSource::Vertices(vertex_ids)),
+        )
+    }
+
+    /// Start traversal from edges matching a property value.
+    ///
+    /// This method uses property indexes when available for O(log n) or O(1)
+    /// lookups instead of O(n) full scans. If no applicable index exists,
+    /// it falls back to a full scan with filtering.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label filter (None matches all labels)
+    /// * `property` - The property key to match
+    /// * `value` - The property value to find
+    ///
+    /// # Performance
+    ///
+    /// - With index: O(log n) for BTree, O(1) for Unique index
+    /// - Without index: O(n) full scan
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all "purchased" edges with amount 100
+    /// let purchases = g.e_by_property(Some("purchased"), "amount", 100i64).to_list();
+    ///
+    /// // Find all edges with weight 1.0 (any label)
+    /// let weight_one = g.e_by_property(None, "weight", 1.0f64).to_list();
+    /// ```
+    pub fn e_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: impl Into<Value>,
+    ) -> BoundTraversal<'g, (), Value> {
+        let value = value.into();
+        // Use the storage's indexed lookup method
+        let edge_ids: Vec<EdgeId> = self
+            .snapshot
+            .storage()
+            .edges_by_property(label, property, &value)
+            .map(|e| e.id)
+            .collect();
+
+        BoundTraversal::new(
+            self.snapshot,
+            self.interner,
+            Traversal::with_source(TraversalSource::Edges(edge_ids)),
+        )
+    }
+
+    // -------------------------------------------------------------------------
     // Mutation steps (spawning traversals)
     // -------------------------------------------------------------------------
 
@@ -4522,6 +4682,339 @@ mod tests {
             // After with_path(), it should be enabled
             let traversal = g.v().with_path();
             assert!(traversal.is_tracking_paths());
+        }
+    }
+
+    mod index_aware_source_tests {
+        use super::*;
+        use crate::index::IndexBuilder;
+        use std::ops::Bound;
+
+        fn create_indexed_graph() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            // Add vertices with various ages
+            let _v1 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(25));
+                props
+            });
+
+            let _v2 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+
+            let _v3 = storage.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Charlie".to_string()));
+                props.insert("age".to_string(), Value::Int(35));
+                props
+            });
+
+            let _v4 = storage.add_vertex("company", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("TechCorp".to_string()));
+                props.insert("size".to_string(), Value::Int(100));
+                props
+            });
+
+            // Create an index on person.age
+            let index_spec = IndexBuilder::vertex()
+                .label("person")
+                .property("age")
+                .build()
+                .unwrap();
+            storage.create_index(index_spec).unwrap();
+
+            Graph::new(storage)
+        }
+
+        fn create_graph_with_edge_index() -> Graph {
+            let mut storage = InMemoryGraph::new();
+
+            let v1 = storage.add_vertex("person", HashMap::new());
+            let v2 = storage.add_vertex("person", HashMap::new());
+            let v3 = storage.add_vertex("person", HashMap::new());
+
+            // Add edges with weights
+            storage
+                .add_edge(v1, v2, "knows", {
+                    let mut props = HashMap::new();
+                    props.insert("weight".to_string(), Value::Float(1.0));
+                    props
+                })
+                .unwrap();
+
+            storage
+                .add_edge(v2, v3, "knows", {
+                    let mut props = HashMap::new();
+                    props.insert("weight".to_string(), Value::Float(2.0));
+                    props
+                })
+                .unwrap();
+
+            storage
+                .add_edge(v1, v3, "knows", {
+                    let mut props = HashMap::new();
+                    props.insert("weight".to_string(), Value::Float(1.0));
+                    props
+                })
+                .unwrap();
+
+            // Create an index on knows.weight
+            let index_spec = IndexBuilder::edge()
+                .label("knows")
+                .property("weight")
+                .build()
+                .unwrap();
+            storage.create_index(index_spec).unwrap();
+
+            Graph::new(storage)
+        }
+
+        #[test]
+        fn v_by_property_finds_exact_match() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find person with age 30 (Bob)
+            let results = g.v_by_property(Some("person"), "age", 30i64).to_list();
+
+            assert_eq!(results.len(), 1);
+            assert!(results[0].is_vertex());
+        }
+
+        #[test]
+        fn v_by_property_returns_empty_when_no_match() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // No person with age 100
+            let results = g.v_by_property(Some("person"), "age", 100i64).to_list();
+
+            assert!(results.is_empty());
+        }
+
+        #[test]
+        fn v_by_property_with_no_label_searches_all() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find any vertex with age 30 (no label filter)
+            let results = g.v_by_property(None, "age", 30i64).to_list();
+
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn v_by_property_works_without_index() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // No index on "size", but should still find TechCorp
+            let results = g.v_by_property(Some("company"), "size", 100i64).to_list();
+
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn v_by_property_range_finds_inclusive_range() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find people aged 25-30 (inclusive)
+            let results = g
+                .v_by_property_range(
+                    Some("person"),
+                    "age",
+                    Bound::Included(&Value::Int(25)),
+                    Bound::Included(&Value::Int(30)),
+                )
+                .to_list();
+
+            // Should find Alice (25) and Bob (30)
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn v_by_property_range_with_exclusive_bounds() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find people aged > 25 and < 35 (exclusive)
+            let results = g
+                .v_by_property_range(
+                    Some("person"),
+                    "age",
+                    Bound::Excluded(&Value::Int(25)),
+                    Bound::Excluded(&Value::Int(35)),
+                )
+                .to_list();
+
+            // Should find only Bob (30)
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn v_by_property_range_with_unbounded_end() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find people aged >= 30
+            let results = g
+                .v_by_property_range(
+                    Some("person"),
+                    "age",
+                    Bound::Included(&Value::Int(30)),
+                    Bound::Unbounded,
+                )
+                .to_list();
+
+            // Should find Bob (30) and Charlie (35)
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn v_by_property_range_with_unbounded_start() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find people aged <= 30
+            let results = g
+                .v_by_property_range(
+                    Some("person"),
+                    "age",
+                    Bound::Unbounded,
+                    Bound::Included(&Value::Int(30)),
+                )
+                .to_list();
+
+            // Should find Alice (25) and Bob (30)
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn v_by_property_range_returns_empty_for_no_match() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // No one aged 100-200
+            let results = g
+                .v_by_property_range(
+                    Some("person"),
+                    "age",
+                    Bound::Included(&Value::Int(100)),
+                    Bound::Included(&Value::Int(200)),
+                )
+                .to_list();
+
+            assert!(results.is_empty());
+        }
+
+        #[test]
+        fn e_by_property_finds_exact_match() {
+            let graph = create_graph_with_edge_index();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find edges with weight 1.0
+            let results = g.e_by_property(Some("knows"), "weight", 1.0f64).to_list();
+
+            // Should find 2 edges with weight 1.0
+            assert_eq!(results.len(), 2);
+            for result in &results {
+                assert!(result.is_edge());
+            }
+        }
+
+        #[test]
+        fn e_by_property_returns_empty_when_no_match() {
+            let graph = create_graph_with_edge_index();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // No edge with weight 99.0
+            let results = g.e_by_property(Some("knows"), "weight", 99.0f64).to_list();
+
+            assert!(results.is_empty());
+        }
+
+        #[test]
+        fn e_by_property_with_no_label_searches_all() {
+            let graph = create_graph_with_edge_index();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find any edge with weight 2.0 (no label filter)
+            let results = g.e_by_property(None, "weight", 2.0f64).to_list();
+
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn v_by_property_can_chain_steps() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find person with age 30, get their name
+            let names = g
+                .v_by_property(Some("person"), "age", 30i64)
+                .values("name")
+                .to_list();
+
+            assert_eq!(names.len(), 1);
+            assert_eq!(names[0], Value::String("Bob".to_string()));
+        }
+
+        #[test]
+        fn v_by_property_range_can_chain_steps() {
+            let graph = create_indexed_graph();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find people aged 25-35, count them
+            let count = g
+                .v_by_property_range(
+                    Some("person"),
+                    "age",
+                    Bound::Included(&Value::Int(25)),
+                    Bound::Included(&Value::Int(35)),
+                )
+                .count();
+
+            assert_eq!(count, 3); // Alice, Bob, Charlie
+        }
+
+        #[test]
+        fn e_by_property_can_chain_navigation() {
+            let graph = create_graph_with_edge_index();
+            let snapshot = graph.snapshot();
+            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+
+            // Find edges with weight 1.0, get their target vertices
+            let targets = g
+                .e_by_property(Some("knows"), "weight", 1.0f64)
+                .in_v()
+                .to_list();
+
+            assert_eq!(targets.len(), 2);
+            for target in &targets {
+                assert!(target.is_vertex());
+            }
         }
     }
 }

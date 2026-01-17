@@ -64,3 +64,6 @@ mod compiler_coverage_extended;
 
 #[path = "gql/compiler_unit.rs"]
 mod compiler_unit;
+
+#[path = "gql/ddl.rs"]
+mod ddl;

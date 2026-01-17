@@ -20,11 +20,36 @@
 //!
 //! assert!(schema.has_vertex_schema("Person"));
 //! ```
+//!
+//! # Index DDL
+//!
+//! Index DDL statements (CREATE INDEX, DROP INDEX) cannot be executed via
+//! [`execute_ddl`] because they require graph storage access. Instead, use
+//! the helper function [`create_index_spec`] to convert a parsed `CreateIndex`
+//! to an [`IndexSpec`](crate::index::IndexSpec), then call
+//! [`InMemoryGraph::create_index()`](crate::storage::InMemoryGraph::create_index).
+//!
+//! ```ignore
+//! use interstellar::gql::{parse_statement, create_index_spec, Statement, DdlStatement};
+//! use interstellar::storage::InMemoryGraph;
+//!
+//! let mut graph = InMemoryGraph::new();
+//!
+//! let stmt = parse_statement("CREATE INDEX idx_age ON :Person(age)").unwrap();
+//! if let Statement::Ddl(ddl) = stmt {
+//!     if let DdlStatement::CreateIndex(create) = *ddl {
+//!         let spec = create_index_spec(&create)?;
+//!         graph.create_index(spec)?;
+//!     }
+//! }
+//! ```
 
 use crate::gql::ast::{
-    AlterEdgeType, AlterNodeType, AlterTypeAction, CreateEdgeType, CreateNodeType, DdlStatement,
-    DropType, Literal, PropertyDefinition, PropertyTypeAst, SetValidation, ValidationModeAst,
+    AlterEdgeType, AlterNodeType, AlterTypeAction, CreateEdgeType, CreateIndex, CreateNodeType,
+    DdlStatement, DropType, Literal, PropertyDefinition, PropertyTypeAst, SetValidation,
+    ValidationModeAst,
 };
+use crate::index::{ElementType, IndexBuilder, IndexSpec};
 use crate::schema::{
     EdgeSchema, GraphSchema, PropertyDef, PropertyType, SchemaError, SchemaResult, ValidationMode,
     VertexSchema,
@@ -83,7 +108,108 @@ pub fn execute_ddl(schema: &mut GraphSchema, stmt: &DdlStatement) -> SchemaResul
         DdlStatement::DropNodeType(drop) => execute_drop_node_type(schema, drop),
         DdlStatement::DropEdgeType(drop) => execute_drop_edge_type(schema, drop),
         DdlStatement::SetValidation(set) => execute_set_validation(schema, set),
+        DdlStatement::CreateIndex(_) | DdlStatement::DropIndex(_) => {
+            // Index DDL operates on graph storage, not schema.
+            // Use InMemoryGraph::create_index() / drop_index() directly.
+            Err(SchemaError::IndexDdlNotSupported)
+        }
     }
+}
+
+// =============================================================================
+// Index DDL Helpers
+// =============================================================================
+
+/// Convert a parsed [`CreateIndex`] AST node to an [`IndexSpec`].
+///
+/// This function allows you to use the GQL parser to define indexes,
+/// then create them using [`InMemoryGraph::create_index()`](crate::storage::InMemoryGraph::create_index).
+///
+/// # GQL Syntax Limitation
+///
+/// The GQL `CREATE INDEX` syntax doesn't distinguish between vertex and edge indexes.
+/// This function defaults to [`ElementType::Vertex`]. For edge indexes, either:
+/// - Use [`create_index_spec_for_edge()`] instead
+/// - Create the [`IndexSpec`] directly using [`IndexBuilder::edge()`]
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::gql::{parse_statement, create_index_spec, Statement, DdlStatement};
+/// use interstellar::storage::InMemoryGraph;
+///
+/// let mut graph = InMemoryGraph::new();
+///
+/// let stmt = parse_statement("CREATE INDEX idx_age ON :Person(age)").unwrap();
+/// if let Statement::Ddl(ddl) = stmt {
+///     if let DdlStatement::CreateIndex(create) = *ddl {
+///         let spec = create_index_spec(&create).unwrap();
+///         graph.create_index(spec).unwrap();
+///     }
+/// }
+/// ```
+///
+/// # Errors
+///
+/// Returns [`IndexError::MissingProperty`] if the property field is empty
+/// (which should not happen with a valid parsed AST).
+pub fn create_index_spec(create: &CreateIndex) -> Result<IndexSpec, crate::index::IndexError> {
+    create_index_spec_impl(create, ElementType::Vertex)
+}
+
+/// Convert a parsed [`CreateIndex`] AST node to an [`IndexSpec`] for edges.
+///
+/// This is the edge-specific variant of [`create_index_spec()`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::gql::{parse_statement, create_index_spec_for_edge, Statement, DdlStatement};
+/// use interstellar::storage::InMemoryGraph;
+///
+/// let mut graph = InMemoryGraph::new();
+///
+/// let stmt = parse_statement("CREATE INDEX idx_since ON :KNOWS(since)").unwrap();
+/// if let Statement::Ddl(ddl) = stmt {
+///     if let DdlStatement::CreateIndex(create) = *ddl {
+///         let spec = create_index_spec_for_edge(&create).unwrap();
+///         graph.create_index(spec).unwrap();
+///     }
+/// }
+/// ```
+pub fn create_index_spec_for_edge(
+    create: &CreateIndex,
+) -> Result<IndexSpec, crate::index::IndexError> {
+    create_index_spec_impl(create, ElementType::Edge)
+}
+
+/// Internal implementation for creating IndexSpec from CreateIndex AST.
+fn create_index_spec_impl(
+    create: &CreateIndex,
+    element_type: ElementType,
+) -> Result<IndexSpec, crate::index::IndexError> {
+    let mut builder = match element_type {
+        ElementType::Vertex => IndexBuilder::vertex(),
+        ElementType::Edge => IndexBuilder::edge(),
+    };
+
+    // Set the index name
+    builder = builder.name(&create.name);
+
+    // Set the property to index
+    builder = builder.property(&create.property);
+
+    // Set label filter if specified
+    if let Some(ref label) = create.label {
+        builder = builder.label(label);
+    }
+
+    // Set unique if specified
+    if create.unique {
+        builder = builder.unique();
+    }
+
+    builder.build()
 }
 
 // =============================================================================
@@ -894,5 +1020,207 @@ mod tests {
         assert!(schema.has_vertex_schema("Person"));
         assert!(schema.has_edge_schema("knows"));
         assert_eq!(schema.mode, ValidationMode::Strict);
+    }
+
+    // =========================================================================
+    // Index DDL Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_create_index_basic() {
+        let stmt = parse_statement("CREATE INDEX idx_age ON :Person(age)").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(create) => {
+                    assert_eq!(create.name, "idx_age");
+                    assert_eq!(create.label, Some("Person".to_string()));
+                    assert_eq!(create.property, "age");
+                    assert!(!create.unique);
+                }
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    #[test]
+    fn parse_create_index_unique() {
+        let stmt = parse_statement("CREATE UNIQUE INDEX idx_email ON :User(email)").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(create) => {
+                    assert_eq!(create.name, "idx_email");
+                    assert_eq!(create.label, Some("User".to_string()));
+                    assert_eq!(create.property, "email");
+                    assert!(create.unique);
+                }
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    #[test]
+    fn parse_create_index_no_label() {
+        let stmt = parse_statement("CREATE INDEX idx_created ON (created_at)").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(create) => {
+                    assert_eq!(create.name, "idx_created");
+                    assert_eq!(create.label, None);
+                    assert_eq!(create.property, "created_at");
+                    assert!(!create.unique);
+                }
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    #[test]
+    fn parse_drop_index() {
+        let stmt = parse_statement("DROP INDEX idx_age").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::DropIndex(drop) => {
+                    assert_eq!(drop.name, "idx_age");
+                }
+                _ => panic!("Expected DropIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    #[test]
+    fn execute_ddl_returns_error_for_create_index() {
+        let mut schema = GraphSchema::new();
+        let err = exec_ddl(&mut schema, "CREATE INDEX idx_age ON :Person(age)").unwrap_err();
+        assert!(matches!(err, SchemaError::IndexDdlNotSupported));
+    }
+
+    #[test]
+    fn execute_ddl_returns_error_for_drop_index() {
+        let mut schema = GraphSchema::new();
+        let err = exec_ddl(&mut schema, "DROP INDEX idx_age").unwrap_err();
+        assert!(matches!(err, SchemaError::IndexDdlNotSupported));
+    }
+
+    #[test]
+    fn create_index_spec_basic() {
+        use super::create_index_spec;
+        use crate::index::{ElementType, IndexType};
+
+        let stmt = parse_statement("CREATE INDEX idx_age ON :Person(age)").unwrap();
+        let create = match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(c) => c,
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        };
+
+        let spec = create_index_spec(&create).unwrap();
+        assert_eq!(spec.name, "idx_age");
+        assert_eq!(spec.element_type, ElementType::Vertex);
+        assert_eq!(spec.label, Some("Person".to_string()));
+        assert_eq!(spec.property, "age");
+        assert_eq!(spec.index_type, IndexType::BTree);
+    }
+
+    #[test]
+    fn create_index_spec_unique() {
+        use super::create_index_spec;
+        use crate::index::{ElementType, IndexType};
+
+        let stmt = parse_statement("CREATE UNIQUE INDEX uniq_email ON :User(email)").unwrap();
+        let create = match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(c) => c,
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        };
+
+        let spec = create_index_spec(&create).unwrap();
+        assert_eq!(spec.name, "uniq_email");
+        assert_eq!(spec.element_type, ElementType::Vertex);
+        assert_eq!(spec.label, Some("User".to_string()));
+        assert_eq!(spec.property, "email");
+        assert_eq!(spec.index_type, IndexType::Unique);
+    }
+
+    #[test]
+    fn create_index_spec_no_label() {
+        use super::create_index_spec;
+        use crate::index::ElementType;
+
+        let stmt = parse_statement("CREATE INDEX idx_ts ON (timestamp)").unwrap();
+        let create = match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(c) => c,
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        };
+
+        let spec = create_index_spec(&create).unwrap();
+        assert_eq!(spec.name, "idx_ts");
+        assert_eq!(spec.element_type, ElementType::Vertex);
+        assert_eq!(spec.label, None);
+        assert_eq!(spec.property, "timestamp");
+    }
+
+    #[test]
+    fn create_index_spec_for_edge() {
+        use super::create_index_spec_for_edge;
+        use crate::index::{ElementType, IndexType};
+
+        let stmt = parse_statement("CREATE INDEX idx_since ON :KNOWS(since)").unwrap();
+        let create = match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(c) => c,
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        };
+
+        let spec = create_index_spec_for_edge(&create).unwrap();
+        assert_eq!(spec.name, "idx_since");
+        assert_eq!(spec.element_type, ElementType::Edge);
+        assert_eq!(spec.label, Some("KNOWS".to_string()));
+        assert_eq!(spec.property, "since");
+        assert_eq!(spec.index_type, IndexType::BTree);
+    }
+
+    #[test]
+    fn create_index_case_insensitive() {
+        // Test that keywords are case-insensitive
+        let stmt = parse_statement("create unique index Idx_Name on :Label(prop)").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(create) => {
+                    assert_eq!(create.name, "Idx_Name");
+                    assert_eq!(create.label, Some("Label".to_string()));
+                    assert_eq!(create.property, "prop");
+                    assert!(create.unique);
+                }
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    #[test]
+    fn drop_index_case_insensitive() {
+        let stmt = parse_statement("drop index My_Index").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::DropIndex(drop) => {
+                    assert_eq!(drop.name, "My_Index");
+                }
+                _ => panic!("Expected DropIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
     }
 }

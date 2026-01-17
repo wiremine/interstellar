@@ -98,6 +98,10 @@ LIST_TYPE   = @{ ^"list" ~ !ASCII_ALPHANUMERIC }
 MAP_TYPE    = @{ ^"map" ~ !ASCII_ALPHANUMERIC }
 ANY_TYPE    = @{ ^"any" ~ !ASCII_ALPHANUMERIC }
 
+// Index DDL keywords
+INDEX      = @{ ^"index" ~ !ASCII_ALPHANUMERIC }
+UNIQUE     = @{ ^"unique" ~ !ASCII_ALPHANUMERIC }
+
 // Entry point - statement which may be a read query, UNION, mutation, or DDL
 statement = { SOI ~ (ddl_statement | mutation_statement | read_statement) ~ EOI }
 
@@ -142,7 +146,9 @@ merge_statement = { merge_clause ~ merge_action* ~ return_clause? }
 // ============================================================
 
 ddl_statement = {
-    create_node_type
+    create_index
+    | drop_index
+    | create_node_type
     | create_edge_type
     | alter_node_type
     | alter_edge_type
@@ -237,6 +243,28 @@ drop_edge_type = { DROP_KW ~ EDGE ~ TYPE ~ identifier }
 set_schema_validation = { SET ~ SCHEMA ~ VALIDATION ~ validation_mode }
 
 validation_mode = { STRICT | CLOSED | WARN_KW | NONE_KW }
+
+// ============================================================
+// Index DDL Statements
+// ============================================================
+// CREATE INDEX idx_name ON :Label(property)
+// CREATE UNIQUE INDEX idx_name ON :Label(property)
+// CREATE INDEX idx_name ON (property)  -- all labels
+// DROP INDEX idx_name
+
+// CREATE [UNIQUE] INDEX name ON [:Label](property)
+create_index = {
+    CREATE ~ UNIQUE? ~ INDEX ~ identifier ~
+    ON ~ index_target ~ "(" ~ identifier ~ ")"
+}
+
+// Index target: :Label for specific label, or empty for all labels
+// :Person means only vertices with label Person
+// :KNOWS means only edges with label KNOWS
+index_target = { (":" ~ identifier)? }
+
+// DROP INDEX name
+drop_index = { DROP_KW ~ INDEX ~ identifier }
 
 // ============================================================
 // Mutation Clauses
@@ -659,7 +687,9 @@ keyword = {
     // DDL keywords
     TYPE | NODE | EDGE | GRAPH | FROM_KW | TO_KW | ALTER | DROP_KW | ADD |
     ALLOW | ADDITIONAL | PROPERTIES | VALIDATION | SCHEMA | STRICT | CLOSED | WARN_KW | DEFAULT |
-    STRING_TYPE | INT_TYPE | FLOAT_TYPE | BOOL_TYPE | LIST_TYPE | MAP_TYPE | ANY_TYPE
+    STRING_TYPE | INT_TYPE | FLOAT_TYPE | BOOL_TYPE | LIST_TYPE | MAP_TYPE | ANY_TYPE |
+    // Index DDL keywords
+    INDEX | UNIQUE
 }
 
 // ============================================================

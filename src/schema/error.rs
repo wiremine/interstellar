@@ -125,6 +125,11 @@ pub enum SchemaError {
     /// Edge type definition missing FROM and TO constraints.
     #[error("edge type must specify FROM and TO endpoint constraints")]
     MissingEndpointConstraints,
+
+    /// Index DDL cannot be executed through schema DDL execution.
+    /// Index operations require graph storage access.
+    #[error("index DDL must be executed via graph.create_index() or graph.drop_index()")]
+    IndexDdlNotSupported,
 }
 
 /// Result type for schema operations.

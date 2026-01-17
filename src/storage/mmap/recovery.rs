@@ -142,6 +142,9 @@ pub fn recover(
             | WalEntry::CommitTx { .. }
             | WalEntry::AbortTx { .. }
             | WalEntry::Checkpoint { .. } => {}
+            // Index operations are handled via the index specs JSON file
+            // during MmapGraph::open(), so we skip them during recovery
+            WalEntry::CreateIndex { .. } | WalEntry::DropIndex { .. } => {}
         }
     }
 

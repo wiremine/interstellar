@@ -335,6 +335,151 @@ pub trait GraphStorage: Send + Sync {
     /// assert_eq!(interner.lookup("unknown"), None);
     /// ```
     fn interner(&self) -> &StringInterner;
+
+    // =========================================================================
+    // Index-Aware Methods (Optional - Default to Full Scans)
+    // =========================================================================
+
+    /// Returns whether this storage supports property indexes.
+    ///
+    /// Override this in storage backends that support indexing.
+    fn supports_indexes(&self) -> bool {
+        false
+    }
+
+    /// Lookup vertices by property value, using indexes if available.
+    ///
+    /// This method attempts to use an index for O(log n) or O(1) lookup.
+    /// If no applicable index exists, it falls back to O(n) full scan.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label filter
+    /// * `property` - Property key to match
+    /// * `value` - Property value to find
+    ///
+    /// # Returns
+    ///
+    /// Iterator of matching vertices.
+    fn vertices_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: &Value,
+    ) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        // Default implementation: full scan with filter
+        let label_owned = label.map(|s| s.to_string());
+        let property_owned = property.to_string();
+        let value_clone = value.clone();
+
+        Box::new(self.all_vertices().filter(move |v| {
+            if let Some(ref l) = label_owned {
+                if &v.label != l {
+                    return false;
+                }
+            }
+            v.properties.get(&property_owned) == Some(&value_clone)
+        }))
+    }
+
+    /// Lookup edges by property value, using indexes if available.
+    ///
+    /// This method attempts to use an index for O(log n) or O(1) lookup.
+    /// If no applicable index exists, it falls back to O(n) full scan.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label filter
+    /// * `property` - Property key to match
+    /// * `value` - Property value to find
+    ///
+    /// # Returns
+    ///
+    /// Iterator of matching edges.
+    fn edges_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: &Value,
+    ) -> Box<dyn Iterator<Item = Edge> + '_> {
+        // Default implementation: full scan with filter
+        let label_owned = label.map(|s| s.to_string());
+        let property_owned = property.to_string();
+        let value_clone = value.clone();
+
+        Box::new(self.all_edges().filter(move |e| {
+            if let Some(ref l) = label_owned {
+                if &e.label != l {
+                    return false;
+                }
+            }
+            e.properties.get(&property_owned) == Some(&value_clone)
+        }))
+    }
+
+    /// Lookup vertices by property range, using indexes if available.
+    ///
+    /// This method attempts to use a B+ tree index for O(log n) range lookup.
+    /// If no applicable index exists, it falls back to O(n) full scan.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label filter
+    /// * `property` - Property key to match
+    /// * `start` - Start bound of the range
+    /// * `end` - End bound of the range
+    ///
+    /// # Returns
+    ///
+    /// Iterator of matching vertices.
+    fn vertices_by_property_range(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        start: std::ops::Bound<&Value>,
+        end: std::ops::Bound<&Value>,
+    ) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        use std::ops::Bound;
+
+        // Default implementation: full scan with range filter
+        let label_owned = label.map(|s| s.to_string());
+        let property_owned = property.to_string();
+        let start_clone = match start {
+            Bound::Included(v) => Bound::Included(v.clone()),
+            Bound::Excluded(v) => Bound::Excluded(v.clone()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let end_clone = match end {
+            Bound::Included(v) => Bound::Included(v.clone()),
+            Bound::Excluded(v) => Bound::Excluded(v.clone()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+
+        Box::new(self.all_vertices().filter(move |v| {
+            if let Some(ref l) = label_owned {
+                if &v.label != l {
+                    return false;
+                }
+            }
+            if let Some(prop_value) = v.properties.get(&property_owned) {
+                // Check range bounds using ComparableValue for ordering
+                let prop_cmp = prop_value.to_comparable();
+                let in_start = match &start_clone {
+                    Bound::Included(s) => prop_cmp >= s.to_comparable(),
+                    Bound::Excluded(s) => prop_cmp > s.to_comparable(),
+                    Bound::Unbounded => true,
+                };
+                let in_end = match &end_clone {
+                    Bound::Included(e) => prop_cmp <= e.to_comparable(),
+                    Bound::Excluded(e) => prop_cmp < e.to_comparable(),
+                    Bound::Unbounded => true,
+                };
+                in_start && in_end
+            } else {
+                false
+            }
+        }))
+    }
 }
 
 /// Trait for mutable graph storage operations.

@@ -36,14 +36,14 @@ use pest_derive::Parser;
 
 use crate::gql::ast::{
     AggregateFunc, AlterEdgeType, AlterNodeType, AlterTypeAction, BinaryOperator, CallBody,
-    CallClause, CallQuery, CaseExpression, CreateClause, CreateEdgeType, CreateNodeType,
-    DdlStatement, DeleteClause, DetachDeleteClause, DropType, EdgeDirection, EdgePattern,
-    Expression, ForeachClause, ForeachMutation, GroupByClause, HavingClause, ImportingWith,
-    LetClause, LimitClause, Literal, MatchClause, MergeClause, MutationClause, MutationQuery,
-    NodePattern, OptionalMatchClause, OrderClause, OrderItem, PathQuantifier, Pattern,
-    PatternElement, PropertyDefinition, PropertyRef, PropertyTypeAst, Query, RemoveClause,
-    ReturnClause, ReturnItem, SetClause, SetItem, SetValidation, Statement, UnaryOperator,
-    UnwindClause, ValidationModeAst, WhereClause, WithClause, WithPathClause,
+    CallClause, CallQuery, CaseExpression, CreateClause, CreateEdgeType, CreateIndex,
+    CreateNodeType, DdlStatement, DeleteClause, DetachDeleteClause, DropIndex, DropType,
+    EdgeDirection, EdgePattern, Expression, ForeachClause, ForeachMutation, GroupByClause,
+    HavingClause, ImportingWith, LetClause, LimitClause, Literal, MatchClause, MergeClause,
+    MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause, OrderItem,
+    PathQuantifier, Pattern, PatternElement, PropertyDefinition, PropertyRef, PropertyTypeAst,
+    Query, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, SetValidation, Statement,
+    UnaryOperator, UnwindClause, ValidationModeAst, WhereClause, WithClause, WithPathClause,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -2876,6 +2876,8 @@ fn build_ddl_statement(pair: pest::iterators::Pair<Rule>) -> Result<Statement, P
         Rule::drop_node_type => DdlStatement::DropNodeType(build_drop_type(inner)?),
         Rule::drop_edge_type => DdlStatement::DropEdgeType(build_drop_type(inner)?),
         Rule::set_schema_validation => DdlStatement::SetValidation(build_set_validation(inner)?),
+        Rule::create_index => DdlStatement::CreateIndex(build_create_index(inner)?),
+        Rule::drop_index => DdlStatement::DropIndex(build_drop_index(inner)?),
         _ => {
             return Err(ParseError::Syntax(format!(
                 "Unexpected DDL statement type: {:?}",
@@ -3120,6 +3122,87 @@ fn build_validation_mode(
             inner.as_rule()
         ))),
     }
+}
+
+/// Build a CREATE INDEX statement.
+///
+/// Grammar: `CREATE UNIQUE? INDEX identifier ON index_target "(" identifier ")"`
+///
+/// # Examples
+///
+/// ```text
+/// CREATE INDEX idx_person_age ON :Person(age)
+/// CREATE UNIQUE INDEX idx_user_email ON :User(email)
+/// CREATE INDEX idx_name ON (name)  -- all labels
+/// ```
+fn build_create_index(pair: pest::iterators::Pair<Rule>) -> Result<CreateIndex, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+    let mut unique = false;
+    let mut label = None;
+    let mut property = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::UNIQUE => {
+                unique = true;
+            }
+            Rule::identifier => {
+                // First identifier is the index name, second is the property
+                if name.is_none() {
+                    name = Some(inner.as_str().to_string());
+                } else {
+                    property = Some(inner.as_str().to_string());
+                }
+            }
+            Rule::index_target => {
+                // index_target may contain `:identifier` for the label
+                for target_inner in inner.into_inner() {
+                    if target_inner.as_rule() == Rule::identifier {
+                        label = Some(target_inner.as_str().to_string());
+                    }
+                }
+            }
+            Rule::CREATE | Rule::INDEX | Rule::ON => {}
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("index name", pair_span))?;
+    let property =
+        property.ok_or_else(|| ParseError::missing_clause("property name", pair_span))?;
+
+    Ok(CreateIndex {
+        name,
+        unique,
+        label,
+        property,
+    })
+}
+
+/// Build a DROP INDEX statement.
+///
+/// Grammar: `DROP INDEX identifier`
+///
+/// # Examples
+///
+/// ```text
+/// DROP INDEX idx_person_age
+/// DROP INDEX idx_user_email
+/// ```
+fn build_drop_index(pair: pest::iterators::Pair<Rule>) -> Result<DropIndex, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let mut name = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::identifier {
+            name = Some(inner.as_str().to_string());
+        }
+    }
+
+    let name = name.ok_or_else(|| ParseError::missing_clause("index name", pair_span))?;
+
+    Ok(DropIndex { name })
 }
 
 /// Build a list of property definitions.

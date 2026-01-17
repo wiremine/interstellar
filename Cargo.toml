@@ -9,7 +9,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 [features]
 default = ["inmemory"]
 inmemory = []
-mmap = ["memmap2"]
+mmap = ["memmap2", "serde_json"]
 full-text = ["tantivy"]
 rhai = ["dep:rhai"]
 
@@ -22,6 +22,7 @@ parking_lot = "0.12"
 roaring = "0.10"
 regex = "1.10"
 memmap2 = { version = "0.9", optional = true }
+serde_json = { version = "1.0", optional = true }
 tantivy = { version = "0.21", optional = true }
 rhai = { version = "1.19", optional = true, features = ["sync"] }
 crc32fast = "1.4"
@@ -43,6 +44,10 @@ name = "traversal"
 harness = false
 
 [[bench]]
+name = "indexes"
+harness = false
+
+[[bench]]
 name = "mmap"
 harness = false
 required-features = ["mmap"]
@@ -59,6 +64,10 @@ required-features = ["mmap"]
 
 [[example]]
 name = "persistence"
+required-features = ["mmap"]
+
+[[example]]
+name = "indexes"
 required-features = ["mmap"]
 
 [[example]]

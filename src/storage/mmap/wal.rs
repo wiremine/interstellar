@@ -39,6 +39,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::index::IndexSpec;
 use crate::value::{EdgeId, Value, VertexId};
 
 use super::records::{EdgeRecord, NodeRecord};
@@ -268,6 +269,23 @@ pub enum WalEntry {
         offset: u64,
         /// Serialized schema data
         data: Vec<u8>,
+    },
+
+    /// Create a property index.
+    ///
+    /// Contains the index specification. The index will be built from existing
+    /// data when this entry is replayed during recovery.
+    CreateIndex {
+        /// The index specification
+        spec: IndexSpec,
+    },
+
+    /// Drop a property index.
+    ///
+    /// Contains the name of the index to drop.
+    DropIndex {
+        /// Name of the index to drop
+        name: String,
     },
 }
 

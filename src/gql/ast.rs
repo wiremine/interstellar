@@ -157,6 +157,13 @@ pub enum Statement {
 ///
 /// -- Set validation mode
 /// SET SCHEMA VALIDATION STRICT
+///
+/// -- Create property indexes
+/// CREATE INDEX idx_person_age ON :Person(age)
+/// CREATE UNIQUE INDEX idx_user_email ON :User(email)
+///
+/// -- Drop index
+/// DROP INDEX idx_person_age
 /// ```
 #[derive(Debug, Clone, Serialize)]
 pub enum DdlStatement {
@@ -174,6 +181,10 @@ pub enum DdlStatement {
     DropEdgeType(DropType),
     /// SET SCHEMA VALIDATION statement
     SetValidation(SetValidation),
+    /// CREATE INDEX statement
+    CreateIndex(CreateIndex),
+    /// DROP INDEX statement
+    DropIndex(DropIndex),
 }
 
 /// CREATE NODE TYPE statement.
@@ -285,6 +296,53 @@ pub enum AlterTypeAction {
 #[derive(Debug, Clone, Serialize)]
 pub struct DropType {
     /// The name of the type to drop
+    pub name: String,
+}
+
+/// CREATE INDEX statement for property indexes.
+///
+/// Creates an index on a property for fast lookups. Indexes can optionally
+/// be unique (enforcing uniqueness constraint) and can be scoped to a
+/// specific label or apply to all labels.
+///
+/// # Examples
+///
+/// ```text
+/// -- Index on Person vertices by age property
+/// CREATE INDEX idx_person_age ON :Person(age)
+///
+/// -- Unique index (enforces uniqueness)
+/// CREATE UNIQUE INDEX idx_user_email ON :User(email)
+///
+/// -- Index on all labels (no label filter)
+/// CREATE INDEX idx_name ON (name)
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateIndex {
+    /// The index name (e.g., "idx_person_age")
+    pub name: String,
+    /// Whether this is a UNIQUE index (enforces uniqueness constraint)
+    pub unique: bool,
+    /// Optional label filter (None = index all labels)
+    pub label: Option<String>,
+    /// Property key to index
+    pub property: String,
+}
+
+/// DROP INDEX statement.
+///
+/// Removes an index from the graph. This does not affect the underlying
+/// data, only the index structure used for fast lookups.
+///
+/// # Examples
+///
+/// ```text
+/// DROP INDEX idx_person_age
+/// DROP INDEX idx_user_email
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct DropIndex {
+    /// The index name to drop
     pub name: String,
 }
 
