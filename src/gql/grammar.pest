@@ -736,7 +736,10 @@ limit_clause = {
 // ============================================================
 literal = { string | float | integer | boolean | NULL }
 boolean = { TRUE | FALSE }
-string = ${ "'" ~ string_inner ~ "'" }
-string_inner = @{ (!"'" ~ ANY | "''")* }
+string = ${ single_quoted_string | double_quoted_string }
+single_quoted_string = ${ "'" ~ single_quoted_inner ~ "'" }
+single_quoted_inner = @{ (!"'" ~ ANY | "''")* }
+double_quoted_string = ${ "\"" ~ double_quoted_inner ~ "\"" }
+double_quoted_inner = @{ (!"\"" ~ ANY | "\"\"")* }
 integer = @{ "-"? ~ ASCII_DIGIT+ }
 float = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }

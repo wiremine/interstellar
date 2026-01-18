@@ -1346,9 +1346,14 @@ fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Literal, ParseErro
     match inner.as_rule() {
         Rule::string => {
             let s = inner.as_str();
-            // Remove surrounding quotes and unescape '' -> '
+            // Remove surrounding quotes and unescape doubled quotes
             let content = &s[1..s.len() - 1];
-            let unescaped = content.replace("''", "'");
+            // Determine quote type from first character and unescape accordingly
+            let unescaped = if s.starts_with('"') {
+                content.replace("\"\"", "\"")
+            } else {
+                content.replace("''", "'")
+            };
             Ok(Literal::String(unescaped))
         }
         Rule::integer => {
@@ -2327,14 +2332,32 @@ fn build_map_key(pair: pest::iterators::Pair<Rule>) -> Result<String, ParseError
         Rule::string => {
             // String literal - extract inner content without quotes
             let s = inner.as_str();
-            // Remove surrounding quotes and handle escaped quotes
+            // Navigate: string -> single_quoted_string|double_quoted_string -> inner content
             let inner_content = inner
                 .into_inner()
                 .next()
-                .map(|p| p.as_str().replace("''", "'"))
+                .and_then(|quoted_string| {
+                    // quoted_string is single_quoted_string or double_quoted_string
+                    // Get the inner content (single_quoted_inner or double_quoted_inner)
+                    quoted_string.into_inner().next()
+                })
+                .map(|p| {
+                    let content = p.as_str();
+                    // Determine quote type from outer string and unescape accordingly
+                    if s.starts_with('"') {
+                        content.replace("\"\"", "\"")
+                    } else {
+                        content.replace("''", "'")
+                    }
+                })
                 .unwrap_or_else(|| {
-                    // Fallback: strip quotes manually
-                    s.trim_matches('\'').replace("''", "'")
+                    // Fallback: strip quotes manually based on quote type
+                    let content = &s[1..s.len() - 1];
+                    if s.starts_with('"') {
+                        content.replace("\"\"", "\"")
+                    } else {
+                        content.replace("''", "'")
+                    }
                 });
             Ok(inner_content)
         }
@@ -3642,6 +3665,48 @@ mod tests {
         let query = parse("MATCH (n {name: 'O''Brien'}) RETURN n").unwrap();
         if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
             assert_eq!(node.properties[0].1, Literal::String("O'Brien".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_parse_double_quoted_string() {
+        // Double-quoted string
+        let query = parse("MATCH (n {name: \"Alice\"}) RETURN n").unwrap();
+        if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
+            assert_eq!(node.properties[0].1, Literal::String("Alice".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_parse_double_quoted_string_escape() {
+        // Escaped double quote: "" -> "
+        let query = parse("MATCH (n {name: \"Say \"\"Hello\"\"\"}) RETURN n").unwrap();
+        if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
+            assert_eq!(
+                node.properties[0].1,
+                Literal::String("Say \"Hello\"".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_double_quoted_string_with_single_quote() {
+        // Double-quoted string containing single quote (no escaping needed)
+        let query = parse("MATCH (n {name: \"O'Brien\"}) RETURN n").unwrap();
+        if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
+            assert_eq!(node.properties[0].1, Literal::String("O'Brien".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_parse_single_quoted_string_with_double_quote() {
+        // Single-quoted string containing double quote (no escaping needed)
+        let query = parse("MATCH (n {name: 'Say \"Hello\"'}) RETURN n").unwrap();
+        if let PatternElement::Node(node) = &query.match_clause.patterns[0].elements[0] {
+            assert_eq!(
+                node.properties[0].1,
+                Literal::String("Say \"Hello\"".to_string())
+            );
         }
     }
 
