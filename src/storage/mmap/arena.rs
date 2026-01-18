@@ -104,6 +104,7 @@ impl ArenaAllocator {
     /// Reserve space in the arena.
     ///
     /// Atomically allocates `size` bytes and returns the starting offset.
+    /// Uses compare-and-swap to ensure atomic allocation without race conditions.
     ///
     /// # Arguments
     ///
@@ -116,21 +117,35 @@ impl ArenaAllocator {
     /// # Errors
     ///
     /// Returns [`StorageError::OutOfSpace`] if there isn't enough room.
+    ///
+    /// # Thread Safety
+    ///
+    /// This method is safe to call concurrently from multiple threads.
+    /// Allocation is performed atomically using compare-and-swap.
     pub fn allocate(&self, size: usize) -> Result<u64, StorageError> {
         let size = size as u64;
 
-        // Atomically bump the offset
-        let old_offset = self.current_offset.fetch_add(size, Ordering::SeqCst);
-        let new_offset = old_offset + size;
+        // Use compare-and-swap loop for atomic allocation without TOCTOU race
+        loop {
+            let current = self.current_offset.load(Ordering::SeqCst);
+            let new_offset = current + size;
 
-        // Check if we exceeded the arena
-        if new_offset > self.arena_end {
-            // Roll back the allocation
-            self.current_offset.fetch_sub(size, Ordering::SeqCst);
-            return Err(StorageError::OutOfSpace);
+            // Check if we would exceed the arena
+            if new_offset > self.arena_end {
+                return Err(StorageError::OutOfSpace);
+            }
+
+            // Atomically try to update the offset
+            match self.current_offset.compare_exchange(
+                current,
+                new_offset,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return Ok(current), // Successfully allocated
+                Err(_) => continue,          // Contention, retry
+            }
         }
-
-        Ok(old_offset)
     }
 
     /// Update the arena end (e.g., after file growth).

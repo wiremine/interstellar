@@ -277,7 +277,7 @@ pub trait GraphStorage: Send + Sync {
     /// # Complexity
     ///
     /// O(n) where n = number of vertices with the label.
-    /// Uses RoaringBitmap for efficient label indexing.
+    /// Uses RoaringTreemap for efficient label indexing.
     fn vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Vertex> + '_>;
 
     /// Returns an iterator over all edges with a given label.
@@ -294,7 +294,7 @@ pub trait GraphStorage: Send + Sync {
     /// # Complexity
     ///
     /// O(m) where m = number of edges with the label.
-    /// Uses RoaringBitmap for efficient label indexing.
+    /// Uses RoaringTreemap for efficient label indexing.
     fn edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Edge> + '_>;
 
     /// Returns an iterator over all vertices in the graph.

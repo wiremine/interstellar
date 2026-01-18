@@ -485,11 +485,68 @@ impl WriteAheadLog {
             .truncate(false)
             .open(path)?;
 
-        Ok(Self {
+        let mut wal = Self {
             file,
             next_tx_id: AtomicU64::new(0),
             buffer: Vec::with_capacity(4096),
-        })
+        };
+
+        // Scan WAL to find the maximum transaction ID to avoid ID collisions after restart.
+        // This fixes a critical bug where next_tx_id would reset to 0 on every open,
+        // causing transaction ID reuse after database restart.
+        if let Some(max_tx_id) = wal.scan_max_tx_id()? {
+            wal.next_tx_id = AtomicU64::new(max_tx_id.saturating_add(1));
+        }
+        // If no transactions found (empty WAL), next_tx_id stays at 0
+
+        // Seek to end of file for appending new entries
+        wal.file.seek(SeekFrom::End(0))?;
+
+        Ok(wal)
+    }
+
+    /// Scan the WAL to find the maximum transaction ID.
+    ///
+    /// This is used during `open()` to initialize `next_tx_id` correctly,
+    /// preventing transaction ID collisions after database restart.
+    ///
+    /// # Returns
+    ///
+    /// `Some(max_tx_id)` if any transactions were found, `None` if the WAL is empty.
+    fn scan_max_tx_id(&mut self) -> Result<Option<u64>, StorageError> {
+        // Seek to start of file
+        self.file.seek(SeekFrom::Start(0))?;
+
+        let mut max_tx_id: Option<u64> = None;
+
+        // Read all entries and track maximum transaction ID
+        loop {
+            match self.read_entry() {
+                Ok(entry) => {
+                    let tx_id = match &entry {
+                        WalEntry::BeginTx { tx_id, .. } => Some(*tx_id),
+                        WalEntry::CommitTx { tx_id } => Some(*tx_id),
+                        WalEntry::AbortTx { tx_id } => Some(*tx_id),
+                        _ => None,
+                    };
+                    if let Some(id) = tx_id {
+                        max_tx_id = Some(max_tx_id.map_or(id, |max| max.max(id)));
+                    }
+                }
+                Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    // End of file reached - this is expected
+                    break;
+                }
+                Err(StorageError::WalCorrupted(_)) => {
+                    // Corrupted entry at end of file - stop scanning but don't fail
+                    // The WAL may have been truncated mid-write during a crash
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(max_tx_id)
     }
 
     /// Begin a new transaction.
@@ -1567,14 +1624,53 @@ mod tests {
         // Create and write to WAL
         {
             let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
-            let _tx_id = wal.begin_transaction().expect("begin tx");
+            let tx_id = wal.begin_transaction().expect("begin tx");
+            assert_eq!(tx_id, 0, "first tx_id should be 0");
         }
 
-        // Re-open and verify we can continue using it
+        // Re-open and verify tx_id continues from where it left off
         let mut wal = WriteAheadLog::open(&wal_path).expect("reopen WAL");
         let tx_id = wal.begin_transaction().expect("begin another tx");
-        // Note: tx_id counter resets on reopen (would need recovery to restore)
-        assert_eq!(tx_id, 0, "tx_id starts at 0 on fresh open");
+        // After fix: tx_id should continue from max(0) + 1 = 1
+        assert_eq!(
+            tx_id, 1,
+            "tx_id should continue after reopen, not reset to 0"
+        );
+    }
+
+    #[test]
+    fn test_wal_tx_id_continues_after_multiple_reopens() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wal_path = dir.path().join("test.wal");
+
+        // Create WAL and write several transactions
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).expect("open WAL");
+            let tx1 = wal.begin_transaction().expect("begin tx 1");
+            wal.log(WalEntry::CommitTx { tx_id: tx1 }).expect("commit");
+            let tx2 = wal.begin_transaction().expect("begin tx 2");
+            wal.log(WalEntry::CommitTx { tx_id: tx2 }).expect("commit");
+            let tx3 = wal.begin_transaction().expect("begin tx 3");
+            wal.log(WalEntry::CommitTx { tx_id: tx3 }).expect("commit");
+            wal.sync().expect("sync");
+            assert_eq!(tx3, 2, "third tx should be 2");
+        }
+
+        // Reopen and verify tx_id continues
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).expect("reopen WAL");
+            let tx4 = wal.begin_transaction().expect("begin tx 4");
+            assert_eq!(tx4, 3, "tx_id should be 3 after reopening with max=2");
+            wal.log(WalEntry::CommitTx { tx_id: tx4 }).expect("commit");
+            wal.sync().expect("sync");
+        }
+
+        // Reopen again
+        {
+            let mut wal = WriteAheadLog::open(&wal_path).expect("reopen WAL again");
+            let tx5 = wal.begin_transaction().expect("begin tx 5");
+            assert_eq!(tx5, 4, "tx_id should be 4 after second reopen");
+        }
     }
 
     #[test]

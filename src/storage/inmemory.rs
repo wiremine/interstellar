@@ -7,7 +7,7 @@
 //! # Features
 //!
 //! - **O(1) lookups**: Vertex and edge retrieval by ID
-//! - **Indexed labels**: RoaringBitmap indices for fast label filtering
+//! - **Indexed labels**: RoaringTreemap indices for fast label filtering
 //! - **String interning**: Compact label storage via [`StringInterner`]
 //! - **Adjacency lists**: Efficient edge traversal
 //!
@@ -51,7 +51,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use roaring::RoaringBitmap;
+use roaring::RoaringTreemap;
 
 use crate::error::StorageError;
 use crate::index::{
@@ -65,7 +65,7 @@ use crate::value::{EdgeId, Value, VertexId};
 ///
 /// This is the primary storage backend for development and testing. It stores
 /// all graph data in memory using HashMaps for O(1) vertex/edge lookups and
-/// RoaringBitmaps for efficient label indexing.
+/// RoaringTreemaps for efficient label indexing.
 ///
 /// # Data Structure
 ///
@@ -128,10 +128,10 @@ pub struct InMemoryGraph {
     next_edge_id: AtomicU64,
 
     /// Label ID -> set of vertex IDs with that label
-    vertex_labels: HashMap<u32, RoaringBitmap>,
+    vertex_labels: HashMap<u32, RoaringTreemap>,
 
     /// Label ID -> set of edge IDs with that label
-    edge_labels: HashMap<u32, RoaringBitmap>,
+    edge_labels: HashMap<u32, RoaringTreemap>,
 
     /// String interning for labels
     string_table: StringInterner,
@@ -253,10 +253,7 @@ impl InMemoryGraph {
         self.nodes.insert(id, node);
 
         // Update label index
-        self.vertex_labels
-            .entry(label_id)
-            .or_default()
-            .insert(id.0 as u32);
+        self.vertex_labels.entry(label_id).or_default().insert(id.0);
 
         // Update property indexes
         self.index_vertex_insert(id, label, &properties);
@@ -340,10 +337,7 @@ impl InMemoryGraph {
         self.nodes.get_mut(&dst).unwrap().in_edges.push(id);
 
         // Update label index
-        self.edge_labels
-            .entry(label_id)
-            .or_default()
-            .insert(id.0 as u32);
+        self.edge_labels.entry(label_id).or_default().insert(id.0);
 
         // Update property indexes
         self.index_edge_insert(id, label, &properties);
@@ -408,7 +402,7 @@ impl InMemoryGraph {
 
         // Remove from label index
         if let Some(bitmap) = self.vertex_labels.get_mut(&node.label_id) {
-            bitmap.remove(id.0 as u32);
+            bitmap.remove(id.0);
         }
 
         // Remove all incident edges
@@ -478,7 +472,7 @@ impl InMemoryGraph {
 
         // Remove from label index
         if let Some(bitmap) = self.edge_labels.get_mut(&edge.label_id) {
-            bitmap.remove(id.0 as u32);
+            bitmap.remove(id.0);
         }
 
         // Remove from source vertex's out_edges (if not being deleted)
@@ -1272,7 +1266,7 @@ impl GraphStorage for InMemoryGraph {
         Box::new(iter)
     }
 
-    /// O(n) where n = vertices with label (uses RoaringBitmap)
+    /// O(n) where n = vertices with label (uses RoaringTreemap)
     fn vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Vertex> + '_> {
         // Look up label ID without interning (read-only)
         let label_id = self.string_table.lookup(label);
@@ -1281,12 +1275,12 @@ impl GraphStorage for InMemoryGraph {
             .and_then(|id| self.vertex_labels.get(&id))
             .into_iter()
             .flat_map(|bitmap| bitmap.iter())
-            .filter_map(|id| self.get_vertex(VertexId(id as u64)));
+            .filter_map(|id| self.get_vertex(VertexId(id)));
 
         Box::new(iter)
     }
 
-    /// O(n) where n = edges with label (uses RoaringBitmap)
+    /// O(n) where n = edges with label (uses RoaringTreemap)
     fn edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Edge> + '_> {
         // Look up label ID without interning (read-only)
         let label_id = self.string_table.lookup(label);
@@ -1295,7 +1289,7 @@ impl GraphStorage for InMemoryGraph {
             .and_then(|id| self.edge_labels.get(&id))
             .into_iter()
             .flat_map(|bitmap| bitmap.iter())
-            .filter_map(|id| self.get_edge(EdgeId(id as u64)));
+            .filter_map(|id| self.get_edge(EdgeId(id)));
 
         Box::new(iter)
     }
@@ -1408,7 +1402,7 @@ impl GraphStorageMut for InMemoryGraph {
 // SAFETY: InMemoryGraph is Send + Sync because:
 // - HashMap is Send + Sync when K, V are Send + Sync
 // - AtomicU64 is Send + Sync
-// - RoaringBitmap is Send + Sync
+// - RoaringTreemap is Send + Sync
 // - StringInterner is Send + Sync (HashMap-based)
 //
 // Note: InMemoryGraph itself does NOT provide interior mutability.

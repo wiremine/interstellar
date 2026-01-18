@@ -6,7 +6,7 @@
 use hashbrown::HashMap;
 use memmap2::{Mmap, MmapOptions};
 use parking_lot::RwLock;
-use roaring::RoaringBitmap;
+use roaring::RoaringTreemap;
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::Arc;
@@ -93,8 +93,8 @@ pub struct MmapGraph {
     string_table: Arc<RwLock<StringInterner>>,
 
     /// Label indexes (in-memory, rebuilt on load)
-    vertex_labels: Arc<RwLock<HashMap<u32, RoaringBitmap>>>,
-    edge_labels: Arc<RwLock<HashMap<u32, RoaringBitmap>>>,
+    vertex_labels: Arc<RwLock<HashMap<u32, RoaringTreemap>>>,
+    edge_labels: Arc<RwLock<HashMap<u32, RoaringTreemap>>>,
 
     /// Property arena allocator (tracks current write position)
     arena: Arc<RwLock<arena::ArenaAllocator>>,
@@ -640,8 +640,8 @@ impl MmapGraph {
                     let label_id = node.label_id;
                     vertex_labels
                         .entry(label_id)
-                        .or_insert_with(RoaringBitmap::new)
-                        .insert(node_id as u32);
+                        .or_insert_with(RoaringTreemap::new)
+                        .insert(node_id);
                     actual_node_count += 1;
                 }
             }
@@ -658,8 +658,8 @@ impl MmapGraph {
                     let label_id = edge.label_id;
                     edge_labels
                         .entry(label_id)
-                        .or_insert_with(RoaringBitmap::new)
-                        .insert(edge_id as u32);
+                        .or_insert_with(RoaringTreemap::new)
+                        .insert(edge_id);
                     actual_edge_count += 1;
                 }
             }
@@ -1910,13 +1910,15 @@ impl MmapGraph {
             }
         }
 
-        // Adjust property offsets in node and edge records
+        // Adjust property offsets in node and edge records.
+        // Edge table has moved to new_edge_table_start.
         let offset_adjustment = size_increase as i64;
         self.adjust_property_offsets(
             &file,
             offset_adjustment,
             header.next_node_id,
             header.next_edge_id,
+            new_edge_table_start as u64,
         )?;
 
         // Update header
@@ -2044,13 +2046,16 @@ impl MmapGraph {
             }
         }
 
-        // Adjust property offsets in node and edge records
+        // Adjust property offsets in node and edge records.
+        // Edge table hasn't moved - it's still at the same position.
+        let edge_table_start = HEADER_SIZE as u64 + header.node_capacity * NODE_RECORD_SIZE as u64;
         let offset_adjustment = size_increase as i64;
         self.adjust_property_offsets(
             &file,
             offset_adjustment,
             header.next_node_id,
             header.next_edge_id,
+            edge_table_start,
         )?;
 
         // Update header
@@ -2184,32 +2189,57 @@ impl MmapGraph {
     /// * `offset_adjustment` - The amount to add to each prop_head (new_offset - old_offset)
     /// * `next_node_id` - Number of nodes to check
     /// * `next_edge_id` - Number of edges to check
+    /// * `edge_table_start` - The file offset where the edge table currently starts.
+    ///   This is needed because during table growth, the edge table may have moved
+    ///   to a new location in the file.
     ///
     /// # Errors
     ///
     /// - [`StorageError::Io`] - I/O error during read/write
+    ///
+    /// # Note
+    ///
+    /// This function reads node/edge records directly from the file (not from the mmap)
+    /// to avoid stale data issues when called during table growth operations.
+    /// The mmap may not yet reflect recent file writes.
     fn adjust_property_offsets(
         &self,
         file: &File,
         offset_adjustment: i64,
         next_node_id: u64,
         next_edge_id: u64,
+        edge_table_start: u64,
     ) -> Result<(), StorageError> {
         use records::{EdgeRecord, NodeRecord, EDGE_RECORD_SIZE, NODE_RECORD_SIZE};
 
-        // Re-read the mmap to get current data
-        let mmap = self.mmap.read();
-        let header = Self::read_header(&mmap);
-
-        // Adjust node records
+        // Read node records directly from file to avoid stale mmap issues.
+        // Node records start at HEADER_SIZE and their positions don't change during table growth.
+        let mut node_buffer = [0u8; NODE_RECORD_SIZE];
         for id in 0..next_node_id {
-            let offset = HEADER_SIZE + (id as usize * NODE_RECORD_SIZE);
-            if offset + NODE_RECORD_SIZE > mmap.len() {
+            let offset = HEADER_SIZE as u64 + (id * NODE_RECORD_SIZE as u64);
+
+            // Read node record from file
+            #[cfg(unix)]
+            let read_result = {
+                use std::os::unix::fs::FileExt;
+                file.read_exact_at(&mut node_buffer, offset)
+            };
+
+            #[cfg(not(unix))]
+            let read_result = {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(offset))
+                    .and_then(|_| f.read_exact(&mut node_buffer))
+            };
+
+            if read_result.is_err() {
+                // Past end of file or read error
                 break;
             }
 
             let record = unsafe {
-                let ptr = mmap.as_ptr().add(offset) as *const NodeRecord;
+                let ptr = node_buffer.as_ptr() as *const NodeRecord;
                 ptr.read_unaligned()
             };
 
@@ -2232,29 +2262,46 @@ impl MmapGraph {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::FileExt;
-                file.write_all_at(&bytes, offset as u64)?;
+                file.write_all_at(&bytes, offset)?;
             }
 
             #[cfg(not(unix))]
             {
                 use std::io::{Seek, SeekFrom, Write};
                 let mut f = &*file;
-                f.seek(SeekFrom::Start(offset as u64))?;
+                f.seek(SeekFrom::Start(offset))?;
                 f.write_all(&bytes)?;
             }
         }
 
-        // Adjust edge records (they also have prop_head)
-        let edge_table_start = HEADER_SIZE as u64 + header.node_capacity * NODE_RECORD_SIZE as u64;
-
+        // Read edge records directly from file at the provided edge_table_start offset.
+        // During grow_node_table, edge data has been moved to a new location.
+        let mut edge_buffer = [0u8; EDGE_RECORD_SIZE];
         for id in 0..next_edge_id {
-            let offset = edge_table_start as usize + (id as usize * EDGE_RECORD_SIZE);
-            if offset + EDGE_RECORD_SIZE > mmap.len() {
+            let offset = edge_table_start + (id * EDGE_RECORD_SIZE as u64);
+
+            // Read edge record from file
+            #[cfg(unix)]
+            let read_result = {
+                use std::os::unix::fs::FileExt;
+                file.read_exact_at(&mut edge_buffer, offset)
+            };
+
+            #[cfg(not(unix))]
+            let read_result = {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(offset))
+                    .and_then(|_| f.read_exact(&mut edge_buffer))
+            };
+
+            if read_result.is_err() {
+                // Past end of file or read error
                 break;
             }
 
             let record = unsafe {
-                let ptr = mmap.as_ptr().add(offset) as *const EdgeRecord;
+                let ptr = edge_buffer.as_ptr() as *const EdgeRecord;
                 ptr.read_unaligned()
             };
 
@@ -2277,19 +2324,18 @@ impl MmapGraph {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::FileExt;
-                file.write_all_at(&bytes, offset as u64)?;
+                file.write_all_at(&bytes, offset)?;
             }
 
             #[cfg(not(unix))]
             {
                 use std::io::{Seek, SeekFrom, Write};
                 let mut f = &*file;
-                f.seek(SeekFrom::Start(offset as u64))?;
+                f.seek(SeekFrom::Start(offset))?;
                 f.write_all(&bytes)?;
             }
         }
 
-        drop(mmap);
         Ok(())
     }
 
@@ -2463,8 +2509,8 @@ impl MmapGraph {
             let mut vertex_labels = self.vertex_labels.write();
             vertex_labels
                 .entry(label_id)
-                .or_insert_with(RoaringBitmap::new)
-                .insert(slot_id.0 as u32);
+                .or_insert_with(RoaringTreemap::new)
+                .insert(slot_id.0);
         }
 
         // Step 9: Increment node count in header
@@ -2627,8 +2673,8 @@ impl MmapGraph {
             let mut edge_labels = self.edge_labels.write();
             edge_labels
                 .entry(label_id)
-                .or_insert_with(RoaringBitmap::new)
-                .insert(slot_id.0 as u32);
+                .or_insert_with(RoaringTreemap::new)
+                .insert(slot_id.0);
         }
 
         // Step 14: Increment edge count in header
@@ -2826,7 +2872,7 @@ impl MmapGraph {
             let label_id = record.label_id;
             let mut edge_labels = self.edge_labels.write();
             if let Some(bitmap) = edge_labels.get_mut(&label_id) {
-                bitmap.remove(id.0 as u32);
+                bitmap.remove(id.0);
             }
         }
 
@@ -2930,7 +2976,7 @@ impl MmapGraph {
             let label_id = record.label_id;
             let mut edge_labels = self.edge_labels.write();
             if let Some(bitmap) = edge_labels.get_mut(&label_id) {
-                bitmap.remove(id.0 as u32);
+                bitmap.remove(id.0);
             }
         }
 
@@ -3013,7 +3059,7 @@ impl MmapGraph {
             let label_id = record.label_id;
             let mut vertex_labels = self.vertex_labels.write();
             if let Some(bitmap) = vertex_labels.get_mut(&label_id) {
-                bitmap.remove(id.0 as u32);
+                bitmap.remove(id.0);
             }
         }
 
@@ -3589,7 +3635,7 @@ impl MmapGraph {
 
         // Serialize to JSON
         let json = serde_json::to_string_pretty(&*index_specs)
-            .map_err(|e| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| StorageError::Io(std::io::Error::other(e)))?;
 
         // Write to file atomically by writing to temp file first, then renaming
         let temp_path = specs_path.with_extension("idx.json.tmp");
@@ -8520,13 +8566,13 @@ mod tests {
         // "knows" label should have e1 and e3
         let knows_edges = edge_labels.get(&knows_id).unwrap();
         assert_eq!(knows_edges.len(), 2);
-        assert!(knows_edges.contains(e1.0 as u32));
-        assert!(knows_edges.contains(e3.0 as u32));
+        assert!(knows_edges.contains(e1.0));
+        assert!(knows_edges.contains(e3.0));
 
         // "likes" label should have e2
         let likes_edges = edge_labels.get(&likes_id).unwrap();
         assert_eq!(likes_edges.len(), 1);
-        assert!(likes_edges.contains(e2.0 as u32));
+        assert!(likes_edges.contains(e2.0));
     }
 
     #[test]

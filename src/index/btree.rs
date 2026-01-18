@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use roaring::RoaringBitmap;
+use roaring::RoaringTreemap;
 
 use crate::index::error::IndexError;
 use crate::index::spec::{IndexSpec, IndexType};
@@ -18,7 +18,7 @@ use crate::value::{ComparableValue, Value};
 ///
 /// This index uses Rust's [`BTreeMap`] internally, which provides O(log n)
 /// lookup and range query performance. Each unique property value maps to
-/// a [`RoaringBitmap`] containing the IDs of elements with that value.
+/// a [`RoaringTreemap`] containing the IDs of elements with that value.
 ///
 /// # Use Cases
 ///
@@ -58,7 +58,7 @@ pub struct BTreeIndex {
 
     /// Underlying B-tree structure.
     /// Maps property values to sets of element IDs.
-    tree: BTreeMap<ComparableValue, RoaringBitmap>,
+    tree: BTreeMap<ComparableValue, RoaringTreemap>,
 
     /// Index statistics.
     stats: IndexStatistics,
@@ -104,7 +104,7 @@ impl BTreeIndex {
     {
         for (id, value) in elements {
             let key = value.to_comparable();
-            self.tree.entry(key).or_default().insert(id as u32);
+            self.tree.entry(key).or_default().insert(id);
         }
         self.refresh_statistics();
     }
@@ -137,7 +137,7 @@ impl PropertyIndex for BTreeIndex {
     fn lookup_eq(&self, value: &Value) -> Box<dyn Iterator<Item = u64> + '_> {
         let key = value.to_comparable();
         match self.tree.get(&key) {
-            Some(bitmap) => Box::new(bitmap.iter().map(|id| id as u64)),
+            Some(bitmap) => Box::new(bitmap.iter()),
             None => Box::new(std::iter::empty()),
         }
     }
@@ -155,8 +155,7 @@ impl PropertyIndex for BTreeIndex {
         let iter = self
             .tree
             .range((start_bound, end_bound))
-            .flat_map(|(_, bitmap)| bitmap.iter())
-            .map(|id| id as u64);
+            .flat_map(|(_, bitmap)| bitmap.iter());
 
         Box::new(iter)
     }
@@ -164,7 +163,7 @@ impl PropertyIndex for BTreeIndex {
     fn insert(&mut self, value: Value, element_id: u64) -> Result<(), IndexError> {
         let key = value.to_comparable();
         let bitmap = self.tree.entry(key).or_default();
-        let was_new = bitmap.insert(element_id as u32);
+        let was_new = bitmap.insert(element_id);
 
         if was_new {
             self.stats.total_elements += 1;
@@ -176,7 +175,7 @@ impl PropertyIndex for BTreeIndex {
     fn remove(&mut self, value: &Value, element_id: u64) -> Result<(), IndexError> {
         let key = value.to_comparable();
         if let Some(bitmap) = self.tree.get_mut(&key) {
-            let was_present = bitmap.remove(element_id as u32);
+            let was_present = bitmap.remove(element_id);
             if was_present {
                 self.stats.total_elements = self.stats.total_elements.saturating_sub(1);
             }
