@@ -288,10 +288,11 @@ impl MmapGraph {
     ///
     /// This function assumes the file is empty and newly created.
     fn initialize_new_file(file: &File) -> Result<(), StorageError> {
-        // Initial capacities
-        const INITIAL_NODE_CAPACITY: u64 = 1000;
-        const INITIAL_EDGE_CAPACITY: u64 = 10000;
-        const INITIAL_ARENA_SIZE: u64 = 64 * 1024; // 64KB
+        // Initial capacities - kept small to minimize initial file size.
+        // Tables automatically double when capacity is exceeded.
+        const INITIAL_NODE_CAPACITY: u64 = 100;
+        const INITIAL_EDGE_CAPACITY: u64 = 200;
+        const INITIAL_ARENA_SIZE: u64 = 32 * 1024; // 32KB
 
         // Calculate file size
         let node_table_size = INITIAL_NODE_CAPACITY * NODE_RECORD_SIZE as u64;
@@ -4450,9 +4451,9 @@ mod tests {
         assert_eq!(magic, MAGIC);
         assert_eq!(version, VERSION);
         assert_eq!(node_count, 0);
-        assert_eq!(node_capacity, 1000);
+        assert_eq!(node_capacity, 100);
         assert_eq!(edge_count, 0);
-        assert_eq!(edge_capacity, 10000);
+        assert_eq!(edge_capacity, 200);
     }
 
     #[test]
@@ -4503,8 +4504,8 @@ mod tests {
         let file_size = metadata.len();
 
         // Size should be: header + nodes + edges + arena
-        // HEADER_SIZE (72) + (1000 * 48) + (10000 * 56) + (64 * 1024)
-        let expected_size = HEADER_SIZE + (1000 * 48) + (10000 * 56) + (64 * 1024);
+        // HEADER_SIZE (136) + (100 * 48) + (200 * 56) + (32 * 1024)
+        let expected_size = HEADER_SIZE + (100 * 48) + (200 * 56) + (32 * 1024);
         assert_eq!(file_size, expected_size as u64);
 
         // Verify header fields
@@ -4516,7 +4517,7 @@ mod tests {
         let free_node_head = header.free_node_head;
 
         // Property arena should start after node and edge tables
-        let expected_arena_offset = HEADER_SIZE + (1000 * 48) + (10000 * 56);
+        let expected_arena_offset = HEADER_SIZE + (100 * 48) + (200 * 56);
         assert_eq!(property_arena_offset, expected_arena_offset as u64);
 
         // String table should be in last 32KB
@@ -4737,7 +4738,7 @@ mod tests {
         record.prop_head = 700;
 
         // Calculate offset: header + node_table + edge_id * edge_record_size
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
         let offset = edge_table_offset + (edge_id.0 as usize * EDGE_RECORD_SIZE);
         let bytes = record.to_bytes();
 
@@ -4789,7 +4790,7 @@ mod tests {
         let mut record = records::EdgeRecord::new(edge_id.0, 13, 100, 200);
         record.mark_deleted();
 
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
         let offset = edge_table_offset + (edge_id.0 as usize * EDGE_RECORD_SIZE);
         let bytes = record.to_bytes();
 
@@ -4823,8 +4824,8 @@ mod tests {
 
         let offset = graph.edge_table_offset();
 
-        // Should be: header (64) + node_table (1000 * 48)
-        let expected = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        // Should be: header (136) + node_table (100 * 48)
+        let expected = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
         assert_eq!(offset, expected);
     }
 
@@ -4985,7 +4986,7 @@ mod tests {
         let path = dir.path().join("test.db");
         let graph = MmapGraph::open(&path).unwrap();
 
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
 
         // Write multiple edge records
         for i in 0..10 {
@@ -5608,7 +5609,7 @@ mod tests {
         let path = dir.path().join("test.db");
         let graph = MmapGraph::open(&path).unwrap();
 
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
 
         // Write several edge records with different labels
         let edges = vec![
@@ -5690,7 +5691,7 @@ mod tests {
         let path = dir.path().join("test.db");
         let graph = MmapGraph::open(&path).unwrap();
 
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
 
         // Write edge records, some deleted
         let edges = vec![
@@ -6147,7 +6148,7 @@ mod tests {
         // Node 1: first_out_edge=2, first_in_edge=0
         // Node 2: first_out_edge=MAX, first_in_edge=1
 
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
 
         // Write node records
         {
@@ -6751,7 +6752,7 @@ mod tests {
         let graph = MmapGraph::open(&path).unwrap();
 
         // Get edge table offset before growth
-        let edge_table_offset = HEADER_SIZE + (1000 * NODE_RECORD_SIZE);
+        let edge_table_offset = HEADER_SIZE + (100 * NODE_RECORD_SIZE);
 
         // Write an edge record
         {
@@ -7247,14 +7248,14 @@ mod tests {
 
         // Get initial capacity
         let initial_capacity = graph.get_header().node_capacity;
-        assert_eq!(initial_capacity, 1000, "Initial capacity should be 1000");
+        assert_eq!(initial_capacity, 100, "Initial capacity should be 100");
 
         // Manually set node_count and next_node_id to capacity to force growth on next allocate
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
-            header.node_count = 1000;
-            header.next_node_id = 1000;
+            header.node_count = 100;
+            header.next_node_id = 100;
             drop(mmap);
 
             let file = graph.file.write();
@@ -7265,11 +7266,11 @@ mod tests {
 
         // Allocate should trigger growth
         let slot = graph.allocate_node_slot().unwrap();
-        assert_eq!(slot.0, 1000, "Should allocate at slot 1000");
+        assert_eq!(slot.0, 100, "Should allocate at slot 100");
 
         // Capacity should have doubled
         let new_capacity = graph.get_header().node_capacity;
-        assert_eq!(new_capacity, 2000, "Capacity should double to 2000");
+        assert_eq!(new_capacity, 200, "Capacity should double to 200");
     }
 
     #[test]
@@ -7605,17 +7606,14 @@ mod tests {
 
         // Get initial capacity
         let initial_capacity = graph.get_header().edge_capacity;
-        assert_eq!(
-            initial_capacity, 10000,
-            "Initial edge capacity should be 10000"
-        );
+        assert_eq!(initial_capacity, 200, "Initial edge capacity should be 200");
 
         // Manually set edge_count and next_edge_id to capacity to force growth on next allocate
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
-            header.edge_count = 10000;
-            header.next_edge_id = 10000;
+            header.edge_count = 200;
+            header.next_edge_id = 200;
             drop(mmap);
 
             let file = graph.file.write();
@@ -7626,11 +7624,11 @@ mod tests {
 
         // Allocate should trigger growth
         let slot = graph.allocate_edge_slot().unwrap();
-        assert_eq!(slot.0, 10000, "Should allocate at edge slot 10000");
+        assert_eq!(slot.0, 200, "Should allocate at edge slot 200");
 
         // Capacity should have doubled
         let new_capacity = graph.get_header().edge_capacity;
-        assert_eq!(new_capacity, 20000, "Edge capacity should double to 20000");
+        assert_eq!(new_capacity, 400, "Edge capacity should double to 400");
     }
 
     #[test]
@@ -8070,14 +8068,14 @@ mod tests {
 
         // Get initial capacity
         let initial_capacity = graph.get_header().node_capacity;
-        assert_eq!(initial_capacity, 1000);
+        assert_eq!(initial_capacity, 100);
 
         // Manually set node_count and next_node_id to capacity - 1 to force growth on second add
         {
             let mmap = graph.mmap.read();
             let mut header = MmapGraph::read_header(&mmap);
-            header.node_count = 999;
-            header.next_node_id = 999;
+            header.node_count = 99;
+            header.next_node_id = 99;
             drop(mmap);
 
             let file = graph.file.write();
@@ -8086,18 +8084,18 @@ mod tests {
             graph.remap().unwrap();
         }
 
-        // First add at slot 999
+        // First add at slot 99
         let props = std::collections::HashMap::new();
         let v1 = graph.add_vertex("person", props.clone()).unwrap();
-        assert_eq!(v1.0, 999);
+        assert_eq!(v1.0, 99);
 
         // Second add should trigger growth
         let v2 = graph.add_vertex("person", props).unwrap();
-        assert_eq!(v2.0, 1000);
+        assert_eq!(v2.0, 100);
 
         // Verify capacity grew
         let new_capacity = graph.get_header().node_capacity;
-        assert_eq!(new_capacity, 2000, "Capacity should double");
+        assert_eq!(new_capacity, 200, "Capacity should double");
 
         // Verify both vertices are accessible
         assert!(graph.get_vertex(v1).is_some());
