@@ -54,6 +54,7 @@
 //! - Snapshots can be sent to other threads and can outlive the source graph
 
 use std::collections::HashMap;
+use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -62,6 +63,9 @@ use roaring::RoaringBitmap;
 
 use crate::error::StorageError;
 use crate::gql::{self, GqlError};
+use crate::index::{
+    BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
+};
 use crate::schema::GraphSchema;
 use crate::storage::cow::{CowGraphState, EdgeData, NodeData};
 use crate::storage::interner::StringInterner;
@@ -114,6 +118,11 @@ pub struct CowMmapGraph {
 
     /// Optional schema for validation
     schema: RwLock<Option<GraphSchema>>,
+
+    /// Property indexes for efficient lookups.
+    /// Indexes are stored separately from state because they are mutable
+    /// and don't need snapshot isolation (they always reflect current state).
+    indexes: RwLock<HashMap<String, Box<dyn PropertyIndex>>>,
 }
 
 impl CowMmapGraph {
@@ -146,6 +155,7 @@ impl CowMmapGraph {
             mmap,
             state: RwLock::new(state),
             schema: RwLock::new(None),
+            indexes: RwLock::new(HashMap::new()),
         })
     }
 
@@ -182,6 +192,7 @@ impl CowMmapGraph {
             mmap,
             state: RwLock::new(state),
             schema: RwLock::new(Some(schema)),
+            indexes: RwLock::new(HashMap::new()),
         })
     }
 
@@ -386,6 +397,579 @@ impl CowMmapGraph {
     }
 
     // =========================================================================
+    // Index Management
+    // =========================================================================
+
+    /// Creates a new property index and populates it with existing data.
+    ///
+    /// The index will be automatically maintained as vertices and edges
+    /// are added, updated, or removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `spec` - The index specification defining what to index
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IndexError::AlreadyExists`] if an index with the same name exists.
+    /// Returns [`IndexError::DuplicateValue`] if creating a unique index and
+    /// duplicate values exist.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::index::IndexBuilder;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = CowMmapGraph::open("test.db").unwrap();
+    ///
+    /// // Add some data first
+    /// graph.add_vertex("person", HashMap::from([
+    ///     ("age".to_string(), 30i64.into()),
+    /// ])).unwrap();
+    ///
+    /// // Create a B+ tree index for range queries
+    /// graph.create_index(
+    ///     IndexBuilder::vertex()
+    ///         .label("person")
+    ///         .property("age")
+    ///         .build()
+    ///         .unwrap()
+    /// ).unwrap();
+    /// ```
+    pub fn create_index(&self, spec: IndexSpec) -> Result<(), IndexError> {
+        let mut indexes = self.indexes.write();
+
+        // Check for duplicate name
+        if indexes.contains_key(&spec.name) {
+            return Err(IndexError::AlreadyExists(spec.name.clone()));
+        }
+
+        // Create the appropriate index type
+        let mut index: Box<dyn PropertyIndex> = match spec.index_type {
+            IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())?),
+            IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())?),
+        };
+
+        // Populate index with existing data
+        let state = self.state.read();
+        Self::populate_index_internal(&state, &mut *index)?;
+
+        indexes.insert(spec.name.clone(), index);
+        Ok(())
+    }
+
+    /// Drops an index by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IndexError::NotFound`] if no index with that name exists.
+    pub fn drop_index(&self, name: &str) -> Result<(), IndexError> {
+        self.indexes
+            .write()
+            .remove(name)
+            .map(|_| ())
+            .ok_or_else(|| IndexError::NotFound(name.to_string()))
+    }
+
+    /// Returns a vector of all index specifications.
+    pub fn list_indexes(&self) -> Vec<IndexSpec> {
+        self.indexes
+            .read()
+            .values()
+            .map(|idx| idx.spec().clone())
+            .collect()
+    }
+
+    /// Checks if an index with the given name exists.
+    pub fn has_index(&self, name: &str) -> bool {
+        self.indexes.read().contains_key(name)
+    }
+
+    /// Returns the number of indexes.
+    pub fn index_count(&self) -> usize {
+        self.indexes.read().len()
+    }
+
+    /// Returns whether this storage supports indexes.
+    pub fn supports_indexes(&self) -> bool {
+        true
+    }
+
+    // =========================================================================
+    // Index Query Methods
+    // =========================================================================
+
+    /// Lookup vertices by indexed property value.
+    ///
+    /// If an applicable index exists, uses it for O(log n) or O(1) lookup.
+    /// Otherwise falls back to O(n) scan.
+    pub fn vertices_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: &Value,
+    ) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        let indexes = self.indexes.read();
+        let state = self.state.read();
+
+        // Try to find an applicable index
+        for index in indexes.values() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Vertex {
+                continue;
+            }
+            if spec.property != property {
+                continue;
+            }
+            // Check label compatibility
+            match (&spec.label, label) {
+                (Some(idx_label), Some(filter_label)) if idx_label != filter_label => continue,
+                (Some(_), None) => continue, // Index is label-specific, query is not
+                _ => {}
+            }
+
+            // Use index
+            let ids: Vec<u64> = index.lookup_eq(value).collect();
+            let label_owned = label.map(|s| s.to_string());
+
+            // Need to release locks and collect results
+            drop(indexes);
+            drop(state);
+
+            return Box::new(
+                ids.into_iter()
+                    .filter_map(move |id| {
+                        let state = self.state.read();
+                        let node = state.vertices.get(&VertexId(id))?;
+                        let label = state.interner.read().resolve(node.label_id)?.to_string();
+                        Some(Vertex {
+                            id: node.id,
+                            label,
+                            properties: node.properties.clone(),
+                        })
+                    })
+                    .filter(move |v| {
+                        label_owned.is_none() || Some(v.label.as_str()) == label_owned.as_deref()
+                    }),
+            );
+        }
+
+        // Fall back to scan - need to release locks first
+        drop(indexes);
+        drop(state);
+
+        let label_owned = label.map(|s| s.to_string());
+        let property_owned = property.to_string();
+        let value_clone = value.clone();
+
+        // Collect to avoid lifetime issues with snapshot
+        let vertices: Vec<Vertex> = self
+            .snapshot()
+            .all_vertices()
+            .filter(move |v| {
+                if let Some(ref l) = label_owned {
+                    if &v.label != l {
+                        return false;
+                    }
+                }
+                v.properties.get(&property_owned) == Some(&value_clone)
+            })
+            .collect();
+
+        Box::new(vertices.into_iter())
+    }
+
+    /// Lookup edges by indexed property value.
+    ///
+    /// If an applicable index exists, uses it for O(log n) or O(1) lookup.
+    /// Otherwise falls back to O(n) scan.
+    pub fn edges_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: &Value,
+    ) -> Box<dyn Iterator<Item = Edge> + '_> {
+        let indexes = self.indexes.read();
+        let state = self.state.read();
+
+        // Try to find an applicable index
+        for index in indexes.values() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Edge {
+                continue;
+            }
+            if spec.property != property {
+                continue;
+            }
+            // Check label compatibility
+            match (&spec.label, label) {
+                (Some(idx_label), Some(filter_label)) if idx_label != filter_label => continue,
+                (Some(_), None) => continue, // Index is label-specific, query is not
+                _ => {}
+            }
+
+            // Use index
+            let ids: Vec<u64> = index.lookup_eq(value).collect();
+            let label_owned = label.map(|s| s.to_string());
+
+            // Need to release locks and collect results
+            drop(indexes);
+            drop(state);
+
+            return Box::new(
+                ids.into_iter()
+                    .filter_map(move |id| {
+                        let state = self.state.read();
+                        let edge = state.edges.get(&EdgeId(id))?;
+                        let label = state.interner.read().resolve(edge.label_id)?.to_string();
+                        Some(Edge {
+                            id: edge.id,
+                            label,
+                            src: edge.src,
+                            dst: edge.dst,
+                            properties: edge.properties.clone(),
+                        })
+                    })
+                    .filter(move |e| {
+                        label_owned.is_none() || Some(e.label.as_str()) == label_owned.as_deref()
+                    }),
+            );
+        }
+
+        // Fall back to scan - need to release locks first
+        drop(indexes);
+        drop(state);
+
+        let label_owned = label.map(|s| s.to_string());
+        let property_owned = property.to_string();
+        let value_clone = value.clone();
+
+        // Collect to avoid lifetime issues with snapshot
+        let edges: Vec<Edge> = self
+            .snapshot()
+            .all_edges()
+            .filter(move |e| {
+                if let Some(ref l) = label_owned {
+                    if &e.label != l {
+                        return false;
+                    }
+                }
+                e.properties.get(&property_owned) == Some(&value_clone)
+            })
+            .collect();
+
+        Box::new(edges.into_iter())
+    }
+
+    /// Lookup vertices by property range, using indexes if available.
+    pub fn vertices_by_property_range(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        start: Bound<&Value>,
+        end: Bound<&Value>,
+    ) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        let indexes = self.indexes.read();
+
+        // Try to find an applicable BTree index
+        for index in indexes.values() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Vertex {
+                continue;
+            }
+            if spec.property != property {
+                continue;
+            }
+            // BTree indexes support range queries; skip unique indexes
+            if spec.index_type != IndexType::BTree {
+                continue;
+            }
+            // Check label compatibility
+            match (&spec.label, label) {
+                (Some(idx_label), Some(filter_label)) if idx_label != filter_label => continue,
+                (Some(_), None) => continue, // Index is label-specific, query is not
+                _ => {}
+            }
+
+            // Use index for range lookup
+            let ids: Vec<u64> = index.lookup_range(start, end).collect();
+            let label_owned = label.map(|s| s.to_string());
+
+            drop(indexes);
+
+            return Box::new(
+                ids.into_iter()
+                    .filter_map(move |id| {
+                        let state = self.state.read();
+                        let node = state.vertices.get(&VertexId(id))?;
+                        let label = state.interner.read().resolve(node.label_id)?.to_string();
+                        Some(Vertex {
+                            id: node.id,
+                            label,
+                            properties: node.properties.clone(),
+                        })
+                    })
+                    .filter(move |v| {
+                        label_owned.is_none() || Some(v.label.as_str()) == label_owned.as_deref()
+                    }),
+            );
+        }
+
+        // Fall back to scan with range filter
+        drop(indexes);
+
+        let label_owned = label.map(|s| s.to_string());
+        let property_owned = property.to_string();
+        let start_clone = match start {
+            Bound::Included(v) => Bound::Included(v.clone()),
+            Bound::Excluded(v) => Bound::Excluded(v.clone()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let end_clone = match end {
+            Bound::Included(v) => Bound::Included(v.clone()),
+            Bound::Excluded(v) => Bound::Excluded(v.clone()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+
+        // Collect to avoid lifetime issues with snapshot
+        let vertices: Vec<Vertex> = self
+            .snapshot()
+            .all_vertices()
+            .filter(move |v| {
+                if let Some(ref l) = label_owned {
+                    if &v.label != l {
+                        return false;
+                    }
+                }
+                if let Some(prop_value) = v.properties.get(&property_owned) {
+                    let prop_cmp = prop_value.to_comparable();
+                    let in_start = match &start_clone {
+                        Bound::Included(s) => prop_cmp >= s.to_comparable(),
+                        Bound::Excluded(s) => prop_cmp > s.to_comparable(),
+                        Bound::Unbounded => true,
+                    };
+                    let in_end = match &end_clone {
+                        Bound::Included(e) => prop_cmp <= e.to_comparable(),
+                        Bound::Excluded(e) => prop_cmp < e.to_comparable(),
+                        Bound::Unbounded => true,
+                    };
+                    in_start && in_end
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Box::new(vertices.into_iter())
+    }
+
+    // =========================================================================
+    // Internal Index Helpers
+    // =========================================================================
+
+    /// Populate an index with existing graph data.
+    fn populate_index_internal(
+        state: &CowGraphState,
+        index: &mut dyn PropertyIndex,
+    ) -> Result<(), IndexError> {
+        let spec = index.spec().clone();
+
+        match spec.element_type {
+            ElementType::Vertex => {
+                for (id, node) in state.vertices.iter() {
+                    // Check label filter
+                    if let Some(ref label) = spec.label {
+                        let node_label = state
+                            .interner
+                            .read()
+                            .resolve(node.label_id)
+                            .map(|s| s.to_string());
+                        if node_label.as_deref() != Some(label.as_str()) {
+                            continue;
+                        }
+                    }
+
+                    // Get property value
+                    if let Some(value) = node.properties.get(&spec.property) {
+                        index.insert(value.clone(), id.0)?;
+                    }
+                }
+            }
+            ElementType::Edge => {
+                for (id, edge) in state.edges.iter() {
+                    // Check label filter
+                    if let Some(ref label) = spec.label {
+                        let edge_label = state
+                            .interner
+                            .read()
+                            .resolve(edge.label_id)
+                            .map(|s| s.to_string());
+                        if edge_label.as_deref() != Some(label.as_str()) {
+                            continue;
+                        }
+                    }
+
+                    // Get property value
+                    if let Some(value) = edge.properties.get(&spec.property) {
+                        index.insert(value.clone(), id.0)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update indexes when a vertex is added.
+    fn index_vertex_insert(&self, id: VertexId, label: &str, properties: &HashMap<String, Value>) {
+        let mut indexes = self.indexes.write();
+        for index in indexes.values_mut() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Vertex {
+                continue;
+            }
+            if let Some(ref idx_label) = spec.label {
+                if idx_label != label {
+                    continue;
+                }
+            }
+            if let Some(value) = properties.get(&spec.property) {
+                // Ignore errors for BTree (no constraint), log for unique
+                let _ = index.insert(value.clone(), id.0);
+            }
+        }
+    }
+
+    /// Update indexes when a vertex is removed.
+    fn index_vertex_remove(&self, id: VertexId, label: &str, properties: &HashMap<String, Value>) {
+        let mut indexes = self.indexes.write();
+        for index in indexes.values_mut() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Vertex {
+                continue;
+            }
+            if let Some(ref idx_label) = spec.label {
+                if idx_label != label {
+                    continue;
+                }
+            }
+            if let Some(value) = properties.get(&spec.property) {
+                let _ = index.remove(value, id.0);
+            }
+        }
+    }
+
+    /// Update indexes when an edge is added.
+    fn index_edge_insert(&self, id: EdgeId, label: &str, properties: &HashMap<String, Value>) {
+        let mut indexes = self.indexes.write();
+        for index in indexes.values_mut() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Edge {
+                continue;
+            }
+            if let Some(ref idx_label) = spec.label {
+                if idx_label != label {
+                    continue;
+                }
+            }
+            if let Some(value) = properties.get(&spec.property) {
+                let _ = index.insert(value.clone(), id.0);
+            }
+        }
+    }
+
+    /// Update indexes when an edge is removed.
+    fn index_edge_remove(&self, id: EdgeId, label: &str, properties: &HashMap<String, Value>) {
+        let mut indexes = self.indexes.write();
+        for index in indexes.values_mut() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Edge {
+                continue;
+            }
+            if let Some(ref idx_label) = spec.label {
+                if idx_label != label {
+                    continue;
+                }
+            }
+            if let Some(value) = properties.get(&spec.property) {
+                let _ = index.remove(value, id.0);
+            }
+        }
+    }
+
+    /// Update indexes when a vertex property changes.
+    fn update_vertex_property_in_indexes(
+        &self,
+        id: VertexId,
+        label: &str,
+        property: &str,
+        old_value: Option<&Value>,
+        new_value: &Value,
+    ) -> Result<(), StorageError> {
+        let mut indexes = self.indexes.write();
+        for index in indexes.values_mut() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Vertex {
+                continue;
+            }
+            if spec.property != property {
+                continue;
+            }
+            if let Some(ref idx_label) = spec.label {
+                if idx_label != label {
+                    continue;
+                }
+            }
+
+            // Remove old value, insert new
+            if let Some(old) = old_value {
+                let _ = index.remove(old, id.0);
+            }
+            index
+                .insert(new_value.clone(), id.0)
+                .map_err(|e| StorageError::IndexError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Update indexes when an edge property changes.
+    fn update_edge_property_in_indexes(
+        &self,
+        id: EdgeId,
+        label: &str,
+        property: &str,
+        old_value: Option<&Value>,
+        new_value: &Value,
+    ) -> Result<(), StorageError> {
+        let mut indexes = self.indexes.write();
+        for index in indexes.values_mut() {
+            let spec = index.spec();
+            if spec.element_type != ElementType::Edge {
+                continue;
+            }
+            if spec.property != property {
+                continue;
+            }
+            if let Some(ref idx_label) = spec.label {
+                if idx_label != label {
+                    continue;
+                }
+            }
+
+            // Remove old value, insert new
+            if let Some(old) = old_value {
+                let _ = index.remove(old, id.0);
+            }
+            index
+                .insert(new_value.clone(), id.0)
+                .map_err(|e| StorageError::IndexError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Mutation Operations
     // =========================================================================
 
@@ -428,7 +1012,7 @@ impl CowMmapGraph {
         let node = Arc::new(NodeData {
             id,
             label_id,
-            properties,
+            properties: properties.clone(),
             out_edges: Vec::new(),
             in_edges: Vec::new(),
         });
@@ -447,6 +1031,12 @@ impl CowMmapGraph {
 
         // Increment version
         state.version += 1;
+
+        // Release state lock before updating indexes (to avoid deadlock)
+        drop(state);
+
+        // Update property indexes
+        self.index_vertex_insert(id, label, &properties);
 
         Ok(id)
     }
@@ -506,7 +1096,7 @@ impl CowMmapGraph {
             label_id,
             src,
             dst,
-            properties,
+            properties: properties.clone(),
         });
 
         state.edges = state.edges.update(id, edge);
@@ -538,6 +1128,12 @@ impl CowMmapGraph {
         // Increment version
         state.version += 1;
 
+        // Release state lock before updating indexes (to avoid deadlock)
+        drop(state);
+
+        // Update property indexes
+        self.index_edge_insert(id, label, &properties);
+
         Ok(id)
     }
 
@@ -560,12 +1156,27 @@ impl CowMmapGraph {
             .get(&id)
             .ok_or(StorageError::VertexNotFound(id))?;
 
+        // Get label and old value for index update
+        let label = state
+            .interner
+            .read()
+            .resolve(node.label_id)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let old_value = node.properties.get(key).cloned();
+
         let mut new_node = (**node).clone();
         new_node.properties.insert(key.to_string(), value.clone());
         state.vertices = state.vertices.update(id, Arc::new(new_node));
 
         // Increment version
         state.version += 1;
+
+        // Release state lock before updating indexes
+        drop(state);
+
+        // Update property indexes
+        self.update_vertex_property_in_indexes(id, &label, key, old_value.as_ref(), &value)?;
 
         // Write to disk
         self.mmap.set_vertex_property(id, key, value)?;
@@ -589,12 +1200,27 @@ impl CowMmapGraph {
         // Update COW state
         let edge = state.edges.get(&id).ok_or(StorageError::EdgeNotFound(id))?;
 
+        // Get label and old value for index update
+        let label = state
+            .interner
+            .read()
+            .resolve(edge.label_id)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let old_value = edge.properties.get(key).cloned();
+
         let mut new_edge = (**edge).clone();
         new_edge.properties.insert(key.to_string(), value.clone());
         state.edges = state.edges.update(id, Arc::new(new_edge));
 
         // Increment version
         state.version += 1;
+
+        // Release state lock before updating indexes
+        drop(state);
+
+        // Update property indexes
+        self.update_edge_property_in_indexes(id, &label, key, old_value.as_ref(), &value)?;
 
         // Write to disk
         self.mmap.set_edge_property(id, key, value)?;
@@ -617,16 +1243,35 @@ impl CowMmapGraph {
             .ok_or(StorageError::VertexNotFound(id))?
             .clone();
 
-        // Collect edges to remove
-        let edges_to_remove: Vec<EdgeId> = node
+        // Get label for index removal
+        let label = state
+            .interner
+            .read()
+            .resolve(node.label_id)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let properties = node.properties.clone();
+
+        // Collect edges to remove with their info for index updates
+        let edges_to_remove: Vec<(EdgeId, String, HashMap<String, Value>)> = node
             .out_edges
             .iter()
             .chain(node.in_edges.iter())
-            .copied()
+            .filter_map(|&edge_id| {
+                state.edges.get(&edge_id).map(|e| {
+                    let edge_label = state
+                        .interner
+                        .read()
+                        .resolve(e.label_id)
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    (edge_id, edge_label, e.properties.clone())
+                })
+            })
             .collect();
 
         // Remove incident edges from COW state
-        for edge_id in &edges_to_remove {
+        for (edge_id, _, _) in &edges_to_remove {
             // Clone the edge data we need before mutating state
             let edge_info = state.edges.get(edge_id).map(|e| (e.label_id, e.src, e.dst));
 
@@ -666,6 +1311,17 @@ impl CowMmapGraph {
         // Increment version
         state.version += 1;
 
+        // Release state lock before updating indexes
+        drop(state);
+
+        // Update property indexes - remove vertex
+        self.index_vertex_remove(id, &label, &properties);
+
+        // Update property indexes - remove edges
+        for (edge_id, edge_label, edge_props) in edges_to_remove {
+            self.index_edge_remove(edge_id, &edge_label, &edge_props);
+        }
+
         // Write to disk
         self.mmap.remove_vertex(id)?;
 
@@ -686,6 +1342,15 @@ impl CowMmapGraph {
             .get(&id)
             .ok_or(StorageError::EdgeNotFound(id))?
             .clone();
+
+        // Get label and properties for index removal
+        let label = state
+            .interner
+            .read()
+            .resolve(edge.label_id)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let properties = edge.properties.clone();
 
         // Update source vertex's out_edges
         if let Some(src_node) = state.vertices.get(&edge.src) {
@@ -715,6 +1380,12 @@ impl CowMmapGraph {
 
         // Increment version
         state.version += 1;
+
+        // Release state lock before updating indexes
+        drop(state);
+
+        // Update property indexes
+        self.index_edge_remove(id, &label, &properties);
 
         // Write to disk
         self.mmap.remove_edge(id)?;
