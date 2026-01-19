@@ -74,21 +74,23 @@ pub struct UniqueIndex {
 impl UniqueIndex {
     /// Create a new empty unique index.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the spec's index_type is not `IndexType::Unique`.
-    pub fn new(spec: IndexSpec) -> Self {
-        assert!(
-            spec.index_type == IndexType::Unique,
-            "UniqueIndex requires IndexType::Unique, got {:?}",
-            spec.index_type
-        );
-        Self {
+    /// Returns [`IndexError::InvalidIndexType`] if the spec's index_type
+    /// is not `IndexType::Unique`.
+    pub fn new(spec: IndexSpec) -> Result<Self, IndexError> {
+        if spec.index_type != IndexType::Unique {
+            return Err(IndexError::InvalidIndexType {
+                expected: IndexType::Unique,
+                got: spec.index_type,
+            });
+        }
+        Ok(Self {
             spec,
             map: HashMap::new(),
             reverse: HashMap::new(),
             stats: IndexStatistics::default(),
-        }
+        })
     }
 
     /// Build index from an iterator of (element_id, property_value) pairs.
@@ -201,7 +203,12 @@ impl PropertyIndex for UniqueIndex {
         new_value: Value,
         element_id: u64,
     ) -> Result<(), IndexError> {
-        // Check if new value would conflict
+        // Early return if same value - nothing to do
+        if old_value == &new_value {
+            return Ok(());
+        }
+
+        // Check if new value would conflict with a different element
         if let Some(&existing_id) = self.map.get(&new_value) {
             if existing_id != element_id {
                 return Err(IndexError::DuplicateValue {
@@ -211,22 +218,15 @@ impl PropertyIndex for UniqueIndex {
                     new_id: element_id,
                 });
             }
-            // Same element, same new value - just remove old
-            if old_value != &new_value {
-                self.map.remove(old_value);
-                self.reverse.insert(element_id, new_value);
-            }
-            return Ok(());
+            // new_value already maps to this element - still need to clean up old_value
         }
 
-        // Remove old mapping
-        if let Some(&stored_id) = self.map.get(old_value) {
-            if stored_id == element_id {
-                self.map.remove(old_value);
-            }
+        // Remove old mapping if it exists for this element
+        if self.map.get(old_value) == Some(&element_id) {
+            self.map.remove(old_value);
         }
 
-        // Insert new mapping
+        // Insert new mapping (always, since we know old_value != new_value)
         self.map.insert(new_value.clone(), element_id);
         self.reverse.insert(element_id, new_value);
 
@@ -268,7 +268,7 @@ mod tests {
             .unique()
             .build()
             .unwrap();
-        UniqueIndex::new(spec)
+        UniqueIndex::new(spec).unwrap()
     }
 
     #[test]
@@ -280,14 +280,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "UniqueIndex requires IndexType::Unique")]
-    fn new_panics_for_btree_type() {
+    fn new_returns_error_for_btree_type() {
         let spec = IndexBuilder::vertex()
             .label("person")
             .property("age")
             .build()
             .unwrap();
-        UniqueIndex::new(spec);
+        let result = UniqueIndex::new(spec);
+        assert!(matches!(result, Err(IndexError::InvalidIndexType { .. })));
     }
 
     #[test]
@@ -514,6 +514,69 @@ mod tests {
     }
 
     #[test]
+    fn update_with_wrong_old_value() {
+        // Test update when old_value doesn't match what's in the index
+        let mut index = create_test_index();
+        index
+            .insert(Value::String("alice@example.com".into()), 1)
+            .unwrap();
+
+        // Update with wrong old_value - should still work since we're
+        // updating to a new value that doesn't conflict
+        index
+            .update(
+                &Value::String("wrong@example.com".into()), // wrong old value
+                Value::String("newalice@example.com".into()),
+                1,
+            )
+            .unwrap();
+
+        // New value should be in the index
+        assert!(index.contains(&Value::String("newalice@example.com".into())));
+        // Old value that was actually there should still be there (wasn't removed)
+        assert!(index.contains(&Value::String("alice@example.com".into())));
+        // The element now maps to newalice (reverse map updated)
+        assert_eq!(
+            index.get(&Value::String("newalice@example.com".into())),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn update_maintains_map_consistency() {
+        // Verify both map and reverse map stay consistent after update
+        let mut index = create_test_index();
+        index
+            .insert(Value::String("alice@example.com".into()), 1)
+            .unwrap();
+        index
+            .insert(Value::String("bob@example.com".into()), 2)
+            .unwrap();
+
+        // Update element 1's value
+        index
+            .update(
+                &Value::String("alice@example.com".into()),
+                Value::String("alice.new@example.com".into()),
+                1,
+            )
+            .unwrap();
+
+        // Verify map consistency
+        assert!(!index.contains(&Value::String("alice@example.com".into())));
+        assert!(index.contains(&Value::String("alice.new@example.com".into())));
+        assert!(index.contains(&Value::String("bob@example.com".into())));
+        assert_eq!(index.len(), 2);
+
+        // Verify lookups work correctly
+        assert_eq!(
+            index.get(&Value::String("alice.new@example.com".into())),
+            Some(1)
+        );
+        assert_eq!(index.get(&Value::String("bob@example.com".into())), Some(2));
+    }
+
+    #[test]
     fn clear_removes_all() {
         let mut index = create_test_index();
         for i in 0..100 {
@@ -620,7 +683,7 @@ mod tests {
             .unique()
             .build()
             .unwrap();
-        let mut index = UniqueIndex::new(spec);
+        let mut index = UniqueIndex::new(spec).unwrap();
 
         index.insert(Value::Int(1001), 1).unwrap();
         index.insert(Value::Int(1002), 2).unwrap();

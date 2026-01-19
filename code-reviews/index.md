@@ -24,7 +24,7 @@
 
 ## Critical Bugs
 
-### 1. u64 to u32 Truncation in RoaringBitmap
+### 1. u64 to u32 Truncation in RoaringBitmap - FIXED
 
 **File:** `src/index/btree.rs`  
 **Lines:** 107, 140, 159, 167, 179  
@@ -89,7 +89,7 @@ pub struct BTreeIndex {
 
 ## High Severity Bugs
 
-### 2. Panic on Wrong IndexType in Constructor
+### 2. Panic on Wrong IndexType in Constructor - FIXED
 
 **File:** `src/index/btree.rs`, `src/index/unique.rs`  
 **Lines:** `btree.rs:74-78`, `unique.rs:81-85`  
@@ -146,7 +146,7 @@ pub fn new(spec: IndexSpec) -> Result<Self, IndexError> {
 
 ---
 
-### 3. Data Inconsistency in UniqueIndex::update()
+### 3. Data Inconsistency in UniqueIndex::update() - FIXED
 
 **File:** `src/index/unique.rs`  
 **Lines:** 198-234  

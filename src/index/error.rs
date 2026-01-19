@@ -1,5 +1,6 @@
 //! Index-related error types.
 
+use crate::index::spec::IndexType;
 use crate::value::Value;
 use thiserror::Error;
 
@@ -13,6 +14,15 @@ pub enum IndexError {
     /// Index not found.
     #[error("index not found: {0}")]
     NotFound(String),
+
+    /// Wrong index type passed to constructor.
+    #[error("invalid index type: expected {expected:?}, got {got:?}")]
+    InvalidIndexType {
+        /// The expected index type.
+        expected: IndexType,
+        /// The actual index type provided.
+        got: IndexType,
+    },
 
     /// Duplicate value in unique index.
     #[error("unique constraint violation on index '{index_name}': value {value:?} already exists for element {existing_id}, cannot add element {new_id}")]
@@ -81,5 +91,17 @@ mod tests {
     fn error_display_not_indexable() {
         let err = IndexError::NotIndexable(Value::List(vec![Value::Int(1)]));
         assert!(err.to_string().contains("not indexable"));
+    }
+
+    #[test]
+    fn error_display_invalid_index_type() {
+        let err = IndexError::InvalidIndexType {
+            expected: IndexType::BTree,
+            got: IndexType::Unique,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("invalid index type"));
+        assert!(msg.contains("BTree"));
+        assert!(msg.contains("Unique"));
     }
 }

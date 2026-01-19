@@ -3467,8 +3467,8 @@ impl MmapGraph {
 
         // Create the appropriate index type
         let mut index: Box<dyn PropertyIndex> = match spec.index_type {
-            IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())),
-            IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())),
+            IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())?),
+            IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())?),
         };
 
         // Populate index with existing data
@@ -3673,8 +3673,18 @@ impl MmapGraph {
         for spec in specs {
             // Create the appropriate index type
             let mut index: Box<dyn PropertyIndex> = match spec.index_type {
-                IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())),
-                IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())),
+                IndexType::BTree => Box::new(BTreeIndex::new(spec.clone()).map_err(|e| {
+                    StorageError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    ))
+                })?),
+                IndexType::Unique => Box::new(UniqueIndex::new(spec.clone()).map_err(|e| {
+                    StorageError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    ))
+                })?),
             };
 
             // Populate index with existing data

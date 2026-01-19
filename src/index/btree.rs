@@ -67,20 +67,22 @@ pub struct BTreeIndex {
 impl BTreeIndex {
     /// Create a new empty B+ tree index.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the spec's index_type is not `IndexType::BTree`.
-    pub fn new(spec: IndexSpec) -> Self {
-        assert!(
-            spec.index_type == IndexType::BTree,
-            "BTreeIndex requires IndexType::BTree, got {:?}",
-            spec.index_type
-        );
-        Self {
+    /// Returns [`IndexError::InvalidIndexType`] if the spec's index_type
+    /// is not `IndexType::BTree`.
+    pub fn new(spec: IndexSpec) -> Result<Self, IndexError> {
+        if spec.index_type != IndexType::BTree {
+            return Err(IndexError::InvalidIndexType {
+                expected: IndexType::BTree,
+                got: spec.index_type,
+            });
+        }
+        Ok(Self {
             spec,
             tree: BTreeMap::new(),
             stats: IndexStatistics::default(),
-        }
+        })
     }
 
     /// Build index from an iterator of (element_id, property_value) pairs.
@@ -249,7 +251,7 @@ mod tests {
             .property("age")
             .build()
             .unwrap();
-        BTreeIndex::new(spec)
+        BTreeIndex::new(spec).unwrap()
     }
 
     #[test]
@@ -261,15 +263,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "BTreeIndex requires IndexType::BTree")]
-    fn new_panics_for_unique_type() {
+    fn new_returns_error_for_unique_type() {
         let spec = IndexBuilder::vertex()
             .label("person")
             .property("email")
             .unique()
             .build()
             .unwrap();
-        BTreeIndex::new(spec);
+        let result = BTreeIndex::new(spec);
+        assert!(matches!(result, Err(IndexError::InvalidIndexType { .. })));
     }
 
     #[test]
@@ -561,7 +563,7 @@ mod tests {
             .property("name")
             .build()
             .unwrap();
-        let mut index = BTreeIndex::new(spec);
+        let mut index = BTreeIndex::new(spec).unwrap();
 
         index.insert(Value::String("Alice".to_string()), 1).unwrap();
         index.insert(Value::String("Bob".to_string()), 2).unwrap();
@@ -586,7 +588,7 @@ mod tests {
             .property("price")
             .build()
             .unwrap();
-        let mut index = BTreeIndex::new(spec);
+        let mut index = BTreeIndex::new(spec).unwrap();
 
         index.insert(Value::Float(9.99), 1).unwrap();
         index.insert(Value::Float(19.99), 2).unwrap();
