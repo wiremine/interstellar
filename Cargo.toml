@@ -75,6 +75,10 @@ required-features = ["mmap"]
 name = "rhai_scripting"
 required-features = ["rhai"]
 
+[[example]]
+name = "cow_mmap_unified_api"
+required-features = ["mmap"]
+
 [package.metadata.kani]
 # Default unwind bound for loops (can be overridden per-proof)
 default-unwind = 10

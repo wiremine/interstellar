@@ -655,7 +655,7 @@ mod tests {
         fn store_step_stores_values_in_side_effects() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StoreStep::new("collected");
 
@@ -683,7 +683,7 @@ mod tests {
         fn store_step_passes_traversers_through_unchanged() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StoreStep::new("x");
 
@@ -707,7 +707,7 @@ mod tests {
         fn store_step_handles_empty_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StoreStep::new("empty");
             let input: Vec<Traverser> = vec![];
@@ -723,7 +723,7 @@ mod tests {
         fn store_step_stores_multiple_values_sequentially() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StoreStep::new("items");
 
@@ -747,7 +747,7 @@ mod tests {
         fn store_step_stores_various_value_types() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StoreStep::new("mixed");
 
@@ -776,7 +776,7 @@ mod tests {
         fn store_step_multiple_stores_to_same_key_append() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // First store
             let step1 = StoreStep::new("data");
@@ -800,7 +800,7 @@ mod tests {
         fn store_step_is_lazy_not_barrier() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StoreStep::new("lazy_test");
             let input = vec![
@@ -862,7 +862,7 @@ mod tests {
         fn store_step_different_keys_store_independently() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Store to key "a"
             let step_a = StoreStep::new("a");
@@ -917,7 +917,7 @@ mod tests {
         fn aggregate_step_stores_all_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = AggregateStep::new("collected");
 
@@ -944,7 +944,7 @@ mod tests {
         fn aggregate_step_is_barrier() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = AggregateStep::new("barrier_test");
             let input = vec![
@@ -975,7 +975,7 @@ mod tests {
         fn aggregate_step_handles_empty_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = AggregateStep::new("empty");
             let input: Vec<Traverser> = vec![];
@@ -990,7 +990,7 @@ mod tests {
         fn aggregate_step_passes_traversers_through_unchanged() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = AggregateStep::new("x");
 
@@ -1049,7 +1049,7 @@ mod tests {
         fn cap_step_single_key_returns_list() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Pre-store some values
             ctx.side_effects.store("items", Value::Int(1));
@@ -1077,7 +1077,7 @@ mod tests {
         fn cap_step_multiple_keys_returns_map() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Pre-store values in different keys
             ctx.side_effects.store("vertices", Value::Int(1));
@@ -1115,7 +1115,7 @@ mod tests {
         fn cap_step_missing_key_returns_empty_list() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CapStep::new("nonexistent");
             let input: Vec<Traverser> = vec![];
@@ -1135,7 +1135,7 @@ mod tests {
         fn cap_step_consumes_input_stream() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create a store step and chain with cap
             let store_step = StoreStep::new("items");
@@ -1163,7 +1163,7 @@ mod tests {
         fn cap_step_with_empty_input_still_returns_result() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Pre-store values
             ctx.side_effects.store("x", Value::Int(42));
@@ -1210,7 +1210,7 @@ mod tests {
         fn side_effect_step_passes_traversers_through() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Side effect that does nothing
             let step = SideEffectStep::new(Traversal::new());
@@ -1228,7 +1228,7 @@ mod tests {
         fn side_effect_step_executes_sub_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Side effect that stores values
             let side_traversal =
@@ -1255,7 +1255,7 @@ mod tests {
         fn side_effect_step_handles_empty_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let side_traversal =
                 Traversal::<Value, Value>::new().add_step(StoreStep::new("empty_side"));
@@ -1273,7 +1273,7 @@ mod tests {
         fn side_effect_step_preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SideEffectStep::new(Traversal::new());
 
@@ -1345,7 +1345,7 @@ mod tests {
         fn profile_step_records_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProfileStep::with_key("count_test");
 
@@ -1375,7 +1375,7 @@ mod tests {
         fn profile_step_records_time_ms() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProfileStep::with_key("time_test");
 
@@ -1401,7 +1401,7 @@ mod tests {
         fn profile_step_uses_default_key_when_none_specified() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProfileStep::new(); // Uses default key "profile"
 
@@ -1418,7 +1418,7 @@ mod tests {
         fn profile_step_handles_empty_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProfileStep::with_key("empty_test");
 
@@ -1443,7 +1443,7 @@ mod tests {
         fn profile_step_passes_traversers_through_unchanged() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProfileStep::new();
 
@@ -1466,7 +1466,7 @@ mod tests {
         fn profile_step_only_records_once_on_exhaustion() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProfileStep::with_key("once_test");
 

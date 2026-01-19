@@ -86,6 +86,64 @@ pub use cow_mmap::{
     BatchError as CowMmapBatchError, CowMmapBatchContext, CowMmapGraph, CowMmapSnapshot,
 };
 
+// =============================================================================
+// Unified API Type Aliases (Spec 33: Unified Graph API)
+// =============================================================================
+//
+// These aliases provide the unified API names from Spec 33. The COW-based types
+// are the preferred implementations and will eventually replace the legacy types.
+//
+// | New Name           | Underlying Type  | Description                     |
+// |--------------------|------------------|---------------------------------|
+// | `UnifiedGraph`     | `CowGraph`       | In-memory graph with COW semantics |
+// | `UnifiedSnapshot`  | `CowSnapshot`    | Immutable snapshot for reads    |
+// | `PersistentGraph`  | `CowMmapGraph`   | Persistent graph with COW (mmap)|
+// | `PersistentSnapshot`| `CowMmapSnapshot`| Immutable persistent snapshot   |
+
+/// In-memory graph with Copy-on-Write semantics.
+///
+/// This is the recommended graph type for in-memory use cases. It provides:
+/// - O(1) snapshot creation via structural sharing
+/// - Lock-free read access on snapshots
+/// - Full traversal and GQL API support
+///
+/// This is an alias for [`CowGraph`].
+pub type UnifiedGraph = CowGraph;
+
+/// Immutable snapshot of an in-memory graph.
+///
+/// Snapshots are created via [`UnifiedGraph::snapshot()`](CowGraph::snapshot) and
+/// provide a consistent, point-in-time view of the graph. They support the full
+/// traversal and GQL API.
+///
+/// This is an alias for [`CowSnapshot`].
+pub type UnifiedSnapshot = CowSnapshot;
+
+/// Persistent graph with Copy-on-Write semantics and mmap storage.
+///
+/// This is the recommended graph type for persistent storage. It provides:
+/// - Durable storage to disk via memory-mapped files
+/// - O(1) snapshot creation via COW layer
+/// - Full traversal and GQL API support
+///
+/// Requires the `mmap` feature.
+///
+/// This is an alias for [`CowMmapGraph`].
+#[cfg(feature = "mmap")]
+pub type PersistentGraph = CowMmapGraph;
+
+/// Immutable snapshot of a persistent graph.
+///
+/// Snapshots are created via [`PersistentGraph::snapshot()`](CowMmapGraph::snapshot) and
+/// provide a consistent, point-in-time view of the graph. They support the full
+/// traversal and GQL API.
+///
+/// Requires the `mmap` feature.
+///
+/// This is an alias for [`CowMmapSnapshot`].
+#[cfg(feature = "mmap")]
+pub type PersistentSnapshot = CowMmapSnapshot;
+
 use crate::error::StorageError;
 use crate::value::{EdgeId, Value, VertexId};
 

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use crate::gql::ast::{BinaryOperator, Expression, UnaryOperator};
-use crate::graph::GraphSnapshot;
+use crate::storage::GraphStorage;
 use crate::value::Value;
 
 use super::Parameters;
@@ -310,21 +310,21 @@ pub(super) fn value_to_string(val: &Value) -> String {
 // They are designed to be called from within filter closures, taking a
 // GraphSnapshot reference and an element Value.
 
-/// Extract a property value from a vertex or edge using a snapshot.
+/// Extract a property value from a vertex or edge using a storage backend.
 ///
 /// This is a standalone version of `Compiler::extract_property` for use in closures.
-pub(super) fn extract_property_from_snapshot<'g>(
-    snapshot: &GraphSnapshot<'g>,
+pub(super) fn extract_property_from_storage(
+    storage: &dyn GraphStorage,
     element: &Value,
     property: &str,
 ) -> Option<Value> {
     match element {
         Value::Vertex(id) => {
-            let vertex = snapshot.storage().get_vertex(*id)?;
+            let vertex = storage.get_vertex(*id)?;
             vertex.properties.get(property).cloned()
         }
         Value::Edge(id) => {
-            let edge = snapshot.storage().get_edge(*id)?;
+            let edge = storage.get_edge(*id)?;
             edge.properties.get(property).cloned()
         }
         Value::Null => Some(Value::Null),
@@ -335,9 +335,9 @@ pub(super) fn extract_property_from_snapshot<'g>(
 /// Evaluate an expression to a Value for inline WHERE clauses.
 ///
 /// This is a standalone version of `Compiler::evaluate_value` that takes a
-/// snapshot reference, suitable for use within filter closures.
-pub(super) fn eval_inline_value<'g>(
-    snapshot: &GraphSnapshot<'g>,
+/// storage reference, suitable for use within filter closures.
+pub(super) fn eval_inline_value(
+    storage: &dyn GraphStorage,
     expr: &Expression,
     element: &Value,
     params: &Parameters,
@@ -354,23 +354,23 @@ pub(super) fn eval_inline_value<'g>(
         }
         Expression::Property { property, .. } => {
             // Extract property from the element
-            extract_property_from_snapshot(snapshot, element, property).unwrap_or(Value::Null)
+            extract_property_from_storage(storage, element, property).unwrap_or(Value::Null)
         }
         Expression::BinaryOp { left, op, right } => {
-            let left_val = eval_inline_value(snapshot, left, element, params);
-            let right_val = eval_inline_value(snapshot, right, element, params);
+            let left_val = eval_inline_value(storage, left, element, params);
+            let right_val = eval_inline_value(storage, right, element, params);
             apply_binary_op(*op, left_val, right_val)
         }
         Expression::UnaryOp { op, expr } => match op {
             UnaryOperator::Not => {
-                let val = eval_inline_value(snapshot, expr, element, params);
+                let val = eval_inline_value(storage, expr, element, params);
                 match val {
                     Value::Bool(b) => Value::Bool(!b),
                     _ => Value::Null,
                 }
             }
             UnaryOperator::Neg => {
-                let val = eval_inline_value(snapshot, expr, element, params);
+                let val = eval_inline_value(storage, expr, element, params);
                 match val {
                     Value::Int(n) => Value::Int(-n),
                     Value::Float(f) => Value::Float(-f),
@@ -379,7 +379,7 @@ pub(super) fn eval_inline_value<'g>(
             }
         },
         Expression::IsNull { expr, negated } => {
-            let val = eval_inline_value(snapshot, expr, element, params);
+            let val = eval_inline_value(storage, expr, element, params);
             let is_null = matches!(val, Value::Null);
             Value::Bool(if *negated { !is_null } else { is_null })
         }
@@ -388,9 +388,9 @@ pub(super) fn eval_inline_value<'g>(
             list,
             negated,
         } => {
-            let val = eval_inline_value(snapshot, expr, element, params);
+            let val = eval_inline_value(storage, expr, element, params);
             let in_list = list.iter().any(|item| {
-                let item_val = eval_inline_value(snapshot, item, element, params);
+                let item_val = eval_inline_value(storage, item, element, params);
                 val == item_val
             });
             Value::Bool(if *negated { !in_list } else { in_list })
@@ -398,7 +398,7 @@ pub(super) fn eval_inline_value<'g>(
         Expression::List(items) => {
             let values: Vec<Value> = items
                 .iter()
-                .map(|item| eval_inline_value(snapshot, item, element, params))
+                .map(|item| eval_inline_value(storage, item, element, params))
                 .collect();
             Value::List(values)
         }
@@ -406,7 +406,7 @@ pub(super) fn eval_inline_value<'g>(
             let map: HashMap<String, Value> = entries
                 .iter()
                 .map(|(key, value_expr)| {
-                    let value = eval_inline_value(snapshot, value_expr, element, params);
+                    let value = eval_inline_value(storage, value_expr, element, params);
                     (key.clone(), value)
                 })
                 .collect();
@@ -421,9 +421,9 @@ pub(super) fn eval_inline_value<'g>(
 /// Evaluate a predicate expression for inline WHERE clauses.
 ///
 /// This is a standalone version of `Compiler::evaluate_predicate` that takes a
-/// snapshot reference, suitable for use within filter closures.
-pub(super) fn eval_inline_predicate<'g>(
-    snapshot: &GraphSnapshot<'g>,
+/// storage reference, suitable for use within filter closures.
+pub(super) fn eval_inline_predicate(
+    storage: &dyn GraphStorage,
     expr: &Expression,
     element: &Value,
     params: &Parameters,
@@ -433,26 +433,26 @@ pub(super) fn eval_inline_predicate<'g>(
             match op {
                 // Logical operators
                 BinaryOperator::And => {
-                    eval_inline_predicate(snapshot, left, element, params)
-                        && eval_inline_predicate(snapshot, right, element, params)
+                    eval_inline_predicate(storage, left, element, params)
+                        && eval_inline_predicate(storage, right, element, params)
                 }
                 BinaryOperator::Or => {
-                    eval_inline_predicate(snapshot, left, element, params)
-                        || eval_inline_predicate(snapshot, right, element, params)
+                    eval_inline_predicate(storage, left, element, params)
+                        || eval_inline_predicate(storage, right, element, params)
                 }
                 // Comparison and other operators
                 _ => {
-                    let left_val = eval_inline_value(snapshot, left, element, params);
-                    let right_val = eval_inline_value(snapshot, right, element, params);
+                    let left_val = eval_inline_value(storage, left, element, params);
+                    let right_val = eval_inline_value(storage, right, element, params);
                     apply_comparison(*op, &left_val, &right_val)
                 }
             }
         }
         Expression::UnaryOp { op, expr } => match op {
-            UnaryOperator::Not => !eval_inline_predicate(snapshot, expr, element, params),
+            UnaryOperator::Not => !eval_inline_predicate(storage, expr, element, params),
             UnaryOperator::Neg => {
                 // Negation of a value - treat non-zero as true
-                match eval_inline_value(snapshot, expr, element, params) {
+                match eval_inline_value(storage, expr, element, params) {
                     Value::Int(n) => n == 0,
                     Value::Float(f) => f == 0.0,
                     Value::Bool(b) => !b,
@@ -462,7 +462,7 @@ pub(super) fn eval_inline_predicate<'g>(
             }
         },
         Expression::IsNull { expr, negated } => {
-            let val = eval_inline_value(snapshot, expr, element, params);
+            let val = eval_inline_value(storage, expr, element, params);
             let is_null = matches!(val, Value::Null);
             if *negated {
                 !is_null
@@ -475,9 +475,9 @@ pub(super) fn eval_inline_predicate<'g>(
             list,
             negated,
         } => {
-            let val = eval_inline_value(snapshot, expr, element, params);
+            let val = eval_inline_value(storage, expr, element, params);
             let in_list = list.iter().any(|item| {
-                let item_val = eval_inline_value(snapshot, item, element, params);
+                let item_val = eval_inline_value(storage, item, element, params);
                 val == item_val
             });
             if *negated {
@@ -488,7 +488,7 @@ pub(super) fn eval_inline_predicate<'g>(
         }
         // For other expressions, evaluate and check truthiness
         _ => {
-            let val = eval_inline_value(snapshot, expr, element, params);
+            let val = eval_inline_value(storage, expr, element, params);
             value_to_bool(&val)
         }
     }

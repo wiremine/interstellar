@@ -96,7 +96,6 @@ impl ValuesStep {
             Value::Vertex(id) => {
                 // Get vertex properties
                 let props: Vec<Value> = ctx
-                    .snapshot()
                     .storage()
                     .get_vertex(*id)
                     .map(|vertex| {
@@ -117,7 +116,6 @@ impl ValuesStep {
             Value::Edge(id) => {
                 // Get edge properties
                 let props: Vec<Value> = ctx
-                    .snapshot()
                     .storage()
                     .get_edge(*id)
                     .map(|edge| {
@@ -256,7 +254,7 @@ mod tests {
         fn extracts_single_property_from_vertex() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -272,7 +270,7 @@ mod tests {
         fn extracts_multiple_properties_from_single_vertex() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::multi(vec!["name".to_string(), "age".to_string()]);
 
@@ -291,7 +289,7 @@ mod tests {
         fn extracts_properties_from_multiple_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -314,7 +312,7 @@ mod tests {
         fn skips_missing_properties() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("age");
 
@@ -335,7 +333,7 @@ mod tests {
         fn vertex_with_no_properties_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -350,7 +348,7 @@ mod tests {
         fn nonexistent_property_key_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("nonexistent_property");
 
@@ -368,7 +366,7 @@ mod tests {
         fn nonexistent_vertex_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -383,7 +381,7 @@ mod tests {
         fn extracts_different_value_types() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Extract string property
             let step_name = ValuesStep::new("name");
@@ -416,7 +414,7 @@ mod tests {
         fn extracts_single_property_from_edge() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("since");
 
@@ -432,7 +430,7 @@ mod tests {
         fn extracts_multiple_properties_from_edge() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::multi(vec!["since".to_string(), "weight".to_string()]);
 
@@ -450,7 +448,7 @@ mod tests {
         fn edge_with_no_properties_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("since");
 
@@ -465,7 +463,7 @@ mod tests {
         fn nonexistent_edge_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("since");
 
@@ -484,7 +482,7 @@ mod tests {
         fn filters_out_integer_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -499,7 +497,7 @@ mod tests {
         fn filters_out_string_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -514,7 +512,7 @@ mod tests {
         fn filters_out_null_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -529,7 +527,7 @@ mod tests {
         fn filters_out_boolean_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -544,7 +542,7 @@ mod tests {
         fn mixed_elements_and_non_elements() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -571,7 +569,7 @@ mod tests {
         fn preserves_path_from_input_traverser() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -589,7 +587,7 @@ mod tests {
         fn preserves_loops_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -607,7 +605,7 @@ mod tests {
         fn preserves_bulk_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
 
@@ -625,7 +623,7 @@ mod tests {
         fn multiple_outputs_preserve_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::multi(vec!["name".to_string(), "age".to_string()]);
 
@@ -654,7 +652,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::new("name");
             let input: Vec<Traverser> = vec![];
@@ -668,7 +666,7 @@ mod tests {
         fn empty_keys_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValuesStep::multi(vec![]);
 

@@ -173,12 +173,10 @@ impl GroupStep {
                 // Extract label from vertex or edge
                 match &traverser.value {
                     Value::Vertex(id) => ctx
-                        .snapshot()
                         .storage()
                         .get_vertex(*id)
                         .map(|v| Value::String(v.label.clone())),
                     Value::Edge(id) => ctx
-                        .snapshot()
                         .storage()
                         .get_edge(*id)
                         .map(|e| Value::String(e.label.clone())),
@@ -189,12 +187,10 @@ impl GroupStep {
                 // Extract property value
                 match &traverser.value {
                     Value::Vertex(id) => ctx
-                        .snapshot()
                         .storage()
                         .get_vertex(*id)
                         .and_then(|v| v.properties.get(key).cloned()),
                     Value::Edge(id) => ctx
-                        .snapshot()
                         .storage()
                         .get_edge(*id)
                         .and_then(|e| e.properties.get(key).cloned()),
@@ -221,12 +217,10 @@ impl GroupStep {
                 // Extract property value
                 match &traverser.value {
                     Value::Vertex(id) => ctx
-                        .snapshot()
                         .storage()
                         .get_vertex(*id)
                         .and_then(|v| v.properties.get(key).cloned()),
                     Value::Edge(id) => ctx
-                        .snapshot()
                         .storage()
                         .get_edge(*id)
                         .and_then(|e| e.properties.get(key).cloned()),
@@ -431,7 +425,7 @@ impl<In> GroupBuilder<In> {
 ///     .next();
 /// ```
 pub struct BoundGroupBuilder<'g, In> {
-    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn AnyStep>>,
@@ -444,14 +438,14 @@ pub struct BoundGroupBuilder<'g, In> {
 impl<'g, In> BoundGroupBuilder<'g, In> {
     /// Create a new BoundGroupBuilder with existing steps and graph references.
     pub(crate) fn new(
-        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn AnyStep>>,
         track_paths: bool,
     ) -> Self {
         Self {
-            snapshot,
+            storage,
             interner,
             source,
             steps,
@@ -514,7 +508,7 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
         };
 
         let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
 
         // Preserve track_paths by conditionally calling with_path()
         if self.track_paths {
@@ -588,12 +582,10 @@ impl GroupCountStep {
         match &self.key_selector {
             GroupKey::Label => match &traverser.value {
                 Value::Vertex(id) => ctx
-                    .snapshot()
                     .storage()
                     .get_vertex(*id)
                     .map(|v| Value::String(v.label.clone())),
                 Value::Edge(id) => ctx
-                    .snapshot()
                     .storage()
                     .get_edge(*id)
                     .map(|e| Value::String(e.label.clone())),
@@ -601,12 +593,10 @@ impl GroupCountStep {
             },
             GroupKey::Property(key) => match &traverser.value {
                 Value::Vertex(id) => ctx
-                    .snapshot()
                     .storage()
                     .get_vertex(*id)
                     .and_then(|v| v.properties.get(key).cloned()),
                 Value::Edge(id) => ctx
-                    .snapshot()
                     .storage()
                     .get_edge(*id)
                     .and_then(|e| e.properties.get(key).cloned()),
@@ -761,7 +751,7 @@ impl<In> GroupCountBuilder<In> {
 /// This builder preserves the graph snapshot reference and path tracking state
 /// when building the final `BoundTraversal`.
 pub struct BoundGroupCountBuilder<'g, In> {
-    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn AnyStep>>,
@@ -773,14 +763,14 @@ pub struct BoundGroupCountBuilder<'g, In> {
 impl<'g, In> BoundGroupCountBuilder<'g, In> {
     /// Create a new BoundGroupCountBuilder.
     pub(crate) fn new(
-        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn AnyStep>>,
         track_paths: bool,
     ) -> Self {
         BoundGroupCountBuilder {
-            snapshot,
+            storage,
             interner,
             source,
             steps,
@@ -821,7 +811,7 @@ impl<'g, In> BoundGroupCountBuilder<'g, In> {
         };
 
         let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
 
         // Preserve track_paths by conditionally calling with_path()
         if self.track_paths {
@@ -1119,7 +1109,7 @@ mod tests {
     fn test_group_count_respects_bulk() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
         let step = GroupCountStep::new(GroupKey::Label);
 
@@ -1379,7 +1369,7 @@ mod tests {
     fn test_group_with_bulk_traversers() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
         let step = GroupStep::with_selectors(GroupKey::Label, GroupValue::Identity);
 
@@ -1582,7 +1572,7 @@ mod tests {
     fn test_group_count_multiple_bulk_values() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
         let step = GroupCountStep::new(GroupKey::Property("age".to_string()));
 

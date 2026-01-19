@@ -114,7 +114,7 @@ pub use branch::{
 };
 
 // Re-export context types
-pub use context::{ExecutionContext, SideEffects};
+pub use context::{ExecutionContext, SideEffects, SnapshotLike};
 
 // Re-export filter types
 pub use filter::{

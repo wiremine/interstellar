@@ -85,6 +85,12 @@ use crate::index::{
 use crate::schema::GraphSchema;
 use crate::storage::interner::StringInterner;
 use crate::storage::{Edge, GraphStorage, Vertex};
+use crate::traversal::mutation::{DropStep, PendingMutation, PropertyStep};
+use crate::traversal::{
+    ExecutionContext, HasLabelStep, HasStep, HasValueStep, IdStep, InEStep, InStep, InVStep,
+    LabelStep, LimitStep, OutEStep, OutStep, OutVStep, SkipStep, Traversal, TraversalSource,
+    Traverser, ValuesStep,
+};
 use crate::value::{EdgeId, Value, VertexId};
 
 // =============================================================================
@@ -298,9 +304,37 @@ impl CowGraph {
     /// ```
     pub fn snapshot(&self) -> CowSnapshot {
         let state = self.state.read();
+        // Clone the interner to avoid shared lock issues
+        let interner_snapshot = Arc::new(state.interner.read().clone());
         CowSnapshot {
             state: Arc::new((*state).clone()),
+            interner_snapshot,
         }
+    }
+
+    /// Create a traversal source for this graph.
+    ///
+    /// The returned [`CowTraversalSource`] provides a unified API for both
+    /// reads and mutations. Any mutations in the traversal are automatically
+    /// executed when terminal steps are called.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::CowGraph;
+    ///
+    /// let graph = CowGraph::new();
+    /// let g = graph.traversal();
+    ///
+    /// // Create vertices
+    /// let alice = g.add_v("Person").property("name", "Alice").next();
+    /// let bob = g.add_v("Person").property("name", "Bob").next();
+    ///
+    /// // Read
+    /// assert_eq!(g.v().count(), 2);
+    /// ```
+    pub fn traversal(&self) -> CowTraversalSource<'_> {
+        CowTraversalSource::new(self)
     }
 
     // =========================================================================
@@ -1305,15 +1339,16 @@ impl CowGraph {
     }
 
     // =========================================================================
-    // GQL Mutation API
+    // GQL API
     // =========================================================================
 
     /// Execute a GQL mutation statement.
     ///
     /// This method parses and executes GQL mutation statements (CREATE, SET,
-    /// DELETE, DETACH DELETE, MERGE). Read-only queries are not currently
-    /// supported directly on CowGraph - use `snapshot()` and the regular
-    /// GQL APIs for reads.
+    /// DELETE, DETACH DELETE, MERGE).
+    ///
+    /// For read-only queries, use [`snapshot().gql()`](crate::graph::GraphSnapshot::gql)
+    /// instead.
     ///
     /// # Example
     ///
@@ -1323,21 +1358,20 @@ impl CowGraph {
     ///
     /// let graph = CowGraph::new();
     ///
-    /// // Mutation - acquires write lock, executes atomically
-    /// let results = graph.execute_mutation("CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
-    /// assert_eq!(results.len(), 1);
+    /// // Mutations via gql()
+    /// graph.gql("CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
+    /// graph.gql("MATCH (n:Person) SET n.age = 30").unwrap();
     ///
-    /// // Verify
-    /// let snap = graph.snapshot();
-    /// assert_eq!(snap.vertex_count(), 1);
+    /// // Verify the mutation worked
+    /// assert_eq!(graph.snapshot().vertex_count(), 1);
     /// ```
-    pub fn execute_mutation(&self, gql: &str) -> Result<Vec<Value>, GqlError> {
-        let stmt = gql::parse_statement(gql)?;
+    pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError> {
+        let stmt = gql::parse_statement(query)?;
 
         if stmt.is_read_only() {
             return Err(GqlError::Mutation(
-                "Read-only queries not supported via execute_mutation(). \
-                 Use snapshot() and the standard GQL APIs for reads."
+                "Read-only queries not supported via gql(). \
+                 Use snapshot().gql() for reads."
                     .to_string(),
             ));
         }
@@ -1410,6 +1444,633 @@ impl Default for CowGraph {
 }
 
 // =============================================================================
+// CowTraversalSource - Unified Traversal API with Auto-Mutation
+// =============================================================================
+
+/// Entry point for traversals on a [`CowGraph`] with automatic mutation execution.
+///
+/// Unlike the read-only [`GraphTraversalSource`](crate::traversal::GraphTraversalSource),
+/// this traversal source has access to the underlying `CowGraph` and will automatically
+/// execute any mutations when terminal steps are called.
+///
+/// # Unified API
+///
+/// Both reads and writes use the same API - no separate "mutation mode":
+///
+/// ```
+/// use interstellar::storage::cow::CowGraph;
+/// use std::collections::HashMap;
+///
+/// let graph = CowGraph::new();
+/// let g = graph.traversal();
+///
+/// // Mutations are executed automatically
+/// let alice = g.add_v("Person").property("name", "Alice").next();
+/// let bob = g.add_v("Person").property("name", "Bob").next();
+///
+/// // Reads work normally
+/// let count = g.v().count();  // 2
+/// ```
+pub struct CowTraversalSource<'g> {
+    graph: &'g CowGraph,
+}
+
+impl<'g> CowTraversalSource<'g> {
+    /// Create a new traversal source for the given graph.
+    pub fn new(graph: &'g CowGraph) -> Self {
+        Self { graph }
+    }
+
+    /// Start traversal from all vertices.
+    pub fn v(&self) -> CowBoundTraversal<'g, (), Value> {
+        CowBoundTraversal::new(
+            self.graph,
+            Traversal::with_source(TraversalSource::AllVertices),
+        )
+    }
+
+    /// Start traversal from specific vertex IDs.
+    pub fn v_ids<I>(&self, ids: I) -> CowBoundTraversal<'g, (), Value>
+    where
+        I: IntoIterator<Item = VertexId>,
+    {
+        CowBoundTraversal::new(
+            self.graph,
+            Traversal::with_source(TraversalSource::Vertices(ids.into_iter().collect())),
+        )
+    }
+
+    /// Start traversal from a single vertex ID.
+    pub fn v_id(&self, id: VertexId) -> CowBoundTraversal<'g, (), Value> {
+        self.v_ids([id])
+    }
+
+    /// Start traversal from all edges.
+    pub fn e(&self) -> CowBoundTraversal<'g, (), Value> {
+        CowBoundTraversal::new(
+            self.graph,
+            Traversal::with_source(TraversalSource::AllEdges),
+        )
+    }
+
+    /// Start traversal from specific edge IDs.
+    pub fn e_ids<I>(&self, ids: I) -> CowBoundTraversal<'g, (), Value>
+    where
+        I: IntoIterator<Item = EdgeId>,
+    {
+        CowBoundTraversal::new(
+            self.graph,
+            Traversal::with_source(TraversalSource::Edges(ids.into_iter().collect())),
+        )
+    }
+
+    /// Start a traversal that creates a new vertex.
+    ///
+    /// The vertex is created when a terminal step is called.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::CowGraph;
+    ///
+    /// let graph = CowGraph::new();
+    /// let g = graph.traversal();
+    ///
+    /// let vertex = g.add_v("Person").property("name", "Alice").next();
+    /// assert!(vertex.is_some());
+    /// assert_eq!(graph.vertex_count(), 1);
+    /// ```
+    pub fn add_v(&self, label: impl Into<String>) -> CowBoundTraversal<'g, (), Value> {
+        use crate::traversal::mutation::AddVStep;
+
+        let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
+        traversal = traversal.add_step(AddVStep::new(label));
+        CowBoundTraversal::new(self.graph, traversal)
+    }
+
+    /// Start a traversal that creates a new edge.
+    ///
+    /// Must specify `from` and `to` vertices before calling a terminal step.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::CowGraph;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = CowGraph::new();
+    /// let alice = graph.add_vertex("Person", HashMap::new());
+    /// let bob = graph.add_vertex("Person", HashMap::new());
+    ///
+    /// let g = graph.traversal();
+    /// let edge = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
+    /// assert!(edge.is_some());
+    /// assert_eq!(graph.edge_count(), 1);
+    /// ```
+    pub fn add_e(&self, label: impl Into<String>) -> CowAddEdgeBuilder<'g> {
+        CowAddEdgeBuilder::new(self.graph, label.into())
+    }
+
+    /// Inject arbitrary values into the traversal stream.
+    pub fn inject<I>(&self, values: I) -> CowBoundTraversal<'g, (), Value>
+    where
+        I: IntoIterator<Item = Value>,
+    {
+        CowBoundTraversal::new(
+            self.graph,
+            Traversal::with_source(TraversalSource::Inject(values.into_iter().collect())),
+        )
+    }
+}
+
+// =============================================================================
+// CowBoundTraversal - Traversal with Auto-Mutation Execution
+// =============================================================================
+
+/// A traversal bound to a [`CowGraph`] with automatic mutation execution.
+///
+/// When terminal steps (`to_list()`, `next()`, `iterate()`, etc.) are called,
+/// any pending mutations in the traversal results are automatically executed
+/// against the graph.
+pub struct CowBoundTraversal<'g, In, Out> {
+    graph: &'g CowGraph,
+    traversal: Traversal<In, Out>,
+    track_paths: bool,
+}
+
+impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
+    /// Create a new bound traversal.
+    pub(crate) fn new(graph: &'g CowGraph, traversal: Traversal<In, Out>) -> Self {
+        Self {
+            graph,
+            traversal,
+            track_paths: false,
+        }
+    }
+
+    /// Enable automatic path tracking for this traversal.
+    pub fn with_path(mut self) -> Self {
+        self.track_paths = true;
+        self
+    }
+
+    /// Add a step to the traversal.
+    pub fn add_step<NewOut>(
+        self,
+        step: impl crate::traversal::step::AnyStep + 'static,
+    ) -> CowBoundTraversal<'g, In, NewOut> {
+        CowBoundTraversal {
+            graph: self.graph,
+            traversal: self.traversal.add_step(step),
+            track_paths: self.track_paths,
+        }
+    }
+
+    /// Append an anonymous traversal's steps.
+    pub fn append<Mid>(self, anon: Traversal<Out, Mid>) -> CowBoundTraversal<'g, In, Mid> {
+        CowBoundTraversal {
+            graph: self.graph,
+            traversal: self.traversal.append(anon),
+            track_paths: self.track_paths,
+        }
+    }
+
+    /// Execute the traversal and process any pending mutations.
+    ///
+    /// Returns an iterator over the results with mutations applied.
+    fn execute_with_mutations(self) -> Vec<Value> {
+        use crate::traversal::step::{AnyStep, StartStep};
+        use crate::traversal::traverser::TraversalSource;
+
+        // For mutation-only traversals (add_v, add_e, property, drop),
+        // we can execute without a full ExecutionContext since these steps
+        // don't need graph access - they just produce pending mutation markers.
+        //
+        // This avoids the deadlock issue where CowSnapshot::interner() leaks
+        // a read guard that blocks later write operations.
+
+        // Decompose traversal into source and steps
+        let (source, steps) = self.traversal.into_steps();
+
+        // Check if this is a mutation-only traversal (source is Inject([]))
+        let is_mutation_only = match &source {
+            Some(TraversalSource::Inject(values)) if values.is_empty() => true,
+            _ => false,
+        };
+
+        let results: Vec<Traverser> = if is_mutation_only {
+            // For mutation-only traversals, execute steps directly without
+            // needing a full ExecutionContext. We create a minimal dummy context.
+            let dummy_storage = crate::storage::InMemoryGraph::new();
+            let dummy_interner = dummy_storage.interner();
+            let storage_ref: &dyn GraphStorage = &dummy_storage;
+
+            let ctx = if self.track_paths {
+                ExecutionContext::with_path_tracking(storage_ref, dummy_interner)
+            } else {
+                ExecutionContext::new(storage_ref, dummy_interner)
+            };
+
+            // Start with empty input (since source is Inject([]))
+            let mut current: Vec<Traverser> = Vec::new();
+
+            // For add_v, we need to inject a single empty value to trigger the step
+            // The add_v step ignores input and produces one pending mutation
+            if !steps.is_empty() {
+                // Inject a single traverser to trigger the mutation step
+                current = vec![Traverser::new(Value::Null)];
+            }
+
+            // Apply each step in sequence
+            for step in &steps {
+                current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+            }
+
+            current
+        } else {
+            // For read traversals that need graph access, use the full path
+            // Create a snapshot for read operations
+            let snapshot = self.graph.snapshot();
+            let interner = snapshot.interner();
+            let storage_ref: &dyn GraphStorage = &snapshot;
+
+            // Create execution context - CowSnapshot implements GraphStorage
+            let ctx = if self.track_paths {
+                ExecutionContext::with_path_tracking(storage_ref, interner)
+            } else {
+                ExecutionContext::new(storage_ref, interner)
+            };
+
+            // Start with source traversers
+            let mut current: Vec<Traverser> = match source {
+                Some(src) => {
+                    let start_step = StartStep::new(src);
+                    start_step
+                        .apply(&ctx, Box::new(std::iter::empty()))
+                        .collect()
+                }
+                None => Vec::new(),
+            };
+
+            // Apply each step in sequence
+            for step in &steps {
+                current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+            }
+
+            current
+            // Note: For read-only traversals, we don't need to mutate after,
+            // so the leaked guard in interner() is not a problem
+        };
+
+        // Process results, executing any pending mutations
+        let mut wrapper = CowGraphMutWrapper { graph: self.graph };
+        let mut final_results = Vec::with_capacity(results.len());
+
+        for traverser in results {
+            if let Some(mutation) = PendingMutation::from_value(&traverser.value) {
+                // Execute the mutation and get the result
+                if let Some(result) = Self::execute_mutation(&mut wrapper, mutation) {
+                    final_results.push(result);
+                }
+            } else {
+                // Not a mutation, pass through
+                final_results.push(traverser.value);
+            }
+        }
+
+        final_results
+    }
+
+    /// Execute a single pending mutation.
+    fn execute_mutation(
+        wrapper: &mut CowGraphMutWrapper<'_>,
+        mutation: PendingMutation,
+    ) -> Option<Value> {
+        use crate::storage::GraphStorageMut;
+
+        match mutation {
+            PendingMutation::AddVertex { label, properties } => {
+                let id = wrapper.add_vertex(&label, properties);
+                Some(Value::Vertex(id))
+            }
+            PendingMutation::AddEdge {
+                label,
+                from,
+                to,
+                properties,
+            } => match wrapper.add_edge(from, to, &label, properties) {
+                Ok(id) => Some(Value::Edge(id)),
+                Err(_) => None,
+            },
+            PendingMutation::SetVertexProperty { id, key, value } => {
+                wrapper.set_vertex_property(id, &key, value).ok()?;
+                Some(Value::Vertex(id))
+            }
+            PendingMutation::SetEdgeProperty { id, key, value } => {
+                wrapper.set_edge_property(id, &key, value).ok()?;
+                Some(Value::Edge(id))
+            }
+            PendingMutation::DropVertex { id } => {
+                wrapper.remove_vertex(id).ok()?;
+                None
+            }
+            PendingMutation::DropEdge { id } => {
+                wrapper.remove_edge(id).ok()?;
+                None
+            }
+        }
+    }
+}
+
+// Terminal methods on CowBoundTraversal
+impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
+    /// Execute and collect all values into a list.
+    ///
+    /// Any pending mutations in the results are automatically executed.
+    pub fn to_list(self) -> Vec<Value> {
+        self.execute_with_mutations()
+    }
+
+    /// Execute and return the first value, if any.
+    ///
+    /// Any pending mutations are automatically executed.
+    pub fn next(self) -> Option<Value> {
+        self.execute_with_mutations().into_iter().next()
+    }
+
+    /// Execute and consume the traversal, discarding results.
+    ///
+    /// Any pending mutations are automatically executed.
+    pub fn iterate(self) {
+        let _ = self.execute_with_mutations();
+    }
+
+    /// Execute and count the number of results.
+    pub fn count(self) -> u64 {
+        self.execute_with_mutations().len() as u64
+    }
+
+    /// Execute and collect unique values into a set.
+    pub fn to_set(self) -> std::collections::HashSet<Value> {
+        self.execute_with_mutations().into_iter().collect()
+    }
+
+    /// Check if the traversal produces any results.
+    pub fn has_next(self) -> bool {
+        !self.execute_with_mutations().is_empty()
+    }
+}
+
+// Step methods for CowBoundTraversal<Value>
+impl<'g, In> CowBoundTraversal<'g, In, Value> {
+    /// Filter elements by label.
+    pub fn has_label(self, label: impl Into<String>) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(HasLabelStep::single(label))
+    }
+
+    /// Filter to elements that have a specific property key.
+    pub fn has(self, key: impl Into<String>) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(HasStep::new(key.into()))
+    }
+
+    /// Filter to elements where a property equals a value.
+    pub fn has_value(
+        self,
+        key: impl Into<String>,
+        value: Value,
+    ) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(HasValueStep::new(key.into(), value))
+    }
+
+    /// Traverse to outgoing adjacent vertices.
+    pub fn out(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(OutStep::new())
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with label.
+    pub fn out_label(self, label: impl Into<String>) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(OutStep::with_labels(vec![label.into()]))
+    }
+
+    /// Traverse to incoming adjacent vertices.
+    pub fn in_(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(InStep::new())
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with label.
+    pub fn in_label(self, label: impl Into<String>) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(InStep::with_labels(vec![label.into()]))
+    }
+
+    /// Traverse to outgoing edges.
+    pub fn out_e(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(OutEStep::new())
+    }
+
+    /// Traverse to incoming edges.
+    pub fn in_e(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(InEStep::new())
+    }
+
+    /// Traverse to the target vertex of an edge.
+    pub fn in_v(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(InVStep)
+    }
+
+    /// Traverse to the source vertex of an edge.
+    pub fn out_v(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(OutVStep)
+    }
+
+    /// Get property values by key.
+    pub fn values(self, key: impl Into<String>) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(ValuesStep::new(key.into()))
+    }
+
+    /// Add a property to the current element (for mutation traversals).
+    pub fn property(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(PropertyStep::new(key.into(), value.into()))
+    }
+
+    /// Drop (delete) the current element.
+    pub fn drop(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(DropStep)
+    }
+
+    /// Add an edge from the current vertex.
+    pub fn add_e(self, label: impl Into<String>) -> CowBoundAddEdgeBuilder<'g, In> {
+        CowBoundAddEdgeBuilder::new(self.graph, self.traversal, label.into(), self.track_paths)
+    }
+
+    /// Limit results to first n.
+    pub fn limit(self, n: usize) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(LimitStep::new(n))
+    }
+
+    /// Skip first n results.
+    pub fn skip(self, n: usize) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(SkipStep::new(n))
+    }
+
+    /// Get element IDs.
+    pub fn id(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(IdStep)
+    }
+
+    /// Get element labels.
+    pub fn label(self) -> CowBoundTraversal<'g, In, Value> {
+        self.add_step(LabelStep)
+    }
+}
+
+// =============================================================================
+// CowAddEdgeBuilder - Builder for add_e() from traversal source
+// =============================================================================
+
+/// Builder for creating edges from the traversal source.
+pub struct CowAddEdgeBuilder<'g> {
+    graph: &'g CowGraph,
+    label: String,
+    from: Option<VertexId>,
+    to: Option<VertexId>,
+    properties: HashMap<String, Value>,
+}
+
+impl<'g> CowAddEdgeBuilder<'g> {
+    fn new(graph: &'g CowGraph, label: String) -> Self {
+        Self {
+            graph,
+            label,
+            from: None,
+            to: None,
+            properties: HashMap::new(),
+        }
+    }
+
+    /// Set the source vertex by ID.
+    pub fn from_id(mut self, id: VertexId) -> Self {
+        self.from = Some(id);
+        self
+    }
+
+    /// Set the destination vertex by ID.
+    pub fn to_id(mut self, id: VertexId) -> Self {
+        self.to = Some(id);
+        self
+    }
+
+    /// Add a property to the edge.
+    pub fn property(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.properties.insert(key.into(), value.into());
+        self
+    }
+
+    /// Execute and return the created edge.
+    pub fn next(self) -> Option<Value> {
+        let from = self.from?;
+        let to = self.to?;
+
+        match self.graph.add_edge(from, to, &self.label, self.properties) {
+            Ok(id) => Some(Value::Edge(id)),
+            Err(_) => None,
+        }
+    }
+
+    /// Execute, discarding the result.
+    pub fn iterate(self) {
+        let _ = self.next();
+    }
+
+    /// Execute and return results as a list.
+    pub fn to_list(self) -> Vec<Value> {
+        self.next().into_iter().collect()
+    }
+}
+
+// =============================================================================
+// CowBoundAddEdgeBuilder - Builder for add_e() from traversal
+// =============================================================================
+
+/// Builder for creating edges from an existing traversal.
+pub struct CowBoundAddEdgeBuilder<'g, In> {
+    graph: &'g CowGraph,
+    traversal: Traversal<In, Value>,
+    label: String,
+    to: Option<VertexId>,
+    properties: HashMap<String, Value>,
+    track_paths: bool,
+}
+
+impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
+    fn new(
+        graph: &'g CowGraph,
+        traversal: Traversal<In, Value>,
+        label: String,
+        track_paths: bool,
+    ) -> Self {
+        Self {
+            graph,
+            traversal,
+            label,
+            to: None,
+            properties: HashMap::new(),
+            track_paths,
+        }
+    }
+
+    /// Set the destination vertex by ID.
+    pub fn to_id(mut self, id: VertexId) -> Self {
+        self.to = Some(id);
+        self
+    }
+
+    /// Add a property to the edge.
+    pub fn property(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.properties.insert(key.into(), value.into());
+        self
+    }
+
+    /// Build and execute the traversal, creating edges.
+    pub fn to_list(self) -> Vec<Value> {
+        use crate::traversal::mutation::AddEStep;
+
+        let to_id = match self.to {
+            Some(id) => id,
+            None => return vec![],
+        };
+
+        let mut step = AddEStep::new(&self.label);
+        step = step.to_vertex(to_id);
+        for (k, v) in self.properties {
+            step = step.property(k, v);
+        }
+
+        let traversal: Traversal<In, Value> = self.traversal.add_step(step);
+        let bound = CowBoundTraversal {
+            graph: self.graph,
+            traversal,
+            track_paths: self.track_paths,
+        };
+
+        bound.to_list()
+    }
+
+    /// Execute and return the first edge created.
+    pub fn next(self) -> Option<Value> {
+        self.to_list().into_iter().next()
+    }
+
+    /// Execute, discarding results.
+    pub fn iterate(self) {
+        let _ = self.to_list();
+    }
+}
+
+// =============================================================================
 // CowSnapshot - Immutable Owned Snapshot
 // =============================================================================
 
@@ -1445,6 +2106,8 @@ impl Default for CowGraph {
 pub struct CowSnapshot {
     /// Shared reference to frozen state
     state: Arc<CowGraphState>,
+    /// Cloned interner - snapshot-local, no shared lock
+    interner_snapshot: Arc<StringInterner>,
 }
 
 impl CowSnapshot {
@@ -1453,24 +2116,125 @@ impl CowSnapshot {
         self.state.version
     }
 
-    // Note: GQL query support and traversal() are not yet available for CowSnapshot
-    // because the GQL compiler and traversal engine are currently tied to GraphSnapshot.
-    // This will be addressed in a future update to make those modules generic over
-    // GraphStorage implementations.
-    //
-    // For now, use the programmatic GraphStorage API (get_vertex, out_edges, etc.)
-    // or wrap the CowSnapshot data in a Graph for full GQL/traversal support.
+    /// Get the string interner for this snapshot.
+    ///
+    /// This returns a reference to the snapshot-local cloned interner.
+    pub fn interner(&self) -> &StringInterner {
+        &self.interner_snapshot
+    }
+
+    /// Create a traversal source for this snapshot.
+    ///
+    /// This provides the full Gremlin-style fluent API for querying the graph.
+    /// Since `CowSnapshot` is immutable, only read operations are available.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::value::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = CowGraph::new();
+    /// graph.add_vertex("Person", HashMap::from([
+    ///     ("name".to_string(), Value::String("Alice".to_string())),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.traversal();
+    ///
+    /// let count = g.v().has_label("Person").count();
+    /// assert_eq!(count, 1);
+    /// ```
+    pub fn traversal(&self) -> crate::traversal::GraphTraversalSource<'_> {
+        crate::traversal::GraphTraversalSource::from_snapshot(self)
+    }
+
+    /// Execute a GQL query against this snapshot.
+    ///
+    /// This provides the full GQL query language for pattern matching
+    /// and data retrieval. Since `CowSnapshot` is immutable, only read
+    /// queries (MATCH/RETURN) are supported.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::value::Value;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = CowGraph::new();
+    /// graph.add_vertex("Person", HashMap::from([
+    ///     ("name".to_string(), Value::String("Alice".to_string())),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let results = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
+    /// assert_eq!(results.len(), 1);
+    /// ```
+    pub fn gql(&self, query: &str) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
+        let stmt = crate::gql::parse_statement(query)?;
+        let results = crate::gql::compile_statement(&stmt, self)?;
+        Ok(results)
+    }
+
+    /// Execute a parameterized GQL query against this snapshot.
+    ///
+    /// Parameters provide a safe way to inject values into queries
+    /// without string concatenation, preventing injection attacks.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::value::Value;
+    /// use interstellar::gql::Parameters;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = CowGraph::new();
+    /// graph.add_vertex("Person", HashMap::from([
+    ///     ("name".to_string(), Value::String("Alice".to_string())),
+    ///     ("age".to_string(), Value::Int(30)),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    ///
+    /// let mut params = Parameters::new();
+    /// params.insert("minAge".to_string(), Value::Int(25));
+    ///
+    /// let results = snapshot.gql_with_params(
+    ///     "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
+    ///     &params,
+    /// ).unwrap();
+    /// assert_eq!(results.len(), 1);
+    /// ```
+    pub fn gql_with_params(
+        &self,
+        query: &str,
+        params: &crate::gql::Parameters,
+    ) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
+        let stmt = crate::gql::parse_statement(query)?;
+        let results = crate::gql::compile_statement_with_params(&stmt, self, params)?;
+        Ok(results)
+    }
+}
+
+// Implement SnapshotLike for CowSnapshot to enable generic traversal/GQL usage.
+// Since CowSnapshot implements GraphStorage directly, storage() returns self.
+impl crate::traversal::SnapshotLike for CowSnapshot {
+    fn storage(&self) -> &dyn GraphStorage {
+        self
+    }
+
+    fn interner(&self) -> &StringInterner {
+        &self.interner_snapshot
+    }
 }
 
 impl GraphStorage for CowSnapshot {
     fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
         let node = self.state.vertices.get(&id)?;
-        let label = self
-            .state
-            .interner
-            .read()
-            .resolve(node.label_id)?
-            .to_string();
+        let label = self.interner_snapshot.resolve(node.label_id)?.to_string();
 
         Some(Vertex {
             id: node.id,
@@ -1485,12 +2249,7 @@ impl GraphStorage for CowSnapshot {
 
     fn get_edge(&self, id: EdgeId) -> Option<Edge> {
         let edge = self.state.edges.get(&id)?;
-        let label = self
-            .state
-            .interner
-            .read()
-            .resolve(edge.label_id)?
-            .to_string();
+        let label = self.interner_snapshot.resolve(edge.label_id)?.to_string();
 
         Some(Edge {
             id: edge.id,
@@ -1534,7 +2293,7 @@ impl GraphStorage for CowSnapshot {
     }
 
     fn vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Vertex> + '_> {
-        let label_id = self.state.interner.read().lookup(label);
+        let label_id = self.interner_snapshot.lookup(label);
 
         let Some(id) = label_id else {
             return Box::new(std::iter::empty());
@@ -1553,7 +2312,7 @@ impl GraphStorage for CowSnapshot {
     }
 
     fn edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Edge> + '_> {
-        let label_id = self.state.interner.read().lookup(label);
+        let label_id = self.interner_snapshot.lookup(label);
 
         let Some(id) = label_id else {
             return Box::new(std::iter::empty());
@@ -1594,27 +2353,9 @@ impl GraphStorage for CowSnapshot {
     }
 
     fn interner(&self) -> &StringInterner {
-        // This is a bit tricky - we need to return a reference to the interner
-        // but it's behind a RwLock. For now, we'll leak a read guard.
-        // In practice, this is fine because the snapshot is immutable and
-        // the interner is append-only.
-        //
-        // A better solution would be to store a snapshot of the interner's data
-        // in CowSnapshot, but that would require more complex changes.
-        //
-        // For now, we use a static approach - the interner is behind Arc<RwLock>,
-        // and we need to provide a &StringInterner. We'll use unsafe to extend
-        // the lifetime, which is sound because:
-        // 1. The snapshot holds an Arc to the state, keeping it alive
-        // 2. The interner is append-only, so its contents never shrink
-        // 3. We only need read access
-        unsafe {
-            let guard = self.state.interner.read();
-            let ptr: *const StringInterner = &*guard;
-            // Leak the guard by forgetting it - this is intentional
-            std::mem::forget(guard);
-            &*ptr
-        }
+        // Return a reference to the snapshot-local cloned interner.
+        // No locking needed since it's owned by this snapshot.
+        &self.interner_snapshot
     }
 
     fn vertices_by_property(

@@ -445,14 +445,12 @@ fn cow_gql_create_vertex() {
     let graph = CowGraph::new();
 
     graph
-        .execute_mutation("CREATE (:Person {name: 'Alice', age: 30})")
+        .gql("CREATE (:Person {name: 'Alice', age: 30})")
         .unwrap();
     graph
-        .execute_mutation("CREATE (:Person {name: 'Bob', age: 25})")
+        .gql("CREATE (:Person {name: 'Bob', age: 25})")
         .unwrap();
-    graph
-        .execute_mutation("CREATE (:Software {name: 'GraphDB'})")
-        .unwrap();
+    graph.gql("CREATE (:Software {name: 'GraphDB'})").unwrap();
 
     assert_eq!(graph.vertex_count(), 3);
 
@@ -546,7 +544,7 @@ fn cow_gql_set_property() {
     // Set property via GQL using property-based matching
     // (id() function is not supported in WHERE predicates)
     graph
-        .execute_mutation("MATCH (p:Person) WHERE p.name = 'Alice' SET p.age = 30")
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' SET p.age = 30")
         .unwrap();
 
     let snap = graph.snapshot();
@@ -1450,4 +1448,371 @@ fn cow_index_with_batch_operations() {
     // directly on CowGraphState. This is a known limitation.
     // For now, verify the vertices were added (they may not be indexed).
     assert_eq!(graph.vertex_count(), 3);
+}
+
+// =============================================================================
+// Unified Gremlin Traversal API Tests
+// =============================================================================
+
+#[test]
+fn cow_unified_traversal_add_v_basic() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Add a vertex through the unified traversal API
+    let result = g.add_v("Person").next();
+
+    // Should return a vertex
+    assert!(result.is_some());
+    let value = result.unwrap();
+    assert!(
+        matches!(value, Value::Vertex(_)),
+        "Expected Vertex, got {:?}",
+        value
+    );
+
+    // Graph should now have one vertex
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn cow_unified_traversal_add_v_with_properties() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Add a vertex with properties
+    let result = g
+        .add_v("Person")
+        .property("name", "Alice")
+        .property("age", 30i64)
+        .next();
+
+    assert!(result.is_some());
+    let vertex_id = match result.unwrap() {
+        Value::Vertex(id) => id,
+        other => panic!("Expected Vertex, got {:?}", other),
+    };
+
+    // Verify the vertex has correct properties
+    let snap = graph.snapshot();
+    let vertex = snap.get_vertex(vertex_id).unwrap();
+    assert_eq!(vertex.label, "Person");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Alice".into()))
+    );
+    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+}
+
+#[test]
+fn cow_unified_traversal_add_v_multiple() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Add multiple vertices
+    g.add_v("Person").property("name", "Alice").iterate();
+    g.add_v("Person").property("name", "Bob").iterate();
+    g.add_v("Software").property("name", "GraphDB").iterate();
+
+    // Should have 3 vertices
+    assert_eq!(graph.vertex_count(), 3);
+
+    // Verify labels
+    let snap = graph.snapshot();
+    let person_count = snap.all_vertices().filter(|v| v.label == "Person").count();
+    let software_count = snap
+        .all_vertices()
+        .filter(|v| v.label == "Software")
+        .count();
+    assert_eq!(person_count, 2);
+    assert_eq!(software_count, 1);
+}
+
+#[test]
+fn cow_unified_traversal_add_v_to_list() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Use to_list() to add multiple vertices via inject + add_v pattern
+    // (Here we just add one, but to_list collects all results)
+    let results = g.add_v("Person").to_list();
+
+    assert_eq!(results.len(), 1);
+    assert!(matches!(results[0], Value::Vertex(_)));
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn cow_unified_traversal_query_after_mutation() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Add vertices
+    g.add_v("Person").property("name", "Alice").iterate();
+    g.add_v("Person").property("name", "Bob").iterate();
+
+    // Query the newly added vertices
+    let g2 = graph.traversal();
+    let results = g2.v().has_label("Person").to_list();
+
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn cow_unified_traversal_add_e_from_source() {
+    let graph = CowGraph::new();
+
+    // First add some vertices directly
+    let alice = graph.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+    );
+    let bob = graph.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Bob".into()))]),
+    );
+
+    // Now use traversal API to add an edge
+    let g = graph.traversal();
+    let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
+
+    assert!(result.is_some());
+    let value = result.unwrap();
+    assert!(
+        matches!(value, Value::Edge(_)),
+        "Expected Edge, got {:?}",
+        value
+    );
+
+    // Graph should have one edge
+    assert_eq!(graph.edge_count(), 1);
+}
+
+#[test]
+fn cow_unified_traversal_add_e_with_properties() {
+    let graph = CowGraph::new();
+
+    let alice = graph.add_vertex("Person", HashMap::new());
+    let bob = graph.add_vertex("Person", HashMap::new());
+
+    let g = graph.traversal();
+    let result = g
+        .add_e("KNOWS")
+        .from_id(alice)
+        .to_id(bob)
+        .property("since", 2020i64)
+        .next();
+
+    let edge_id = match result.unwrap() {
+        Value::Edge(id) => id,
+        other => panic!("Expected Edge, got {:?}", other),
+    };
+
+    // Verify the edge has correct properties
+    let snap = graph.snapshot();
+    let edge = snap.get_edge(edge_id).unwrap();
+    assert_eq!(edge.label, "KNOWS");
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+}
+
+#[test]
+fn cow_unified_traversal_full_workflow() {
+    // Test the complete workflow: add vertices with traversal, add edges, then query
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Add vertices through traversal API
+    let alice_value = g
+        .add_v("Person")
+        .property("name", "Alice")
+        .property("age", 30i64)
+        .next()
+        .unwrap();
+    let bob_value = g
+        .add_v("Person")
+        .property("name", "Bob")
+        .property("age", 25i64)
+        .next()
+        .unwrap();
+
+    // Extract vertex IDs
+    let alice_id = match alice_value {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex"),
+    };
+    let bob_id = match bob_value {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex"),
+    };
+
+    // Add edge through traversal API
+    g.add_e("KNOWS")
+        .from_id(alice_id)
+        .to_id(bob_id)
+        .property("since", 2020i64)
+        .iterate();
+
+    // Verify the graph structure
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 1);
+
+    // Query through traversal API
+    let g2 = graph.traversal();
+
+    // Get all people
+    let people = g2.v().has_label("Person").to_list();
+    assert_eq!(people.len(), 2);
+
+    // Get Alice's outgoing connections
+    let g3 = graph.traversal();
+    let alice_out = g3.v_id(alice_id).out_label("KNOWS").to_list();
+    assert_eq!(alice_out.len(), 1);
+}
+
+#[test]
+fn cow_unified_traversal_drop_vertex() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Add a vertex
+    let result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let vertex_id = match result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex"),
+    };
+
+    assert_eq!(graph.vertex_count(), 1);
+
+    // Drop the vertex
+    let g2 = graph.traversal();
+    g2.v_id(vertex_id).drop().iterate();
+
+    assert_eq!(graph.vertex_count(), 0);
+}
+
+#[test]
+fn cow_unified_traversal_drop_edge() {
+    let graph = CowGraph::new();
+
+    let alice = graph.add_vertex("Person", HashMap::new());
+    let bob = graph.add_vertex("Person", HashMap::new());
+    let edge = graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+
+    assert_eq!(graph.edge_count(), 1);
+
+    // Drop the edge through traversal API
+    let g = graph.traversal();
+    // Note: We need to use e_id to start from a specific edge
+    // The e() method exists but e_id() for single edge might need to be added
+    // For now, let's use e_ids with a single element
+    g.e_ids([edge]).drop().iterate();
+
+    assert_eq!(graph.edge_count(), 0);
+    // Vertices should still exist
+    assert_eq!(graph.vertex_count(), 2);
+}
+
+#[test]
+fn cow_unified_traversal_v_returns_all_vertices() {
+    let graph = CowGraph::new();
+
+    // Add vertices directly
+    graph.add_vertex("Person", HashMap::new());
+    graph.add_vertex("Person", HashMap::new());
+    graph.add_vertex("Software", HashMap::new());
+
+    // Query through traversal
+    let g = graph.traversal();
+    let results = g.v().to_list();
+
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn cow_unified_traversal_v_id_returns_specific_vertex() {
+    let graph = CowGraph::new();
+
+    let alice = graph.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+    );
+    graph.add_vertex("Person", HashMap::new());
+
+    let g = graph.traversal();
+    let results = g.v_id(alice).to_list();
+
+    assert_eq!(results.len(), 1);
+    match &results[0] {
+        Value::Vertex(id) => assert_eq!(*id, alice),
+        _ => panic!("Expected vertex"),
+    }
+}
+
+#[test]
+fn cow_unified_traversal_chained_steps() {
+    let graph = CowGraph::new();
+
+    let alice = graph.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+    );
+    let bob = graph.add_vertex(
+        "Person",
+        HashMap::from([("name".to_string(), Value::String("Bob".into()))]),
+    );
+    let software = graph.add_vertex("Software", HashMap::new());
+
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
+        .add_edge(alice, software, "CREATED", HashMap::new())
+        .unwrap();
+    graph
+        .add_edge(bob, software, "USES", HashMap::new())
+        .unwrap();
+
+    let g = graph.traversal();
+
+    // Alice's friends
+    let friends = g.v_id(alice).out_label("KNOWS").to_list();
+    assert_eq!(friends.len(), 1);
+
+    // All people who created or use software
+    let g2 = graph.traversal();
+    let sw_related = g2.v_id(software).in_().has_label("Person").to_list();
+    assert_eq!(sw_related.len(), 2);
+}
+
+#[test]
+fn cow_unified_traversal_count() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    g.add_v("Person").iterate();
+    g.add_v("Person").iterate();
+    g.add_v("Software").iterate();
+
+    let g2 = graph.traversal();
+    let total = g2.v().count();
+    assert_eq!(total, 3);
+
+    let g3 = graph.traversal();
+    let people = g3.v().has_label("Person").count();
+    assert_eq!(people, 2);
+}
+
+#[test]
+fn cow_unified_traversal_has_next() {
+    let graph = CowGraph::new();
+    let g = graph.traversal();
+
+    // Empty graph should not have vertices
+    assert!(!g.v().has_next());
+
+    // Add a vertex
+    let g2 = graph.traversal();
+    g2.add_v("Person").iterate();
+
+    // Now should have vertices
+    let g3 = graph.traversal();
+    assert!(g3.v().has_next());
 }

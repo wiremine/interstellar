@@ -122,7 +122,7 @@ mod tests {
         fn replaces_single_value_with_constant() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("replaced");
             let input = vec![Traverser::new(Value::Int(42))];
@@ -137,7 +137,7 @@ mod tests {
         fn replaces_multiple_values_with_same_constant() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new(100i64);
             let input = vec![
@@ -158,7 +158,7 @@ mod tests {
         fn replaces_vertex_values_with_constant() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("vertex_found");
             let input = vec![
@@ -177,7 +177,7 @@ mod tests {
         fn replaces_edge_values_with_constant() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("edge_found");
             let input = vec![Traverser::from_edge(EdgeId(0))];
@@ -192,7 +192,7 @@ mod tests {
         fn works_with_null_constant() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new(Value::Null);
             let input = vec![Traverser::new(Value::Int(42))];
@@ -211,7 +211,7 @@ mod tests {
         fn preserves_path() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("constant");
 
@@ -232,7 +232,7 @@ mod tests {
         fn preserves_loops_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("constant");
 
@@ -250,7 +250,7 @@ mod tests {
         fn preserves_bulk_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("constant");
 
@@ -268,7 +268,7 @@ mod tests {
         fn preserves_all_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("constant");
 
@@ -295,7 +295,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ConstantStep::new("constant");
             let input: Vec<Traverser> = vec![];

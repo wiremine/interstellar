@@ -310,7 +310,7 @@ impl AnyStep for StartStep {
         match &self.source {
             TraversalSource::AllVertices => {
                 // Iterate all vertices and create traversers
-                Box::new(ctx.snapshot().storage().all_vertices().map(move |v| {
+                Box::new(ctx.storage().all_vertices().map(move |v| {
                     let mut t = Traverser::from_vertex(v.id);
                     if track_paths {
                         t.extend_path_unlabeled();
@@ -322,7 +322,7 @@ impl AnyStep for StartStep {
                 // Iterate specific vertices, filtering out non-existent ones
                 let ids = ids.clone();
                 Box::new(ids.into_iter().filter_map(move |id| {
-                    ctx.snapshot().storage().get_vertex(id).map(|_| {
+                    ctx.storage().get_vertex(id).map(|_| {
                         let mut t = Traverser::from_vertex(id);
                         if track_paths {
                             t.extend_path_unlabeled();
@@ -333,7 +333,7 @@ impl AnyStep for StartStep {
             }
             TraversalSource::AllEdges => {
                 // Iterate all edges and create traversers
-                Box::new(ctx.snapshot().storage().all_edges().map(move |e| {
+                Box::new(ctx.storage().all_edges().map(move |e| {
                     let mut t = Traverser::from_edge(e.id);
                     if track_paths {
                         t.extend_path_unlabeled();
@@ -345,7 +345,7 @@ impl AnyStep for StartStep {
                 // Iterate specific edges, filtering out non-existent ones
                 let ids = ids.clone();
                 Box::new(ids.into_iter().filter_map(move |id| {
-                    ctx.snapshot().storage().get_edge(id).map(|_| {
+                    ctx.storage().get_edge(id).map(|_| {
                         let mut t = Traverser::from_edge(id);
                         if track_paths {
                             t.extend_path_unlabeled();
@@ -546,7 +546,7 @@ mod tests {
         fn identity_step_passes_through() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IdentityStep;
 
@@ -568,7 +568,7 @@ mod tests {
         fn identity_step_empty_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IdentityStep;
             let input: Vec<Traverser> = vec![];
@@ -582,7 +582,7 @@ mod tests {
         fn identity_step_preserves_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IdentityStep;
 
@@ -640,7 +640,7 @@ mod tests {
         fn filter_step_macro_filters() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TestFilterStep { min_value: 5 };
 
@@ -700,7 +700,7 @@ mod tests {
         fn flatmap_step_macro_expands() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TestFlatMapStep { repeat_count: 3 };
 
@@ -727,7 +727,7 @@ mod tests {
         fn flatmap_step_macro_zero_expansion() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TestFlatMapStep { repeat_count: 0 };
 
@@ -757,7 +757,7 @@ mod tests {
         fn flatmap_step_preserves_path() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TestFlatMapStep { repeat_count: 2 };
 
@@ -814,7 +814,7 @@ mod tests {
         fn steps_can_be_composed() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create a pipeline: identity -> multiply by 2 -> filter even
             let steps: Vec<Box<dyn AnyStep>> = vec![
@@ -956,7 +956,7 @@ mod tests {
         fn start_step_all_vertices_returns_all_vertices() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StartStep::all_vertices();
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::empty())).collect();
@@ -975,7 +975,7 @@ mod tests {
         fn start_step_all_edges_returns_all_edges() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StartStep::all_edges();
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::empty())).collect();
@@ -994,7 +994,7 @@ mod tests {
         fn start_step_specific_vertices() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Request vertices 0 and 2 (which exist)
             let step = StartStep::vertices(vec![VertexId(0), VertexId(2)]);
@@ -1013,7 +1013,7 @@ mod tests {
         fn start_step_specific_vertices_filters_nonexistent() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Request vertices including non-existent ID 999
             let step = StartStep::vertices(vec![VertexId(0), VertexId(999)]);
@@ -1028,7 +1028,7 @@ mod tests {
         fn start_step_specific_edges() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Request edge 0 (which exists)
             let step = StartStep::edges(vec![EdgeId(0)]);
@@ -1043,7 +1043,7 @@ mod tests {
         fn start_step_specific_edges_filters_nonexistent() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Request edges including non-existent ID 999
             let step = StartStep::edges(vec![EdgeId(0), EdgeId(999)]);
@@ -1058,7 +1058,7 @@ mod tests {
         fn start_step_inject_creates_traversers() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let values = vec![
                 Value::Int(1),
@@ -1078,7 +1078,7 @@ mod tests {
         fn start_step_inject_empty() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StartStep::inject(vec![]);
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::empty())).collect();
@@ -1090,7 +1090,7 @@ mod tests {
         fn start_step_traversers_have_empty_path() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StartStep::all_vertices();
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::empty())).collect();
@@ -1105,7 +1105,7 @@ mod tests {
         fn start_step_traversers_have_default_metadata() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StartStep::all_vertices();
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::empty())).collect();
@@ -1122,7 +1122,7 @@ mod tests {
         fn start_step_ignores_input() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create input traversers (should be ignored)
             let input: Vec<Traverser> = vec![
@@ -1143,7 +1143,7 @@ mod tests {
             let storage = InMemoryGraph::new();
             let graph = Graph::new(storage);
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = StartStep::all_vertices();
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(std::iter::empty())).collect();
@@ -1232,7 +1232,7 @@ mod tests {
         fn execute_traversal_with_empty_steps() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let steps: Vec<Box<dyn AnyStep>> = vec![];
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
@@ -1250,7 +1250,7 @@ mod tests {
         fn execute_traversal_with_identity_step() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
             let input = vec![
@@ -1273,7 +1273,7 @@ mod tests {
         fn execute_traversal_with_multiple_identity_steps() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let steps: Vec<Box<dyn AnyStep>> = vec![
                 Box::new(IdentityStep::new()),
@@ -1294,7 +1294,7 @@ mod tests {
         fn execute_traversal_with_empty_input() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
             let input: Vec<Traverser> = vec![];
@@ -1310,7 +1310,7 @@ mod tests {
         fn execute_traversal_preserves_metadata() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
 
@@ -1334,7 +1334,7 @@ mod tests {
         fn execute_traversal_is_lazy() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
             let input = vec![
@@ -1368,7 +1368,7 @@ mod tests {
         fn execute_traversal_from_with_anonymous_traversal() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create an anonymous traversal with identity step
             let anon: Traversal<Value, Value> =
@@ -1391,7 +1391,7 @@ mod tests {
         fn execute_traversal_from_ignores_source() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create a traversal WITH a source (normally used for bound traversals)
             let traversal: Traversal<(), Value> =
@@ -1413,7 +1413,7 @@ mod tests {
         fn execute_traversal_from_empty_traversal() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Empty traversal (no steps)
             let anon: Traversal<Value, Value> = Traversal::new();
@@ -1438,7 +1438,7 @@ mod tests {
 
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create steps that filter to "person" label
             let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(HasLabelStep::single("person"))];
@@ -1464,7 +1464,7 @@ mod tests {
 
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Chain: identity -> filter to person
             let steps: Vec<Box<dyn AnyStep>> = vec![
@@ -1506,7 +1506,7 @@ mod tests {
         fn execute_traversal_reusable() {
             let graph = create_populated_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Same steps can be reused multiple times
             let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];

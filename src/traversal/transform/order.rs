@@ -184,12 +184,10 @@ impl OrderStep {
     fn get_property(&self, ctx: &ExecutionContext, t: &Traverser, key: &str) -> Option<Value> {
         match &t.value {
             Value::Vertex(id) => ctx
-                .snapshot()
                 .storage()
                 .get_vertex(*id)
                 .and_then(|v| v.properties.get(key).cloned()),
             Value::Edge(id) => ctx
-                .snapshot()
                 .storage()
                 .get_edge(*id)
                 .and_then(|e| e.properties.get(key).cloned()),
@@ -347,7 +345,7 @@ impl<In> OrderBuilder<In> {
 ///     .to_list();
 /// ```
 pub struct BoundOrderBuilder<'g, In> {
-    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn AnyStep>>,
@@ -359,14 +357,14 @@ pub struct BoundOrderBuilder<'g, In> {
 impl<'g, In> BoundOrderBuilder<'g, In> {
     /// Create a new BoundOrderBuilder with existing steps and graph references.
     pub(crate) fn new(
-        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn AnyStep>>,
         track_paths: bool,
     ) -> Self {
         Self {
-            snapshot,
+            storage,
             interner,
             source,
             steps,
@@ -428,7 +426,7 @@ impl<'g, In> BoundOrderBuilder<'g, In> {
         // We need to preserve track_paths, so we'll add a helper to BoundTraversal
         // For now, use the private field constructor directly since we're in the same crate
         let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
 
         // Preserve track_paths by conditionally calling with_path()
         if self.track_paths {
@@ -519,7 +517,7 @@ mod tests {
         fn sorts_integers_ascending() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_natural(Order::Asc);
             let input = vec![
@@ -540,7 +538,7 @@ mod tests {
         fn sorts_integers_descending() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_natural(Order::Desc);
             let input = vec![
@@ -561,7 +559,7 @@ mod tests {
         fn sorts_strings_ascending() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_natural(Order::Asc);
             let input = vec![
@@ -582,7 +580,7 @@ mod tests {
         fn sorts_floats_ascending() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_natural(Order::Asc);
             let input = vec![
@@ -607,7 +605,7 @@ mod tests {
         fn sorts_by_property_ascending() {
             let graph = create_sorted_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_property("age", Order::Asc);
             let input = vec![
@@ -629,7 +627,7 @@ mod tests {
         fn sorts_by_property_descending() {
             let graph = create_sorted_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_property("age", Order::Desc);
             let input = vec![
@@ -655,7 +653,7 @@ mod tests {
         fn handles_empty_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::new();
             let input: Vec<Traverser> = vec![];
@@ -669,7 +667,7 @@ mod tests {
         fn handles_single_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
@@ -688,7 +686,7 @@ mod tests {
         fn preserves_paths() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_natural(Order::Asc);
 
@@ -711,7 +709,7 @@ mod tests {
         fn preserves_bulk() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = OrderStep::by_natural(Order::Asc);
 

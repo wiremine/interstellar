@@ -383,7 +383,7 @@ mod tests {
         let storage = InMemoryGraph::new();
         let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
-        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
         // Create a simple traversal with identity step
         let t: Traversal<Value, Value> =

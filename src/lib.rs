@@ -397,6 +397,7 @@ pub mod rhai;
 /// This imports:
 ///
 /// - Graph types: [`Graph`], [`GraphSnapshot`], [`GraphMut`]
+/// - Unified API types: [`UnifiedGraph`], [`UnifiedSnapshot`], [`PersistentGraph`] (mmap), [`PersistentSnapshot`] (mmap)
 /// - Traversal: [`Traversal`], [`BoundTraversal`], [`GraphTraversalSource`]
 /// - Anonymous traversals: [`__`]
 /// - Predicates: [`p`]
@@ -408,6 +409,10 @@ pub mod prelude {
     pub use crate::error::{StorageError, TraversalError};
     pub use crate::graph::{Graph, GraphMut, GraphSnapshot};
     pub use crate::props;
+    // Unified API types (Spec 33)
+    #[cfg(feature = "mmap")]
+    pub use crate::storage::{PersistentGraph, PersistentSnapshot};
+    pub use crate::storage::{UnifiedGraph, UnifiedSnapshot};
     pub use crate::traversal::{
         p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,
         Path, PathElement, PathValue, Traversal, Traverser, __,

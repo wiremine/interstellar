@@ -255,7 +255,7 @@ mod tests {
         fn identity_map_preserves_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| v.clone());
             let input = vec![
@@ -276,7 +276,7 @@ mod tests {
         fn doubles_integer_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| {
                 if let Value::Int(n) = v {
@@ -303,7 +303,7 @@ mod tests {
         fn converts_to_string() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| {
                 let s = match v {
@@ -329,12 +329,12 @@ mod tests {
         fn can_access_execution_context() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Use context to get a vertex (context should be accessible)
             let step = MapStep::new(|ctx, v| {
                 if let Value::Vertex(id) = v {
-                    if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                    if let Some(vertex) = ctx.storage().get_vertex(*id) {
                         vertex
                             .properties
                             .get("name")
@@ -363,7 +363,7 @@ mod tests {
         fn preserves_path() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| v.clone());
 
@@ -381,7 +381,7 @@ mod tests {
         fn preserves_loops_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| v.clone());
 
@@ -399,7 +399,7 @@ mod tests {
         fn preserves_bulk_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| v.clone());
 
@@ -421,7 +421,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MapStep::new(|_ctx, v| v.clone());
             let input: Vec<Traverser> = vec![];
@@ -467,7 +467,7 @@ mod tests {
         fn identity_flat_map_preserves_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone()]);
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
@@ -483,7 +483,7 @@ mod tests {
         fn duplicates_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone(), v.clone()]);
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
@@ -501,7 +501,7 @@ mod tests {
         fn generates_range_from_integer() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| {
                 if let Value::Int(n) = v {
@@ -524,7 +524,7 @@ mod tests {
         fn can_filter_out_values_by_returning_empty_vec() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Only keep positive integers, filter out others
             let step = FlatMapStep::new(|_ctx, v| {
@@ -556,12 +556,12 @@ mod tests {
         fn can_access_execution_context() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Get all properties of a vertex as separate values
             let step = FlatMapStep::new(|ctx, v| {
                 if let Value::Vertex(id) = v {
-                    if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                    if let Some(vertex) = ctx.storage().get_vertex(*id) {
                         vertex.properties.values().cloned().collect()
                     } else {
                         vec![]
@@ -588,7 +588,7 @@ mod tests {
         fn preserves_path_on_split() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone(), v.clone()]);
 
@@ -607,7 +607,7 @@ mod tests {
         fn preserves_loops_count_on_split() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone(), v.clone()]);
 
@@ -626,7 +626,7 @@ mod tests {
         fn preserves_bulk_count_on_split() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone(), v.clone()]);
 
@@ -649,7 +649,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone()]);
             let input: Vec<Traverser> = vec![];
@@ -663,7 +663,7 @@ mod tests {
         fn empty_vec_result_produces_no_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FlatMapStep::new(|_ctx, _v| vec![]);
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
@@ -808,12 +808,10 @@ impl ProjectStep {
     ) -> Option<crate::value::Value> {
         match &t.value {
             crate::value::Value::Vertex(id) => ctx
-                .snapshot()
                 .storage()
                 .get_vertex(*id)
                 .and_then(|v| v.properties.get(key).cloned()),
             crate::value::Value::Edge(id) => ctx
-                .snapshot()
                 .storage()
                 .get_edge(*id)
                 .and_then(|e| e.properties.get(key).cloned()),
@@ -962,7 +960,7 @@ impl<In> ProjectBuilder<In> {
 ///     .to_list();
 /// ```
 pub struct BoundProjectBuilder<'g, In> {
-    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
@@ -977,14 +975,14 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
     ///
     /// # Arguments
     ///
-    /// * `snapshot` - Graph snapshot reference
+    /// * `storage` - Graph storage reference
     /// * `interner` - String interner reference
     /// * `source` - Optional traversal source
     /// * `steps` - Existing traversal steps
     /// * `keys` - The keys for the projection map
     /// * `track_paths` - Whether path tracking is enabled
     pub(crate) fn new(
-        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
@@ -992,7 +990,7 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
         track_paths: bool,
     ) -> Self {
         Self {
-            snapshot,
+            storage,
             interner,
             source,
             steps,
@@ -1054,7 +1052,7 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
         };
 
         let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
 
         if self.track_paths {
             bound = bound.with_path();
@@ -1224,7 +1222,7 @@ impl MathStep {
             Value::Int(n) => Some(*n as f64),
             Value::Float(f) => Some(*f),
             Value::Vertex(id) => {
-                let vertex = ctx.snapshot().storage().get_vertex(*id)?;
+                let vertex = ctx.storage().get_vertex(*id)?;
                 match vertex.properties.get(key)? {
                     Value::Int(n) => Some(*n as f64),
                     Value::Float(f) => Some(*f),
@@ -1232,7 +1230,7 @@ impl MathStep {
                 }
             }
             Value::Edge(id) => {
-                let edge = ctx.snapshot().storage().get_edge(*id)?;
+                let edge = ctx.storage().get_edge(*id)?;
                 match edge.properties.get(key)? {
                     Value::Int(n) => Some(*n as f64),
                     Value::Float(f) => Some(*f),
@@ -1358,7 +1356,7 @@ impl<In> MathBuilder<In> {
 /// This builder is returned from `BoundTraversal::math()` and allows chaining
 /// `by()` clauses before calling `build()` to get back a `BoundTraversal`.
 pub struct BoundMathBuilder<'g, In> {
-    snapshot: &'g crate::graph::GraphSnapshot<'g>,
+    storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
@@ -1371,7 +1369,7 @@ pub struct BoundMathBuilder<'g, In> {
 impl<'g, In> BoundMathBuilder<'g, In> {
     /// Create a new BoundMathBuilder with existing steps, graph references, and expression.
     pub(crate) fn new(
-        snapshot: &'g crate::graph::GraphSnapshot<'g>,
+        storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
@@ -1379,7 +1377,7 @@ impl<'g, In> BoundMathBuilder<'g, In> {
         track_paths: bool,
     ) -> Self {
         Self {
-            snapshot,
+            storage,
             interner,
             source,
             steps,
@@ -1414,7 +1412,7 @@ impl<'g, In> BoundMathBuilder<'g, In> {
         };
 
         let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.snapshot, self.interner, traversal);
+            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
 
         if self.track_paths {
             bound = bound.with_path();
@@ -1508,7 +1506,7 @@ mod project_tests {
         fn projects_single_property() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string()],
@@ -1532,7 +1530,7 @@ mod project_tests {
         fn projects_multiple_properties() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string(), "age".to_string()],
@@ -1560,7 +1558,7 @@ mod project_tests {
         fn missing_property_produces_null() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string(), "missing".to_string()],
@@ -1597,7 +1595,7 @@ mod project_tests {
         fn preserves_path() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string()],
@@ -1618,7 +1616,7 @@ mod project_tests {
         fn preserves_loops_count() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string()],
@@ -1639,7 +1637,7 @@ mod project_tests {
         fn preserves_bulk_count() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string()],
@@ -1664,7 +1662,7 @@ mod project_tests {
         fn non_element_produces_empty_projection() {
             let graph = create_projection_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ProjectStep::new(
                 vec!["name".to_string(), "age".to_string()],
@@ -1801,7 +1799,7 @@ mod math_tests {
         fn multiply_current_value() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * 2");
             let input = vec![
@@ -1820,7 +1818,7 @@ mod math_tests {
         fn add_to_current_value() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ + 100");
             let input = vec![Traverser::new(Value::Int(50))];
@@ -1835,7 +1833,7 @@ mod math_tests {
         fn subtract_from_current_value() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ - 5");
             let input = vec![Traverser::new(Value::Int(20))];
@@ -1850,7 +1848,7 @@ mod math_tests {
         fn divide_current_value() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ / 2");
             let input = vec![Traverser::new(Value::Int(10))];
@@ -1865,7 +1863,7 @@ mod math_tests {
         fn modulo_current_value() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ % 7");
             let input = vec![Traverser::new(Value::Int(15))];
@@ -1880,7 +1878,7 @@ mod math_tests {
         fn power_current_value() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ ^ 2");
             let input = vec![Traverser::new(Value::Int(5))];
@@ -1895,7 +1893,7 @@ mod math_tests {
         fn works_with_float_input() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * 2");
             let input = vec![Traverser::new(Value::Float(3.5))];
@@ -1914,7 +1912,7 @@ mod math_tests {
         fn sqrt_function() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("sqrt(_)");
             let input = vec![Traverser::new(Value::Int(16))];
@@ -1929,7 +1927,7 @@ mod math_tests {
         fn abs_function() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("abs(_)");
             let input = vec![Traverser::new(Value::Int(-42))];
@@ -1944,7 +1942,7 @@ mod math_tests {
         fn complex_expression_with_sqrt() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // sqrt(3^2 + 4^2) = sqrt(9 + 16) = sqrt(25) = 5
             let step = MathStep::new("sqrt(_ ^ 2 + 16)");
@@ -1960,7 +1958,7 @@ mod math_tests {
         fn pi_constant() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * pi");
             let input = vec![Traverser::new(Value::Int(2))];
@@ -1979,7 +1977,7 @@ mod math_tests {
         fn e_constant() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * e");
             let input = vec![Traverser::new(Value::Int(1))];
@@ -2002,7 +2000,7 @@ mod math_tests {
         fn non_numeric_values_filtered_out() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * 2");
             let input = vec![
@@ -2024,7 +2022,7 @@ mod math_tests {
         fn division_by_zero_filtered_out() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("1 / _");
             let input = vec![
@@ -2045,7 +2043,7 @@ mod math_tests {
         fn sqrt_of_negative_filtered_out() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("sqrt(_)");
             let input = vec![
@@ -2070,7 +2068,7 @@ mod math_tests {
         fn preserves_path() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * 2");
             let mut traverser = Traverser::new(Value::Int(10));
@@ -2087,7 +2085,7 @@ mod math_tests {
         fn preserves_loops_count() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ + 1");
             let mut traverser = Traverser::new(Value::Int(5));
@@ -2104,7 +2102,7 @@ mod math_tests {
         fn preserves_bulk() {
             let graph = create_math_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MathStep::new("_ * 3");
             let mut traverser = Traverser::new(Value::Int(2));

@@ -315,7 +315,7 @@ mod tests {
         fn empty_path_returns_empty_list() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
             let input = vec![Traverser::new(Value::Int(42))]; // Empty path
@@ -339,7 +339,7 @@ mod tests {
         fn path_with_vertices_and_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -393,7 +393,7 @@ mod tests {
         fn path_with_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -430,7 +430,7 @@ mod tests {
         fn path_preserves_labels_in_traverser() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -461,7 +461,7 @@ mod tests {
         fn path_with_multiple_labels_on_same_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -488,7 +488,7 @@ mod tests {
         fn preserves_path_structure() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -510,7 +510,7 @@ mod tests {
         fn preserves_loops_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -528,7 +528,7 @@ mod tests {
         fn preserves_bulk_count() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 
@@ -550,7 +550,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
             let input: Vec<Traverser> = vec![];
@@ -569,7 +569,7 @@ mod tests {
         fn handles_multiple_traversers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PathStep::new();
 

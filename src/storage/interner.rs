@@ -76,7 +76,7 @@ use std::io::Write;
 /// assert_eq!(interner.resolve(person_id), Some("person"));
 /// assert_eq!(interner.resolve(knows_id), Some("knows"));
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringInterner {
     forward: HashMap<String, u32>,
     reverse: HashMap<u32, String>,

@@ -203,7 +203,7 @@ mod tests {
         fn unfolds_list_into_elements() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
@@ -221,7 +221,7 @@ mod tests {
         fn unfolds_empty_list_into_nothing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let list = Value::List(vec![]);
@@ -236,7 +236,7 @@ mod tests {
         fn unfolds_nested_lists_one_level() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let nested = Value::List(vec![
@@ -260,7 +260,7 @@ mod tests {
         fn unfolds_map_into_entries() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let mut map = HashMap::new();
@@ -295,7 +295,7 @@ mod tests {
         fn unfolds_empty_map_into_nothing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let map = HashMap::new();
@@ -314,7 +314,7 @@ mod tests {
         fn passes_single_value_through() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
@@ -329,7 +329,7 @@ mod tests {
         fn passes_vertex_through() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let input = vec![Traverser::from_vertex(VertexId(1))];
@@ -348,7 +348,7 @@ mod tests {
         fn preserves_path_for_each_unfolded_item() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let mut traverser = Traverser::new(Value::List(vec![Value::Int(1), Value::Int(2)]));
@@ -366,7 +366,7 @@ mod tests {
         fn preserves_other_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let mut traverser = Traverser::new(Value::List(vec![Value::Int(1)]));
@@ -389,7 +389,7 @@ mod tests {
         fn handles_multiple_input_traversers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
             let input = vec![
@@ -424,7 +424,7 @@ mod tests {
         fn calculates_mean_of_integers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -443,7 +443,7 @@ mod tests {
         fn calculates_mean_of_floats() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -462,7 +462,7 @@ mod tests {
         fn calculates_mean_of_mixed_numbers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -480,7 +480,7 @@ mod tests {
         fn handles_negative_numbers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -502,7 +502,7 @@ mod tests {
         fn ignores_non_numeric_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -522,7 +522,7 @@ mod tests {
         fn ignores_vertices_and_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -546,7 +546,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input: Vec<Traverser> = vec![];
@@ -560,7 +560,7 @@ mod tests {
         fn all_non_numeric_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             let input = vec![
@@ -581,7 +581,7 @@ mod tests {
         fn preserves_path_from_last_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
 
@@ -606,7 +606,7 @@ mod tests {
         fn resets_loops_and_bulk() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
 
@@ -630,7 +630,7 @@ mod tests {
         fn calculates_mean_of_large_set() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = MeanStep::new();
             // Mean of 1..100 is 50.5

@@ -370,6 +370,17 @@ impl<'g> GraphSnapshot<'g> {
     }
 }
 
+// Implement SnapshotLike for GraphSnapshot to enable generic traversal/GQL usage
+impl<'g> crate::traversal::SnapshotLike for GraphSnapshot<'g> {
+    fn storage(&self) -> &dyn crate::storage::GraphStorage {
+        self.graph.storage.as_ref()
+    }
+
+    fn interner(&self) -> &StringInterner {
+        self.graph.storage.interner()
+    }
+}
+
 /// An exclusive mutable handle to a graph.
 ///
 /// `GraphMut` holds a write lock on the graph, providing exclusive access
@@ -1096,4 +1107,170 @@ mod tests {
 
         // Both should work without issues
     }
+}
+
+// =============================================================================
+// Unified Graph Traits (Spec 33)
+// =============================================================================
+
+use std::collections::HashMap;
+
+use crate::error::StorageError;
+use crate::gql::GqlError;
+use crate::value::{EdgeId, Value, VertexId};
+
+/// A unified graph database trait with COW snapshot semantics.
+///
+/// This trait provides a unified API for all graph implementations,
+/// supporting both in-memory and persistent storage backends.
+///
+/// # COW Semantics
+///
+/// All implementations use copy-on-write (COW) semantics:
+/// - Snapshots are O(1) to create via structural sharing
+/// - Snapshots are immutable and don't hold locks
+/// - Mutations create new versions without blocking readers
+///
+/// # Thread Safety
+///
+/// Implementations must be `Send + Sync`, allowing the graph to be
+/// shared across threads.
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::prelude::*;
+///
+/// fn count_people<G: UnifiedGraph>(graph: &G) -> usize {
+///     graph.snapshot().vertex_count() as usize
+/// }
+/// ```
+pub trait UnifiedGraph: Send + Sync {
+    /// The snapshot type returned by this graph.
+    type Snapshot: UnifiedSnapshot;
+
+    /// Create an immutable snapshot of the current graph state.
+    ///
+    /// This is an O(1) operation that creates a snapshot via structural
+    /// sharing. The snapshot does not hold any locks and can outlive
+    /// references to the source graph.
+    fn snapshot(&self) -> Self::Snapshot;
+
+    /// Get the string interner for label resolution.
+    fn interner(&self) -> &StringInterner;
+
+    /// Get the current vertex count.
+    fn vertex_count(&self) -> usize;
+
+    /// Get the current edge count.
+    fn edge_count(&self) -> usize;
+
+    /// Add a vertex with the given label and properties.
+    ///
+    /// Returns the ID of the newly created vertex.
+    fn add_vertex(&self, label: &str, properties: HashMap<String, Value>) -> VertexId;
+
+    /// Add an edge between two vertices.
+    ///
+    /// Returns the ID of the newly created edge, or an error if
+    /// either vertex doesn't exist.
+    fn add_edge(
+        &self,
+        from: VertexId,
+        to: VertexId,
+        label: &str,
+        properties: HashMap<String, Value>,
+    ) -> Result<EdgeId, StorageError>;
+
+    /// Remove a vertex and all its connected edges.
+    fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError>;
+
+    /// Remove an edge.
+    fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError>;
+
+    /// Set a property on a vertex.
+    fn set_vertex_property(
+        &self,
+        id: VertexId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError>;
+
+    /// Set a property on an edge.
+    fn set_edge_property(&self, id: EdgeId, key: &str, value: Value) -> Result<(), StorageError>;
+
+    /// Remove a property from a vertex.
+    fn remove_vertex_property(&self, id: VertexId, key: &str) -> Result<(), StorageError>;
+
+    /// Remove a property from an edge.
+    fn remove_edge_property(&self, id: EdgeId, key: &str) -> Result<(), StorageError>;
+
+    /// Get the schema, if any.
+    fn schema(&self) -> Option<GraphSchema>;
+
+    /// Set the schema.
+    fn set_schema(&self, schema: GraphSchema);
+
+    /// Execute a GQL mutation statement.
+    ///
+    /// For read-only queries, use `snapshot().gql()` instead.
+    fn gql(&self, statement: &str) -> Result<Vec<Value>, GqlError>;
+
+    /// Execute a parameterized GQL mutation statement.
+    fn gql_with_params(
+        &self,
+        statement: &str,
+        params: HashMap<String, Value>,
+    ) -> Result<Vec<Value>, GqlError>;
+}
+
+/// An immutable snapshot of a graph at a point in time.
+///
+/// Snapshots implement [`GraphStorage`](crate::storage::GraphStorage) for read
+/// operations and can be used with the traversal engine and GQL compiler.
+///
+/// # COW Semantics
+///
+/// Snapshots are created via structural sharing (O(1)) and are completely
+/// independent of the source graph after creation. They:
+/// - Don't hold any locks
+/// - Can be cloned cheaply
+/// - Can be sent across threads
+/// - Won't see mutations made after snapshot creation
+///
+/// # Example
+///
+/// ```ignore
+/// let snap = graph.snapshot();
+///
+/// // Read via GraphStorage API
+/// let vertex = snap.get_vertex(VertexId(1));
+///
+/// // Read via GQL
+/// let results = snap.gql("MATCH (p:Person) RETURN p.name").unwrap();
+///
+/// // Read via traversal (when available on the concrete type)
+/// // let g = snap.traversal();
+/// ```
+pub trait UnifiedSnapshot: crate::storage::GraphStorage + Send + Sync + Clone {
+    /// Get the string interner for label resolution.
+    fn interner(&self) -> &StringInterner;
+
+    /// Execute a GQL read query against this snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query is a mutation (use `graph.gql()` for mutations).
+    fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError>;
+
+    /// Execute a parameterized GQL query against this snapshot.
+    fn gql_with_params(
+        &self,
+        query: &str,
+        params: HashMap<String, Value>,
+    ) -> Result<Vec<Value>, GqlError>;
+
+    // Note: traversal() method is intentionally not included here.
+    // Each concrete type provides its own traversal() method that returns
+    // the appropriate traversal source type. This will be unified in Phase 4.
 }

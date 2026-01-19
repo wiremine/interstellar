@@ -596,14 +596,12 @@ fn cow_mmap_gql_create_vertex() {
     let graph = CowMmapGraph::open(&path).unwrap();
 
     graph
-        .execute_mutation("CREATE (:Person {name: 'Alice', age: 30})")
+        .gql("CREATE (:Person {name: 'Alice', age: 30})")
         .unwrap();
     graph
-        .execute_mutation("CREATE (:Person {name: 'Bob', age: 25})")
+        .gql("CREATE (:Person {name: 'Bob', age: 25})")
         .unwrap();
-    graph
-        .execute_mutation("CREATE (:Software {name: 'GraphDB'})")
-        .unwrap();
+    graph.gql("CREATE (:Software {name: 'GraphDB'})").unwrap();
 
     assert_eq!(graph.vertex_count(), 3);
 
@@ -672,7 +670,7 @@ fn cow_mmap_gql_set_property() {
     // Set property via GQL using property-based matching
     // (id() function is not supported in WHERE predicates)
     graph
-        .execute_mutation("MATCH (p:Person) WHERE p.name = 'Alice' SET p.age = 30")
+        .gql("MATCH (p:Person) WHERE p.name = 'Alice' SET p.age = 30")
         .unwrap();
 
     let snap = graph.snapshot();
@@ -1615,4 +1613,405 @@ fn cow_mmap_index_with_batch_operations() {
     // Note: Batch operations don't update indexes automatically in current impl
     // So we test that the graph has the data even if index isn't updated
     assert_eq!(graph.vertex_count(), 10);
+}
+
+// =============================================================================
+// Unified Traversal API Tests
+// =============================================================================
+
+#[test]
+fn cow_mmap_unified_traversal_add_v_basic() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    let result = g.add_v("Person").next();
+
+    assert!(result.is_some());
+    assert!(matches!(result.unwrap(), Value::Vertex(_)));
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_add_v_with_properties() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    let result = g
+        .add_v("Person")
+        .property("name", "Alice")
+        .property("age", 30i64)
+        .next();
+
+    assert!(result.is_some());
+    let id = match result.unwrap() {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+
+    let snap = graph.snapshot();
+    let vertex = snap.get_vertex(id).unwrap();
+    assert_eq!(vertex.label, "Person");
+    assert_eq!(
+        vertex.properties.get("name"),
+        Some(&Value::String("Alice".into()))
+    );
+    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+}
+
+#[test]
+fn cow_mmap_unified_traversal_add_v_multiple() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    g.add_v("Person").property("name", "Alice").iterate();
+    g.add_v("Person").property("name", "Bob").iterate();
+    g.add_v("Software").property("name", "GraphDB").iterate();
+
+    assert_eq!(graph.vertex_count(), 3);
+
+    let snap = graph.snapshot();
+    let people: Vec<_> = snap.vertices_with_label("Person").collect();
+    assert_eq!(people.len(), 2);
+    let software: Vec<_> = snap.vertices_with_label("Software").collect();
+    assert_eq!(software.len(), 1);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_add_v_to_list() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    let results = g.add_v("Person").property("name", "Alice").to_list();
+
+    assert_eq!(results.len(), 1);
+    assert!(matches!(results[0], Value::Vertex(_)));
+}
+
+#[test]
+fn cow_mmap_unified_traversal_add_e_from_source() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+
+    let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
+    let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
+
+    let g = graph.traversal();
+    let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
+
+    assert!(result.is_some());
+    assert!(matches!(result.unwrap(), Value::Edge(_)));
+    assert_eq!(graph.edge_count(), 1);
+
+    let snap = graph.snapshot();
+    let edges: Vec<_> = snap.out_edges(alice).collect();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].label, "KNOWS");
+    assert_eq!(edges[0].dst, bob);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_add_e_with_properties() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+
+    let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
+    let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
+
+    let g = graph.traversal();
+    let result = g
+        .add_e("KNOWS")
+        .from_id(alice)
+        .to_id(bob)
+        .property("since", 2020i64)
+        .property("weight", 0.5f64)
+        .next();
+
+    assert!(result.is_some());
+    let edge_id = match result.unwrap() {
+        Value::Edge(id) => id,
+        _ => panic!("Expected edge ID"),
+    };
+
+    let snap = graph.snapshot();
+    let edge = snap.get_edge(edge_id).unwrap();
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+    assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.5)));
+}
+
+#[test]
+fn cow_mmap_unified_traversal_query_after_mutation() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    // Add vertices via traversal
+    g.add_v("Person").property("name", "Alice").iterate();
+    g.add_v("Person").property("name", "Bob").iterate();
+    g.add_v("Software").property("name", "GraphDB").iterate();
+
+    // Query via traversal
+    let all = g.v().to_list();
+    assert_eq!(all.len(), 3);
+
+    let people = g.v().has_label("Person").to_list();
+    assert_eq!(people.len(), 2);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_full_workflow() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    // Create vertices
+    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let bob_result = g.add_v("Person").property("name", "Bob").next().unwrap();
+
+    let alice = match alice_result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+    let bob = match bob_result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+
+    // Create edge
+    g.add_e("KNOWS")
+        .from_id(alice)
+        .to_id(bob)
+        .property("since", 2020i64)
+        .iterate();
+
+    // Verify structure
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 1);
+
+    // Query outgoing neighbors
+    let neighbors = g.v_id(alice).out_label("KNOWS").to_list();
+    assert_eq!(neighbors.len(), 1);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_drop_vertex() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    // Add vertices
+    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    g.add_v("Person").property("name", "Bob").iterate();
+
+    let alice = match alice_result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+
+    assert_eq!(graph.vertex_count(), 2);
+
+    // Drop Alice
+    g.v_id(alice).drop().iterate();
+
+    assert_eq!(graph.vertex_count(), 1);
+
+    // Verify Alice is gone
+    let snap = graph.snapshot();
+    assert!(snap.get_vertex(alice).is_none());
+}
+
+#[test]
+fn cow_mmap_unified_traversal_drop_edge() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+
+    let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
+    let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
+    let edge = graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+
+    assert_eq!(graph.edge_count(), 1);
+
+    let g = graph.traversal();
+    g.e_ids([edge]).drop().iterate();
+
+    assert_eq!(graph.edge_count(), 0);
+    assert_eq!(graph.vertex_count(), 2); // Vertices remain
+}
+
+#[test]
+fn cow_mmap_unified_traversal_v_returns_all_vertices() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    g.add_v("A").iterate();
+    g.add_v("B").iterate();
+    g.add_v("C").iterate();
+
+    let vertices = g.v().to_list();
+    assert_eq!(vertices.len(), 3);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_v_id_returns_specific_vertex() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    g.add_v("Person").property("name", "Bob").iterate();
+
+    let alice = match alice_result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+
+    let result = g.v_id(alice).to_list();
+    assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_chained_steps() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    // Create a mini social graph
+    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let bob_result = g.add_v("Person").property("name", "Bob").next().unwrap();
+    g.add_v("Software").property("name", "GraphDB").iterate();
+
+    let alice = match alice_result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+    let bob = match bob_result {
+        Value::Vertex(id) => id,
+        _ => panic!("Expected vertex ID"),
+    };
+
+    g.add_e("KNOWS").from_id(alice).to_id(bob).iterate();
+
+    // Chain: start at alice, follow KNOWS, get the vertex
+    let result = g.v_id(alice).out_label("KNOWS").to_list();
+    assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_count() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    g.add_v("Person").iterate();
+    g.add_v("Person").iterate();
+    g.add_v("Person").iterate();
+    g.add_v("Software").iterate();
+
+    let count = g.v().count();
+    assert_eq!(count, 4);
+
+    let person_count = g.v().has_label("Person").count();
+    assert_eq!(person_count, 3);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_has_next() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    assert!(!g.v().has_next());
+
+    g.add_v("Person").iterate();
+
+    assert!(g.v().has_next());
+    assert!(g.v().has_label("Person").has_next());
+    assert!(!g.v().has_label("Software").has_next());
+}
+
+#[test]
+fn cow_mmap_unified_traversal_persists_after_checkpoint() {
+    let (_dir, path) = temp_db();
+
+    // Create graph and add data via traversal
+    {
+        let graph = CowMmapGraph::open(&path).unwrap();
+        let g = graph.traversal();
+
+        let alice_result = g
+            .add_v("Person")
+            .property("name", "Alice")
+            .property("age", 30i64)
+            .next()
+            .unwrap();
+        let bob_result = g.add_v("Person").property("name", "Bob").next().unwrap();
+
+        let alice = match alice_result {
+            Value::Vertex(id) => id,
+            _ => panic!("Expected vertex ID"),
+        };
+        let bob = match bob_result {
+            Value::Vertex(id) => id,
+            _ => panic!("Expected vertex ID"),
+        };
+
+        g.add_e("KNOWS")
+            .from_id(alice)
+            .to_id(bob)
+            .property("since", 2020i64)
+            .iterate();
+
+        graph.checkpoint().unwrap();
+    }
+
+    // Reopen and verify
+    {
+        let graph = CowMmapGraph::open(&path).unwrap();
+        let g = graph.traversal();
+
+        assert_eq!(g.v().count(), 2);
+        assert_eq!(g.e().count(), 1);
+
+        let people = g.v().has_label("Person").to_list();
+        assert_eq!(people.len(), 2);
+    }
+}
+
+#[test]
+fn cow_mmap_unified_traversal_limit_and_skip() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    for i in 0..10 {
+        g.add_v("Node").property("id", i as i64).iterate();
+    }
+
+    let first_3 = g.v().limit(3).to_list();
+    assert_eq!(first_3.len(), 3);
+
+    let skip_5 = g.v().skip(5).to_list();
+    assert_eq!(skip_5.len(), 5);
+
+    let middle = g.v().skip(3).limit(4).to_list();
+    assert_eq!(middle.len(), 4);
+}
+
+#[test]
+fn cow_mmap_unified_traversal_values() {
+    let (_dir, path) = temp_db();
+    let graph = CowMmapGraph::open(&path).unwrap();
+    let g = graph.traversal();
+
+    g.add_v("Person").property("name", "Alice").iterate();
+    g.add_v("Person").property("name", "Bob").iterate();
+
+    let names = g.v().has_label("Person").values("name").to_list();
+    assert_eq!(names.len(), 2);
+    assert!(names.contains(&Value::String("Alice".into())));
+    assert!(names.contains(&Value::String("Bob".into())));
 }

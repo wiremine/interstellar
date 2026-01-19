@@ -4,30 +4,74 @@
 //! traversal construction from graph binding. This is key to supporting
 //! anonymous traversals - graph access is provided when the traversal executes,
 //! not when it's constructed.
+//!
+//! # SnapshotLike Trait
+//!
+//! This module also defines the [`SnapshotLike`] trait, which abstracts over
+//! different snapshot types. Both `GraphSnapshot` and COW snapshot types
+//! implement this trait, enabling unified traversal and GQL execution.
 
 use std::any::Any;
 use std::collections::HashMap;
 
 use parking_lot::RwLock;
 
-use crate::graph::GraphSnapshot;
 use crate::storage::interner::StringInterner;
+use crate::storage::GraphStorage;
 use crate::value::Value;
+
+// =============================================================================
+// SnapshotLike Trait
+// =============================================================================
+
+/// A trait for types that provide snapshot-like access to graph data.
+///
+/// This trait abstracts over different snapshot implementations:
+/// - `GraphSnapshot<'g>` - Borrows from a `Graph` with read lock
+/// - `CowSnapshot` - Owned snapshot with structural sharing
+/// - `CowMmapSnapshot` - Persistent snapshot with mmap backing
+///
+/// Both `GraphTraversalSource` and the GQL compiler use this trait to
+/// work with any snapshot type generically.
+///
+/// # Example
+///
+/// ```ignore
+/// fn count_vertices<S: SnapshotLike>(snapshot: &S) -> u64 {
+///     snapshot.storage().vertex_count()
+/// }
+/// ```
+pub trait SnapshotLike {
+    /// Get a reference to the underlying graph storage.
+    fn storage(&self) -> &dyn GraphStorage;
+
+    /// Get a reference to the string interner for label resolution.
+    fn interner(&self) -> &StringInterner;
+}
 
 /// Execution context passed to steps at runtime.
 ///
 /// This is the key to supporting anonymous traversals - graph access
 /// is provided when the traversal executes, not when it's constructed.
 ///
+/// The context is generic over the storage type `S`, allowing it to work
+/// with any type that implements `GraphStorage`. This enables both
+/// `GraphSnapshot` and COW snapshot types to use the same traversal engine.
+///
+/// # Type Parameters
+///
+/// * `'g` - Lifetime of the borrowed storage and interner
+/// * `S` - The storage type, defaults to `dyn GraphStorage` for trait object usage
+///
 /// # Example
 ///
 /// ```ignore
-/// let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+/// let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 /// let label_id = ctx.resolve_label("person");
 /// ```
-pub struct ExecutionContext<'g> {
-    /// Graph snapshot for consistent reads
-    snapshot: &'g GraphSnapshot<'g>,
+pub struct ExecutionContext<'g, S: GraphStorage + ?Sized + 'g = dyn GraphStorage + 'g> {
+    /// Graph storage for consistent reads
+    storage: &'g S,
     /// String interner for label lookups
     interner: &'g StringInterner,
     /// Side effects storage (for store(), aggregate(), etc.)
@@ -36,16 +80,16 @@ pub struct ExecutionContext<'g> {
     pub track_paths: bool,
 }
 
-impl<'g> ExecutionContext<'g> {
+impl<'g, S: GraphStorage + ?Sized + 'g> ExecutionContext<'g, S> {
     /// Create a new execution context.
     ///
     /// # Arguments
     ///
-    /// * `snapshot` - Graph snapshot for consistent reads
+    /// * `storage` - Graph storage for consistent reads
     /// * `interner` - String interner for label resolution
-    pub fn new(snapshot: &'g GraphSnapshot<'g>, interner: &'g StringInterner) -> Self {
+    pub fn new(storage: &'g S, interner: &'g StringInterner) -> Self {
         Self {
-            snapshot,
+            storage,
             interner,
             side_effects: SideEffects::new(),
             track_paths: false,
@@ -59,14 +103,11 @@ impl<'g> ExecutionContext<'g> {
     ///
     /// # Arguments
     ///
-    /// * `snapshot` - Graph snapshot for consistent reads
+    /// * `storage` - Graph storage for consistent reads
     /// * `interner` - String interner for label resolution
-    pub fn with_path_tracking(
-        snapshot: &'g GraphSnapshot<'g>,
-        interner: &'g StringInterner,
-    ) -> Self {
+    pub fn with_path_tracking(storage: &'g S, interner: &'g StringInterner) -> Self {
         Self {
-            snapshot,
+            storage,
             interner,
             side_effects: SideEffects::new(),
             track_paths: true,
@@ -79,10 +120,10 @@ impl<'g> ExecutionContext<'g> {
         self.track_paths
     }
 
-    /// Get the graph snapshot.
+    /// Get the graph storage.
     #[inline]
-    pub fn snapshot(&self) -> &'g GraphSnapshot<'g> {
-        self.snapshot
+    pub fn storage(&self) -> &'g S {
+        self.storage
     }
 
     /// Get the string interner.
@@ -417,7 +458,7 @@ mod tests {
         fn execution_context_new_compiles() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let _ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let _ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
             // If this compiles and doesn't panic, the test passes
         }
 
@@ -425,7 +466,7 @@ mod tests {
         fn execution_context_resolve_label_existing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // "person" label exists (added vertices with this label)
             let person_id = ctx.resolve_label("person");
@@ -443,7 +484,7 @@ mod tests {
         fn execution_context_resolve_label_missing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // "unknown" label was never added
             let unknown_id = ctx.resolve_label("unknown");
@@ -454,7 +495,7 @@ mod tests {
         fn execution_context_resolve_labels_multiple() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Resolve multiple labels at once
             let ids = ctx.resolve_labels(&["person", "software", "unknown"]);
@@ -467,7 +508,7 @@ mod tests {
         fn execution_context_resolve_labels_all_missing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let ids = ctx.resolve_labels(&["unknown1", "unknown2"]);
             assert!(ids.is_empty());
@@ -477,7 +518,7 @@ mod tests {
         fn execution_context_get_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // First resolve to get the ID
             let person_id = ctx.resolve_label("person").unwrap();
@@ -491,7 +532,7 @@ mod tests {
         fn execution_context_get_label_missing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // ID that doesn't exist
             let label_str = ctx.get_label(999);
@@ -499,20 +540,21 @@ mod tests {
         }
 
         #[test]
-        fn execution_context_snapshot_accessor() {
+        fn execution_context_storage_accessor() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            // Should be able to access the snapshot through the context
-            let _snap = ctx.snapshot();
+            // Should be able to access the storage through the context
+            let storage = ctx.storage();
+            assert_eq!(storage.vertex_count(), 3);
         }
 
         #[test]
         fn execution_context_interner_accessor() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Should be able to access the interner through the context
             let interner = ctx.interner();
@@ -525,7 +567,7 @@ mod tests {
         fn execution_context_side_effects_accessible() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Side effects should be accessible and usable
             ctx.side_effects.store("test", Value::Int(42));

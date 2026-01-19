@@ -86,7 +86,7 @@ impl HasLabelStep {
         match &traverser.value {
             Value::Vertex(id) => {
                 // Get the vertex from the snapshot
-                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
                     self.labels.iter().any(|l| l == &vertex.label)
                 } else {
                     false
@@ -94,7 +94,7 @@ impl HasLabelStep {
             }
             Value::Edge(id) => {
                 // Get the edge from the snapshot
-                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
                     self.labels.iter().any(|l| l == &edge.label)
                 } else {
                     false
@@ -146,17 +146,15 @@ impl HasStep {
     fn matches(&self, ctx: &ExecutionContext, traverser: &Traverser) -> bool {
         match &traverser.value {
             Value::Vertex(id) => {
-                // Get the vertex from the snapshot and check property existence
-                ctx.snapshot()
-                    .storage()
+                // Get the vertex from storage and check property existence
+                ctx.storage()
                     .get_vertex(*id)
                     .map(|v| v.properties.contains_key(&self.key))
                     .unwrap_or(false)
             }
             Value::Edge(id) => {
-                // Get the edge from the snapshot and check property existence
-                ctx.snapshot()
-                    .storage()
+                // Get the edge from storage and check property existence
+                ctx.storage()
                     .get_edge(*id)
                     .map(|e| e.properties.contains_key(&self.key))
                     .unwrap_or(false)
@@ -211,17 +209,15 @@ impl HasNotStep {
     fn matches(&self, ctx: &ExecutionContext, traverser: &Traverser) -> bool {
         match &traverser.value {
             Value::Vertex(id) => {
-                // Get the vertex from the snapshot and check property absence
-                ctx.snapshot()
-                    .storage()
+                // Get the vertex from storage and check property absence
+                ctx.storage()
                     .get_vertex(*id)
                     .map(|v| !v.properties.contains_key(&self.key))
                     .unwrap_or(true) // Vertex not found = no property
             }
             Value::Edge(id) => {
-                // Get the edge from the snapshot and check property absence
-                ctx.snapshot()
-                    .storage()
+                // Get the edge from storage and check property absence
+                ctx.storage()
                     .get_edge(*id)
                     .map(|e| !e.properties.contains_key(&self.key))
                     .unwrap_or(true) // Edge not found = no property
@@ -282,7 +278,7 @@ impl HasValueStep {
         match &traverser.value {
             Value::Vertex(id) => {
                 // Get the vertex from the snapshot and check property value
-                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
                     vertex
                         .properties
                         .get(&self.key)
@@ -294,7 +290,7 @@ impl HasValueStep {
             }
             Value::Edge(id) => {
                 // Get the edge from the snapshot and check property value
-                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
                     edge.properties
                         .get(&self.key)
                         .map(|pv| pv == &self.value)
@@ -341,7 +337,7 @@ impl_filter_step!(HasValueStep, "has");
 /// let connected = g.v()
 ///     .filter(|ctx, v| {
 ///         if let Some(id) = v.as_vertex_id() {
-///             ctx.snapshot().storage().get_vertex(id)
+///             ctx.storage().get_vertex(id)
 ///                 .map(|_| true)
 ///                 .unwrap_or(false)
 ///         } else {
@@ -528,13 +524,11 @@ impl DedupByKeyStep {
     fn extract_key(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
         match &traverser.value {
             Value::Vertex(id) => ctx
-                .snapshot()
                 .storage()
                 .get_vertex(*id)
                 .and_then(|v| v.properties.get(&self.key).cloned())
                 .unwrap_or(Value::Null),
             Value::Edge(id) => ctx
-                .snapshot()
                 .storage()
                 .get_edge(*id)
                 .and_then(|e| e.properties.get(&self.key).cloned())
@@ -599,13 +593,11 @@ impl DedupByLabelStep {
     fn extract_label(&self, ctx: &ExecutionContext, traverser: &Traverser) -> String {
         match &traverser.value {
             Value::Vertex(id) => ctx
-                .snapshot()
                 .storage()
                 .get_vertex(*id)
                 .map(|v| v.label.clone())
                 .unwrap_or_default(),
             Value::Edge(id) => ctx
-                .snapshot()
                 .storage()
                 .get_edge(*id)
                 .map(|e| e.label.clone())
@@ -1093,7 +1085,7 @@ impl HasWhereStep {
         match &traverser.value {
             Value::Vertex(id) => {
                 // Get the vertex from the snapshot
-                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
                     // Get the property value and test it against the predicate
                     vertex
                         .properties
@@ -1106,7 +1098,7 @@ impl HasWhereStep {
             }
             Value::Edge(id) => {
                 // Get the edge from the snapshot
-                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
                     // Get the property value and test it against the predicate
                     edge.properties
                         .get(&self.key)
@@ -2071,7 +2063,7 @@ mod tests {
         fn filters_vertices_by_single_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("person");
 
@@ -2095,7 +2087,7 @@ mod tests {
         fn filters_vertices_by_multiple_labels() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::any(["person", "company"]);
 
@@ -2116,7 +2108,7 @@ mod tests {
         fn filters_edges_by_single_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("knows");
 
@@ -2137,7 +2129,7 @@ mod tests {
         fn filters_edges_by_multiple_labels() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::any(["knows", "uses"]);
 
@@ -2157,7 +2149,7 @@ mod tests {
         fn filters_out_non_element_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("person");
 
@@ -2180,7 +2172,7 @@ mod tests {
         fn filters_out_nonexistent_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("person");
 
@@ -2200,7 +2192,7 @@ mod tests {
         fn filters_out_nonexistent_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("knows");
 
@@ -2220,7 +2212,7 @@ mod tests {
         fn returns_empty_for_nonexistent_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("nonexistent_label");
 
@@ -2240,7 +2232,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("person");
             let input: Vec<Traverser> = vec![];
@@ -2254,7 +2246,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasLabelStep::single("person");
 
@@ -2276,7 +2268,7 @@ mod tests {
         fn mixed_vertices_and_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // This filter should only match "person" vertices, not edges
             let step = HasLabelStep::single("person");
@@ -2376,7 +2368,7 @@ mod tests {
         fn filters_vertices_with_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("age");
 
@@ -2398,7 +2390,7 @@ mod tests {
         fn filters_vertices_by_name_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("name");
 
@@ -2419,7 +2411,7 @@ mod tests {
         fn filters_edges_with_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("since");
 
@@ -2439,7 +2431,7 @@ mod tests {
         fn filters_out_non_element_values() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("name");
 
@@ -2460,7 +2452,7 @@ mod tests {
         fn filters_out_nonexistent_vertices() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("name");
 
@@ -2479,7 +2471,7 @@ mod tests {
         fn returns_empty_for_nonexistent_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("nonexistent_property");
 
@@ -2497,7 +2489,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("name");
             let input: Vec<Traverser> = vec![];
@@ -2511,7 +2503,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasStep::new("name");
 
@@ -2611,7 +2603,7 @@ mod tests {
         fn filters_out_vertices_with_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("age");
 
@@ -2635,7 +2627,7 @@ mod tests {
         fn keeps_vertices_without_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("version");
 
@@ -2659,7 +2651,7 @@ mod tests {
         fn filters_out_edges_with_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("since");
 
@@ -2679,7 +2671,7 @@ mod tests {
         fn passes_through_non_element_values() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("name");
 
@@ -2705,7 +2697,7 @@ mod tests {
         fn nonexistent_vertices_pass_through() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("name");
 
@@ -2725,7 +2717,7 @@ mod tests {
         fn nonexistent_edges_pass_through() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("since");
 
@@ -2745,7 +2737,7 @@ mod tests {
         fn all_pass_for_nonexistent_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("nonexistent_property");
 
@@ -2766,7 +2758,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasNotStep::new("name");
             let input: Vec<Traverser> = vec![];
@@ -2780,7 +2772,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Vertex 3 has no properties, so it should pass
             let step = HasNotStep::new("name");
@@ -2811,7 +2803,7 @@ mod tests {
         fn mixed_vertices_and_edges() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // "name" property exists on vertices 0, 1, 2 but NOT on edges
             let step = HasNotStep::new("name");
@@ -2836,7 +2828,7 @@ mod tests {
             // This test verifies that HasNotStep is the inverse of HasStep
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let has_step = HasStep::new("age");
             let has_not_step = HasNotStep::new("age");
@@ -2960,7 +2952,7 @@ mod tests {
         fn filters_vertices_by_string_value() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("name", "Alice");
 
@@ -2980,7 +2972,7 @@ mod tests {
         fn filters_vertices_by_int_value() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("age", 30i64);
 
@@ -3002,7 +2994,7 @@ mod tests {
         fn filters_vertices_by_float_value() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("version", Value::Float(1.0));
 
@@ -3021,7 +3013,7 @@ mod tests {
         fn filters_edges_by_value() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("since", 2020i64);
 
@@ -3040,7 +3032,7 @@ mod tests {
         fn filters_out_vertices_with_different_value() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("age", 99i64);
 
@@ -3058,7 +3050,7 @@ mod tests {
         fn filters_out_vertices_without_property() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("age", 30i64);
 
@@ -3077,7 +3069,7 @@ mod tests {
         fn filters_out_non_element_values() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("name", "Alice");
 
@@ -3097,7 +3089,7 @@ mod tests {
         fn filters_out_nonexistent_vertices() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("name", "Alice");
 
@@ -3115,7 +3107,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("name", "Alice");
             let input: Vec<Traverser> = vec![];
@@ -3129,7 +3121,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_graph_with_properties();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasValueStep::new("name", "Alice");
 
@@ -3203,7 +3195,7 @@ mod tests {
         fn filters_with_always_true_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FilterStep::new(|_ctx, _v| true);
 
@@ -3222,7 +3214,7 @@ mod tests {
         fn filters_with_always_false_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FilterStep::new(|_ctx, _v| false);
 
@@ -3241,7 +3233,7 @@ mod tests {
         fn filters_positive_integers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FilterStep::new(|_ctx, v| matches!(v, Value::Int(n) if *n > 0));
 
@@ -3263,7 +3255,7 @@ mod tests {
         fn filters_by_value_type() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FilterStep::new(|_ctx, v| v.is_vertex());
 
@@ -3285,12 +3277,12 @@ mod tests {
         fn can_access_execution_context() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Filter that checks if vertex exists in the graph
             let step = FilterStep::new(|ctx, v| {
                 if let Some(id) = v.as_vertex_id() {
-                    ctx.snapshot().storage().get_vertex(id).is_some()
+                    ctx.storage().get_vertex(id).is_some()
                 } else {
                     false
                 }
@@ -3313,7 +3305,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FilterStep::new(|_ctx, _v| true);
             let input: Vec<Traverser> = vec![];
@@ -3327,7 +3319,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = FilterStep::new(|_ctx, _v| true);
 
@@ -3357,7 +3349,7 @@ mod tests {
         fn filter_with_string_matching() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step =
                 FilterStep::new(|_ctx, v| matches!(v, Value::String(s) if s.starts_with("A")));
@@ -3416,7 +3408,7 @@ mod tests {
         fn removes_duplicate_integers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3441,7 +3433,7 @@ mod tests {
         fn removes_duplicate_strings() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3464,7 +3456,7 @@ mod tests {
         fn removes_duplicate_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3488,7 +3480,7 @@ mod tests {
         fn removes_duplicate_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3511,7 +3503,7 @@ mod tests {
         fn preserves_first_occurrence_order() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3538,7 +3530,7 @@ mod tests {
         fn handles_mixed_types() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3562,7 +3554,7 @@ mod tests {
         fn handles_floats() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3582,7 +3574,7 @@ mod tests {
         fn handles_null_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3605,7 +3597,7 @@ mod tests {
         fn handles_boolean_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3627,7 +3619,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
             let input: Vec<Traverser> = vec![];
@@ -3641,7 +3633,7 @@ mod tests {
         fn single_element_passes_through() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3657,7 +3649,7 @@ mod tests {
         fn all_unique_values_pass_through() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3677,7 +3669,7 @@ mod tests {
         fn all_same_values_reduced_to_one() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3698,7 +3690,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3720,7 +3712,7 @@ mod tests {
         fn preserves_metadata_of_first_occurrence() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3762,7 +3754,7 @@ mod tests {
         fn handles_list_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3781,7 +3773,7 @@ mod tests {
         fn handles_map_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupStep::new();
 
@@ -3865,7 +3857,7 @@ mod tests {
         fn dedup_by_property_keeps_first_occurrence() {
             let graph = create_test_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("age");
 
@@ -3887,7 +3879,7 @@ mod tests {
         fn missing_property_treated_as_null() {
             let graph = create_test_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("age");
 
@@ -3907,7 +3899,7 @@ mod tests {
         fn multiple_elements_without_property_deduplicated() {
             let graph = create_test_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("nonexistent");
 
@@ -3928,7 +3920,7 @@ mod tests {
         fn works_with_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("weight");
 
@@ -3948,7 +3940,7 @@ mod tests {
         fn non_element_values_use_null_key() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("age");
 
@@ -3969,7 +3961,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("age");
             let input: Vec<Traverser> = vec![];
@@ -3983,7 +3975,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByKeyStep::new("age");
 
@@ -4037,7 +4029,7 @@ mod tests {
         fn dedup_by_label_keeps_first_per_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByLabelStep::new();
 
@@ -4062,7 +4054,7 @@ mod tests {
         fn works_with_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByLabelStep::new();
 
@@ -4083,7 +4075,7 @@ mod tests {
         fn non_element_values_use_empty_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByLabelStep::new();
 
@@ -4104,7 +4096,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByLabelStep::new();
             let input: Vec<Traverser> = vec![];
@@ -4118,7 +4110,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = DedupByLabelStep::new();
 
@@ -4179,7 +4171,7 @@ mod tests {
 
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Dedup by the "name" property value
             let sub = Traversal::<Value, Value>::new().add_step(ValuesStep::new("name"));
@@ -4204,7 +4196,7 @@ mod tests {
 
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Dedup by non-existent property
             let sub = Traversal::<Value, Value>::new().add_step(ValuesStep::new("nonexistent"));
@@ -4229,7 +4221,7 @@ mod tests {
 
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Dedup by label using a traversal
             let sub = Traversal::<Value, Value>::new().add_step(LabelStep::new());
@@ -4252,7 +4244,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let sub = Traversal::<Value, Value>::new();
             let step = DedupByTraversalStep::new(sub);
@@ -4267,7 +4259,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let sub = Traversal::<Value, Value>::new();
             let step = DedupByTraversalStep::new(sub);
@@ -4323,7 +4315,7 @@ mod tests {
         fn limits_traversers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(3);
 
@@ -4347,7 +4339,7 @@ mod tests {
         fn limit_zero_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(0);
 
@@ -4363,7 +4355,7 @@ mod tests {
         fn limit_greater_than_input_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(100);
 
@@ -4382,7 +4374,7 @@ mod tests {
         fn limit_one_returns_first() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(1);
 
@@ -4402,7 +4394,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(5);
             let input: Vec<Traverser> = vec![];
@@ -4416,7 +4408,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(1);
 
@@ -4455,7 +4447,7 @@ mod tests {
         fn works_with_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = LimitStep::new(2);
 
@@ -4501,7 +4493,7 @@ mod tests {
         fn skips_traversers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(2);
 
@@ -4525,7 +4517,7 @@ mod tests {
         fn skip_zero_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(0);
 
@@ -4545,7 +4537,7 @@ mod tests {
         fn skip_greater_than_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(100);
 
@@ -4564,7 +4556,7 @@ mod tests {
         fn skip_equal_to_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(3);
 
@@ -4583,7 +4575,7 @@ mod tests {
         fn skip_one_less_than_input_returns_last() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(4);
 
@@ -4605,7 +4597,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(5);
             let input: Vec<Traverser> = vec![];
@@ -4619,7 +4611,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(1);
 
@@ -4659,7 +4651,7 @@ mod tests {
         fn works_with_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SkipStep::new(2);
 
@@ -4717,7 +4709,7 @@ mod tests {
         fn tail_returns_last_n_elements() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(3);
 
@@ -4741,7 +4733,7 @@ mod tests {
         fn tail_last_returns_single_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::last();
 
@@ -4763,7 +4755,7 @@ mod tests {
         fn tail_zero_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(0);
 
@@ -4782,7 +4774,7 @@ mod tests {
         fn tail_greater_than_input_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(100);
 
@@ -4804,7 +4796,7 @@ mod tests {
         fn tail_equal_to_input_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(3);
 
@@ -4824,7 +4816,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(5);
             let input: Vec<Traverser> = vec![];
@@ -4838,7 +4830,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(1);
 
@@ -4878,7 +4870,7 @@ mod tests {
         fn works_with_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(2);
 
@@ -4900,7 +4892,7 @@ mod tests {
         fn works_with_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(2);
 
@@ -4921,7 +4913,7 @@ mod tests {
         fn preserves_order() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = TailStep::new(4);
 
@@ -5001,7 +4993,7 @@ mod tests {
         fn coin_zero_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(0.0);
 
@@ -5022,7 +5014,7 @@ mod tests {
         fn coin_one_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(1.0);
 
@@ -5043,7 +5035,7 @@ mod tests {
         fn coin_never_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::never();
 
@@ -5062,7 +5054,7 @@ mod tests {
         fn coin_always_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::always();
 
@@ -5082,7 +5074,7 @@ mod tests {
             // Statistical test with large sample size
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(0.5);
 
@@ -5106,7 +5098,7 @@ mod tests {
             // Statistical test with large sample size
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(0.1);
 
@@ -5129,7 +5121,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(0.5);
             let input: Vec<Traverser> = vec![];
@@ -5143,7 +5135,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Use coin(1.0) to ensure the traverser passes
             let step = CoinStep::new(1.0);
@@ -5183,7 +5175,7 @@ mod tests {
         fn works_with_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(1.0);
 
@@ -5202,7 +5194,7 @@ mod tests {
         fn works_with_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CoinStep::new(1.0);
 
@@ -5220,7 +5212,7 @@ mod tests {
         fn nan_probability_treated_as_zero() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // NaN comparison with clamp should result in 0.0
             let step = CoinStep::new(f64::NAN);
@@ -5273,7 +5265,7 @@ mod tests {
         fn sample_zero_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(0);
 
@@ -5292,7 +5284,7 @@ mod tests {
         fn sample_larger_than_input_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(10);
 
@@ -5311,7 +5303,7 @@ mod tests {
         fn sample_equal_to_input_returns_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(5);
 
@@ -5332,7 +5324,7 @@ mod tests {
         fn sample_returns_exactly_n_elements() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(5);
 
@@ -5347,7 +5339,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(5);
             let input: Vec<Traverser> = vec![];
@@ -5361,7 +5353,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(1);
 
@@ -5400,7 +5392,7 @@ mod tests {
         fn works_with_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(2);
 
@@ -5419,7 +5411,7 @@ mod tests {
         fn works_with_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(2);
 
@@ -5438,7 +5430,7 @@ mod tests {
         fn sample_elements_come_from_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(5);
 
@@ -5470,7 +5462,7 @@ mod tests {
             // When input has all distinct elements, output should have distinct elements
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SampleStep::new(5);
 
@@ -5509,7 +5501,7 @@ mod tests {
             let num_trials = 1000;
 
             for _ in 0..num_trials {
-                let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+                let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
                 let step = SampleStep::new(sample_size);
 
                 let input: Vec<Traverser> = (0..input_size as i64)
@@ -5589,7 +5581,7 @@ mod tests {
         fn filters_property_map_by_single_key() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasKeyStep::new("name");
 
@@ -5626,7 +5618,7 @@ mod tests {
         fn filters_property_map_by_multiple_keys() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasKeyStep::any(["name", "age"]);
 
@@ -5655,7 +5647,7 @@ mod tests {
         fn non_map_values_filtered_out() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasKeyStep::new("name");
 
@@ -5674,7 +5666,7 @@ mod tests {
         fn map_without_key_field_filtered_out() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasKeyStep::new("name");
 
@@ -5693,7 +5685,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasKeyStep::new("name");
             let input: Vec<Traverser> = vec![];
@@ -5707,7 +5699,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasKeyStep::new("name");
 
@@ -5777,7 +5769,7 @@ mod tests {
         fn filters_property_map_by_single_string_value() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::new("Alice");
 
@@ -5805,7 +5797,7 @@ mod tests {
         fn filters_property_map_by_single_int_value() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::new(30i64);
 
@@ -5824,7 +5816,7 @@ mod tests {
         fn filters_property_map_by_multiple_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::any(["Alice", "Carol"]);
 
@@ -5856,7 +5848,7 @@ mod tests {
         fn non_map_values_filtered_out() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::new("Alice");
 
@@ -5875,7 +5867,7 @@ mod tests {
         fn map_without_value_field_filtered_out() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::new("Alice");
 
@@ -5894,7 +5886,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::new("Alice");
             let input: Vec<Traverser> = vec![];
@@ -5908,7 +5900,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasPropValueStep::new("Alice");
 
@@ -5940,7 +5932,7 @@ mod tests {
         fn works_with_mixed_value_types() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create step that matches Int(30)
             let step = HasPropValueStep::new(30i64);
@@ -5987,7 +5979,7 @@ mod tests {
         fn range_selects_middle_elements() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(2, 5);
 
@@ -6013,7 +6005,7 @@ mod tests {
         fn range_from_start() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(0, 3);
 
@@ -6037,7 +6029,7 @@ mod tests {
         fn range_to_end() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(3, 100);
 
@@ -6060,7 +6052,7 @@ mod tests {
         fn range_equal_start_end_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(3, 3);
 
@@ -6081,7 +6073,7 @@ mod tests {
         fn range_end_less_than_start_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(5, 2);
 
@@ -6102,7 +6094,7 @@ mod tests {
         fn range_start_beyond_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(10, 20);
 
@@ -6121,7 +6113,7 @@ mod tests {
         fn range_single_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(2, 3);
 
@@ -6143,7 +6135,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(0, 5);
             let input: Vec<Traverser> = vec![];
@@ -6157,7 +6149,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(1, 2);
 
@@ -6200,7 +6192,7 @@ mod tests {
         fn works_with_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = RangeStep::new(1, 3);
 
@@ -6222,7 +6214,7 @@ mod tests {
         fn range_equivalent_to_skip_then_limit() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // range(2, 5) should be equivalent to skip(2).limit(3)
             let range_step = RangeStep::new(2, 5);
@@ -6318,7 +6310,7 @@ mod tests {
         fn filters_vertices_by_single_id() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::vertex(VertexId(1));
 
@@ -6339,7 +6331,7 @@ mod tests {
         fn filters_vertices_by_multiple_ids() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::vertices(vec![VertexId(0), VertexId(2)]);
 
@@ -6361,7 +6353,7 @@ mod tests {
         fn filters_edges_by_single_id() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::edge(EdgeId(1));
 
@@ -6381,7 +6373,7 @@ mod tests {
         fn filters_edges_by_multiple_ids() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::edges(vec![EdgeId(0), EdgeId(2)]);
 
@@ -6402,7 +6394,7 @@ mod tests {
         fn filters_out_non_element_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::vertex(VertexId(0));
 
@@ -6424,7 +6416,7 @@ mod tests {
         fn vertex_id_step_does_not_match_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Looking for vertex ID 0, but passing edges
             let step = HasIdStep::vertex(VertexId(0));
@@ -6444,7 +6436,7 @@ mod tests {
         fn edge_id_step_does_not_match_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Looking for edge ID 0, but passing vertices
             let step = HasIdStep::edge(EdgeId(0));
@@ -6464,7 +6456,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::vertex(VertexId(1));
             let input: Vec<Traverser> = vec![];
@@ -6478,7 +6470,7 @@ mod tests {
         fn returns_empty_for_nonexistent_id() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::vertex(VertexId(999));
 
@@ -6497,7 +6489,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasIdStep::vertex(VertexId(1));
 
@@ -6519,7 +6511,7 @@ mod tests {
         fn mixed_vertex_and_edge_input() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Looking for vertex ID 1
             let step = HasIdStep::vertex(VertexId(1));
@@ -6542,7 +6534,7 @@ mod tests {
         fn from_values_with_mixed_types() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Looking for either vertex 0 or edge 1
             let step =
@@ -6670,7 +6662,7 @@ mod tests {
         fn filters_vertices_with_gte_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::gte(30i64));
 
@@ -6692,7 +6684,7 @@ mod tests {
         fn filters_vertices_with_lt_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::lt(30i64));
 
@@ -6712,7 +6704,7 @@ mod tests {
         fn filters_vertices_with_between_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::between(26i64, 34i64));
 
@@ -6732,7 +6724,7 @@ mod tests {
         fn filters_vertices_with_eq_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::eq(30i64));
 
@@ -6752,7 +6744,7 @@ mod tests {
         fn filters_vertices_with_neq_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::neq(30i64));
 
@@ -6773,7 +6765,7 @@ mod tests {
         fn filters_vertices_with_within_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::within([25i64, 35i64]));
 
@@ -6794,7 +6786,7 @@ mod tests {
         fn filters_vertices_with_without_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::without([25i64, 35i64]));
 
@@ -6814,7 +6806,7 @@ mod tests {
         fn filters_vertices_with_string_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("name", p::starting_with("A"));
 
@@ -6834,7 +6826,7 @@ mod tests {
         fn filters_vertices_with_containing_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("name", p::containing("li"));
 
@@ -6855,7 +6847,7 @@ mod tests {
         fn filters_vertices_with_and_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // age >= 25 AND age < 35
             let step = HasWhereStep::new("age", p::and(p::gte(25i64), p::lt(35i64)));
@@ -6877,7 +6869,7 @@ mod tests {
         fn filters_vertices_with_or_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // age == 25 OR age == 35
             let step = HasWhereStep::new("age", p::or(p::eq(25i64), p::eq(35i64)));
@@ -6899,7 +6891,7 @@ mod tests {
         fn filters_vertices_with_not_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // NOT age == 30
             let step = HasWhereStep::new("age", p::not(p::eq(30i64)));
@@ -6921,7 +6913,7 @@ mod tests {
         fn filters_edges_with_predicate() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("weight", p::gt(0.5));
 
@@ -6940,7 +6932,7 @@ mod tests {
         fn filters_out_vertices_without_property() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::gte(0i64)); // Would match any age
 
@@ -6959,7 +6951,7 @@ mod tests {
         fn filters_out_non_element_values() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::gte(0i64));
 
@@ -6981,7 +6973,7 @@ mod tests {
         fn filters_out_nonexistent_vertices() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::gte(0i64));
 
@@ -7000,7 +6992,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::gte(18i64));
             let input: Vec<Traverser> = vec![];
@@ -7014,7 +7006,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("age", p::gte(18i64));
 
@@ -7052,7 +7044,7 @@ mod tests {
         fn filters_float_property_with_gte() {
             let graph = create_graph_with_ages();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = HasWhereStep::new("version", p::gte(Value::Float(1.0)));
 
@@ -7099,7 +7091,7 @@ mod tests {
         fn filters_integer_values_with_eq() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq(29i64);
 
@@ -7121,7 +7113,7 @@ mod tests {
         fn filters_integer_values_with_gt() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::gt(25i64));
 
@@ -7143,7 +7135,7 @@ mod tests {
         fn filters_integer_values_with_gte() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::gte(25i64));
 
@@ -7165,7 +7157,7 @@ mod tests {
         fn filters_integer_values_with_lt() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::lt(25i64));
 
@@ -7185,7 +7177,7 @@ mod tests {
         fn filters_integer_values_with_lte() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::lte(25i64));
 
@@ -7206,7 +7198,7 @@ mod tests {
         fn filters_integer_values_with_neq() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::neq(25i64));
 
@@ -7227,7 +7219,7 @@ mod tests {
         fn filters_integer_values_with_between() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::between(20i64, 40i64));
 
@@ -7250,7 +7242,7 @@ mod tests {
         fn filters_integer_values_with_inside() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::inside(20i64, 40i64));
 
@@ -7272,7 +7264,7 @@ mod tests {
         fn filters_integer_values_with_outside() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::outside(20i64, 40i64));
 
@@ -7295,7 +7287,7 @@ mod tests {
         fn filters_integer_values_with_within() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::within(vec![
                 Value::Int(20),
@@ -7322,7 +7314,7 @@ mod tests {
         fn filters_integer_values_with_without() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::without(vec![Value::Int(20), Value::Int(30)]));
 
@@ -7346,7 +7338,7 @@ mod tests {
         fn filters_float_values_with_gt() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::gt(Value::Float(2.5)));
 
@@ -7368,7 +7360,7 @@ mod tests {
         fn filters_string_values_with_eq() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq("alice");
 
@@ -7389,7 +7381,7 @@ mod tests {
         fn filters_string_values_with_containing() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::containing("lic"));
 
@@ -7410,7 +7402,7 @@ mod tests {
         fn filters_string_values_with_starting_with() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::starting_with("al"));
 
@@ -7431,7 +7423,7 @@ mod tests {
         fn filters_string_values_with_ending_with() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::ending_with("ce"));
 
@@ -7452,7 +7444,7 @@ mod tests {
         fn filters_boolean_values_with_eq() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq(true);
 
@@ -7473,7 +7465,7 @@ mod tests {
         fn filters_with_and_predicate() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::and(p::gte(20i64), p::lt(30i64)));
 
@@ -7496,7 +7488,7 @@ mod tests {
         fn filters_with_or_predicate() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::or(p::lt(15i64), p::gt(35i64)));
 
@@ -7518,7 +7510,7 @@ mod tests {
         fn filters_with_not_predicate() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::new(p::not(p::eq(25i64)));
 
@@ -7539,7 +7531,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq(29i64);
             let input: Vec<Traverser> = vec![];
@@ -7553,7 +7545,7 @@ mod tests {
         fn no_matches_returns_empty_output() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq(100i64);
 
@@ -7572,7 +7564,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq(29i64);
 
@@ -7602,7 +7594,7 @@ mod tests {
         fn clone_works() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IsStep::eq(29i64);
             let cloned = step.clone();
@@ -7627,7 +7619,7 @@ mod tests {
         fn type_mismatch_does_not_match() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Looking for integer 29, but input has string "29"
             let step = IsStep::eq(29i64);
@@ -7696,7 +7688,7 @@ mod tests {
             // Path: A -> B -> C -> D (all unique)
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7718,7 +7710,7 @@ mod tests {
             // Path: A -> B -> C -> A (cycle back to A)
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7739,7 +7731,7 @@ mod tests {
         fn single_element_path_is_simple() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7755,7 +7747,7 @@ mod tests {
         fn empty_path_is_simple() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7773,7 +7765,7 @@ mod tests {
             // Path: A -> A (immediate duplicate)
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7792,7 +7784,7 @@ mod tests {
         fn mixed_simple_and_cyclic_paths() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7823,7 +7815,7 @@ mod tests {
         fn edges_in_path_checked_for_duplicates() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7847,7 +7839,7 @@ mod tests {
         fn properties_in_path_checked_for_duplicates() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7868,7 +7860,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = SimplePathStep::new();
 
@@ -7939,7 +7931,7 @@ mod tests {
             // Path: A -> B -> C -> A (cycle back to A)
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -7961,7 +7953,7 @@ mod tests {
             // Path: A -> B -> C -> D (all unique)
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -7982,7 +7974,7 @@ mod tests {
         fn single_element_path_is_not_cyclic() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -7998,7 +7990,7 @@ mod tests {
         fn empty_path_is_not_cyclic() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -8015,7 +8007,7 @@ mod tests {
             // Path: A -> A (immediate duplicate)
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -8034,7 +8026,7 @@ mod tests {
         fn mixed_simple_and_cyclic_paths() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -8065,7 +8057,7 @@ mod tests {
         fn is_inverse_of_simple_path() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let simple_step = SimplePathStep::new();
             let cyclic_step = CyclicPathStep::new();
@@ -8105,7 +8097,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CyclicPathStep::new();
 
@@ -8148,7 +8140,7 @@ mod tests {
         fn filters_with_gt_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gt(25));
 
@@ -8170,7 +8162,7 @@ mod tests {
         fn filters_with_lt_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::lt(25));
 
@@ -8192,7 +8184,7 @@ mod tests {
         fn filters_with_eq_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::eq(42));
 
@@ -8214,7 +8206,7 @@ mod tests {
         fn filters_with_neq_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::neq(42));
 
@@ -8235,7 +8227,7 @@ mod tests {
         fn filters_with_gte_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gte(25));
 
@@ -8256,7 +8248,7 @@ mod tests {
         fn filters_with_lte_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::lte(25));
 
@@ -8277,7 +8269,7 @@ mod tests {
         fn filters_with_within_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::within([1, 2, 3]));
 
@@ -8301,7 +8293,7 @@ mod tests {
         fn filters_with_without_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::without([1, 2, 3]));
 
@@ -8324,7 +8316,7 @@ mod tests {
         fn filters_with_between_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::between(10, 20));
 
@@ -8348,7 +8340,7 @@ mod tests {
         fn filters_with_and_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Filter values > 10 AND < 30
             let step = WherePStep::new(p::and(p::gt(10), p::lt(30)));
@@ -8371,7 +8363,7 @@ mod tests {
         fn filters_with_or_predicate() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Filter values < 10 OR > 30
             let step = WherePStep::new(p::or(p::lt(10), p::gt(30)));
@@ -8394,7 +8386,7 @@ mod tests {
         fn empty_input_returns_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gt(25));
             let input: Vec<Traverser> = vec![];
@@ -8408,7 +8400,7 @@ mod tests {
         fn preserves_traverser_metadata() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gt(25));
 
@@ -8430,7 +8422,7 @@ mod tests {
         fn works_with_string_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::within(["Alice", "Bob"]));
 
@@ -8452,7 +8444,7 @@ mod tests {
         fn works_with_float_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gt(2.5));
 
@@ -8482,7 +8474,7 @@ mod tests {
         fn filters_all_when_none_match() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gt(100));
 
@@ -8501,7 +8493,7 @@ mod tests {
         fn passes_all_when_all_match() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = WherePStep::new(p::gt(0));
 

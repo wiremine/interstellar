@@ -106,7 +106,6 @@ impl PropertiesStep {
             Value::Vertex(id) => {
                 // Get vertex properties
                 let props: Vec<Value> = ctx
-                    .snapshot()
                     .storage()
                     .get_vertex(*id)
                     .map(|vertex| {
@@ -144,7 +143,6 @@ impl PropertiesStep {
             Value::Edge(id) => {
                 // Get edge properties
                 let props: Vec<Value> = ctx
-                    .snapshot()
                     .storage()
                     .get_edge(*id)
                     .map(|edge| {
@@ -311,7 +309,7 @@ impl ValueMapStep {
 
         match &traverser.value {
             Value::Vertex(id) => {
-                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
                     // Optionally include id and label tokens (NOT wrapped in lists)
                     if self.include_tokens {
                         map.insert("id".to_string(), Value::Int(id.0 as i64));
@@ -338,7 +336,7 @@ impl ValueMapStep {
                 }
             }
             Value::Edge(id) => {
-                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
                     // Optionally include id and label tokens (NOT wrapped in lists)
                     if self.include_tokens {
                         map.insert("id".to_string(), Value::Int(id.0 as i64));
@@ -482,7 +480,7 @@ impl ElementMapStep {
 
         match &traverser.value {
             Value::Vertex(id) => {
-                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
                     // Always include id and label
                     map.insert("id".to_string(), Value::Int(id.0 as i64));
                     map.insert("label".to_string(), Value::String(vertex.label.clone()));
@@ -507,7 +505,7 @@ impl ElementMapStep {
                 }
             }
             Value::Edge(id) => {
-                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
                     // Always include id and label
                     map.insert("id".to_string(), Value::Int(id.0 as i64));
                     map.insert("label".to_string(), Value::String(edge.label.clone()));
@@ -552,7 +550,7 @@ impl ElementMapStep {
         let mut map = std::collections::HashMap::new();
         map.insert("id".to_string(), Value::Int(id.0 as i64));
 
-        if let Some(vertex) = ctx.snapshot().storage().get_vertex(id) {
+        if let Some(vertex) = ctx.storage().get_vertex(id) {
             map.insert("label".to_string(), Value::String(vertex.label.clone()));
         }
 
@@ -674,7 +672,7 @@ impl PropertyMapStep {
 
         match &traverser.value {
             Value::Vertex(id) => {
-                if let Some(vertex) = ctx.snapshot().storage().get_vertex(*id) {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
                     match &self.keys {
                         None => {
                             // Include all properties
@@ -700,7 +698,7 @@ impl PropertyMapStep {
                 }
             }
             Value::Edge(id) => {
-                if let Some(edge) = ctx.snapshot().storage().get_edge(*id) {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
                     match &self.keys {
                         None => {
                             // Include all properties
@@ -802,7 +800,7 @@ mod tests {
         fn extracts_all_properties() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertiesStep::new();
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -828,7 +826,7 @@ mod tests {
         fn extracts_specific_properties() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertiesStep::with_keys(vec!["name".to_string()]);
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -852,7 +850,7 @@ mod tests {
         fn extracts_edge_properties() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertiesStep::new();
             let input = vec![Traverser::from_edge(EdgeId(0))];
@@ -877,7 +875,7 @@ mod tests {
         fn ignores_non_elements() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertiesStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
@@ -895,7 +893,7 @@ mod tests {
         fn preserves_path_for_each_property() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertiesStep::new();
 
@@ -919,7 +917,7 @@ mod tests {
         fn empty_input_returns_empty_output() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertiesStep::new();
             let input: Vec<Traverser> = vec![];
@@ -947,7 +945,7 @@ mod tests {
         fn extracts_all_properties_as_map() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValueMapStep::new();
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -971,7 +969,7 @@ mod tests {
         fn includes_tokens_when_requested() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValueMapStep::new().with_tokens();
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -997,7 +995,7 @@ mod tests {
         fn extracts_edge_properties_as_map() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValueMapStep::new();
             let input = vec![Traverser::from_edge(EdgeId(0))];
@@ -1023,7 +1021,7 @@ mod tests {
         fn returns_empty_map_for_non_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValueMapStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
@@ -1056,7 +1054,7 @@ mod tests {
         fn extracts_vertex_element_map() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ElementMapStep::new();
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -1082,7 +1080,7 @@ mod tests {
         fn extracts_edge_element_map_with_refs() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ElementMapStep::new();
             let input = vec![Traverser::from_edge(EdgeId(0))];
@@ -1131,7 +1129,7 @@ mod tests {
         fn returns_empty_map_for_non_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ElementMapStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
@@ -1200,7 +1198,7 @@ mod tests {
         fn extracts_all_vertex_properties_as_property_objects() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -1251,7 +1249,7 @@ mod tests {
         fn extracts_specific_vertex_properties() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::with_keys(vec!["name".to_string()]);
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -1273,7 +1271,7 @@ mod tests {
         fn missing_keys_are_omitted() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::with_keys(vec!["name".to_string(), "missing".to_string()]);
             let input = vec![Traverser::from_vertex(VertexId(0))];
@@ -1297,7 +1295,7 @@ mod tests {
         fn extracts_edge_properties_as_property_objects() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let input = vec![Traverser::from_edge(EdgeId(0))];
@@ -1330,7 +1328,7 @@ mod tests {
         fn extracts_specific_edge_properties() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::with_keys(vec!["weight".to_string()]);
             let input = vec![Traverser::from_edge(EdgeId(0))];
@@ -1354,7 +1352,7 @@ mod tests {
         fn returns_empty_map_for_non_element() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let input = vec![Traverser::new(Value::Int(42))];
@@ -1373,7 +1371,7 @@ mod tests {
         fn returns_empty_map_for_string() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let input = vec![Traverser::new(Value::String("test".to_string()))];
@@ -1396,7 +1394,7 @@ mod tests {
         fn preserves_path() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let mut t = Traverser::from_vertex(VertexId(0));
@@ -1413,7 +1411,7 @@ mod tests {
         fn preserves_loops() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let mut t = Traverser::from_vertex(VertexId(0));
@@ -1429,7 +1427,7 @@ mod tests {
         fn preserves_bulk() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let mut t = Traverser::from_vertex(VertexId(0));
@@ -1449,7 +1447,7 @@ mod tests {
         fn returns_empty_map_for_missing_vertex() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let input = vec![Traverser::from_vertex(VertexId(999))]; // Non-existent vertex
@@ -1468,7 +1466,7 @@ mod tests {
         fn returns_empty_map_for_missing_edge() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = PropertyMapStep::new();
             let input = vec![Traverser::from_edge(EdgeId(999))]; // Non-existent edge

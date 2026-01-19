@@ -100,26 +100,21 @@ impl AnyStep for OutStep {
             };
 
             let label_ids = label_ids.clone();
-            Box::new(
-                ctx.snapshot()
-                    .storage()
-                    .out_edges(vertex_id)
-                    .filter_map(move |edge| {
-                        // Filter by label if specified
-                        if !label_ids.is_empty() {
-                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                            if !label_ids.contains(&edge_label_id) {
-                                return None;
-                            }
-                        }
-                        // Get target vertex
-                        let mut new_t = t.split(Value::Vertex(edge.dst));
-                        if track_paths {
-                            new_t.extend_path_unlabeled();
-                        }
-                        Some(new_t)
-                    }),
-            ) as Box<dyn Iterator<Item = Traverser>>
+            Box::new(ctx.storage().out_edges(vertex_id).filter_map(move |edge| {
+                // Filter by label if specified
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                // Get target vertex
+                let mut new_t = t.split(Value::Vertex(edge.dst));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            })) as Box<dyn Iterator<Item = Traverser>>
         }))
     }
 
@@ -206,26 +201,21 @@ impl AnyStep for InStep {
             };
 
             let label_ids = label_ids.clone();
-            Box::new(
-                ctx.snapshot()
-                    .storage()
-                    .in_edges(vertex_id)
-                    .filter_map(move |edge| {
-                        // Filter by label if specified
-                        if !label_ids.is_empty() {
-                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                            if !label_ids.contains(&edge_label_id) {
-                                return None;
-                            }
-                        }
-                        // Get source vertex
-                        let mut new_t = t.split(Value::Vertex(edge.src));
-                        if track_paths {
-                            new_t.extend_path_unlabeled();
-                        }
-                        Some(new_t)
-                    }),
-            ) as Box<dyn Iterator<Item = Traverser>>
+            Box::new(ctx.storage().in_edges(vertex_id).filter_map(move |edge| {
+                // Filter by label if specified
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                // Get source vertex
+                let mut new_t = t.split(Value::Vertex(edge.src));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            })) as Box<dyn Iterator<Item = Traverser>>
         }))
     }
 
@@ -316,42 +306,34 @@ impl AnyStep for BothStep {
             let t_for_in = t.clone();
 
             // Get outgoing neighbors
-            let out_iter = ctx
-                .snapshot()
-                .storage()
-                .out_edges(vertex_id)
-                .filter_map(move |edge| {
-                    if !label_ids_out.is_empty() {
-                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                        if !label_ids_out.contains(&edge_label_id) {
-                            return None;
-                        }
+            let out_iter = ctx.storage().out_edges(vertex_id).filter_map(move |edge| {
+                if !label_ids_out.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids_out.contains(&edge_label_id) {
+                        return None;
                     }
-                    let mut new_t = t.split(Value::Vertex(edge.dst));
-                    if track_paths {
-                        new_t.extend_path_unlabeled();
-                    }
-                    Some(new_t)
-                });
+                }
+                let mut new_t = t.split(Value::Vertex(edge.dst));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            });
 
             // Get incoming neighbors
-            let in_iter = ctx
-                .snapshot()
-                .storage()
-                .in_edges(vertex_id)
-                .filter_map(move |edge| {
-                    if !label_ids_in.is_empty() {
-                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                        if !label_ids_in.contains(&edge_label_id) {
-                            return None;
-                        }
+            let in_iter = ctx.storage().in_edges(vertex_id).filter_map(move |edge| {
+                if !label_ids_in.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids_in.contains(&edge_label_id) {
+                        return None;
                     }
-                    let mut new_t = t_for_in.split(Value::Vertex(edge.src));
-                    if track_paths {
-                        new_t.extend_path_unlabeled();
-                    }
-                    Some(new_t)
-                });
+                }
+                let mut new_t = t_for_in.split(Value::Vertex(edge.src));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            });
 
             Box::new(out_iter.chain(in_iter)) as Box<dyn Iterator<Item = Traverser>>
         }))
@@ -438,24 +420,19 @@ impl AnyStep for OutEStep {
             };
 
             let label_ids = label_ids.clone();
-            Box::new(
-                ctx.snapshot()
-                    .storage()
-                    .out_edges(vertex_id)
-                    .filter_map(move |edge| {
-                        if !label_ids.is_empty() {
-                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                            if !label_ids.contains(&edge_label_id) {
-                                return None;
-                            }
-                        }
-                        let mut new_t = t.split(Value::Edge(edge.id));
-                        if track_paths {
-                            new_t.extend_path_unlabeled();
-                        }
-                        Some(new_t)
-                    }),
-            ) as Box<dyn Iterator<Item = Traverser>>
+            Box::new(ctx.storage().out_edges(vertex_id).filter_map(move |edge| {
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                let mut new_t = t.split(Value::Edge(edge.id));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            })) as Box<dyn Iterator<Item = Traverser>>
         }))
     }
 
@@ -540,24 +517,19 @@ impl AnyStep for InEStep {
             };
 
             let label_ids = label_ids.clone();
-            Box::new(
-                ctx.snapshot()
-                    .storage()
-                    .in_edges(vertex_id)
-                    .filter_map(move |edge| {
-                        if !label_ids.is_empty() {
-                            let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                            if !label_ids.contains(&edge_label_id) {
-                                return None;
-                            }
-                        }
-                        let mut new_t = t.split(Value::Edge(edge.id));
-                        if track_paths {
-                            new_t.extend_path_unlabeled();
-                        }
-                        Some(new_t)
-                    }),
-            ) as Box<dyn Iterator<Item = Traverser>>
+            Box::new(ctx.storage().in_edges(vertex_id).filter_map(move |edge| {
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                let mut new_t = t.split(Value::Edge(edge.id));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            })) as Box<dyn Iterator<Item = Traverser>>
         }))
     }
 
@@ -646,42 +618,34 @@ impl AnyStep for BothEStep {
             let t_for_in = t.clone();
 
             // Get outgoing edges
-            let out_iter = ctx
-                .snapshot()
-                .storage()
-                .out_edges(vertex_id)
-                .filter_map(move |edge| {
-                    if !label_ids_out.is_empty() {
-                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                        if !label_ids_out.contains(&edge_label_id) {
-                            return None;
-                        }
+            let out_iter = ctx.storage().out_edges(vertex_id).filter_map(move |edge| {
+                if !label_ids_out.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids_out.contains(&edge_label_id) {
+                        return None;
                     }
-                    let mut new_t = t.split(Value::Edge(edge.id));
-                    if track_paths {
-                        new_t.extend_path_unlabeled();
-                    }
-                    Some(new_t)
-                });
+                }
+                let mut new_t = t.split(Value::Edge(edge.id));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            });
 
             // Get incoming edges
-            let in_iter = ctx
-                .snapshot()
-                .storage()
-                .in_edges(vertex_id)
-                .filter_map(move |edge| {
-                    if !label_ids_in.is_empty() {
-                        let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                        if !label_ids_in.contains(&edge_label_id) {
-                            return None;
-                        }
+            let in_iter = ctx.storage().in_edges(vertex_id).filter_map(move |edge| {
+                if !label_ids_in.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids_in.contains(&edge_label_id) {
+                        return None;
                     }
-                    let mut new_t = t_for_in.split(Value::Edge(edge.id));
-                    if track_paths {
-                        new_t.extend_path_unlabeled();
-                    }
-                    Some(new_t)
-                });
+                }
+                let mut new_t = t_for_in.split(Value::Edge(edge.id));
+                if track_paths {
+                    new_t.extend_path_unlabeled();
+                }
+                Some(new_t)
+            });
 
             Box::new(out_iter.chain(in_iter)) as Box<dyn Iterator<Item = Traverser>>
         }))
@@ -740,7 +704,7 @@ impl AnyStep for OutVStep {
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         Box::new(input.filter_map(move |t| {
             let edge_id = t.as_edge_id()?;
-            let edge = ctx.snapshot().storage().get_edge(edge_id)?;
+            let edge = ctx.storage().get_edge(edge_id)?;
             let mut new_t = t.split(Value::Vertex(edge.src));
             if ctx.is_tracking_paths() {
                 new_t.extend_path_unlabeled();
@@ -802,7 +766,7 @@ impl AnyStep for InVStep {
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         Box::new(input.filter_map(move |t| {
             let edge_id = t.as_edge_id()?;
-            let edge = ctx.snapshot().storage().get_edge(edge_id)?;
+            let edge = ctx.storage().get_edge(edge_id)?;
             let mut new_t = t.split(Value::Vertex(edge.dst));
             if ctx.is_tracking_paths() {
                 new_t.extend_path_unlabeled();
@@ -868,7 +832,7 @@ impl AnyStep for BothVStep {
                 None => return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
             };
 
-            match ctx.snapshot().storage().get_edge(edge_id) {
+            match ctx.storage().get_edge(edge_id) {
                 Some(edge) => {
                     let track_paths = ctx.is_tracking_paths();
                     let mut src = t.split(Value::Vertex(edge.src));
@@ -941,7 +905,7 @@ impl OtherVStep {
         };
 
         // Get the edge to find its endpoints
-        let edge = ctx.snapshot().storage().get_edge(edge_id)?;
+        let edge = ctx.storage().get_edge(edge_id)?;
 
         // Find the vertex we came from by looking at the path
         // We need at least 2 elements: the previous vertex and the current edge

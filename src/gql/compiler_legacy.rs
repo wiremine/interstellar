@@ -75,8 +75,7 @@ use crate::gql::ast::{
     WhereClause, WithClause,
 };
 use crate::gql::error::CompileError;
-use crate::graph::GraphSnapshot;
-use crate::traversal::{BoundTraversal, Traversal, __};
+use crate::traversal::{BoundTraversal, SnapshotLike, Traversal, __};
 use crate::value::{Value, VertexId};
 
 /// Parameters passed to query execution.
@@ -295,9 +294,9 @@ fn id_to_value(id: u64) -> Value {
 /// [`Value`]: crate::value::Value
 /// [`CompileError`]: crate::gql::error::CompileError
 /// [`parse()`]: crate::gql::parse
-pub fn compile<'g>(
+pub fn compile<'g, S: SnapshotLike + ?Sized>(
     query: &Query,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
 ) -> Result<Vec<Value>, CompileError> {
     compile_with_config(
         query,
@@ -359,9 +358,9 @@ pub fn compile<'g>(
 ///
 /// [`parse()`]: crate::gql::parse
 /// [`CompileError`]: crate::gql::error::CompileError
-pub fn compile_with_params<'g>(
+pub fn compile_with_params<'g, S: SnapshotLike + ?Sized>(
     query: &Query,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
     compile_with_config(query, snapshot, params, &CompilerConfig::default())
@@ -407,9 +406,9 @@ pub fn compile_with_params<'g>(
 /// [`parse()`]: crate::gql::parse
 /// [`CompileError`]: crate::gql::error::CompileError
 /// [`CompileError::ComplexityLimitExceeded`]: crate::gql::error::CompileError::ComplexityLimitExceeded
-pub fn compile_with_config<'g>(
+pub fn compile_with_config<'g, S: SnapshotLike + ?Sized>(
     query: &Query,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
@@ -455,9 +454,9 @@ pub fn compile_with_config<'g>(
 /// ```
 ///
 /// [`parse_statement()`]: crate::gql::parse_statement
-pub fn compile_statement<'g>(
+pub fn compile_statement<'g, S: SnapshotLike + ?Sized>(
     stmt: &Statement,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
 ) -> Result<Vec<Value>, CompileError> {
     compile_statement_with_config(
         stmt,
@@ -509,9 +508,9 @@ pub fn compile_statement<'g>(
 ///
 /// [`parse_statement()`]: crate::gql::parse_statement
 /// [`CompileError`]: crate::gql::error::CompileError
-pub fn compile_statement_with_params<'g>(
+pub fn compile_statement_with_params<'g, S: SnapshotLike + ?Sized>(
     stmt: &Statement,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
     compile_statement_with_config(stmt, snapshot, params, &CompilerConfig::default())
@@ -540,9 +539,9 @@ pub fn compile_statement_with_params<'g>(
 ///
 /// [`parse_statement()`]: crate::gql::parse_statement
 /// [`CompileError::ComplexityLimitExceeded`]: crate::gql::error::CompileError::ComplexityLimitExceeded
-pub fn compile_statement_with_config<'g>(
+pub fn compile_statement_with_config<'g, S: SnapshotLike + ?Sized>(
     stmt: &Statement,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
@@ -579,10 +578,10 @@ pub fn compile_statement_with_config<'g>(
 
 /// Execute a UNION of multiple queries.
 #[allow(dead_code)]
-fn compile_union<'g>(
+fn compile_union<'g, S: SnapshotLike + ?Sized>(
     queries: &[Query],
     keep_duplicates: bool,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
 ) -> Result<Vec<Value>, CompileError> {
     compile_union_with_config(
         queries,
@@ -594,10 +593,11 @@ fn compile_union<'g>(
 }
 
 /// Execute a UNION of multiple queries with parameters.
-fn compile_union_with_params<'g>(
+#[allow(dead_code)]
+fn compile_union_with_params<'g, S: SnapshotLike + ?Sized>(
     queries: &[Query],
     keep_duplicates: bool,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
     compile_union_with_config(
@@ -610,10 +610,10 @@ fn compile_union_with_params<'g>(
 }
 
 /// Execute a UNION of multiple queries with parameters and config.
-fn compile_union_with_config<'g>(
+fn compile_union_with_config<'g, S: SnapshotLike + ?Sized>(
     queries: &[Query],
     keep_duplicates: bool,
-    snapshot: &'g GraphSnapshot<'g>,
+    snapshot: &'g S,
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
@@ -641,8 +641,8 @@ fn compile_union_with_config<'g>(
     }
 }
 
-struct Compiler<'a, 'g> {
-    snapshot: &'a GraphSnapshot<'g>,
+struct Compiler<'a, S: SnapshotLike + ?Sized> {
+    snapshot: &'a S,
     bindings: HashMap<String, BindingInfo>,
     /// Query parameters for parameterized queries
     parameters: &'a Parameters,
@@ -677,12 +677,8 @@ enum ListPredicateKind {
     Single,
 }
 
-impl<'a: 'g, 'g> Compiler<'a, 'g> {
-    fn new(
-        snapshot: &'a GraphSnapshot<'g>,
-        parameters: &'a Parameters,
-        config: &'a CompilerConfig,
-    ) -> Self {
+impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
+    fn new(snapshot: &'a S, parameters: &'a Parameters, config: &'a CompilerConfig) -> Self {
         Self {
             snapshot,
             bindings: HashMap::new(),
@@ -847,7 +843,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             || has_call;
 
         // Build traversal starting from v()
-        let g = self.snapshot.traversal();
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
         let traversal = g.v();
 
         // Enable path tracking for multi-variable patterns or edge variable access
@@ -1007,7 +1003,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn execute_with_unwind(
         &mut self,
         query: &Query,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
@@ -1094,7 +1090,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn execute_with_let(
         &self,
         query: &Query,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
@@ -1180,7 +1176,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn execute_with_with_clauses(
         &self,
         query: &Query,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
@@ -1994,7 +1990,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn execute_with_call_clauses(
         &self,
         query: &Query,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
@@ -2315,7 +2311,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         // Build traversal
-        let g = self.snapshot.traversal();
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
         let traversal = if let Some(vid) = start_vertex {
             g.v_ids([vid]).with_path()
         } else {
@@ -2378,9 +2374,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn compile_remaining_pattern_for_call(
         &self,
         pattern: &Pattern,
-        mut traversal: BoundTraversal<'g, (), Value>,
+        mut traversal: BoundTraversal<'a, (), Value>,
         start_index: usize,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         for element in pattern.elements.iter().skip(start_index) {
             match element {
                 PatternElement::Edge(edge) => {
@@ -3181,7 +3177,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         // Build a traversal starting from the correlated vertex
-        let g = self.snapshot.traversal();
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
         let traversal = g.v_ids([start_vertex_id]).with_path();
 
         // Apply the remaining pattern elements (skip the first node which is the correlation point)
@@ -3228,8 +3224,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn compile_pattern_elements_for_comprehension(
         &self,
         pattern: &Pattern,
-        mut traversal: BoundTraversal<'g, (), Value>,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        mut traversal: BoundTraversal<'a, (), Value>,
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         for (idx, element) in pattern.elements.iter().enumerate() {
             match element {
                 PatternElement::Node(node) => {
@@ -3480,8 +3476,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn compile_pattern(
         &mut self,
         pattern: &Pattern,
-        mut traversal: BoundTraversal<'g, (), Value>,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        mut traversal: BoundTraversal<'a, (), Value>,
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         for (element_index, element) in pattern.elements.iter().enumerate() {
             match element {
                 PatternElement::Node(node) => {
@@ -3502,9 +3498,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn compile_node(
         &mut self,
         node: &NodePattern,
-        mut traversal: BoundTraversal<'g, (), Value>,
+        mut traversal: BoundTraversal<'a, (), Value>,
         index: usize,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         // Apply label filter
         if !node.labels.is_empty() {
             let labels: Vec<&str> = node.labels.iter().map(|s| s.as_str()).collect();
@@ -3522,7 +3518,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             let expr = where_expr.clone();
             let params = self.parameters.clone();
             traversal = traversal
-                .filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val, &params));
+                .filter(move |ctx, val| eval_inline_predicate(ctx.storage(), &expr, val, &params));
         }
 
         // Register binding and add as_() step for multi-variable patterns
@@ -3556,8 +3552,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn compile_edge(
         &mut self,
         edge: &EdgePattern,
-        traversal: BoundTraversal<'g, (), Value>,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        traversal: BoundTraversal<'a, (), Value>,
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         // Check if this edge has a quantifier (variable-length path)
         if let Some(quantifier) = &edge.quantifier {
             return self.compile_edge_with_quantifier(edge, quantifier, traversal);
@@ -3613,8 +3609,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn compile_edge_with_variable(
         &mut self,
         edge: &EdgePattern,
-        traversal: BoundTraversal<'g, (), Value>,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        traversal: BoundTraversal<'a, (), Value>,
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
 
         // Step 1: Navigate to edge
@@ -3653,7 +3649,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
             let expr = where_expr.clone();
             let params = self.parameters.clone();
             traversal = traversal
-                .filter(move |ctx, val| eval_inline_predicate(ctx.snapshot(), &expr, val, &params));
+                .filter(move |ctx, val| eval_inline_predicate(ctx.storage(), &expr, val, &params));
         }
 
         // Step 4: Register and bind edge variable
@@ -3736,8 +3732,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         &mut self,
         edge: &EdgePattern,
         quantifier: &PathQuantifier,
-        traversal: BoundTraversal<'g, (), Value>,
-    ) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+        traversal: BoundTraversal<'a, (), Value>,
+    ) -> Result<BoundTraversal<'a, (), Value>, CompileError> {
         // Build the sub-traversal for the edge navigation
         let sub = self.build_edge_sub_traversal(edge.direction, &edge.labels);
 
@@ -3840,7 +3836,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // Verify all referenced variables are bound
         for item in &return_clause.items {
@@ -3898,7 +3894,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
@@ -3942,7 +3938,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         where_clause: &Option<WhereClause>,
         let_clauses: &[LetClause],
         optional_match_clauses: &[OptionalMatchClause],
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
@@ -4115,7 +4111,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         // Start a new traversal from the anchor vertex
-        let g = self.snapshot.traversal();
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
         let mut traversal = g.v_ids([anchor_id]).with_path();
 
         // Apply the pattern starting from the first element
@@ -6414,7 +6410,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         };
 
         // Start traversal from this specific vertex
-        let g = self.snapshot.traversal();
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
         let mut traversal = g.v_ids([vid]);
 
         // Process the pattern elements
@@ -6449,8 +6445,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn apply_node_filters(
         &self,
         node: &NodePattern,
-        mut traversal: BoundTraversal<'g, (), Value>,
-    ) -> BoundTraversal<'g, (), Value> {
+        mut traversal: BoundTraversal<'a, (), Value>,
+    ) -> BoundTraversal<'a, (), Value> {
         // Apply label filter
         if !node.labels.is_empty() {
             let labels: Vec<&str> = node.labels.iter().map(|s| s.as_str()).collect();
@@ -6470,8 +6466,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     fn apply_edge_navigation(
         &self,
         edge: &EdgePattern,
-        traversal: BoundTraversal<'g, (), Value>,
-    ) -> BoundTraversal<'g, (), Value> {
+        traversal: BoundTraversal<'a, (), Value>,
+    ) -> BoundTraversal<'a, (), Value> {
         let labels: Vec<&str> = edge.labels.iter().map(|s| s.as_str()).collect();
 
         match edge.direction {
@@ -6758,7 +6754,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // Collect the matched elements first
         let matched_elements: Vec<Value> = traversal.to_list();
@@ -6819,7 +6815,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         where_clause: &Option<WhereClause>,
         group_by: &GroupByClause,
         having_clause: &Option<HavingClause>,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // For multi-variable patterns, we need to work with traversers to access paths
         if self.has_multi_vars {
@@ -6916,7 +6912,7 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
         where_clause: &Option<WhereClause>,
         group_by: &GroupByClause,
         having_clause: &Option<HavingClause>,
-        traversal: BoundTraversal<'g, (), Value>,
+        traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 

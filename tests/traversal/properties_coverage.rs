@@ -506,7 +506,7 @@ mod bulk_preservation_tests {
     fn properties_step_expands_bulk() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let ctx = ExecutionContext::new(&snapshot, snapshot.interner());
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
         let step = PropertiesStep::new();
 
