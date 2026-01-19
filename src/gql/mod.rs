@@ -293,6 +293,7 @@
 //!     Ok(results) => println!("Found {} results", results.len()),
 //!     Err(GqlError::Parse(e)) => eprintln!("Syntax error: {}", e),
 //!     Err(GqlError::Compile(e)) => eprintln!("Compilation error: {}", e),
+//!     Err(GqlError::Mutation(e)) => eprintln!("Mutation error: {}", e),
 //! }
 //! ```
 //!

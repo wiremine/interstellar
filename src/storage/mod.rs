@@ -64,17 +64,27 @@
 
 use std::collections::HashMap;
 
+pub mod cow;
 pub mod inmemory;
 pub mod interner;
 
 #[cfg(feature = "mmap")]
 pub mod mmap;
 
+#[cfg(feature = "mmap")]
+pub mod cow_mmap;
+
+pub use cow::{BatchContext, BatchError, CowGraph, CowGraphState, CowSnapshot};
 pub use inmemory::InMemoryGraph;
 pub use interner::StringInterner;
 
 #[cfg(feature = "mmap")]
 pub use mmap::MmapGraph;
+
+#[cfg(feature = "mmap")]
+pub use cow_mmap::{
+    BatchError as CowMmapBatchError, CowMmapBatchContext, CowMmapGraph, CowMmapSnapshot,
+};
 
 use crate::error::StorageError;
 use crate::value::{EdgeId, Value, VertexId};

@@ -123,6 +123,34 @@ pub enum Statement {
     Ddl(Box<DdlStatement>),
 }
 
+impl Statement {
+    /// Returns true if this statement is read-only (no mutations or DDL).
+    ///
+    /// Read-only statements can be executed on immutable snapshots.
+    /// Mutations and DDL statements require mutable access.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use interstellar::gql::parse_statement;
+    ///
+    /// // Read-only queries
+    /// let stmt = parse_statement("MATCH (n:Person) RETURN n").unwrap();
+    /// assert!(stmt.is_read_only());
+    ///
+    /// // UNION is also read-only
+    /// let stmt = parse_statement("MATCH (a:A) RETURN a UNION MATCH (b:B) RETURN b").unwrap();
+    /// assert!(stmt.is_read_only());
+    ///
+    /// // Mutations are not read-only
+    /// let stmt = parse_statement("CREATE (n:Person {name: 'Alice'})").unwrap();
+    /// assert!(!stmt.is_read_only());
+    /// ```
+    pub fn is_read_only(&self) -> bool {
+        matches!(self, Statement::Query(_) | Statement::Union { .. })
+    }
+}
+
 // =============================================================================
 // DDL Statement Types (Schema Definition)
 // =============================================================================

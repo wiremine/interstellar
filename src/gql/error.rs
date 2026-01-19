@@ -59,6 +59,9 @@ pub enum GqlError {
 
     #[error("Compile error: {0}")]
     Compile(#[from] CompileError),
+
+    #[error("Mutation error: {0}")]
+    Mutation(String),
 }
 
 /// Source span information for error locations
