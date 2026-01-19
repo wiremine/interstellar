@@ -65,15 +65,19 @@ Copy-on-Write snapshots using the `im` crate's persistent data structures:
 | Backward compatible | Existing traversal API unchanged |
 | Simple implementation | No manual garbage collection |
 | Incremental adoption | Can coexist with current RwLock model |
+| **Unified API** | Single entry point for reads AND mutations - users don't choose |
+| **Statement-level atomicity** | Each GQL statement or Rhai script executes atomically |
+| **Rhai mutation support** | Rhai scripts can execute mutations directly (not just pending markers) |
 
 ### 1.4 Non-Goals
 
 | Non-Goal | Rationale |
 |----------|-----------|
-| Concurrent writers | Single-writer model retained; use external lock |
-| Transaction support | COW provides snapshots, not transactions |
+| Concurrent writers | Single-writer model retained; writes are serialized via RwLock |
+| Multi-statement transactions | Statement-level atomicity only; no BEGIN/COMMIT/ROLLBACK |
 | Historical queries | Only current + active snapshot states retained |
 | Serializable isolation | Snapshot isolation only |
+| Fine-grained rollback | Entire statement succeeds or fails; no savepoints |
 
 ---
 
@@ -446,9 +450,674 @@ impl CowGraphState {
 
 ---
 
-## 5. Integration with Existing API
+## 5. Unified Query/Mutation API
 
-### 5.1 Graph Wrapper
+A key benefit of COW is enabling a **unified API** where users don't need to decide upfront whether their query is a read or a mutation. The system analyzes the query and acquires appropriate locks automatically.
+
+### 5.1 The Problem with Separate Paths
+
+The current architecture has separate code paths:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Current: Separate Read/Write Paths                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Read Path:                                                     │
+│  ──────────                                                     │
+│    let snapshot = graph.snapshot();      // Read lock           │
+│    let results = snapshot.gql("MATCH (n) RETURN n")?;           │
+│                                                                 │
+│  Write Path:                                                    │
+│  ───────────                                                    │
+│    let mut_handle = graph.mutate();      // Write lock          │
+│    let results = mut_handle.gql("CREATE (n:Person)", &mut storage)?; │
+│                                                                 │
+│  Problems:                                                      │
+│  • User must choose the right path upfront                      │
+│  • GraphMut::gql() requires separate &mut storage argument      │
+│  • Rhai scripts can only create "pending" mutations             │
+│  • No way to mix reads and writes in single query               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 Unified API Design
+
+With COW, `CowGraph` can provide a single entry point:
+
+```rust
+impl CowGraph {
+    /// Execute any GQL statement - reads, mutations, or mixed.
+    /// 
+    /// The system automatically:
+    /// 1. Parses the statement to determine if it contains mutations
+    /// 2. Acquires the appropriate lock (read for queries, write for mutations)
+    /// 3. Executes atomically and returns results
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// let graph = CowGraph::new();
+    /// 
+    /// // Read query - uses snapshot internally
+    /// let results = graph.execute("MATCH (n:Person) RETURN n.name")?;
+    /// 
+    /// // Mutation - acquires write lock, executes atomically
+    /// let results = graph.execute("CREATE (n:Person {name: 'Alice'}) RETURN n")?;
+    /// 
+    /// // Mixed read/write - acquires write lock, reads see consistent state
+    /// let results = graph.execute("
+    ///     MATCH (a:Person {name: 'Alice'})
+    ///     CREATE (b:Person {name: 'Bob'})
+    ///     CREATE (a)-[:KNOWS]->(b)
+    ///     RETURN a, b
+    /// ")?;
+    /// ```
+    pub fn execute(&self, gql: &str) -> Result<Vec<Value>, GqlError> {
+        let stmt = parse_statement(gql)?;
+        
+        if stmt.is_read_only() {
+            // Lock-free read via snapshot
+            let snap = self.snapshot();
+            compile_statement(&stmt, &snap)
+        } else {
+            // Acquire write lock for mutations
+            let mut state = self.state.write();
+            execute_mutation_atomic(&stmt, &mut state, self.schema.read().as_ref())
+        }
+    }
+    
+    /// Execute with parameters
+    pub fn execute_with_params(
+        &self,
+        gql: &str,
+        params: &Parameters,
+    ) -> Result<Vec<Value>, GqlError> {
+        let stmt = parse_statement(gql)?;
+        
+        if stmt.is_read_only() {
+            let snap = self.snapshot();
+            compile_statement_with_params(&stmt, &snap, params)
+        } else {
+            let mut state = self.state.write();
+            execute_mutation_with_params_atomic(&stmt, &mut state, self.schema.read().as_ref(), params)
+        }
+    }
+}
+```
+
+### 5.3 Statement Classification
+
+The parser determines statement type by analyzing the AST:
+
+```rust
+/// Classify a statement as read-only or mutation
+impl Statement {
+    pub fn is_read_only(&self) -> bool {
+        match self {
+            Statement::Query(q) => q.is_read_only(),
+            Statement::Union { queries, .. } => queries.iter().all(|q| q.is_read_only()),
+            Statement::Mutation(_) => false,
+            Statement::Ddl(_) => false,
+        }
+    }
+}
+
+impl Query {
+    pub fn is_read_only(&self) -> bool {
+        // A query is read-only if it has no mutation clauses
+        self.clauses.iter().all(|clause| match clause {
+            Clause::Match(_) => true,
+            Clause::Where(_) => true,
+            Clause::Return(_) => true,
+            Clause::With(_) => true,
+            Clause::OrderBy(_) => true,
+            Clause::Skip(_) => true,
+            Clause::Limit(_) => true,
+            Clause::Call(_) => true,  // CALL {} subqueries need deeper analysis
+            Clause::Create(_) => false,
+            Clause::Merge(_) => false,
+            Clause::Set(_) => false,
+            Clause::Delete(_) => false,
+            Clause::Remove(_) => false,
+            Clause::ForEach(_) => false,
+        })
+    }
+}
+```
+
+### 5.4 Gremlin-Style Unified Traversal
+
+For Gremlin-style traversals, `CowGraph` provides a unified traversal source:
+
+```rust
+impl CowGraph {
+    /// Create a traversal source that can execute both reads and mutations.
+    /// 
+    /// Unlike the snapshot-based `GraphTraversalSource`, this source can
+    /// execute mutation steps like `addV()`, `addE()`, `drop()`, etc.
+    pub fn traversal(&self) -> CowTraversalSource<'_> {
+        CowTraversalSource { graph: self }
+    }
+}
+
+pub struct CowTraversalSource<'g> {
+    graph: &'g CowGraph,
+}
+
+impl<'g> CowTraversalSource<'g> {
+    /// Start traversal from all vertices (read operation)
+    pub fn v(&self) -> CowTraversal<'g> {
+        CowTraversal {
+            graph: self.graph,
+            source: TraversalSource::AllVertices,
+            steps: Vec::new(),
+            has_mutations: false,
+        }
+    }
+    
+    /// Add a new vertex (mutation operation)
+    pub fn add_v(&self, label: &str) -> CowTraversal<'g> {
+        CowTraversal {
+            graph: self.graph,
+            source: TraversalSource::Empty,
+            steps: vec![Step::AddV(label.to_string())],
+            has_mutations: true,
+        }
+    }
+    
+    // ... other source steps
+}
+
+impl<'g> CowTraversal<'g> {
+    /// Execute the traversal and return results.
+    /// 
+    /// Automatically determines if mutations are involved:
+    /// - Read-only: Uses a snapshot (lock-free)
+    /// - Has mutations: Acquires write lock, executes atomically
+    pub fn to_list(self) -> Vec<Value> {
+        if self.has_mutations {
+            // Acquire write lock and execute
+            let mut state = self.graph.state.write();
+            self.execute_with_mutations(&mut state)
+        } else {
+            // Lock-free read via snapshot
+            let snap = self.graph.snapshot();
+            self.execute_read_only(&snap)
+        }
+    }
+}
+```
+
+---
+
+## 6. Statement-Level Atomicity
+
+Each GQL statement or Gremlin traversal executes atomically - either all mutations succeed or none do.
+
+### 6.1 Atomicity Guarantees
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Statement-Level Atomicity                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Single Statement (atomic):                                     │
+│  ─────────────────────────                                      │
+│    CREATE (a:Person {name: 'Alice'}),                           │
+│           (b:Person {name: 'Bob'}),                             │
+│           (a)-[:KNOWS]->(b)                                     │
+│    ──▶ All three elements created, or none if error             │
+│                                                                 │
+│  Multiple Statements (each atomic independently):               │
+│  ───────────────────────────────────────────────                │
+│    graph.execute("CREATE (a:Person {name: 'Alice'})")?;  // ✓   │
+│    graph.execute("CREATE (b:Person {name: 'Bob'})")?;    // ✓   │
+│    graph.execute("CREATE (a)-[:KNOWS]->(b)")?;           // ✗   │
+│    ──▶ Alice and Bob exist, but edge fails (variables lost)    │
+│                                                                 │
+│  For multi-statement atomicity, use batch():                    │
+│  ────────────────────────────────────────────                   │
+│    graph.batch(|g| {                                            │
+│        let a = g.add_v("Person").property("name", "Alice");     │
+│        let b = g.add_v("Person").property("name", "Bob");       │
+│        g.add_e("knows").from(a).to(b);                          │
+│        Ok(())                                                   │
+│    })?;                                                         │
+│    ──▶ All succeed or all rolled back                           │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 6.2 Implementation: Two-Phase Mutation Execution
+
+Mutations are executed in two phases to ensure atomicity:
+
+```rust
+/// Execute a mutation statement atomically
+fn execute_mutation_atomic(
+    stmt: &Statement,
+    state: &mut CowGraphState,
+    schema: Option<&GraphSchema>,
+) -> Result<Vec<Value>, GqlError> {
+    // Phase 1: Validate and plan
+    // ─────────────────────────
+    // - Parse and validate the statement
+    // - Check schema constraints (if schema exists)
+    // - Build a plan of mutations to execute
+    // - If any validation fails, return error without modifying state
+    
+    let plan = plan_mutations(stmt, state, schema)?;
+    
+    // Phase 2: Execute
+    // ────────────────
+    // - Apply all mutations to the state
+    // - Since we hold the write lock and COW provides structural sharing,
+    //   if we panic mid-execution, the original state is preserved
+    // - Only after all mutations succeed do we increment version
+    
+    let results = execute_plan(plan, state)?;
+    
+    state.version += 1;
+    
+    Ok(results)
+}
+
+/// A planned mutation operation
+enum MutationOp {
+    CreateVertex { label: String, properties: HashMap<String, Value> },
+    CreateEdge { src: VertexId, dst: VertexId, label: String, properties: HashMap<String, Value> },
+    SetProperty { target: ElementId, key: String, value: Value },
+    DeleteVertex { id: VertexId },
+    DeleteEdge { id: EdgeId },
+}
+
+/// Plan mutations without executing them
+fn plan_mutations(
+    stmt: &Statement,
+    state: &CowGraphState,
+    schema: Option<&GraphSchema>,
+) -> Result<Vec<MutationOp>, GqlError> {
+    let mut ops = Vec::new();
+    
+    // Walk the statement and collect operations
+    // Validate each operation against schema
+    // Return error if any validation fails
+    
+    for clause in stmt.clauses() {
+        match clause {
+            Clause::Create(create) => {
+                for pattern in &create.patterns {
+                    validate_and_plan_create(pattern, state, schema, &mut ops)?;
+                }
+            }
+            // ... other clauses
+        }
+    }
+    
+    Ok(ops)
+}
+```
+
+### 6.3 Batch Execution for Multi-Statement Atomicity
+
+For cases requiring multiple statements to be atomic:
+
+```rust
+impl CowGraph {
+    /// Execute multiple operations atomically.
+    /// 
+    /// The closure receives a `BatchContext` that buffers all mutations.
+    /// Only when the closure returns `Ok(())` are all mutations applied.
+    /// If the closure returns `Err` or panics, no mutations are applied.
+    /// 
+    /// # Example
+    /// 
+    /// ```rust
+    /// graph.batch(|ctx| {
+    ///     let alice = ctx.add_vertex("Person", props("name", "Alice"))?;
+    ///     let bob = ctx.add_vertex("Person", props("name", "Bob"))?;
+    ///     ctx.add_edge(alice, bob, "knows", HashMap::new())?;
+    ///     Ok(())
+    /// })?;
+    /// ```
+    pub fn batch<F, T>(&self, f: F) -> Result<T, BatchError>
+    where
+        F: FnOnce(&mut BatchContext) -> Result<T, BatchError>,
+    {
+        // Take a snapshot of current state (for reads during batch)
+        let read_snapshot = self.snapshot();
+        
+        // Create batch context that buffers writes
+        let mut ctx = BatchContext {
+            snapshot: &read_snapshot,
+            pending_ops: Vec::new(),
+            next_temp_vertex_id: 0,
+            next_temp_edge_id: 0,
+        };
+        
+        // Execute user function
+        let result = f(&mut ctx)?;
+        
+        // If successful, apply all pending operations atomically
+        let mut state = self.state.write();
+        for op in ctx.pending_ops {
+            apply_op(&mut state, op)?;
+        }
+        state.version += 1;
+        
+        Ok(result)
+    }
+}
+
+pub struct BatchContext<'a> {
+    snapshot: &'a CowSnapshot,
+    pending_ops: Vec<MutationOp>,
+    next_temp_vertex_id: u64,
+    next_temp_edge_id: u64,
+}
+
+impl<'a> BatchContext<'a> {
+    /// Add a vertex (buffered, not yet committed)
+    pub fn add_vertex(
+        &mut self,
+        label: &str,
+        properties: HashMap<String, Value>,
+    ) -> Result<TempVertexId, BatchError> {
+        let temp_id = TempVertexId(self.next_temp_vertex_id);
+        self.next_temp_vertex_id += 1;
+        
+        self.pending_ops.push(MutationOp::CreateVertex {
+            temp_id,
+            label: label.to_string(),
+            properties,
+        });
+        
+        Ok(temp_id)
+    }
+    
+    /// Read from the snapshot (sees state before batch started)
+    pub fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
+        self.snapshot.get_vertex(id)
+    }
+    
+    // ... other methods
+}
+```
+
+### 6.4 Error Handling and Rollback
+
+Since COW uses structural sharing, rollback is implicit:
+
+```rust
+// If execution fails partway through, the original state is unchanged
+// because we only modify a copy of the path to the modified nodes
+
+impl CowGraph {
+    pub fn execute(&self, gql: &str) -> Result<Vec<Value>, GqlError> {
+        let stmt = parse_statement(gql)?;
+        
+        if stmt.is_read_only() {
+            let snap = self.snapshot();
+            compile_statement(&stmt, &snap)
+        } else {
+            let mut state = self.state.write();
+            
+            // Clone state for modification (O(1) due to structural sharing)
+            let mut working_state = (*state).clone();
+            
+            // Execute mutations on the working copy
+            let results = execute_mutation_atomic(&stmt, &mut working_state, self.schema.read().as_ref())?;
+            
+            // Only on success: replace the current state
+            *state = working_state;
+            
+            Ok(results)
+        }
+    }
+}
+```
+
+---
+
+## 7. Rhai Integration
+
+With the unified API, Rhai scripts can execute mutations directly instead of creating pending markers.
+
+### 7.1 Current Limitation
+
+The current Rhai integration has a fundamental limitation:
+
+```rust
+// Current: Rhai creates "pending" mutations that can't be executed
+impl RhaiTraversal {
+    pub fn add_v(&self, label: String) -> RhaiTraversal {
+        // This just adds a step to the traversal
+        // The actual mutation never happens!
+        RhaiTraversal {
+            steps: vec![RhaiStep::AddV(label)],
+            ..
+        }
+    }
+    
+    pub fn to_list(&self) -> Vec<Value> {
+        // Returns Value::Map with "__pending_add_v" markers
+        // User must manually execute via MutationExecutor
+        // But there's no way to get &mut storage in Rhai!
+    }
+}
+```
+
+### 7.2 COW-Based Rhai Integration
+
+With COW, Rhai can execute mutations through `&self`:
+
+```rust
+/// Rhai-compatible graph wrapper using COW
+#[derive(Clone)]
+pub struct RhaiCowGraph {
+    inner: Arc<CowGraph>,
+}
+
+impl RhaiCowGraph {
+    pub fn new(graph: CowGraph) -> Self {
+        Self { inner: Arc::new(graph) }
+    }
+    
+    /// Execute a GQL query or mutation
+    /// 
+    /// Rhai example:
+    /// ```rhai
+    /// let results = graph.execute("CREATE (n:Person {name: 'Alice'}) RETURN n");
+    /// ```
+    pub fn execute(&self, gql: &str) -> Result<Vec<Dynamic>, Box<EvalAltResult>> {
+        self.inner.execute(gql)
+            .map(|values| values.into_iter().map(value_to_dynamic).collect())
+            .map_err(|e| e.to_string().into())
+    }
+    
+    /// Create a traversal source
+    pub fn traversal(&self) -> RhaiCowTraversalSource {
+        RhaiCowTraversalSource {
+            graph: Arc::clone(&self.inner),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RhaiCowTraversalSource {
+    graph: Arc<CowGraph>,
+}
+
+impl RhaiCowTraversalSource {
+    /// Start from all vertices
+    pub fn v(&self) -> RhaiCowTraversal {
+        RhaiCowTraversal {
+            graph: Arc::clone(&self.graph),
+            source: TraversalSource::AllVertices,
+            steps: Vec::new(),
+        }
+    }
+    
+    /// Add a new vertex - mutation is executed when to_list() is called
+    pub fn add_v(&self, label: String) -> RhaiCowTraversal {
+        RhaiCowTraversal {
+            graph: Arc::clone(&self.graph),
+            source: TraversalSource::Empty,
+            steps: vec![RhaiStep::AddV(label)],
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RhaiCowTraversal {
+    graph: Arc<CowGraph>,
+    source: TraversalSource,
+    steps: Vec<RhaiStep>,
+}
+
+impl RhaiCowTraversal {
+    /// Execute the traversal and return results.
+    /// 
+    /// If the traversal contains mutations, they are executed atomically.
+    pub fn to_list(&self) -> Vec<Dynamic> {
+        let has_mutations = self.steps.iter().any(|s| s.is_mutation());
+        
+        if has_mutations {
+            // Execute with write lock
+            self.execute_with_mutations()
+        } else {
+            // Execute read-only via snapshot
+            self.execute_read_only()
+        }
+    }
+    
+    fn execute_with_mutations(&self) -> Vec<Dynamic> {
+        let mut state = self.graph.state.write();
+        
+        // Execute each step, accumulating results
+        let mut results = Vec::new();
+        
+        for step in &self.steps {
+            match step {
+                RhaiStep::AddV(label) => {
+                    let id = allocate_vertex_id(&mut state);
+                    let node = Arc::new(NodeData {
+                        id,
+                        label_id: state.interner_mut().intern(label),
+                        properties: HashMap::new(),
+                        out_edges: Vec::new(),
+                        in_edges: Vec::new(),
+                    });
+                    state.vertices = state.vertices.update(id, node);
+                    results.push(value_to_dynamic(Value::VertexId(id)));
+                }
+                // ... other mutation steps
+            }
+        }
+        
+        state.version += 1;
+        results
+    }
+}
+```
+
+### 7.3 Rhai Script Examples
+
+With COW-based Rhai integration:
+
+```rhai
+// Create a person and their friend
+let g = graph.traversal();
+let alice = g.add_v("Person").property("name", "Alice").next();
+let bob = g.add_v("Person").property("name", "Bob").next();
+g.v_id(alice).add_e("knows").to(bob).next();
+
+// Query using GQL
+let friends = graph.execute("
+    MATCH (a:Person {name: 'Alice'})-[:knows]->(b)
+    RETURN b.name
+");
+
+// Mixed traversal - reads and writes in same script
+let g = graph.traversal();
+let lonely = g.v().has_label("Person").not(__.out("knows")).to_list();
+for person in lonely {
+    // Give them a friend
+    let friend = g.add_v("Person").property("name", "Friend").next();
+    g.v_id(person).add_e("knows").to(friend).next();
+}
+```
+
+### 7.4 Rhai Engine Registration
+
+```rust
+pub fn register_cow_graph_api(engine: &mut Engine) {
+    // Register types
+    engine.register_type::<RhaiCowGraph>()
+        .register_fn("execute", RhaiCowGraph::execute)
+        .register_fn("traversal", RhaiCowGraph::traversal)
+        .register_fn("snapshot", RhaiCowGraph::snapshot)
+        .register_fn("batch", RhaiCowGraph::batch);
+    
+    engine.register_type::<RhaiCowTraversalSource>()
+        .register_fn("v", RhaiCowTraversalSource::v)
+        .register_fn("v_id", RhaiCowTraversalSource::v_id)
+        .register_fn("e", RhaiCowTraversalSource::e)
+        .register_fn("add_v", RhaiCowTraversalSource::add_v)
+        .register_fn("add_e", RhaiCowTraversalSource::add_e);
+    
+    engine.register_type::<RhaiCowTraversal>()
+        .register_fn("out", RhaiCowTraversal::out)
+        .register_fn("in_", RhaiCowTraversal::in_)
+        .register_fn("has", RhaiCowTraversal::has)
+        .register_fn("has_label", RhaiCowTraversal::has_label)
+        .register_fn("property", RhaiCowTraversal::property)
+        .register_fn("drop", RhaiCowTraversal::drop)
+        .register_fn("to_list", RhaiCowTraversal::to_list)
+        .register_fn("next", RhaiCowTraversal::next)
+        .register_fn("count", RhaiCowTraversal::count);
+}
+```
+
+### 7.5 Script-Level Atomicity
+
+For Rhai scripts that need all-or-nothing semantics:
+
+```rust
+impl RhaiCowGraph {
+    /// Execute a Rhai script atomically.
+    /// 
+    /// All mutations in the script are buffered and only applied
+    /// if the script completes successfully.
+    /// 
+    /// Rhai example:
+    /// ```rhai
+    /// graph.atomic(|| {
+    ///     let a = g.add_v("Person").property("name", "Alice").next();
+    ///     let b = g.add_v("Person").property("name", "Bob").next();
+    ///     g.v_id(a).add_e("knows").to(b).next();
+    ///     // If any step fails, none of the above are committed
+    /// });
+    /// ```
+    pub fn atomic<F>(&self, f: F) -> Result<Dynamic, Box<EvalAltResult>>
+    where
+        F: FnOnce() -> Result<Dynamic, Box<EvalAltResult>>,
+    {
+        self.inner.batch(|_ctx| {
+            // Within batch context, all mutations are buffered
+            f()
+        })
+    }
+}
+```
+
+---
+
+## 8. Integration with Existing API
+
+### 8.1 Graph Wrapper
 
 Maintain backward compatibility with the existing `Graph` type:
 
@@ -487,7 +1156,7 @@ impl Graph {
 }
 ```
 
-### 5.2 GraphSnapshot Wrapper
+### 8.2 GraphSnapshot Wrapper
 
 ```rust
 /// A snapshot of the graph for read-only traversals.
@@ -519,7 +1188,7 @@ impl GraphStorage for GraphSnapshot {
 }
 ```
 
-### 5.3 Traversal Integration
+### 8.3 Traversal Integration
 
 The traversal engine needs minimal changes:
 
@@ -540,9 +1209,9 @@ impl<'g> GraphTraversalSource<'g> {
 
 ---
 
-## 6. Memory Management
+## 9. Memory Management
 
-### 6.1 Automatic Cleanup
+### 9.1 Automatic Cleanup
 
 Memory is automatically reclaimed via `Arc` reference counting:
 
@@ -570,7 +1239,7 @@ Memory is automatically reclaimed via `Arc` reference counting:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.2 Structural Sharing
+### 9.2 Structural Sharing
 
 The `im` crate uses structural sharing to minimize copying:
 
@@ -604,7 +1273,7 @@ The `im` crate uses structural sharing to minimize copying:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.3 Memory Overhead
+### 9.3 Memory Overhead
 
 | Component | Current | COW |
 |-----------|---------|-----|
@@ -617,9 +1286,9 @@ Trade-off: Higher base memory for O(1) snapshots and no lock contention.
 
 ---
 
-## 7. Thread Safety
+## 10. Thread Safety
 
-### 7.1 Guarantees
+### 10.1 Guarantees
 
 | Type | Send | Sync | Notes |
 |------|------|------|-------|
@@ -628,7 +1297,7 @@ Trade-off: Higher base memory for O(1) snapshots and no lock contention.
 | `CowGraphState` | Yes | Yes | Immutable after creation |
 | `Arc<NodeData>` | Yes | Yes | Shared ownership |
 
-### 7.2 Concurrency Model
+### 10.2 Concurrency Model
 
 ```rust
 // Multiple readers - no blocking
@@ -649,7 +1318,7 @@ graph.add_vertex("person", props);  // Creates new state
 // snap1 and snap2 still see old state
 ```
 
-### 7.3 Write Serialization
+### 10.3 Write Serialization
 
 Writes are still serialized via `RwLock::write()`:
 
@@ -663,9 +1332,9 @@ For concurrent writes, external coordination is needed (out of scope for this sp
 
 ---
 
-## 8. Performance Characteristics
+## 11. Performance Characteristics
 
-### 8.1 Operation Complexity
+### 11.1 Operation Complexity
 
 | Operation | Current | COW | Notes |
 |-----------|---------|-----|-------|
@@ -678,7 +1347,7 @@ For concurrent writes, external coordination is needed (out of scope for this sp
 
 *Amortized for HashMap resizing
 
-### 8.2 Benchmarks to Implement
+### 11.2 Benchmarks to Implement
 
 ```rust
 #[bench]
@@ -728,9 +1397,9 @@ fn bench_concurrent_reads(b: &mut Bencher) {
 
 ---
 
-## 9. Migration Path
+## 12. Migration Path
 
-### 9.1 Phase 1: Add CowGraph (Non-Breaking)
+### 12.1 Phase 1: Add CowGraph (Non-Breaking)
 
 1. Add `im` dependency
 2. Create `src/storage/cow.rs` with `CowGraph`, `CowSnapshot`
@@ -746,7 +1415,7 @@ src/storage/
 └── interner.rs      // Existing - unchanged
 ```
 
-### 9.2 Phase 2: Integrate with Graph (Optional Breaking)
+### 12.2 Phase 2: Integrate with Graph (Optional Breaking)
 
 Option A: New constructors (non-breaking):
 ```rust
@@ -764,7 +1433,7 @@ impl Graph {
 }
 ```
 
-### 9.3 Phase 3: Update Documentation
+### 12.3 Phase 3: Update Documentation
 
 - Update README with new concurrency model
 - Add migration guide for users
@@ -772,9 +1441,9 @@ impl Graph {
 
 ---
 
-## 10. Testing Strategy
+## 13. Testing Strategy
 
-### 10.1 Unit Tests
+### 13.1 Unit Tests
 
 ```rust
 #[cfg(test)]
@@ -865,7 +1534,7 @@ mod tests {
 }
 ```
 
-### 10.2 Property-Based Tests
+### 13.2 Property-Based Tests
 
 ```rust
 use proptest::prelude::*;
@@ -895,7 +1564,7 @@ proptest! {
 }
 ```
 
-### 10.3 Integration Tests
+### 13.3 Integration Tests
 
 ```rust
 #[test]
@@ -920,7 +1589,7 @@ fn test_traversal_on_cow_snapshot() {
 
 ---
 
-## 11. File Structure
+## 14. File Structure
 
 ```
 src/
@@ -939,27 +1608,50 @@ tests/
 
 ---
 
-## 12. API Summary
+## 15. API Summary
 
-### 12.1 Public Types
+### 15.1 Public Types
 
 | Type | Description |
 |------|-------------|
-| `CowGraph` | Mutable graph with COW semantics |
-| `CowSnapshot` | Immutable, owned snapshot |
+| `CowGraph` | Mutable graph with COW semantics and unified query API |
+| `CowSnapshot` | Immutable, owned snapshot for read-only access |
+| `CowTraversalSource` | Unified traversal source supporting reads and mutations |
+| `CowTraversal` | Traversal that can include mutation steps |
+| `BatchContext` | Context for multi-operation atomic batches |
+| `RhaiCowGraph` | Rhai-compatible wrapper with mutation support |
 
-### 12.2 Public Methods
+### 15.2 Core Methods
 
 ```rust
 impl CowGraph {
+    // Construction
     pub fn new() -> Self;
+    pub fn with_schema(schema: GraphSchema) -> Self;
+    
+    // Unified Query API (NEW)
+    pub fn execute(&self, gql: &str) -> Result<Vec<Value>, GqlError>;
+    pub fn execute_with_params(&self, gql: &str, params: &Parameters) -> Result<Vec<Value>, GqlError>;
+    
+    // Unified Traversal API (NEW)
+    pub fn traversal(&self) -> CowTraversalSource<'_>;
+    
+    // Batch Operations (NEW)
+    pub fn batch<F, T>(&self, f: F) -> Result<T, BatchError>
+    where F: FnOnce(&mut BatchContext) -> Result<T, BatchError>;
+    
+    // Snapshots
     pub fn snapshot(&self) -> CowSnapshot;
+    
+    // Direct Mutations (still available for simple cases)
     pub fn add_vertex(&self, label: &str, properties: HashMap<String, Value>) -> VertexId;
     pub fn add_edge(&self, src: VertexId, dst: VertexId, label: &str, properties: HashMap<String, Value>) -> Result<EdgeId, StorageError>;
     pub fn set_vertex_property(&self, id: VertexId, key: &str, value: Value) -> Result<(), StorageError>;
     pub fn set_edge_property(&self, id: EdgeId, key: &str, value: Value) -> Result<(), StorageError>;
     pub fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError>;
     pub fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError>;
+    
+    // Queries
     pub fn vertex_count(&self) -> u64;
     pub fn edge_count(&self) -> u64;
 }
@@ -967,10 +1659,12 @@ impl CowGraph {
 impl CowSnapshot {
     pub fn version(&self) -> u64;
     pub fn interner(&self) -> &StringInterner;
+    pub fn traversal(&self) -> GraphTraversalSource<'_>;  // Read-only
+    pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError>;  // Read-only
 }
 
 impl GraphStorage for CowSnapshot {
-    // All GraphStorage methods
+    // All GraphStorage methods for read access
 }
 
 impl Clone for CowSnapshot {
@@ -978,9 +1672,51 @@ impl Clone for CowSnapshot {
 }
 ```
 
+### 15.3 Traversal API
+
+```rust
+impl<'g> CowTraversalSource<'g> {
+    // Read sources
+    pub fn v(&self) -> CowTraversal<'g>;
+    pub fn v_id(&self, id: VertexId) -> CowTraversal<'g>;
+    pub fn e(&self) -> CowTraversal<'g>;
+    pub fn inject(&self, values: Vec<Value>) -> CowTraversal<'g>;
+    
+    // Mutation sources (NEW)
+    pub fn add_v(&self, label: &str) -> CowTraversal<'g>;
+    pub fn add_e(&self, label: &str) -> CowTraversal<'g>;
+}
+
+impl<'g> CowTraversal<'g> {
+    // Steps work for both reads and mutations
+    pub fn out(&self, label: &str) -> Self;
+    pub fn in_(&self, label: &str) -> Self;
+    pub fn has(&self, key: &str, value: Value) -> Self;
+    pub fn property(&self, key: &str, value: Value) -> Self;
+    pub fn drop(&self) -> Self;
+    
+    // Terminal steps - execute atomically
+    pub fn to_list(self) -> Vec<Value>;
+    pub fn next(self) -> Option<Value>;
+    pub fn count(self) -> u64;
+}
+```
+
+### 15.4 Rhai API
+
+```rust
+impl RhaiCowGraph {
+    pub fn new(graph: CowGraph) -> Self;
+    pub fn execute(&self, gql: &str) -> Result<Vec<Dynamic>, Box<EvalAltResult>>;
+    pub fn traversal(&self) -> RhaiCowTraversalSource;
+    pub fn snapshot(&self) -> RhaiCowSnapshot;
+    pub fn atomic<F>(&self, f: F) -> Result<Dynamic, Box<EvalAltResult>>;
+}
+```
+
 ---
 
-## 13. Success Criteria
+## 16. Success Criteria
 
 | Criterion | Target |
 |-----------|--------|
@@ -991,32 +1727,64 @@ impl Clone for CowSnapshot {
 | All existing tests pass | 100% |
 | Thread-safe snapshots | Send + Sync |
 | Backward compatible API | Minimal breaking changes |
+| **Unified execute() API** | Single entry point for GQL reads and mutations |
+| **Statement atomicity** | All mutations in a statement succeed or fail together |
+| **Rhai mutation support** | Rhai scripts can create/modify/delete graph elements |
+| **Batch atomicity** | batch() executes multiple operations atomically |
+| **No pending markers** | Mutations execute immediately (no two-phase manual execution) |
 
 ---
 
-## 14. Future Considerations
+## 17. Future Considerations
 
-### 14.1 Potential Enhancements
+### 17.1 Potential Enhancements
 
-1. **Batch mutations** - Collect writes and apply atomically
-2. **Snapshot compaction** - Merge old snapshots to reduce memory
-3. **Persistent storage** - Serialize COW state to disk
-4. **Write coalescing** - Buffer rapid writes
+1. **Snapshot compaction** - Merge old snapshots to reduce memory
+2. **Persistent storage** - Serialize COW state to disk
+3. **Write coalescing** - Buffer rapid writes
+4. **Concurrent writers** - Row-level locking for parallel mutations
 
-### 14.2 Path to Full MVCC
+### 17.2 Path to Full MVCC
 
-COW snapshots are a stepping stone to full MVCC:
+COW with statement-level atomicity is a stepping stone to full MVCC:
 
 ```
-Current          COW Snapshots       Full MVCC
-────────────────────────────────────────────────►
-RwLock           Immutable snapshots  Transaction support
-Blocking reads   Lock-free reads      Lock-free reads
-No history       Current + active     Historical queries
-                 snapshots            Concurrent writers
+┌─────────────────────────────────────────────────────────────────┐
+│                    Evolution Path                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Phase 1 (Current)     Phase 2 (This Spec)     Phase 3 (Future) │
+│  ─────────────────     ───────────────────     ──────────────── │
+│  RwLock                COW + Unified API       Full MVCC         │
+│  Blocking reads        Lock-free reads         Lock-free reads   │
+│  Separate paths        Single execute()        Single execute()  │
+│  Manual mutations      Statement atomicity     Transactions      │
+│  No history            Current + snapshots     Historical queries│
+│  Single writer         Single writer           Concurrent writers│
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-The COW implementation provides:
-- Foundation for snapshot isolation
-- Experience with persistent data structures  
-- Benchmark baseline for MVCC comparison
+### 17.3 What Full MVCC Would Add
+
+If concurrent writers or multi-statement transactions are needed:
+
+| Feature | COW + Statement Atomicity | Full MVCC |
+|---------|---------------------------|-----------|
+| Lock-free reads | Yes | Yes |
+| Statement atomicity | Yes | Yes |
+| Multi-statement transactions | No (use batch()) | Yes (BEGIN/COMMIT) |
+| Concurrent writers | No (serialized) | Yes (row-level locks) |
+| Conflict detection | N/A | Write-write conflicts |
+| Rollback | Implicit (on error) | Explicit (ROLLBACK) |
+| Savepoints | No | Yes |
+| Historical queries | No | Optional |
+
+### 17.4 Migration Notes
+
+When/if migrating to full MVCC:
+
+1. **API Compatibility** - The `execute()` and `batch()` APIs will remain
+2. **Transaction Extension** - Add `begin_transaction()` returning a `Transaction` handle
+3. **Conflict Handling** - Add error types for write-write conflicts
+4. **Garbage Collection** - Will need to track oldest active transaction for cleanup
