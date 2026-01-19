@@ -284,6 +284,10 @@ pub enum CompileError {
         variable: String,
         actual_type: String,
     },
+
+    /// Query complexity limit exceeded
+    #[error("Query complexity limit exceeded: {message}")]
+    ComplexityLimitExceeded { message: String },
 }
 
 impl CompileError {
@@ -341,6 +345,13 @@ impl CompileError {
         CompileError::ForeachNotList {
             variable: variable.into(),
             actual_type: actual_type.into(),
+        }
+    }
+
+    /// Create a complexity limit exceeded error
+    pub fn complexity_limit_exceeded(message: impl Into<String>) -> Self {
+        CompileError::ComplexityLimitExceeded {
+            message: message.into(),
         }
     }
 }

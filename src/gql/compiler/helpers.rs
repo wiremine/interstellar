@@ -78,8 +78,10 @@ impl std::hash::Hash for ComparableValue {
             }
             Value::Map(map) => {
                 map.len().hash(state);
-                // Note: HashMap order is not deterministic, but we still hash for consistency
-                for (k, v) in map {
+                // Sort keys for deterministic hash ordering across runs
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+                for (k, v) in entries {
                     k.hash(state);
                     ComparableValue(v.clone()).hash(state);
                 }
@@ -139,10 +141,14 @@ pub(super) fn apply_comparison(op: BinaryOperator, left: &Value, right: &Value) 
         },
         BinaryOperator::RegexMatch => match (left, right) {
             (Value::String(s), Value::String(pattern)) => {
-                // Compile and match the regex pattern
-                match regex::Regex::new(pattern) {
+                // Compile with size limits to prevent ReDoS attacks
+                match regex::RegexBuilder::new(pattern)
+                    .size_limit(1024 * 1024) // 1MB compiled regex limit
+                    .dfa_size_limit(1024 * 1024) // 1MB DFA limit
+                    .build()
+                {
                     Ok(re) => re.is_match(s),
-                    Err(_) => false, // Invalid regex pattern returns false
+                    Err(_) => false, // Invalid or too-complex regex pattern returns false
                 }
             }
             // NULL operands return false (not a match)
@@ -193,11 +199,31 @@ pub(super) fn apply_binary_op(op: BinaryOperator, left: Value, right: Value) -> 
         },
         BinaryOperator::Pow => match (left, right) {
             // Integer to non-negative integer power
-            (Value::Int(a), Value::Int(b)) if b >= 0 => Value::Int(a.pow(b as u32)),
+            (Value::Int(a), Value::Int(b)) if b >= 0 => {
+                // Validate exponent fits in u32 to prevent truncation
+                if b > u32::MAX as i64 {
+                    // Exponent too large - fall back to float
+                    Value::Float((a as f64).powf(b as f64))
+                } else {
+                    // Use checked arithmetic to prevent overflow
+                    match a.checked_pow(b as u32) {
+                        Some(result) => Value::Int(result),
+                        None => Value::Float((a as f64).powf(b as f64)), // Overflow - fall back to float
+                    }
+                }
+            }
             // Integer to negative power becomes float
-            (Value::Int(a), Value::Int(b)) => Value::Float((a as f64).powi(b as i32)),
+            (Value::Int(a), Value::Int(b)) => {
+                // Clamp exponent to i32 range for powi
+                let exp = b.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                Value::Float((a as f64).powi(exp))
+            }
             // Float to integer power
-            (Value::Float(a), Value::Int(b)) => Value::Float(a.powi(b as i32)),
+            (Value::Float(a), Value::Int(b)) => {
+                // Clamp exponent to i32 range for powi
+                let exp = b.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                Value::Float(a.powi(exp))
+            }
             // Float to float power
             (Value::Float(a), Value::Float(b)) => Value::Float(a.powf(b)),
             // Integer base with float exponent

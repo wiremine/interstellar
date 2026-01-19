@@ -28,7 +28,7 @@
 
 ## High Severity Bugs
 
-### 1. ReDoS Vulnerability in Regex Matching
+### 1. ReDoS Vulnerability in Regex Matching - FIXED
 
 **File:** `src/gql/compiler/helpers.rs`  
 **Lines:** 140-152  
@@ -87,7 +87,7 @@ BinaryOperator::RegexMatch => match (left, right) {
 
 ---
 
-### 2. Integer Overflow in Power Operation
+### 2. Integer Overflow in Power Operation - FIXED
 
 **File:** `src/gql/compiler/helpers.rs`  
 **Lines:** 194-206  
@@ -158,7 +158,7 @@ BinaryOperator::Pow => match (left, right) {
 
 ## Medium Severity Bugs
 
-### 3. u64 to i64 Casting Loses High Bit for Large IDs
+### 3. u64 to i64 Casting Loses High Bit for Large IDs - FIXED
 
 **File:** `src/gql/compiler_legacy.rs`  
 **Lines:** ~2654-2655 (approximate from continuation prompt)  
@@ -200,7 +200,7 @@ Value::Vertex(vid) => Value::Vertex(vid),  // Keep as VertexId
 
 ---
 
-### 4. HashMap Hash Non-Determinism
+### 4. HashMap Hash Non-Determinism - FIXED
 
 **File:** `src/gql/compiler/helpers.rs`  
 **Lines:** 79-88  
@@ -247,7 +247,7 @@ Value::Map(map) => {
 
 ---
 
-### 5. Saturating Add Silently Loses Precision
+### 5. Saturating Add Silently Loses Precision - FIXED
 
 **File:** `src/gql/compiler_legacy.rs`  
 **Line:** 1194  

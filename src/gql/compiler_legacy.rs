@@ -97,6 +97,113 @@ use crate::value::{Value, VertexId};
 /// ```
 pub type Parameters = HashMap<String, Value>;
 
+/// Configuration for query complexity limits.
+///
+/// These limits help prevent denial-of-service attacks and resource exhaustion
+/// from overly complex queries. When a limit is exceeded, the compiler returns
+/// a [`CompileError::ComplexityLimitExceeded`] error.
+///
+/// # Default Limits
+///
+/// The default configuration provides generous limits suitable for most use cases:
+/// - `max_pattern_length`: 100 elements per pattern
+/// - `max_optional_matches`: 50 OPTIONAL MATCH clauses
+/// - `max_subquery_depth`: 10 levels of nested subqueries
+/// - `max_union_clauses`: 50 UNION clauses
+///
+/// # Example
+///
+/// ```
+/// use interstellar::gql::CompilerConfig;
+///
+/// // Use default limits
+/// let config = CompilerConfig::default();
+///
+/// // Create stricter limits for untrusted queries
+/// let strict_config = CompilerConfig {
+///     max_pattern_length: 20,
+///     max_optional_matches: 10,
+///     max_subquery_depth: 3,
+///     max_union_clauses: 5,
+/// };
+///
+/// // Disable all limits (use with caution!)
+/// let unlimited = CompilerConfig::unlimited();
+/// ```
+#[derive(Debug, Clone)]
+pub struct CompilerConfig {
+    /// Maximum number of elements (nodes + edges) in a single pattern.
+    /// Default: 100
+    pub max_pattern_length: usize,
+
+    /// Maximum number of OPTIONAL MATCH clauses in a query.
+    /// Default: 50
+    pub max_optional_matches: usize,
+
+    /// Maximum depth of nested subqueries (CALL, EXISTS subqueries).
+    /// Default: 10
+    pub max_subquery_depth: usize,
+
+    /// Maximum number of UNION clauses in a statement.
+    /// Default: 50
+    pub max_union_clauses: usize,
+}
+
+impl Default for CompilerConfig {
+    fn default() -> Self {
+        Self {
+            max_pattern_length: 100,
+            max_optional_matches: 50,
+            max_subquery_depth: 10,
+            max_union_clauses: 50,
+        }
+    }
+}
+
+impl CompilerConfig {
+    /// Create a configuration with no limits.
+    ///
+    /// **Warning**: This should only be used for trusted queries, as it allows
+    /// arbitrarily complex queries that may exhaust system resources.
+    pub fn unlimited() -> Self {
+        Self {
+            max_pattern_length: usize::MAX,
+            max_optional_matches: usize::MAX,
+            max_subquery_depth: usize::MAX,
+            max_union_clauses: usize::MAX,
+        }
+    }
+
+    /// Create a strict configuration suitable for untrusted queries.
+    ///
+    /// Uses conservative limits to prevent resource exhaustion:
+    /// - `max_pattern_length`: 20
+    /// - `max_optional_matches`: 10
+    /// - `max_subquery_depth`: 3
+    /// - `max_union_clauses`: 10
+    pub fn strict() -> Self {
+        Self {
+            max_pattern_length: 20,
+            max_optional_matches: 10,
+            max_subquery_depth: 3,
+            max_union_clauses: 10,
+        }
+    }
+}
+
+/// Convert a u64 ID to a Value, handling IDs that exceed i64::MAX.
+///
+/// For IDs that fit in i64, returns Value::Int for backward compatibility.
+/// For IDs >= 2^63, returns Value::String to avoid negative number representation.
+#[inline]
+fn id_to_value(id: u64) -> Value {
+    if id > i64::MAX as u64 {
+        Value::String(id.to_string())
+    } else {
+        Value::Int(id as i64)
+    }
+}
+
 /// Compile and execute a GQL query against a graph snapshot.
 ///
 /// This is the main entry point for executing GQL queries. It takes a parsed
@@ -192,7 +299,12 @@ pub fn compile<'g>(
     query: &Query,
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
-    compile_with_params(query, snapshot, &Parameters::new())
+    compile_with_config(
+        query,
+        snapshot,
+        &Parameters::new(),
+        &CompilerConfig::default(),
+    )
 }
 
 /// Compile and execute a parameterized GQL query against a graph snapshot.
@@ -252,7 +364,56 @@ pub fn compile_with_params<'g>(
     snapshot: &'g GraphSnapshot<'g>,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
-    let mut compiler = Compiler::new(snapshot, params);
+    compile_with_config(query, snapshot, params, &CompilerConfig::default())
+}
+
+/// Compile and execute a GQL query with custom complexity limits.
+///
+/// This function allows configuring complexity limits to prevent denial-of-service
+/// attacks from overly complex queries. Use this when processing queries from
+/// untrusted sources.
+///
+/// # Arguments
+///
+/// * `query` - A parsed GQL query from [`parse()`]
+/// * `snapshot` - An immutable snapshot of the graph to query
+/// * `params` - A map of parameter names to their values
+/// * `config` - Configuration for query complexity limits
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<Value>)` containing the query results on success.
+///
+/// # Errors
+///
+/// Returns [`CompileError::ComplexityLimitExceeded`] if any configured limit is exceeded.
+/// Also returns other [`CompileError`] variants for standard compilation errors.
+///
+/// # Examples
+///
+/// ```
+/// use interstellar::gql::{parse, compile_with_config, Parameters, CompilerConfig};
+/// use interstellar::Graph;
+///
+/// let graph = Graph::in_memory();
+/// let snapshot = graph.snapshot();
+/// let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
+///
+/// // Use strict limits for untrusted queries
+/// let config = CompilerConfig::strict();
+/// let results = compile_with_config(&query, &snapshot, &Parameters::new(), &config).unwrap();
+/// ```
+///
+/// [`parse()`]: crate::gql::parse
+/// [`CompileError`]: crate::gql::error::CompileError
+/// [`CompileError::ComplexityLimitExceeded`]: crate::gql::error::CompileError::ComplexityLimitExceeded
+pub fn compile_with_config<'g>(
+    query: &Query,
+    snapshot: &'g GraphSnapshot<'g>,
+    params: &Parameters,
+    config: &CompilerConfig,
+) -> Result<Vec<Value>, CompileError> {
+    let mut compiler = Compiler::new(snapshot, params, config);
     compiler.compile(query)
 }
 
@@ -298,7 +459,12 @@ pub fn compile_statement<'g>(
     stmt: &Statement,
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
-    compile_statement_with_params(stmt, snapshot, &Parameters::new())
+    compile_statement_with_config(
+        stmt,
+        snapshot,
+        &Parameters::new(),
+        &CompilerConfig::default(),
+    )
 }
 
 /// Compile and execute a parameterized GQL statement against a graph snapshot.
@@ -348,10 +514,50 @@ pub fn compile_statement_with_params<'g>(
     snapshot: &'g GraphSnapshot<'g>,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
+    compile_statement_with_config(stmt, snapshot, params, &CompilerConfig::default())
+}
+
+/// Compile and execute a GQL statement with custom complexity limits.
+///
+/// This function handles both single queries and UNION of multiple queries,
+/// with support for query parameters and configurable complexity limits.
+///
+/// # Arguments
+///
+/// * `stmt` - A parsed GQL statement from [`parse_statement()`]
+/// * `snapshot` - An immutable snapshot of the graph to query
+/// * `params` - A map of parameter names to their values
+/// * `config` - Configuration for query complexity limits
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<Value>)` containing the statement results on success.
+///
+/// # Errors
+///
+/// Returns [`CompileError::ComplexityLimitExceeded`] if any configured limit is exceeded,
+/// including the `max_union_clauses` limit for UNION statements.
+///
+/// [`parse_statement()`]: crate::gql::parse_statement
+/// [`CompileError::ComplexityLimitExceeded`]: crate::gql::error::CompileError::ComplexityLimitExceeded
+pub fn compile_statement_with_config<'g>(
+    stmt: &Statement,
+    snapshot: &'g GraphSnapshot<'g>,
+    params: &Parameters,
+    config: &CompilerConfig,
+) -> Result<Vec<Value>, CompileError> {
     match stmt {
-        Statement::Query(query) => compile_with_params(query.as_ref(), snapshot, params),
+        Statement::Query(query) => compile_with_config(query.as_ref(), snapshot, params, config),
         Statement::Union { queries, all } => {
-            compile_union_with_params(queries, *all, snapshot, params)
+            // Check UNION clause limit
+            if queries.len() > config.max_union_clauses {
+                return Err(CompileError::complexity_limit_exceeded(format!(
+                    "UNION has {} queries, maximum allowed is {}",
+                    queries.len(),
+                    config.max_union_clauses
+                )));
+            }
+            compile_union_with_config(queries, *all, snapshot, params, config)
         }
         Statement::Mutation(_) => {
             // Mutation compilation requires mutable access to the graph
@@ -378,7 +584,13 @@ fn compile_union<'g>(
     keep_duplicates: bool,
     snapshot: &'g GraphSnapshot<'g>,
 ) -> Result<Vec<Value>, CompileError> {
-    compile_union_with_params(queries, keep_duplicates, snapshot, &Parameters::new())
+    compile_union_with_config(
+        queries,
+        keep_duplicates,
+        snapshot,
+        &Parameters::new(),
+        &CompilerConfig::default(),
+    )
 }
 
 /// Execute a UNION of multiple queries with parameters.
@@ -388,10 +600,27 @@ fn compile_union_with_params<'g>(
     snapshot: &'g GraphSnapshot<'g>,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
+    compile_union_with_config(
+        queries,
+        keep_duplicates,
+        snapshot,
+        params,
+        &CompilerConfig::default(),
+    )
+}
+
+/// Execute a UNION of multiple queries with parameters and config.
+fn compile_union_with_config<'g>(
+    queries: &[Query],
+    keep_duplicates: bool,
+    snapshot: &'g GraphSnapshot<'g>,
+    params: &Parameters,
+    config: &CompilerConfig,
+) -> Result<Vec<Value>, CompileError> {
     let mut all_results = Vec::new();
 
     for query in queries {
-        let results = compile_with_params(query, snapshot, params)?;
+        let results = compile_with_config(query, snapshot, params, config)?;
         all_results.extend(results);
     }
 
@@ -419,6 +648,10 @@ struct Compiler<'a, 'g> {
     parameters: &'a Parameters,
     /// Whether the current query has multiple bound variables (requires path tracking)
     has_multi_vars: bool,
+    /// Query complexity limits configuration
+    config: &'a CompilerConfig,
+    /// Current subquery nesting depth (for limit checking)
+    subquery_depth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -445,13 +678,65 @@ enum ListPredicateKind {
 }
 
 impl<'a: 'g, 'g> Compiler<'a, 'g> {
-    fn new(snapshot: &'a GraphSnapshot<'g>, parameters: &'a Parameters) -> Self {
+    fn new(
+        snapshot: &'a GraphSnapshot<'g>,
+        parameters: &'a Parameters,
+        config: &'a CompilerConfig,
+    ) -> Self {
         Self {
             snapshot,
             bindings: HashMap::new(),
             parameters,
             has_multi_vars: false,
+            config,
+            subquery_depth: 0,
         }
+    }
+
+    /// Validate query complexity against configured limits.
+    fn validate_query_complexity(&self, query: &Query) -> Result<(), CompileError> {
+        // Check pattern length in MATCH clause
+        for pattern in &query.match_clause.patterns {
+            if pattern.elements.len() > self.config.max_pattern_length {
+                return Err(CompileError::complexity_limit_exceeded(format!(
+                    "Pattern has {} elements, maximum allowed is {}",
+                    pattern.elements.len(),
+                    self.config.max_pattern_length
+                )));
+            }
+        }
+
+        // Check number of OPTIONAL MATCH clauses
+        if query.optional_match_clauses.len() > self.config.max_optional_matches {
+            return Err(CompileError::complexity_limit_exceeded(format!(
+                "Query has {} OPTIONAL MATCH clauses, maximum allowed is {}",
+                query.optional_match_clauses.len(),
+                self.config.max_optional_matches
+            )));
+        }
+
+        // Check pattern length in OPTIONAL MATCH clauses
+        for opt_match in &query.optional_match_clauses {
+            for pattern in &opt_match.patterns {
+                if pattern.elements.len() > self.config.max_pattern_length {
+                    return Err(CompileError::complexity_limit_exceeded(format!(
+                        "OPTIONAL MATCH pattern has {} elements, maximum allowed is {}",
+                        pattern.elements.len(),
+                        self.config.max_pattern_length
+                    )));
+                }
+            }
+        }
+
+        // Check subquery depth
+        if self.subquery_depth > self.config.max_subquery_depth {
+            return Err(CompileError::complexity_limit_exceeded(format!(
+                "Subquery nesting depth is {}, maximum allowed is {}",
+                self.subquery_depth, self.config.max_subquery_depth
+            )));
+        }
+
+        Ok(())
     }
 
     /// Resolve a parameter by name, returning an error if not found.
@@ -522,6 +807,9 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     }
 
     fn compile(&mut self, query: &Query) -> Result<Vec<Value>, CompileError> {
+        // Validate query complexity against configured limits
+        self.validate_query_complexity(query)?;
+
         if query.match_clause.patterns.is_empty() {
             return Err(CompileError::EmptyPattern);
         }
@@ -1182,31 +1470,38 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
     }
 
     /// Helper to compute sum from values.
+    ///
+    /// Uses checked arithmetic for integer sums, falling back to float
+    /// representation if overflow occurs.
     fn compute_sum(&self, values: &[Value]) -> Value {
-        let mut sum = 0.0;
+        let mut float_sum = 0.0;
         let mut is_int = true;
         let mut int_sum: i64 = 0;
+        let mut overflow = false;
 
         for v in values {
             match v {
                 Value::Int(i) => {
-                    if is_int {
-                        int_sum = int_sum.saturating_add(*i);
+                    if is_int && !overflow {
+                        match int_sum.checked_add(*i) {
+                            Some(s) => int_sum = s,
+                            None => overflow = true, // Switch to float on overflow
+                        }
                     }
-                    sum += *i as f64;
+                    float_sum += *i as f64;
                 }
                 Value::Float(f) => {
                     is_int = false;
-                    sum += f;
+                    float_sum += f;
                 }
                 _ => {}
             }
         }
 
-        if is_int {
+        if is_int && !overflow {
             Value::Int(int_sum)
         } else {
-            Value::Float(sum)
+            Value::Float(float_sum)
         }
     }
 
@@ -1472,35 +1767,34 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 match func {
                     AggregateFunc::Count => Value::Int(values.len() as i64),
                     AggregateFunc::Sum => {
-                        let mut sum = 0.0;
+                        let mut float_sum = 0.0;
                         let mut is_int = true;
                         let mut int_sum: i64 = 0;
+                        let mut overflow = false;
 
                         for val in &values {
                             match val {
                                 Value::Int(n) => {
-                                    if is_int {
-                                        int_sum = int_sum.saturating_add(*n);
-                                    } else {
-                                        sum += *n as f64;
+                                    if is_int && !overflow {
+                                        match int_sum.checked_add(*n) {
+                                            Some(s) => int_sum = s,
+                                            None => overflow = true, // Switch to float on overflow
+                                        }
                                     }
+                                    float_sum += *n as f64;
                                 }
                                 Value::Float(f) => {
-                                    if is_int {
-                                        sum = int_sum as f64 + f;
-                                        is_int = false;
-                                    } else {
-                                        sum += f;
-                                    }
+                                    is_int = false;
+                                    float_sum += f;
                                 }
                                 _ => {}
                             }
                         }
 
-                        if is_int {
+                        if is_int && !overflow {
                             Value::Int(int_sum)
                         } else {
-                            Value::Float(sum)
+                            Value::Float(float_sum)
                         }
                     }
                     AggregateFunc::Avg => {
@@ -2651,8 +2945,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 if let Some(arg) = args.first() {
                     let element_val = self.evaluate_expression_from_row(arg, row);
                     match element_val {
-                        Value::Vertex(vid) => return Value::Int(vid.0 as i64),
-                        Value::Edge(eid) => return Value::Int(eid.0 as i64),
+                        Value::Vertex(vid) => return id_to_value(vid.0),
+                        Value::Edge(eid) => return id_to_value(eid.0),
                         _ => {}
                     }
                 }
@@ -4821,8 +5115,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 if let Some(arg) = args.first() {
                     let element_val = self.evaluate_value_from_path(arg, traverser);
                     match element_val {
-                        Value::Vertex(vid) => return Value::Int(vid.0 as i64),
-                        Value::Edge(eid) => return Value::Int(eid.0 as i64),
+                        Value::Vertex(vid) => return id_to_value(vid.0),
+                        Value::Edge(eid) => return id_to_value(eid.0),
                         _ => {}
                     }
                 }
@@ -6062,8 +6356,8 @@ impl<'a: 'g, 'g> Compiler<'a, 'g> {
                 if let Some(arg) = args.first() {
                     let element_val = self.evaluate_value(arg, element);
                     match element_val {
-                        Value::Vertex(vid) => return Value::Int(vid.0 as i64),
-                        Value::Edge(eid) => return Value::Int(eid.0 as i64),
+                        Value::Vertex(vid) => return id_to_value(vid.0),
+                        Value::Edge(eid) => return id_to_value(eid.0),
                         _ => {}
                     }
                 }
