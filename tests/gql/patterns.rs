@@ -8,7 +8,7 @@
 //! - Path expressions
 
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -23,57 +23,51 @@ use std::collections::HashMap;
 ///         \                                         /
 ///          -[KNOWS]-> Frank -----[KNOWS]-----------
 /// ```
-fn create_variable_length_path_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_variable_length_path_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create Person vertices
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut carol_props = HashMap::new();
     carol_props.insert("name".to_string(), Value::from("Carol"));
-    let carol = storage.add_vertex("Person", carol_props);
+    let carol = graph.add_vertex("Person", carol_props);
 
     let mut dave_props = HashMap::new();
     dave_props.insert("name".to_string(), Value::from("Dave"));
-    let dave = storage.add_vertex("Person", dave_props);
+    let dave = graph.add_vertex("Person", dave_props);
 
     let mut eve_props = HashMap::new();
     eve_props.insert("name".to_string(), Value::from("Eve"));
-    let eve = storage.add_vertex("Person", eve_props);
+    let eve = graph.add_vertex("Person", eve_props);
 
     let mut frank_props = HashMap::new();
     frank_props.insert("name".to_string(), Value::from("Frank"));
-    let frank = storage.add_vertex("Person", frank_props);
+    let frank = graph.add_vertex("Person", frank_props);
 
     // Create a chain: Alice -> Bob -> Carol -> Dave -> Eve
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
-        .add_edge(bob, carol, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(bob, carol, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(carol, dave, "KNOWS", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(dave, eve, "KNOWS", HashMap::new())
-        .unwrap();
+    graph.add_edge(dave, eve, "KNOWS", HashMap::new()).unwrap();
 
     // Also: Alice -> Frank -> Dave (shorter path to Dave)
-    storage
+    graph
         .add_edge(alice, frank, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(frank, dave, "KNOWS", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test exact hop count: *2 (exactly 2 hops)
@@ -348,8 +342,8 @@ fn test_gql_variable_path_single_hop() {
 // =============================================================================
 
 /// Helper to create a graph with duplicate property values for DISTINCT tests
-fn create_distinct_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_distinct_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create Person vertices with duplicate cities
     let people = vec![
@@ -366,10 +360,10 @@ fn create_distinct_test_graph() -> Graph {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from(name));
         props.insert("city".to_string(), Value::from(city));
-        storage.add_vertex("Person", props);
+        graph.add_vertex("Person", props);
     }
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test RETURN DISTINCT on property - should deduplicate results
@@ -413,7 +407,7 @@ fn test_gql_return_distinct_property() {
 /// Test RETURN DISTINCT with multiple properties
 #[test]
 fn test_gql_return_distinct_multiple_properties() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Create people with duplicate city/country combinations
     let people = vec![
@@ -429,10 +423,9 @@ fn test_gql_return_distinct_multiple_properties() {
         props.insert("name".to_string(), Value::from(name));
         props.insert("city".to_string(), Value::from(city));
         props.insert("country".to_string(), Value::from(country));
-        storage.add_vertex("Person", props);
+        graph.add_vertex("Person", props);
     }
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // RETURN DISTINCT on multiple properties - deduplicates based on the combination
@@ -623,32 +616,32 @@ fn test_gql_return_distinct_vertex() {
 // =============================================================================
 
 /// Helper function to create a graph for multi-variable tests
-fn create_multi_var_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_multi_var_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create people
-    let alice = storage.add_vertex("Person", {
+    let alice = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Alice"));
         props.insert("age".to_string(), Value::Int(30));
         props
     });
 
-    let bob = storage.add_vertex("Person", {
+    let bob = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Bob"));
         props.insert("age".to_string(), Value::Int(28));
         props
     });
 
-    let carol = storage.add_vertex("Person", {
+    let carol = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Carol"));
         props.insert("age".to_string(), Value::Int(35));
         props
     });
 
-    let dave = storage.add_vertex("Person", {
+    let dave = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Dave"));
         props.insert("age".to_string(), Value::Int(25));
@@ -656,14 +649,14 @@ fn create_multi_var_test_graph() -> Graph {
     });
 
     // Create companies
-    let tech_corp = storage.add_vertex("Company", {
+    let tech_corp = graph.add_vertex("Company", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("TechCorp"));
         props.insert("size".to_string(), Value::Int(1000));
         props
     });
 
-    let startup_inc = storage.add_vertex("Company", {
+    let startup_inc = graph.add_vertex("Company", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("StartupInc"));
         props.insert("size".to_string(), Value::Int(50));
@@ -671,34 +664,30 @@ fn create_multi_var_test_graph() -> Graph {
     });
 
     // Create KNOWS relationships
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
-        .add_edge(bob, carol, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(bob, carol, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(carol, dave, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(alice, carol, "KNOWS", HashMap::new())
         .unwrap();
 
     // Create WORKS_AT relationships
-    storage
+    graph
         .add_edge(alice, tech_corp, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(bob, tech_corp, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(carol, startup_inc, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(dave, startup_inc, "WORKS_AT", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test: Basic multi-variable pattern - return properties from two variables
@@ -940,43 +929,43 @@ fn test_gql_multi_var_expression_in_where() {
 // =============================================================================
 
 /// Helper function to create a graph with edge properties for testing
-fn create_edge_property_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_edge_property_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create people
-    let alice = storage.add_vertex("Person", {
+    let alice = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Alice"));
         props
     });
 
-    let bob = storage.add_vertex("Person", {
+    let bob = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Bob"));
         props
     });
 
-    let carol = storage.add_vertex("Person", {
+    let carol = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Carol"));
         props
     });
 
     // Create teams
-    let bulls = storage.add_vertex("Team", {
+    let bulls = graph.add_vertex("Team", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Bulls"));
         props
     });
 
-    let lakers = storage.add_vertex("Team", {
+    let lakers = graph.add_vertex("Team", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Lakers"));
         props
     });
 
     // Create PLAYED_FOR edges with properties (years, championships)
-    storage
+    graph
         .add_edge(alice, bulls, "PLAYED_FOR", {
             let mut props = HashMap::new();
             props.insert("start_year".to_string(), Value::Int(2015));
@@ -986,7 +975,7 @@ fn create_edge_property_test_graph() -> Graph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(alice, lakers, "PLAYED_FOR", {
             let mut props = HashMap::new();
             props.insert("start_year".to_string(), Value::Int(2020));
@@ -996,7 +985,7 @@ fn create_edge_property_test_graph() -> Graph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(bob, bulls, "PLAYED_FOR", {
             let mut props = HashMap::new();
             props.insert("start_year".to_string(), Value::Int(2010));
@@ -1006,7 +995,7 @@ fn create_edge_property_test_graph() -> Graph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(carol, lakers, "PLAYED_FOR", {
             let mut props = HashMap::new();
             props.insert("start_year".to_string(), Value::Int(2018));
@@ -1017,7 +1006,7 @@ fn create_edge_property_test_graph() -> Graph {
         .unwrap();
 
     // Create KNOWS edges with properties
-    storage
+    graph
         .add_edge(alice, bob, "KNOWS", {
             let mut props = HashMap::new();
             props.insert("since".to_string(), Value::Int(2015));
@@ -1025,7 +1014,7 @@ fn create_edge_property_test_graph() -> Graph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(bob, carol, "KNOWS", {
             let mut props = HashMap::new();
             props.insert("since".to_string(), Value::Int(2018));
@@ -1033,7 +1022,7 @@ fn create_edge_property_test_graph() -> Graph {
         })
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test: Edge variable binding - basic case
@@ -1245,158 +1234,142 @@ fn test_gql_edge_property_aggregation() {
 // =============================================================================
 
 /// Helper to create a social network graph for debug tests
-fn create_social_network_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_social_network_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create people
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("age".to_string(), Value::Int(28i64));
     alice_props.insert("city".to_string(), Value::from("NYC"));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::Int(35i64));
     bob_props.insert("city".to_string(), Value::from("LA"));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut charlie_props = HashMap::new();
     charlie_props.insert("name".to_string(), Value::from("Charlie"));
     charlie_props.insert("age".to_string(), Value::Int(42i64));
     charlie_props.insert("city".to_string(), Value::from("NYC"));
-    let charlie = storage.add_vertex("Person", charlie_props);
+    let charlie = graph.add_vertex("Person", charlie_props);
 
     let mut diana_props = HashMap::new();
     diana_props.insert("name".to_string(), Value::from("Diana"));
     diana_props.insert("age".to_string(), Value::Int(31i64));
     diana_props.insert("city".to_string(), Value::from("Chicago"));
-    let diana = storage.add_vertex("Person", diana_props);
+    let diana = graph.add_vertex("Person", diana_props);
 
     let mut eve_props = HashMap::new();
     eve_props.insert("name".to_string(), Value::from("Eve"));
     eve_props.insert("age".to_string(), Value::Int(25i64));
     eve_props.insert("city".to_string(), Value::from("LA"));
-    let eve = storage.add_vertex("Person", eve_props);
+    let eve = graph.add_vertex("Person", eve_props);
 
     let mut frank_props = HashMap::new();
     frank_props.insert("name".to_string(), Value::from("Frank"));
     frank_props.insert("age".to_string(), Value::Int(55i64));
     frank_props.insert("city".to_string(), Value::from("NYC"));
-    let frank = storage.add_vertex("Person", frank_props);
+    let frank = graph.add_vertex("Person", frank_props);
 
     let mut grace_props = HashMap::new();
     grace_props.insert("name".to_string(), Value::from("Grace"));
     grace_props.insert("age".to_string(), Value::Int(29i64));
     grace_props.insert("city".to_string(), Value::from("Boston"));
-    let grace = storage.add_vertex("Person", grace_props);
+    let grace = graph.add_vertex("Person", grace_props);
 
     let mut henry_props = HashMap::new();
     henry_props.insert("name".to_string(), Value::from("Henry"));
     henry_props.insert("age".to_string(), Value::Int(38i64));
     henry_props.insert("city".to_string(), Value::from("Seattle"));
-    let henry = storage.add_vertex("Person", henry_props);
+    let henry = graph.add_vertex("Person", henry_props);
 
     // Create companies
     let mut tech_props = HashMap::new();
     tech_props.insert("name".to_string(), Value::from("TechCorp"));
     tech_props.insert("industry".to_string(), Value::from("Technology"));
-    let techcorp = storage.add_vertex("Company", tech_props);
+    let techcorp = graph.add_vertex("Company", tech_props);
 
     let mut fin_props = HashMap::new();
     fin_props.insert("name".to_string(), Value::from("FinanceInc"));
     fin_props.insert("industry".to_string(), Value::from("Finance"));
-    let financeinc = storage.add_vertex("Company", fin_props);
+    let financeinc = graph.add_vertex("Company", fin_props);
 
     // KNOWS relationships (bidirectional conceptually, but stored as directed)
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(alice, charlie, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(alice, diana, "KNOWS", HashMap::new())
         .unwrap();
 
-    storage
-        .add_edge(bob, alice, "KNOWS", HashMap::new())
-        .unwrap();
-    storage.add_edge(bob, eve, "KNOWS", HashMap::new()).unwrap();
-    storage
-        .add_edge(bob, frank, "KNOWS", HashMap::new())
-        .unwrap();
+    graph.add_edge(bob, alice, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(bob, eve, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(bob, frank, "KNOWS", HashMap::new()).unwrap();
 
-    storage
+    graph
         .add_edge(charlie, alice, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(charlie, diana, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(charlie, grace, "KNOWS", HashMap::new())
         .unwrap();
 
-    storage
+    graph
         .add_edge(diana, alice, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(diana, charlie, "KNOWS", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(diana, eve, "KNOWS", HashMap::new())
-        .unwrap();
+    graph.add_edge(diana, eve, "KNOWS", HashMap::new()).unwrap();
 
-    storage.add_edge(eve, bob, "KNOWS", HashMap::new()).unwrap();
-    storage
-        .add_edge(eve, diana, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
-        .add_edge(eve, henry, "KNOWS", HashMap::new())
-        .unwrap();
+    graph.add_edge(eve, bob, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(eve, diana, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(eve, henry, "KNOWS", HashMap::new()).unwrap();
 
-    storage
-        .add_edge(frank, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(frank, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(frank, grace, "KNOWS", HashMap::new())
         .unwrap();
 
-    storage
+    graph
         .add_edge(grace, charlie, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(grace, frank, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(grace, henry, "KNOWS", HashMap::new())
         .unwrap();
 
-    storage
-        .add_edge(henry, eve, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(henry, eve, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(henry, grace, "KNOWS", HashMap::new())
         .unwrap();
 
     // WORKS_AT relationships
-    storage
+    graph
         .add_edge(alice, techcorp, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(bob, techcorp, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(charlie, financeinc, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(diana, techcorp, "WORKS_AT", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(frank, financeinc, "WORKS_AT", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 /// Debug test to understand variable-length path with WHERE clause

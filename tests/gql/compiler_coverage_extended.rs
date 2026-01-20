@@ -11,20 +11,19 @@
 use std::collections::HashMap;
 
 use interstellar::gql::{compile, parse};
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::value::Value;
-use interstellar::Graph;
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
 /// Creates a test graph with Person and Software vertices plus edges.
-fn create_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Add Person vertices with various properties
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -37,7 +36,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -50,7 +49,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let charlie = storage.add_vertex(
+    let charlie = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Charlie".to_string())),
@@ -63,7 +62,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let diana = storage.add_vertex(
+    let diana = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Diana".to_string())),
@@ -73,7 +72,7 @@ fn create_test_graph() -> Graph {
     );
 
     // Add Software vertices
-    let gremlin = storage.add_vertex(
+    let gremlin = graph.add_vertex(
         "Software",
         HashMap::from([
             ("name".to_string(), Value::String("Gremlin".to_string())),
@@ -82,7 +81,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let rust_proj = storage.add_vertex(
+    let rust_proj = graph.add_vertex(
         "Software",
         HashMap::from([
             (
@@ -95,7 +94,7 @@ fn create_test_graph() -> Graph {
     );
 
     // Add edges
-    storage
+    graph
         .add_edge(
             alice,
             bob,
@@ -107,7 +106,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             alice,
             charlie,
@@ -116,7 +115,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             bob,
             charlie,
@@ -125,7 +124,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             charlie,
             diana,
@@ -134,7 +133,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             alice,
             gremlin,
@@ -143,7 +142,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             bob,
             rust_proj,
@@ -152,14 +151,14 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 /// Creates a simple graph for basic tests.
-fn create_simple_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
-    storage.add_vertex("Dummy", HashMap::new());
-    Graph::new(storage)
+fn create_simple_graph() -> CowGraph {
+    let graph = CowGraph::new();
+    graph.add_vertex("Dummy", HashMap::new());
+    graph
 }
 
 // =============================================================================
@@ -1466,9 +1465,9 @@ fn test_multi_var_pattern_size() {
 
 #[test]
 fn test_multi_var_pattern_trim() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1479,14 +1478,13 @@ fn test_multi_var_pattern_trim() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -1545,9 +1543,9 @@ fn test_multi_var_pattern_replace() {
 
 #[test]
 fn test_multi_var_pattern_abs() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1555,7 +1553,7 @@ fn test_multi_var_pattern_abs() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -1563,9 +1561,8 @@ fn test_multi_var_pattern_abs() {
         ]),
     );
 
-    storage.add_edge(alice, bob, "OWES", HashMap::new());
+    graph.add_edge(alice, bob, "OWES", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -1584,9 +1581,9 @@ fn test_multi_var_pattern_abs() {
 
 #[test]
 fn test_multi_var_pattern_ceil_floor_round() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1594,14 +1591,13 @@ fn test_multi_var_pattern_ceil_floor_round() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(alice, bob, "RATED", HashMap::new());
+    graph.add_edge(alice, bob, "RATED", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // Test ceil
@@ -1670,9 +1666,9 @@ fn test_multi_var_tostring() {
 
 #[test]
 fn test_multi_var_tointeger() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1680,14 +1676,13 @@ fn test_multi_var_tointeger() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -1726,9 +1721,9 @@ fn test_multi_var_tofloat() {
 
 #[test]
 fn test_multi_var_toboolean() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1736,14 +1731,13 @@ fn test_multi_var_toboolean() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -1766,9 +1760,9 @@ fn test_multi_var_toboolean() {
 
 #[test]
 fn test_multi_var_radians() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1776,14 +1770,13 @@ fn test_multi_var_radians() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -1806,9 +1799,9 @@ fn test_multi_var_radians() {
 
 #[test]
 fn test_multi_var_degrees() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -1816,14 +1809,13 @@ fn test_multi_var_degrees() {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -2484,19 +2476,19 @@ fn test_with_clause_distinct() {
 
 #[test]
 fn test_edge_property_access() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    storage.add_edge(
+    graph.add_edge(
         alice,
         bob,
         "KNOWS",
@@ -2506,7 +2498,6 @@ fn test_edge_property_access() {
         ]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -2873,9 +2864,9 @@ fn test_row_based_tolower() {
 
 #[test]
 fn test_row_based_abs() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Account",
         HashMap::from([
             ("name".to_string(), Value::String("Test".to_string())),
@@ -2883,7 +2874,6 @@ fn test_row_based_abs() {
         ]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3054,14 +3044,13 @@ fn test_single_var_size_list() {
 
 #[test]
 fn test_single_var_trim() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("  Trimmed  ".to_string()))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3140,9 +3129,9 @@ fn test_single_var_replace() {
 
 #[test]
 fn test_single_var_abs() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Account",
         HashMap::from([
             ("name".to_string(), Value::String("Test".to_string())),
@@ -3150,7 +3139,6 @@ fn test_single_var_abs() {
         ]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3169,14 +3157,13 @@ fn test_single_var_abs() {
 
 #[test]
 fn test_single_var_ceil() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Float(3.2))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3195,14 +3182,13 @@ fn test_single_var_ceil() {
 
 #[test]
 fn test_single_var_floor() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Float(3.8))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3221,14 +3207,13 @@ fn test_single_var_floor() {
 
 #[test]
 fn test_single_var_round() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Float(3.5))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3267,14 +3252,13 @@ fn test_single_var_sign() {
 
 #[test]
 fn test_single_var_sqrt() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Int(16))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3293,14 +3277,13 @@ fn test_single_var_sqrt() {
 
 #[test]
 fn test_single_var_log() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Float(std::f64::consts::E))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3323,14 +3306,13 @@ fn test_single_var_log() {
 
 #[test]
 fn test_single_var_exp() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Int(0))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3353,14 +3335,13 @@ fn test_single_var_exp() {
 
 #[test]
 fn test_single_var_sin() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Int(0))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3383,14 +3364,13 @@ fn test_single_var_sin() {
 
 #[test]
 fn test_single_var_cos() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Int(0))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3413,14 +3393,13 @@ fn test_single_var_cos() {
 
 #[test]
 fn test_single_var_tan() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::Int(0))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3463,14 +3442,13 @@ fn test_single_var_tostring() {
 
 #[test]
 fn test_single_var_tointeger() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::String("42".to_string()))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(
@@ -3509,14 +3487,13 @@ fn test_single_var_tofloat() {
 
 #[test]
 fn test_single_var_toboolean() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    storage.add_vertex(
+    graph.add_vertex(
         "Data",
         HashMap::from([("value".to_string(), Value::String("true".to_string()))]),
     );
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(

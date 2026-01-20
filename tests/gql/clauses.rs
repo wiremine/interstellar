@@ -8,7 +8,7 @@
 
 use interstellar::gql::{parse, parse_statement, Statement};
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
@@ -16,130 +16,126 @@ use std::collections::{HashMap, HashSet};
 // =============================================================================
 
 /// Helper to create a graph for UNION tests
-fn create_union_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_union_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create TypeA vertices
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alpha"));
-    storage.add_vertex("TypeA", props);
+    graph.add_vertex("TypeA", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Beta"));
-    storage.add_vertex("TypeA", props);
+    graph.add_vertex("TypeA", props);
 
     // Create TypeB vertices
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Gamma"));
-    storage.add_vertex("TypeB", props);
+    graph.add_vertex("TypeB", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Delta"));
-    storage.add_vertex("TypeB", props);
+    graph.add_vertex("TypeB", props);
 
     // Create a vertex that appears in both types (simulated - same name)
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Epsilon"));
-    storage.add_vertex("TypeA", props);
+    graph.add_vertex("TypeA", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Epsilon"));
-    storage.add_vertex("TypeB", props);
+    graph.add_vertex("TypeB", props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Helper to create a graph for OPTIONAL MATCH tests
-fn create_optional_match_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_optional_match_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create players
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Michael Jordan"));
-    let mj = storage.add_vertex("player", props);
+    let mj = graph.add_vertex("player", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Scottie Pippen"));
-    let sp = storage.add_vertex("player", props);
+    let sp = graph.add_vertex("player", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Charles Barkley"));
-    let cb = storage.add_vertex("player", props);
+    let cb = graph.add_vertex("player", props);
 
     // Create teams
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Chicago Bulls"));
-    let bulls = storage.add_vertex("team", props);
+    let bulls = graph.add_vertex("team", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Phoenix Suns"));
-    let suns = storage.add_vertex("team", props);
+    let suns = graph.add_vertex("team", props);
 
     // Create relationships
     // MJ and Pippen won championships with Bulls
-    let _ = storage.add_edge(mj, bulls, "won_championship_with", HashMap::new());
-    let _ = storage.add_edge(sp, bulls, "won_championship_with", HashMap::new());
+    let _ = graph.add_edge(mj, bulls, "won_championship_with", HashMap::new());
+    let _ = graph.add_edge(sp, bulls, "won_championship_with", HashMap::new());
 
     // All players played for their teams
-    let _ = storage.add_edge(mj, bulls, "played_for", HashMap::new());
-    let _ = storage.add_edge(sp, bulls, "played_for", HashMap::new());
-    let _ = storage.add_edge(cb, suns, "played_for", HashMap::new());
+    let _ = graph.add_edge(mj, bulls, "played_for", HashMap::new());
+    let _ = graph.add_edge(sp, bulls, "played_for", HashMap::new());
+    let _ = graph.add_edge(cb, suns, "played_for", HashMap::new());
 
-    Graph::new(storage)
+    graph
 }
 
 /// Helper to create a basic test graph
-fn create_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
     props.insert("age".to_string(), Value::from(30i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Bob"));
     props.insert("age".to_string(), Value::from(25i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Carol"));
     props.insert("age".to_string(), Value::from(35i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Helper to create a graph with edges for path tests
-fn create_graph_with_edges() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_graph_with_edges() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
-    let alice = storage.add_vertex("Person", props);
+    let alice = graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Bob"));
-    let bob = storage.add_vertex("Person", props);
+    let bob = graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Carol"));
-    let carol = storage.add_vertex("Person", props);
+    let carol = graph.add_vertex("Person", props);
 
     // Alice knows Bob and Carol
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(alice, carol, "KNOWS", HashMap::new())
         .unwrap();
 
     // Bob knows Carol
-    storage
-        .add_edge(bob, carol, "KNOWS", HashMap::new())
-        .unwrap();
+    graph.add_edge(bob, carol, "KNOWS", HashMap::new()).unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -294,7 +290,7 @@ fn test_gql_union_all_keeps_duplicates() {
 /// Test UNION with WHERE clauses
 #[test]
 fn test_gql_union_with_where() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Add people with ages
     let people = vec![
@@ -308,10 +304,9 @@ fn test_gql_union_with_where() {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from(name));
         props.insert("age".to_string(), Value::from(age));
-        storage.add_vertex(group, props);
+        graph.add_vertex(group, props);
     }
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -382,19 +377,18 @@ fn test_gql_union_combined_single_query_ordering() {
 /// Test UNION with multiple return columns
 #[test]
 fn test_gql_union_multiple_columns() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
     props.insert("role".to_string(), Value::from("Engineer"));
-    storage.add_vertex("Employee", props);
+    graph.add_vertex("Employee", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Bob"));
     props.insert("role".to_string(), Value::from("Contractor"));
-    storage.add_vertex("Contractor", props);
+    graph.add_vertex("Contractor", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -423,18 +417,17 @@ fn test_gql_union_multiple_columns() {
 /// Test UNION deduplication with identical rows
 #[test]
 fn test_gql_union_deduplicates_identical_rows() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Create two vertices with the same name but different labels
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Shared"));
-    storage.add_vertex("TypeA", props);
+    graph.add_vertex("TypeA", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Shared"));
-    storage.add_vertex("TypeB", props);
+    graph.add_vertex("TypeB", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -455,18 +448,17 @@ fn test_gql_union_deduplicates_identical_rows() {
 /// Test UNION ALL keeps identical rows
 #[test]
 fn test_gql_union_all_keeps_identical_rows() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Create two vertices with the same name but different labels
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Shared"));
-    storage.add_vertex("TypeA", props);
+    graph.add_vertex("TypeA", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Shared"));
-    storage.add_vertex("TypeB", props);
+    graph.add_vertex("TypeB", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -548,22 +540,21 @@ fn test_gql_union_both_empty() {
 /// Test triple UNION
 #[test]
 fn test_gql_triple_union() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Create vertices with three labels
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("A1"));
-    storage.add_vertex("TypeA", props);
+    graph.add_vertex("TypeA", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("B1"));
-    storage.add_vertex("TypeB", props);
+    graph.add_vertex("TypeB", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("C1"));
-    storage.add_vertex("TypeC", props);
+    graph.add_vertex("TypeC", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1003,7 +994,7 @@ fn test_gql_path_function_multi_hop() {
 /// Test UNWIND with list property
 #[test]
 fn test_gql_unwind_list() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Create a vertex with a list property
     let mut props = HashMap::new();
@@ -1016,9 +1007,8 @@ fn test_gql_unwind_list() {
             Value::from("gaming"),
         ]),
     );
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1050,14 +1040,13 @@ fn test_gql_unwind_list() {
 /// Test UNWIND with null produces no rows
 #[test]
 fn test_gql_unwind_null_produces_no_rows() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Create a vertex without the list property
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1077,14 +1066,13 @@ fn test_gql_unwind_null_produces_no_rows() {
 /// Test UNWIND non-list wraps in single-element list
 #[test]
 fn test_gql_unwind_non_list_wraps() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
     props.insert("age".to_string(), Value::from(30i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1105,7 +1093,7 @@ fn test_gql_unwind_non_list_wraps() {
 /// Test multiple UNWIND clauses
 #[test]
 fn test_gql_multiple_unwind() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -1117,9 +1105,8 @@ fn test_gql_multiple_unwind() {
         "sizes".to_string(),
         Value::List(vec![Value::from("S"), Value::from("M")]),
     );
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1196,7 +1183,7 @@ fn test_gql_unwind_inline_list() {
 /// Test UNWIND with WHERE filter
 #[test]
 fn test_gql_unwind_with_where() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -1209,9 +1196,8 @@ fn test_gql_unwind_with_where() {
             Value::from(95i64),
         ]),
     );
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot

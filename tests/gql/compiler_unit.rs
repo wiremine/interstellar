@@ -8,29 +8,27 @@
 //! - CALL subquery handling
 
 use interstellar::gql::{compile, parse, CompileError};
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::value::Value;
-use interstellar::Graph;
 use std::collections::HashMap;
 
 #[test]
 fn test_compile_simple_match() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Add test data
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
-    storage.add_vertex("Person", props.clone());
+    graph.add_vertex("Person", props.clone());
 
     let mut props2 = HashMap::new();
     props2.insert("name".to_string(), Value::from("Bob"));
-    storage.add_vertex("Person", props2);
+    graph.add_vertex("Person", props2);
 
     let mut props3 = HashMap::new();
     props3.insert("name".to_string(), Value::from("Acme"));
-    storage.add_vertex("Company", props3);
+    graph.add_vertex("Company", props3);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let query = parse("MATCH (n:Person) RETURN n").unwrap();
     let results = compile(&query, &snapshot).unwrap();
@@ -41,16 +39,15 @@ fn test_compile_simple_match() {
 
 #[test]
 fn test_compile_no_label() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Add test data
     let props1 = HashMap::new();
-    storage.add_vertex("Person", props1);
+    graph.add_vertex("Person", props1);
 
     let props2 = HashMap::new();
-    storage.add_vertex("Company", props2);
+    graph.add_vertex("Company", props2);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
     let query = parse("MATCH (n) RETURN n").unwrap();
     let results = compile(&query, &snapshot).unwrap();
@@ -61,7 +58,7 @@ fn test_compile_no_label() {
 
 #[test]
 fn test_compile_undefined_variable() {
-    let graph = Graph::in_memory();
+    let graph = CowGraph::new();
     let snapshot = graph.snapshot();
     let query = parse("MATCH (n:Person) RETURN x").unwrap();
     let result = compile(&query, &snapshot);
@@ -76,22 +73,22 @@ fn test_compile_undefined_variable() {
 // Math Function Tests (Phase 4: Math-GQL Integration)
 // =========================================================================
 
-fn create_math_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_math_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::from(16));
     props.insert("x".to_string(), Value::from(3));
     props.insert("y".to_string(), Value::from(4));
-    storage.add_vertex("Number", props);
+    graph.add_vertex("Number", props);
 
     let mut props2 = HashMap::new();
     props2.insert("value".to_string(), Value::from(25));
     props2.insert("x".to_string(), Value::from(5));
     props2.insert("y".to_string(), Value::from(12));
-    storage.add_vertex("Number", props2);
+    graph.add_vertex("Number", props2);
 
-    Graph::new(storage)
+    graph
 }
 
 #[test]
@@ -430,56 +427,56 @@ fn test_combined_math_expression() {
 // CALL Subquery Tests (Phase 5: CALL Subquery Implementation)
 // =========================================================================
 
-fn create_call_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_call_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create people
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("age".to_string(), Value::from(30));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::from(25));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut charlie_props = HashMap::new();
     charlie_props.insert("name".to_string(), Value::from("Charlie"));
     charlie_props.insert("age".to_string(), Value::from(35));
-    let charlie = storage.add_vertex("Person", charlie_props);
+    let charlie = graph.add_vertex("Person", charlie_props);
 
     // Create movies
     let mut matrix_props = HashMap::new();
     matrix_props.insert("title".to_string(), Value::from("The Matrix"));
     matrix_props.insert("year".to_string(), Value::from(1999));
-    let matrix = storage.add_vertex("Movie", matrix_props);
+    let matrix = graph.add_vertex("Movie", matrix_props);
 
     let mut inception_props = HashMap::new();
     inception_props.insert("title".to_string(), Value::from("Inception"));
     inception_props.insert("year".to_string(), Value::from(2010));
-    let inception = storage.add_vertex("Movie", inception_props);
+    let inception = graph.add_vertex("Movie", inception_props);
 
     // Create LIKES relationships
     // Alice likes Matrix and Inception
     let mut likes_props = HashMap::new();
     likes_props.insert("rating".to_string(), Value::from(5));
-    let _ = storage.add_edge(alice, matrix, "LIKES", likes_props.clone());
+    let _ = graph.add_edge(alice, matrix, "LIKES", likes_props.clone());
     likes_props.insert("rating".to_string(), Value::from(4));
-    let _ = storage.add_edge(alice, inception, "LIKES", likes_props.clone());
+    let _ = graph.add_edge(alice, inception, "LIKES", likes_props.clone());
 
     // Bob likes Matrix
     likes_props.insert("rating".to_string(), Value::from(5));
-    let _ = storage.add_edge(bob, matrix, "LIKES", likes_props.clone());
+    let _ = graph.add_edge(bob, matrix, "LIKES", likes_props.clone());
 
     // Charlie likes nothing (test case for empty subquery results)
     let _ = charlie;
 
     // Create KNOWS relationships
-    let _ = storage.add_edge(alice, bob, "KNOWS", HashMap::new());
-    let _ = storage.add_edge(bob, charlie, "KNOWS", HashMap::new());
+    let _ = graph.add_edge(alice, bob, "KNOWS", HashMap::new());
+    let _ = graph.add_edge(bob, charlie, "KNOWS", HashMap::new());
 
-    Graph::new(storage)
+    graph
 }
 
 #[test]

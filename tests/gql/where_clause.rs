@@ -9,42 +9,42 @@
 
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::HashMap;
 
 /// Helper to create a graph for WHERE clause tests
-fn create_where_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_where_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("age".to_string(), Value::from(30i64));
     alice_props.insert("city".to_string(), Value::from("NYC"));
     alice_props.insert("active".to_string(), Value::from(true));
-    storage.add_vertex("Person", alice_props);
+    graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::from(25i64));
     bob_props.insert("city".to_string(), Value::from("LA"));
     bob_props.insert("active".to_string(), Value::from(true));
-    storage.add_vertex("Person", bob_props);
+    graph.add_vertex("Person", bob_props);
 
     let mut carol_props = HashMap::new();
     carol_props.insert("name".to_string(), Value::from("Carol"));
     carol_props.insert("age".to_string(), Value::from(35i64));
     carol_props.insert("city".to_string(), Value::from("NYC"));
     carol_props.insert("active".to_string(), Value::from(false));
-    storage.add_vertex("Person", carol_props);
+    graph.add_vertex("Person", carol_props);
 
     let mut dave_props = HashMap::new();
     dave_props.insert("name".to_string(), Value::from("Dave"));
     dave_props.insert("age".to_string(), Value::from(28i64));
     dave_props.insert("city".to_string(), Value::from("Chicago"));
     // Note: Dave has no 'active' property (for IS NULL tests)
-    storage.add_vertex("Person", dave_props);
+    graph.add_vertex("Person", dave_props);
 
-    Graph::new(storage)
+    graph
 }
 
 #[test]
@@ -197,21 +197,20 @@ fn test_gql_where_greater_equal_less_equal() {
 
 #[test]
 fn test_gql_where_contains() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("Alice Anderson"));
-    storage.add_vertex("Person", props1);
+    graph.add_vertex("Person", props1);
 
     let mut props2 = HashMap::new();
     props2.insert("name".to_string(), Value::from("Bob Brown"));
-    storage.add_vertex("Person", props2);
+    graph.add_vertex("Person", props2);
 
     let mut props3 = HashMap::new();
     props3.insert("name".to_string(), Value::from("Carol Anderson"));
-    storage.add_vertex("Person", props3);
+    graph.add_vertex("Person", props3);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -223,21 +222,20 @@ fn test_gql_where_contains() {
 
 #[test]
 fn test_gql_where_starts_with() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("Alice"));
-    storage.add_vertex("Person", props1);
+    graph.add_vertex("Person", props1);
 
     let mut props2 = HashMap::new();
     props2.insert("name".to_string(), Value::from("Albert"));
-    storage.add_vertex("Person", props2);
+    graph.add_vertex("Person", props2);
 
     let mut props3 = HashMap::new();
     props3.insert("name".to_string(), Value::from("Bob"));
-    storage.add_vertex("Person", props3);
+    graph.add_vertex("Person", props3);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -249,21 +247,20 @@ fn test_gql_where_starts_with() {
 
 #[test]
 fn test_gql_where_ends_with() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("email".to_string(), Value::from("alice@example.com"));
-    storage.add_vertex("Person", props1);
+    graph.add_vertex("Person", props1);
 
     let mut props2 = HashMap::new();
     props2.insert("email".to_string(), Value::from("bob@test.org"));
-    storage.add_vertex("Person", props2);
+    graph.add_vertex("Person", props2);
 
     let mut props3 = HashMap::new();
     props3.insert("email".to_string(), Value::from("carol@example.com"));
-    storage.add_vertex("Person", props3);
+    graph.add_vertex("Person", props3);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -385,30 +382,27 @@ fn test_gql_where_age_range() {
 
 #[test]
 fn test_gql_where_with_traversal() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::from(25i64));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut carol_props = HashMap::new();
     carol_props.insert("name".to_string(), Value::from("Carol"));
     carol_props.insert("age".to_string(), Value::from(35i64));
-    let carol = storage.add_vertex("Person", carol_props);
+    let carol = graph.add_vertex("Person", carol_props);
 
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(alice, carol, "KNOWS", HashMap::new())
         .unwrap();
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -421,7 +415,7 @@ fn test_gql_where_with_traversal() {
 
 #[test]
 fn test_gql_where_undefined_variable() {
-    let graph = Graph::in_memory();
+    let graph = CowGraph::new();
     let snapshot = graph.snapshot();
 
     let result = snapshot.gql("MATCH (n:Person) WHERE x.age > 30 RETURN n");

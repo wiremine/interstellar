@@ -8,8 +8,7 @@
 //! - Empty properties handling
 //! - Non-element inputs
 
-use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::value::{EdgeId, Value, VertexId};
 use std::collections::HashMap;
 
@@ -17,38 +16,38 @@ use std::collections::HashMap;
 // Helper Functions
 // =============================================================================
 
-fn create_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Vertex 0: person with multiple properties
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".to_string()));
     props.insert("age".to_string(), Value::Int(30));
     props.insert("city".to_string(), Value::String("NYC".to_string()));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     // Vertex 1: person with fewer properties
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Bob".to_string()));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     // Vertex 2: empty properties
-    storage.add_vertex("empty", HashMap::new());
+    graph.add_vertex("empty", HashMap::new());
 
     // Edge 0: with properties
     let mut props = HashMap::new();
     props.insert("weight".to_string(), Value::Float(0.5));
     props.insert("since".to_string(), Value::Int(2020));
-    storage
+    graph
         .add_edge(VertexId(0), VertexId(1), "knows", props)
         .unwrap();
 
     // Edge 1: no properties
-    storage
+    graph
         .add_edge(VertexId(1), VertexId(2), "knows", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -500,7 +499,7 @@ mod bulk_preservation_tests {
     use super::*;
     use interstellar::traversal::step::AnyStep;
     use interstellar::traversal::transform::PropertiesStep;
-    use interstellar::traversal::{ExecutionContext, Traverser};
+    use interstellar::traversal::{ExecutionContext, SnapshotLike, Traverser};
 
     #[test]
     fn properties_step_expands_bulk() {

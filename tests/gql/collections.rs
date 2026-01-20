@@ -13,7 +13,7 @@
 
 use interstellar::gql::parse;
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
@@ -21,157 +21,147 @@ use std::collections::{HashMap, HashSet};
 // =============================================================================
 
 /// Helper to create a basic test graph
-fn create_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
     props.insert("age".to_string(), Value::from(30i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Bob"));
     props.insert("age".to_string(), Value::from(25i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Charlie"));
     props.insert("age".to_string(), Value::from(35i64));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Helper to create a graph with a single dummy vertex for testing expressions
-fn create_dummy_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
-    storage.add_vertex("Dummy", HashMap::new());
-    Graph::new(storage)
+fn create_dummy_graph() -> CowGraph {
+    let graph = CowGraph::new();
+    graph.add_vertex("Dummy", HashMap::new());
+    graph
 }
 
 /// Create a test graph with email data for regex tests
-fn create_regex_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_regex_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
     props.insert("email".to_string(), Value::from("alice@gmail.com"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Bob"));
     props.insert("email".to_string(), Value::from("bob@yahoo.com"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Charlie"));
     props.insert("email".to_string(), Value::from("charlie@gmail.com"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("John Smith"));
     props.insert("email".to_string(), Value::from("john.smith@company.org"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Helper to create a graph with relationships for WITH clause testing
-fn create_with_clause_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_with_clause_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("age".to_string(), Value::from(30i64));
     alice_props.insert("city".to_string(), Value::from("NYC"));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::from(25i64));
     bob_props.insert("city".to_string(), Value::from("NYC"));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut carol_props = HashMap::new();
     carol_props.insert("name".to_string(), Value::from("Carol"));
     carol_props.insert("age".to_string(), Value::from(35i64));
     carol_props.insert("city".to_string(), Value::from("LA"));
-    let carol = storage.add_vertex("Person", carol_props);
+    let carol = graph.add_vertex("Person", carol_props);
 
     let mut dave_props = HashMap::new();
     dave_props.insert("name".to_string(), Value::from("Dave"));
     dave_props.insert("age".to_string(), Value::from(28i64));
     dave_props.insert("city".to_string(), Value::from("NYC"));
-    let dave = storage.add_vertex("Person", dave_props);
+    let dave = graph.add_vertex("Person", dave_props);
 
     let mut eve_props = HashMap::new();
     eve_props.insert("name".to_string(), Value::from("Eve"));
     eve_props.insert("age".to_string(), Value::from(32i64));
     eve_props.insert("city".to_string(), Value::from("LA"));
-    let eve = storage.add_vertex("Person", eve_props);
+    let eve = graph.add_vertex("Person", eve_props);
 
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(alice, carol, "KNOWS", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(alice, dave, "KNOWS", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(bob, carol, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(bob, carol, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(carol, dave, "KNOWS", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(carol, eve, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
-        .add_edge(dave, eve, "KNOWS", HashMap::new())
-        .unwrap();
+    graph.add_edge(carol, eve, "KNOWS", HashMap::new()).unwrap();
+    graph.add_edge(dave, eve, "KNOWS", HashMap::new()).unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
-fn create_pattern_comprehension_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_pattern_comprehension_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("age".to_string(), Value::from(30));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::from(25));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut carol_props = HashMap::new();
     carol_props.insert("name".to_string(), Value::from("Carol"));
     carol_props.insert("age".to_string(), Value::from(35));
-    let carol = storage.add_vertex("Person", carol_props);
+    let carol = graph.add_vertex("Person", carol_props);
 
     let mut dave_props = HashMap::new();
     dave_props.insert("name".to_string(), Value::from("Dave"));
     dave_props.insert("age".to_string(), Value::from(20));
-    let dave = storage.add_vertex("Person", dave_props);
+    let dave = graph.add_vertex("Person", dave_props);
 
-    storage
+    graph
         .add_edge(alice, bob, "FRIEND", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(alice, carol, "FRIEND", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(bob, dave, "FRIEND", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(bob, dave, "FRIEND", HashMap::new()).unwrap();
+    graph
         .add_edge(carol, dave, "FRIEND", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -327,13 +317,12 @@ fn test_gql_list_comprehension_empty_list() {
 
 #[test]
 fn test_gql_list_comprehension_null_handling() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -350,25 +339,24 @@ fn test_gql_list_comprehension_null_handling() {
 
 #[test]
 fn test_gql_list_comprehension_property_access() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice_id = storage.add_vertex("Person", {
+    let alice_id = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Alice"));
         props.insert("age".to_string(), Value::from(30i64));
         props
     });
 
-    let bob_id = storage.add_vertex("Person", {
+    let bob_id = graph.add_vertex("Person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from("Bob"));
         props.insert("age".to_string(), Value::from(25i64));
         props
     });
 
-    let _ = storage.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
+    let _ = graph.add_edge(alice_id, bob_id, "KNOWS", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -952,18 +940,17 @@ fn test_gql_regex_contains_pattern() {
 
 #[test]
 fn test_gql_regex_with_null() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
     props.insert("email".to_string(), Value::from("alice@test.com"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Bob"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1057,24 +1044,23 @@ fn test_gql_regex_with_not() {
 
 #[test]
 fn test_gql_regex_digit_pattern() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Product A"));
     props.insert("sku".to_string(), Value::from("SKU-12345"));
-    storage.add_vertex("Product", props);
+    graph.add_vertex("Product", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Product B"));
     props.insert("sku".to_string(), Value::from("SKU-99999"));
-    storage.add_vertex("Product", props);
+    graph.add_vertex("Product", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Product C"));
     props.insert("sku".to_string(), Value::from("INVALID"));
-    storage.add_vertex("Product", props);
+    graph.add_vertex("Product", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -2087,16 +2073,15 @@ fn test_gql_index_with_expression() {
 
 #[test]
 fn test_gql_index_access_on_property() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert(
         "scores".to_string(),
         Value::List(vec![Value::Int(95), Value::Int(87), Value::Int(92)]),
     );
-    storage.add_vertex("Student", props);
+    graph.add_vertex("Student", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -2286,7 +2271,7 @@ fn test_gql_slice_on_non_list() {
 
 #[test]
 fn test_gql_slice_on_property() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert(
@@ -2299,9 +2284,8 @@ fn test_gql_slice_on_property() {
             Value::Int(500),
         ]),
     );
-    storage.add_vertex("Account", props);
+    graph.add_vertex("Account", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -2325,7 +2309,7 @@ fn test_gql_slice_on_property() {
 
 #[test]
 fn test_gql_index_in_where_clause() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props1 = HashMap::new();
     props1.insert(
@@ -2335,7 +2319,7 @@ fn test_gql_index_in_where_clause() {
             Value::String("graph".to_string()),
         ]),
     );
-    storage.add_vertex("Project", props1);
+    graph.add_vertex("Project", props1);
 
     let mut props2 = HashMap::new();
     props2.insert(
@@ -2345,9 +2329,8 @@ fn test_gql_index_in_where_clause() {
             Value::String("ml".to_string()),
         ]),
     );
-    storage.add_vertex("Project", props2);
+    graph.add_vertex("Project", props2);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -2358,7 +2341,7 @@ fn test_gql_index_in_where_clause() {
 
 #[test]
 fn test_gql_slice_in_return() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert(
@@ -2371,9 +2354,8 @@ fn test_gql_slice_in_return() {
             Value::Int(5),
         ]),
     );
-    storage.add_vertex("Data", props);
+    graph.add_vertex("Data", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot

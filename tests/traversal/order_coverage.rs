@@ -8,8 +8,8 @@
 //! - None/missing value handling
 //! - Sub-traversal sorting
 
-use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
+use interstellar::traversal::SnapshotLike;
 use interstellar::value::{Value, VertexId};
 use std::collections::HashMap;
 
@@ -17,102 +17,102 @@ use std::collections::HashMap;
 // Helper Functions
 // =============================================================================
 
-fn create_mixed_type_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_mixed_type_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Vertex 0: int value
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::Int(10));
-    storage.add_vertex("item", props);
+    graph.add_vertex("item", props);
 
     // Vertex 1: float value
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::Float(5.5));
-    storage.add_vertex("item", props);
+    graph.add_vertex("item", props);
 
     // Vertex 2: string value
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::String("abc".to_string()));
-    storage.add_vertex("item", props);
+    graph.add_vertex("item", props);
 
     // Vertex 3: bool value
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::Bool(true));
-    storage.add_vertex("item", props);
+    graph.add_vertex("item", props);
 
-    Graph::new(storage)
+    graph
 }
 
-fn create_bool_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_bool_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("active".to_string(), Value::Bool(false));
-    storage.add_vertex("flag", props);
+    graph.add_vertex("flag", props);
 
     let mut props = HashMap::new();
     props.insert("active".to_string(), Value::Bool(true));
-    storage.add_vertex("flag", props);
+    graph.add_vertex("flag", props);
 
     let mut props = HashMap::new();
     props.insert("active".to_string(), Value::Bool(false));
-    storage.add_vertex("flag", props);
+    graph.add_vertex("flag", props);
 
-    Graph::new(storage)
+    graph
 }
 
-fn create_edge_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_edge_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
-    storage.add_vertex("person", HashMap::new());
-    storage.add_vertex("person", HashMap::new());
-    storage.add_vertex("person", HashMap::new());
+    graph.add_vertex("person", HashMap::new());
+    graph.add_vertex("person", HashMap::new());
+    graph.add_vertex("person", HashMap::new());
 
     // Edge with weight 0.5
     let mut props = HashMap::new();
     props.insert("weight".to_string(), Value::Float(0.5));
-    storage
+    graph
         .add_edge(VertexId(0), VertexId(1), "knows", props)
         .unwrap();
 
     // Edge with weight 0.8
     let mut props = HashMap::new();
     props.insert("weight".to_string(), Value::Float(0.8));
-    storage
+    graph
         .add_edge(VertexId(1), VertexId(2), "knows", props)
         .unwrap();
 
     // Edge with weight 0.2
     let mut props = HashMap::new();
     props.insert("weight".to_string(), Value::Float(0.2));
-    storage
+    graph
         .add_edge(VertexId(0), VertexId(2), "knows", props)
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
-fn create_missing_prop_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_missing_prop_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Vertex with age
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".to_string()));
     props.insert("age".to_string(), Value::Int(30));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     // Vertex without age
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Bob".to_string()));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     // Vertex with age
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Charlie".to_string()));
     props.insert("age".to_string(), Value::Int(25));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -144,8 +144,7 @@ mod mixed_type_sorting {
 
     #[test]
     fn order_natural_with_mixed_value_types() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -222,8 +221,7 @@ mod bool_sorting {
 
     #[test]
     fn order_natural_bools_ascending() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -382,24 +380,23 @@ mod subtraversal_sorting {
 
     #[test]
     fn order_by_subtraversal_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
         props.insert("score".to_string(), Value::Int(100));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Bob".to_string()));
         props.insert("score".to_string(), Value::Int(50));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Charlie".to_string()));
         props.insert("score".to_string(), Value::Int(75));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -452,8 +449,7 @@ mod order_builder_edge_cases {
 
     #[test]
     fn order_with_no_by_clause_defaults_to_asc() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -472,25 +468,24 @@ mod order_builder_edge_cases {
 
     #[test]
     fn order_with_multiple_by_clauses() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         // Same last name, different first names
         let mut props = HashMap::new();
         props.insert("first".to_string(), Value::String("Alice".to_string()));
         props.insert("last".to_string(), Value::String("Smith".to_string()));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
         let mut props = HashMap::new();
         props.insert("first".to_string(), Value::String("Bob".to_string()));
         props.insert("last".to_string(), Value::String("Jones".to_string()));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
         let mut props = HashMap::new();
         props.insert("first".to_string(), Value::String("Charlie".to_string()));
         props.insert("last".to_string(), Value::String("Smith".to_string()));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -543,8 +538,7 @@ mod non_element_sorting {
 
     #[test]
     fn order_null_values() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -563,8 +557,7 @@ mod non_element_sorting {
 
     #[test]
     fn order_list_values() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -586,8 +579,7 @@ mod non_element_sorting {
 
     #[test]
     fn order_map_values() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 

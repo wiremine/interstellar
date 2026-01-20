@@ -5,11 +5,11 @@
 use std::collections::HashMap;
 
 use interstellar::p;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 
-use crate::common::graphs::create_small_graph;
+use crate::common::graphs::create_small_cow_graph;
 
 // -------------------------------------------------------------------------
 // Comparison Predicates with has_where
@@ -17,7 +17,7 @@ use crate::common::graphs::create_small_graph;
 
 #[test]
 fn has_where_eq_filters_by_property_value() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -30,7 +30,7 @@ fn has_where_eq_filters_by_property_value() {
 
 #[test]
 fn has_where_neq_filters_out_property_value() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -52,7 +52,7 @@ fn has_where_neq_filters_out_property_value() {
 
 #[test]
 fn has_where_gte_filters_correctly() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -69,7 +69,7 @@ fn has_where_gte_filters_correctly() {
 
 #[test]
 fn has_where_gt_filters_correctly() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -83,7 +83,7 @@ fn has_where_gt_filters_correctly() {
 
 #[test]
 fn has_where_lt_filters_correctly() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -97,7 +97,7 @@ fn has_where_lt_filters_correctly() {
 
 #[test]
 fn has_where_lte_filters_correctly() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -114,7 +114,7 @@ fn has_where_lte_filters_correctly() {
 
 #[test]
 fn has_where_cross_type_comparison() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -131,7 +131,7 @@ fn has_where_cross_type_comparison() {
 
 #[test]
 fn has_where_missing_property_filters_out() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -151,7 +151,7 @@ fn has_where_missing_property_filters_out() {
 
 #[test]
 fn has_where_between_filters_range() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -169,7 +169,7 @@ fn has_where_between_filters_range() {
 
 #[test]
 fn has_where_between_inclusive_start() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -186,7 +186,7 @@ fn has_where_between_inclusive_start() {
 
 #[test]
 fn has_where_between_exclusive_end() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -200,7 +200,7 @@ fn has_where_between_exclusive_end() {
 
 #[test]
 fn has_where_inside_filters_exclusive() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -214,7 +214,7 @@ fn has_where_inside_filters_exclusive() {
 
 #[test]
 fn has_where_inside_excludes_boundaries() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -227,7 +227,7 @@ fn has_where_inside_excludes_boundaries() {
 
 #[test]
 fn has_where_outside_filters_outside_range() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -245,7 +245,7 @@ fn has_where_outside_filters_outside_range() {
 
 #[test]
 fn has_where_outside_boundaries_not_outside() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -263,7 +263,7 @@ fn has_where_outside_boundaries_not_outside() {
 
 #[test]
 fn has_where_starting_with_filters_strings() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -277,7 +277,7 @@ fn has_where_starting_with_filters_strings() {
 
 #[test]
 fn has_where_starting_with_multiple_matches() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -292,7 +292,7 @@ fn has_where_starting_with_multiple_matches() {
 
 #[test]
 fn has_where_ending_with_filters_strings() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -309,7 +309,7 @@ fn has_where_ending_with_filters_strings() {
 
 #[test]
 fn has_where_ending_with_no_matches() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -322,7 +322,7 @@ fn has_where_ending_with_no_matches() {
 
 #[test]
 fn has_where_containing_filters_strings() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -339,7 +339,7 @@ fn has_where_containing_filters_strings() {
 
 #[test]
 fn has_where_containing_single_match() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -353,7 +353,7 @@ fn has_where_containing_single_match() {
 
 #[test]
 fn has_where_string_predicate_on_non_string_property_fails() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -366,7 +366,7 @@ fn has_where_string_predicate_on_non_string_property_fails() {
 
 #[test]
 fn has_where_regex_filters_strings() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -383,7 +383,7 @@ fn has_where_regex_filters_strings() {
 
 #[test]
 fn has_where_regex_exact_match() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -400,7 +400,7 @@ fn has_where_regex_exact_match() {
 
 #[test]
 fn has_where_and_composed_predicate() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -420,7 +420,7 @@ fn has_where_and_composed_predicate() {
 
 #[test]
 fn has_where_or_composed_predicate() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -440,7 +440,7 @@ fn has_where_or_composed_predicate() {
 
 #[test]
 fn has_where_not_composed_predicate() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -461,7 +461,7 @@ fn has_where_not_composed_predicate() {
 
 #[test]
 fn has_where_complex_nested_predicate() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -482,7 +482,7 @@ fn has_where_complex_nested_predicate() {
 
 #[test]
 fn has_where_and_with_string_predicates() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -499,7 +499,7 @@ fn has_where_and_with_string_predicates() {
 
 #[test]
 fn has_where_or_with_string_predicates() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -519,7 +519,7 @@ fn has_where_or_with_string_predicates() {
 
 #[test]
 fn has_where_not_with_between() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -544,7 +544,7 @@ fn has_where_not_with_between() {
 
 #[test]
 fn has_where_within_filters_by_set_membership() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -561,7 +561,7 @@ fn has_where_within_filters_by_set_membership() {
 
 #[test]
 fn has_where_without_filters_by_exclusion() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -579,7 +579,7 @@ fn has_where_without_filters_by_exclusion() {
 
 #[test]
 fn has_where_within_with_strings() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -602,7 +602,7 @@ fn has_where_within_with_strings() {
 
 #[test]
 fn has_where_on_edges() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -619,7 +619,7 @@ fn has_where_on_edges() {
 
 #[test]
 fn has_where_on_edge_with_range() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -639,7 +639,7 @@ fn has_where_on_edge_with_range() {
 
 #[test]
 fn has_where_chained_with_navigation() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -657,7 +657,7 @@ fn has_where_chained_with_navigation() {
 
 #[test]
 fn has_where_in_where_step() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -677,7 +677,7 @@ fn has_where_in_where_step() {
 
 #[test]
 fn has_where_in_union_branches() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -703,7 +703,7 @@ fn has_where_in_union_branches() {
 
 /// Test graph structure for spec-alignment tests.
 struct SpecTestGraph {
-    graph: interstellar::graph::Graph,
+    graph: CowGraph,
     alice: VertexId,
     bob: VertexId,
     #[allow(dead_code)]
@@ -713,24 +713,24 @@ struct SpecTestGraph {
 }
 
 fn create_spec_test_graph() -> SpecTestGraph {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     // Add person vertices
-    let alice = storage.add_vertex("person", {
+    let alice = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
         props.insert("age".to_string(), Value::Int(30));
         props
     });
 
-    let bob = storage.add_vertex("person", {
+    let bob = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Bob".to_string()));
         props.insert("age".to_string(), Value::Int(35));
         props
     });
 
-    let carol = storage.add_vertex("person", {
+    let carol = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Carol".to_string()));
         props.insert("age".to_string(), Value::Int(25));
@@ -738,36 +738,32 @@ fn create_spec_test_graph() -> SpecTestGraph {
     });
 
     // Add company vertex
-    let acme = storage.add_vertex("company", {
+    let acme = graph.add_vertex("company", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Acme Corp".to_string()));
         props
     });
 
     // Add edges
-    storage
-        .add_edge(alice, bob, "knows", HashMap::new())
-        .unwrap();
+    graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
 
-    storage
+    graph
         .add_edge(alice, carol, "knows", HashMap::new())
         .unwrap();
 
-    storage
-        .add_edge(bob, carol, "knows", HashMap::new())
-        .unwrap();
+    graph.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
 
     // works_at edges
-    storage
+    graph
         .add_edge(alice, acme, "works_at", HashMap::new())
         .unwrap();
 
-    storage
+    graph
         .add_edge(bob, acme, "works_at", HashMap::new())
         .unwrap();
 
     SpecTestGraph {
-        graph: interstellar::graph::Graph::new(storage),
+        graph,
         alice,
         bob,
         carol,

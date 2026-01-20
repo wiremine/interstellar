@@ -9,7 +9,7 @@
 //! - Empty result set handling
 
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::cow::CowGraph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 // =============================================================================
 
 /// Helper to create a test graph for aggregation tests
-fn create_aggregation_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_aggregation_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create Person vertices with various ages and cities
     let people = vec![
@@ -34,10 +34,10 @@ fn create_aggregation_test_graph() -> Graph {
         props.insert("name".to_string(), Value::from(name));
         props.insert("age".to_string(), Value::from(age));
         props.insert("city".to_string(), Value::from(city));
-        storage.add_vertex("Person", props);
+        graph.add_vertex("Person", props);
     }
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test COUNT(*) - count all matches
@@ -368,8 +368,8 @@ fn test_gql_collect_empty() {
 // =============================================================================
 
 /// Helper to create a test graph for GROUP BY tests
-fn create_group_by_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_group_by_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create Person vertices with various cities and ages
     let people = vec![
@@ -386,10 +386,10 @@ fn create_group_by_test_graph() -> Graph {
         props.insert("name".to_string(), Value::from(name));
         props.insert("age".to_string(), Value::from(age));
         props.insert("city".to_string(), Value::from(city));
-        storage.add_vertex("Person", props);
+        graph.add_vertex("Person", props);
     }
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test GROUP BY with single expression and COUNT(*)

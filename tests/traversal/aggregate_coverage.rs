@@ -7,8 +7,7 @@
 //! - GroupValue::Traversal returning multiple results
 //! - Empty traversal results
 
-use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 use std::collections::HashMap;
@@ -17,58 +16,58 @@ use std::collections::HashMap;
 // Helper Functions
 // =============================================================================
 
-fn create_basic_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_basic_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".to_string()));
     props.insert("age".to_string(), Value::Int(30));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Bob".to_string()));
     props.insert("age".to_string(), Value::Int(25));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
-    Graph::new(storage)
+    graph
 }
 
-fn create_graph_with_edges() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_graph_with_edges() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Vertices
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".to_string()));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Bob".to_string()));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Charlie".to_string()));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     // Edges
     let mut props = HashMap::new();
     props.insert("since".to_string(), Value::Int(2020));
-    storage
+    graph
         .add_edge(VertexId(0), VertexId(1), "knows", props)
         .unwrap();
 
     let mut props = HashMap::new();
     props.insert("since".to_string(), Value::Int(2021));
-    storage
+    graph
         .add_edge(VertexId(0), VertexId(2), "knows", props)
         .unwrap();
 
     let mut props = HashMap::new();
     props.insert("since".to_string(), Value::Int(2020));
-    storage
+    graph
         .add_edge(VertexId(1), VertexId(2), "knows", props)
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -135,21 +134,20 @@ mod group_step_key_types {
 
     #[test]
     fn group_by_bool_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(true));
-        storage.add_vertex("user", props);
+        graph.add_vertex("user", props);
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(false));
-        storage.add_vertex("user", props);
+        graph.add_vertex("user", props);
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(true));
-        storage.add_vertex("user", props);
+        graph.add_vertex("user", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -171,17 +169,16 @@ mod group_step_key_types {
 
     #[test]
     fn group_by_float_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         let mut props = HashMap::new();
         props.insert("score".to_string(), Value::Float(0.5));
-        storage.add_vertex("item", props);
+        graph.add_vertex("item", props);
 
         let mut props = HashMap::new();
         props.insert("score".to_string(), Value::Float(0.5));
-        storage.add_vertex("item", props);
+        graph.add_vertex("item", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -203,13 +200,12 @@ mod group_step_key_types {
 
     #[test]
     fn group_by_null_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         let mut props = HashMap::new();
         props.insert("value".to_string(), Value::Null);
-        storage.add_vertex("item", props);
+        graph.add_vertex("item", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -239,21 +235,20 @@ mod group_count_key_types {
 
     #[test]
     fn group_count_by_bool_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(true));
-        storage.add_vertex("user", props);
+        graph.add_vertex("user", props);
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(false));
-        storage.add_vertex("user", props);
+        graph.add_vertex("user", props);
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(true));
-        storage.add_vertex("user", props);
+        graph.add_vertex("user", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -345,14 +340,13 @@ mod group_value_traversal_tests {
 
     #[test]
     fn group_value_traversal_empty_results() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         // Vertex with no outgoing edges
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Isolated".to_string()));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -377,22 +371,21 @@ mod group_value_traversal_tests {
 
     #[test]
     fn group_value_traversal_single_result() {
-        let mut storage = InMemoryGraph::new();
+        let graph = CowGraph::new();
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Bob".to_string()));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
 
         // Single edge from Alice to Bob
-        storage
+        graph
             .add_edge(VertexId(0), VertexId(1), "knows", HashMap::new())
             .unwrap();
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -425,8 +418,7 @@ mod non_element_input_tests {
 
     #[test]
     fn group_non_vertex_non_edge_by_label() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -448,8 +440,7 @@ mod non_element_input_tests {
 
     #[test]
     fn group_count_non_vertex_non_edge_by_property() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = CowGraph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 

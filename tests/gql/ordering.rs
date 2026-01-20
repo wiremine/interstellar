@@ -7,12 +7,12 @@
 //! - Combinations with WHERE
 
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::HashMap;
 
 /// Helper function to create a graph with people of various ages for ORDER BY tests
-fn create_order_by_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_order_by_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let people = vec![
         ("Alice", 30i64),
@@ -26,10 +26,10 @@ fn create_order_by_test_graph() -> Graph {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::from(name));
         props.insert("age".to_string(), Value::from(age));
-        storage.add_vertex("Person", props);
+        graph.add_vertex("Person", props);
     }
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================

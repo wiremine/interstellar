@@ -102,6 +102,29 @@ use crate::storage::{GraphStorage, InMemoryGraph};
 /// the underlying storage and provides controlled access through snapshots
 /// (for reading) and mutation handles (for writing).
 ///
+/// # Recommended: Unified API
+///
+/// For new code, consider using [`CowGraph`](crate::storage::CowGraph) (also exported as
+/// [`UnifiedGraph`](crate::storage::UnifiedGraph)) which provides:
+/// - O(1) snapshot creation via structural sharing
+/// - Lock-free reads (snapshots don't hold locks)
+/// - Owned snapshots that can outlive the source graph
+/// - Simpler mutation API (no need for `GraphMut` handle)
+///
+/// ```rust
+/// use interstellar::storage::CowGraph;
+/// use std::collections::HashMap;
+///
+/// let graph = CowGraph::new();
+/// let alice = graph.add_vertex("person", HashMap::from([
+///     ("name".to_string(), "Alice".into()),
+/// ]));
+///
+/// let snapshot = graph.snapshot();  // O(1), owned, no locks held
+/// let g = snapshot.traversal();
+/// let count = g.v().count();
+/// ```
+///
 /// # Creating a Graph
 ///
 /// There are two ways to create a `Graph`:

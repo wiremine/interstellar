@@ -6,11 +6,17 @@
 //! - `create_social_graph()` - Larger graph for complex traversal tests
 //! - `create_gql_test_graph()` - Graph for GQL tests with Person/Company vertices
 //! - `TestGraphBuilder` - Builder pattern for custom test graphs
+//!
+//! ## Unified API (Spec 33)
+//!
+//! New tests should prefer the unified API types:
+//! - `create_small_cow_graph()` - COW-based graph with O(1) snapshots
+//! - `CowTestGraph` - Test helper using COW semantics
 
 use std::collections::HashMap;
 
 use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::{CowGraph, CowSnapshot, GraphStorage, InMemoryGraph};
 use interstellar::value::{EdgeId, Value, VertexId};
 
 /// Standard test graph with vertices and their IDs for assertions.
@@ -551,6 +557,179 @@ pub fn create_gql_test_graph() -> Graph {
     Graph::new(storage)
 }
 
+// =============================================================================
+// Unified API Types (Spec 33) - COW-based graph fixtures
+// =============================================================================
+
+/// COW-based test graph with vertices and their IDs for assertions.
+///
+/// Uses `CowGraph` for O(1) snapshot creation and lock-free reads.
+/// This is the preferred graph type for new tests.
+#[allow(dead_code)]
+pub struct CowTestGraph {
+    pub graph: CowGraph,
+    // Person vertices
+    pub alice: VertexId,
+    pub bob: VertexId,
+    pub charlie: VertexId,
+    // Software vertices
+    pub graphdb: VertexId,
+    // Optional vertices for extended graphs
+    pub redis: Option<VertexId>,
+    pub eve: Option<VertexId>,
+    // Edge IDs (commonly used in tests)
+    pub alice_knows_bob: EdgeId,
+    pub bob_knows_charlie: EdgeId,
+    pub alice_uses_graphdb: Option<EdgeId>,
+    pub bob_uses_graphdb: Option<EdgeId>,
+    pub charlie_knows_alice: Option<EdgeId>,
+}
+
+impl CowTestGraph {
+    /// Get a snapshot of the graph for traversal.
+    ///
+    /// Unlike `TestGraph::snapshot()`, this returns an owned `CowSnapshot`
+    /// that doesn't borrow from the graph and can be sent across threads.
+    pub fn snapshot(&self) -> CowSnapshot {
+        self.graph.snapshot()
+    }
+}
+
+/// Creates an empty COW graph for testing edge cases.
+#[allow(dead_code)]
+pub fn create_empty_cow_graph() -> CowGraph {
+    CowGraph::new()
+}
+
+/// Creates a small COW test graph with 4 vertices and 5 edges.
+///
+/// This is the COW-based equivalent of `create_small_graph()`.
+/// Use this for new tests that need O(1) snapshots.
+#[allow(dead_code)]
+pub fn create_small_cow_graph() -> CowTestGraph {
+    let graph = CowGraph::new();
+
+    // Add vertices with properties
+    let alice = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Alice".to_string()));
+        props.insert("age".to_string(), Value::Int(30));
+        props
+    });
+
+    let bob = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Bob".to_string()));
+        props.insert("age".to_string(), Value::Int(25));
+        props
+    });
+
+    let charlie = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Charlie".to_string()));
+        props.insert("age".to_string(), Value::Int(35));
+        props
+    });
+
+    let graphdb = graph.add_vertex("software", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("GraphDB".to_string()));
+        props.insert("version".to_string(), Value::Float(1.0));
+        props
+    });
+
+    // Add edges with properties
+    let alice_knows_bob = graph
+        .add_edge(alice, bob, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2020));
+            props
+        })
+        .unwrap();
+
+    let bob_knows_charlie = graph
+        .add_edge(bob, charlie, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2021));
+            props
+        })
+        .unwrap();
+
+    let alice_uses_graphdb = graph
+        .add_edge(alice, graphdb, "uses", {
+            let mut props = HashMap::new();
+            props.insert("skill".to_string(), Value::String("expert".to_string()));
+            props
+        })
+        .unwrap();
+
+    let bob_uses_graphdb = graph
+        .add_edge(bob, graphdb, "uses", {
+            let mut props = HashMap::new();
+            props.insert("skill".to_string(), Value::String("beginner".to_string()));
+            props
+        })
+        .unwrap();
+
+    let charlie_knows_alice = graph
+        .add_edge(charlie, alice, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2019));
+            props
+        })
+        .unwrap();
+
+    CowTestGraph {
+        graph,
+        alice,
+        bob,
+        charlie,
+        graphdb,
+        redis: None,
+        eve: None,
+        alice_knows_bob,
+        bob_knows_charlie,
+        alice_uses_graphdb: Some(alice_uses_graphdb),
+        bob_uses_graphdb: Some(bob_uses_graphdb),
+        charlie_knows_alice: Some(charlie_knows_alice),
+    }
+}
+
+/// Creates a COW test graph optimized for GQL tests.
+///
+/// Uses PascalCase labels (Person, Company) matching GQL conventions.
+#[allow(dead_code)]
+pub fn create_gql_cow_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
+
+    // Create Person vertices
+    let mut alice_props = HashMap::new();
+    alice_props.insert("name".to_string(), Value::from("Alice"));
+    alice_props.insert("age".to_string(), Value::from(30i64));
+    graph.add_vertex("Person", alice_props);
+
+    let mut bob_props = HashMap::new();
+    bob_props.insert("name".to_string(), Value::from("Bob"));
+    bob_props.insert("age".to_string(), Value::from(25i64));
+    graph.add_vertex("Person", bob_props);
+
+    let mut charlie_props = HashMap::new();
+    charlie_props.insert("name".to_string(), Value::from("Charlie"));
+    charlie_props.insert("age".to_string(), Value::from(35i64));
+    graph.add_vertex("Person", charlie_props);
+
+    // Create Company vertices
+    let mut acme_props = HashMap::new();
+    acme_props.insert("name".to_string(), Value::from("Acme Corp"));
+    graph.add_vertex("Company", acme_props);
+
+    let mut globex_props = HashMap::new();
+    globex_props.insert("name".to_string(), Value::from("Globex"));
+    graph.add_vertex("Company", globex_props);
+
+    graph
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,5 +796,60 @@ mod tests {
 
         assert_eq!(g.v().to_list().len(), 3);
         assert_eq!(g.e().to_list().len(), 2);
+    }
+
+    // =============================================================================
+    // COW Graph Tests (Spec 33)
+    // =============================================================================
+
+    #[test]
+    fn small_cow_graph_has_expected_structure() {
+        let tg = create_small_cow_graph();
+        let snapshot = tg.snapshot();
+        let g = snapshot.traversal();
+
+        assert_eq!(g.v().to_list().len(), 4);
+        assert_eq!(g.e().to_list().len(), 5);
+        assert_eq!(g.v().has_label("person").to_list().len(), 3);
+        assert_eq!(g.v().has_label("software").to_list().len(), 1);
+    }
+
+    #[test]
+    fn cow_gql_test_graph_has_expected_structure() {
+        let graph = create_gql_cow_test_graph();
+        let snapshot = graph.snapshot();
+
+        let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+        assert_eq!(results.len(), 3);
+
+        let results = snapshot.gql("MATCH (c:Company) RETURN c").unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn cow_snapshot_is_owned_and_independent() {
+        let graph = CowGraph::new();
+        let alice = graph.add_vertex("person", {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), Value::String("Alice".to_string()));
+            props
+        });
+
+        // Take a snapshot
+        let snap1 = graph.snapshot();
+
+        // Mutate the graph after snapshot
+        graph
+            .set_vertex_property(alice, "age", Value::Int(30))
+            .unwrap();
+
+        // Original snapshot doesn't see the change
+        let v1 = snap1.get_vertex(alice).unwrap();
+        assert!(v1.properties.get("age").is_none());
+
+        // New snapshot sees the change
+        let snap2 = graph.snapshot();
+        let v2 = snap2.get_vertex(alice).unwrap();
+        assert_eq!(v2.properties.get("age"), Some(&Value::Int(30)));
     }
 }

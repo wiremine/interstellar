@@ -19,20 +19,19 @@ use interstellar::gql::{
     compile, compile_statement, compile_statement_with_params, compile_with_params, parse,
     parse_statement, CompileError, Parameters,
 };
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::value::Value;
-use interstellar::Graph;
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
 /// Creates a test graph with Person and Software vertices plus edges.
-fn create_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Add Person vertices
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -41,7 +40,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -50,7 +49,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let charlie = storage.add_vertex(
+    let charlie = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Charlie".to_string())),
@@ -59,7 +58,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let diana = storage.add_vertex(
+    let diana = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Diana".to_string())),
@@ -69,7 +68,7 @@ fn create_test_graph() -> Graph {
     );
 
     // Add Software vertices
-    let gremlin = storage.add_vertex(
+    let gremlin = graph.add_vertex(
         "Software",
         HashMap::from([
             ("name".to_string(), Value::String("Gremlin".to_string())),
@@ -77,7 +76,7 @@ fn create_test_graph() -> Graph {
         ]),
     );
 
-    let rust_proj = storage.add_vertex(
+    let rust_proj = graph.add_vertex(
         "Software",
         HashMap::from([
             (
@@ -89,7 +88,7 @@ fn create_test_graph() -> Graph {
     );
 
     // Add edges
-    storage
+    graph
         .add_edge(
             alice,
             bob,
@@ -101,7 +100,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             alice,
             charlie,
@@ -110,7 +109,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             bob,
             charlie,
@@ -119,7 +118,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             charlie,
             diana,
@@ -128,7 +127,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             alice,
             gremlin,
@@ -137,7 +136,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             bob,
             rust_proj,
@@ -146,7 +145,7 @@ fn create_test_graph() -> Graph {
         )
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -689,8 +688,8 @@ fn test_unwind_inline_list() {
 #[test]
 fn test_unwind_property_list() {
     // Create a graph with a list property for UNWIND testing
-    let mut storage = InMemoryGraph::new();
-    storage.add_vertex(
+    let graph = CowGraph::new();
+    graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -703,7 +702,6 @@ fn test_unwind_property_list() {
             ),
         ]),
     );
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let query = parse(

@@ -2,11 +2,10 @@
 
 use std::collections::HashMap;
 
-use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use interstellar::value::{EdgeId, Value, VertexId};
 
-use crate::common::graphs::{create_empty_graph, create_small_graph};
+use crate::common::graphs::{create_empty_cow_graph, create_small_cow_graph};
 
 // =============================================================================
 // Spec-Compliant Test Graph (used by basic_source_tests)
@@ -32,7 +31,7 @@ use crate::common::graphs::{create_empty_graph, create_small_graph};
 /// | bob    | acme   | works_at | since: 2018  |
 #[allow(dead_code)]
 struct SpecTestGraph {
-    graph: Graph,
+    graph: CowGraph,
     alice: VertexId,
     bob: VertexId,
     carol: VertexId,
@@ -40,36 +39,36 @@ struct SpecTestGraph {
 }
 
 fn create_spec_test_graph() -> SpecTestGraph {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
-    let alice = storage.add_vertex("person", {
+    let alice = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
         props.insert("age".to_string(), Value::Int(30));
         props
     });
 
-    let bob = storage.add_vertex("person", {
+    let bob = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Bob".to_string()));
         props.insert("age".to_string(), Value::Int(35));
         props
     });
 
-    let carol = storage.add_vertex("person", {
+    let carol = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Carol".to_string()));
         props.insert("age".to_string(), Value::Int(25));
         props
     });
 
-    let acme = storage.add_vertex("company", {
+    let acme = graph.add_vertex("company", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Acme Corp".to_string()));
         props
     });
 
-    storage
+    graph
         .add_edge(alice, bob, "knows", {
             let mut props = HashMap::new();
             props.insert("weight".to_string(), Value::Float(1.0));
@@ -77,7 +76,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(alice, carol, "knows", {
             let mut props = HashMap::new();
             props.insert("weight".to_string(), Value::Float(0.5));
@@ -85,7 +84,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(bob, carol, "knows", {
             let mut props = HashMap::new();
             props.insert("weight".to_string(), Value::Float(0.8));
@@ -93,7 +92,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(alice, acme, "works_at", {
             let mut props = HashMap::new();
             props.insert("since".to_string(), Value::Int(2020));
@@ -101,7 +100,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         })
         .unwrap();
 
-    storage
+    graph
         .add_edge(bob, acme, "works_at", {
             let mut props = HashMap::new();
             props.insert("since".to_string(), Value::Int(2018));
@@ -110,7 +109,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
         .unwrap();
 
     SpecTestGraph {
-        graph: Graph::new(storage),
+        graph,
         alice,
         bob,
         carol,
@@ -124,7 +123,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
 
 #[test]
 fn v_returns_all_vertices() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -138,7 +137,7 @@ fn v_returns_all_vertices() {
 
 #[test]
 fn e_returns_all_edges() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -152,7 +151,7 @@ fn e_returns_all_edges() {
 
 #[test]
 fn v_ids_returns_specific_vertices() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -166,7 +165,7 @@ fn v_ids_returns_specific_vertices() {
 
 #[test]
 fn e_ids_returns_specific_edges() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -182,7 +181,7 @@ fn e_ids_returns_specific_edges() {
 
 #[test]
 fn inject_creates_traversers_from_values() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -195,7 +194,7 @@ fn inject_creates_traversers_from_values() {
 
 #[test]
 fn count_returns_correct_value() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -205,7 +204,7 @@ fn count_returns_correct_value() {
 
 #[test]
 fn empty_graph_returns_empty_results() {
-    let graph = create_empty_graph();
+    let graph = create_empty_cow_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -217,7 +216,7 @@ fn empty_graph_returns_empty_results() {
 
 #[test]
 fn nonexistent_vertex_ids_filtered_out() {
-    let tg = create_small_graph();
+    let tg = create_small_cow_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 

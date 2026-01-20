@@ -9,7 +9,7 @@
 //! - Math functions (abs, round, floor, ceil)
 
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -17,62 +17,62 @@ use std::collections::HashMap;
 // =============================================================================
 
 /// Helper to create a graph with relationships for EXISTS testing
-fn create_exists_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_exists_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Create players
     let mut mj_props = HashMap::new();
     mj_props.insert("name".to_string(), Value::from("Michael Jordan"));
     mj_props.insert("position".to_string(), Value::from("Shooting Guard"));
-    let mj_id = storage.add_vertex("player", mj_props);
+    let mj_id = graph.add_vertex("player", mj_props);
 
     let mut kobe_props = HashMap::new();
     kobe_props.insert("name".to_string(), Value::from("Kobe Bryant"));
     kobe_props.insert("position".to_string(), Value::from("Shooting Guard"));
-    let kobe_id = storage.add_vertex("player", kobe_props);
+    let kobe_id = graph.add_vertex("player", kobe_props);
 
     let mut barkley_props = HashMap::new();
     barkley_props.insert("name".to_string(), Value::from("Charles Barkley"));
     barkley_props.insert("position".to_string(), Value::from("Power Forward"));
-    let barkley_id = storage.add_vertex("player", barkley_props);
+    let barkley_id = graph.add_vertex("player", barkley_props);
 
     let mut nash_props = HashMap::new();
     nash_props.insert("name".to_string(), Value::from("Steve Nash"));
     nash_props.insert("position".to_string(), Value::from("Point Guard"));
-    let nash_id = storage.add_vertex("player", nash_props);
+    let nash_id = graph.add_vertex("player", nash_props);
 
     // Create teams
     let mut bulls_props = HashMap::new();
     bulls_props.insert("name".to_string(), Value::from("Chicago Bulls"));
     bulls_props.insert("championships".to_string(), Value::Int(6));
-    let bulls_id = storage.add_vertex("team", bulls_props);
+    let bulls_id = graph.add_vertex("team", bulls_props);
 
     let mut lakers_props = HashMap::new();
     lakers_props.insert("name".to_string(), Value::from("Los Angeles Lakers"));
     lakers_props.insert("championships".to_string(), Value::Int(17));
-    let lakers_id = storage.add_vertex("team", lakers_props);
+    let lakers_id = graph.add_vertex("team", lakers_props);
 
     let mut suns_props = HashMap::new();
     suns_props.insert("name".to_string(), Value::from("Phoenix Suns"));
     suns_props.insert("championships".to_string(), Value::Int(0));
-    let suns_id = storage.add_vertex("team", suns_props);
+    let suns_id = graph.add_vertex("team", suns_props);
 
     // Add championship relationships (only MJ and Kobe have won)
     let mut ring_props = HashMap::new();
     ring_props.insert("years".to_string(), Value::from("1991-1993,1996-1998"));
-    let _ = storage.add_edge(mj_id, bulls_id, "won_championship_with", ring_props.clone());
+    let _ = graph.add_edge(mj_id, bulls_id, "won_championship_with", ring_props.clone());
 
     ring_props.insert("years".to_string(), Value::from("2000-2002,2009-2010"));
-    let _ = storage.add_edge(kobe_id, lakers_id, "won_championship_with", ring_props);
+    let _ = graph.add_edge(kobe_id, lakers_id, "won_championship_with", ring_props);
 
     // Add played_for relationships
     let played_props = HashMap::new();
-    let _ = storage.add_edge(mj_id, bulls_id, "played_for", played_props.clone());
-    let _ = storage.add_edge(kobe_id, lakers_id, "played_for", played_props.clone());
-    let _ = storage.add_edge(barkley_id, suns_id, "played_for", played_props.clone());
-    let _ = storage.add_edge(nash_id, suns_id, "played_for", played_props);
+    let _ = graph.add_edge(mj_id, bulls_id, "played_for", played_props.clone());
+    let _ = graph.add_edge(kobe_id, lakers_id, "played_for", played_props.clone());
+    let _ = graph.add_edge(barkley_id, suns_id, "played_for", played_props.clone());
+    let _ = graph.add_edge(nash_id, suns_id, "played_for", played_props);
 
-    Graph::new(storage)
+    graph
 }
 
 #[test]
@@ -564,7 +564,7 @@ fn test_gql_exists_return_multiple_properties() {
 
 #[test]
 fn test_gql_exists_empty_graph() {
-    let graph = Graph::in_memory();
+    let graph = CowGraph::new();
     let snapshot = graph.snapshot();
 
     // EXISTS on empty graph should return no results
@@ -584,13 +584,12 @@ fn test_gql_exists_empty_graph() {
 #[test]
 fn test_gql_exists_no_edges() {
     // Create a graph with vertices but no edges
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Lonely Player"));
-    storage.add_vertex("player", props);
+    graph.add_vertex("player", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // EXISTS should return false for a player with no outgoing edges
@@ -624,15 +623,14 @@ fn test_gql_exists_no_edges() {
 #[test]
 fn test_gql_exists_self_loop() {
     // Create a graph with a self-loop
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Narcissist"));
-    let id = storage.add_vertex("player", props);
+    let id = graph.add_vertex("player", props);
 
-    let _ = storage.add_edge(id, id, "admires", HashMap::new());
+    let _ = graph.add_edge(id, id, "admires", HashMap::new());
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     // EXISTS should work with self-loops
@@ -689,27 +687,27 @@ fn test_gql_exists_aggregate_over_filtered() {
 // =============================================================================
 
 /// Helper to create a graph with null values for COALESCE tests
-fn create_coalesce_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_coalesce_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     // Person with both name and nickname
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("nickname".to_string(), Value::from("Ali"));
-    storage.add_vertex("Person", alice_props);
+    graph.add_vertex("Person", alice_props);
 
     // Person with name but no nickname
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     // Note: no nickname property
-    storage.add_vertex("Person", bob_props);
+    graph.add_vertex("Person", bob_props);
 
     // Person with nickname but no name (unusual case)
     let mut carol_props = HashMap::new();
     carol_props.insert("nickname".to_string(), Value::from("Carol the Great"));
-    storage.add_vertex("Person", carol_props);
+    graph.add_vertex("Person", carol_props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test COALESCE returns first non-null value
@@ -791,8 +789,8 @@ fn test_gql_coalesce_case_insensitive() {
 // =============================================================================
 
 /// Helper to create a graph for CASE expression tests
-fn create_case_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_case_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let people = vec![
         ("Alice", 32i64, 92i64),
@@ -807,10 +805,10 @@ fn create_case_test_graph() -> Graph {
         props.insert("name".to_string(), Value::from(name));
         props.insert("age".to_string(), Value::from(age));
         props.insert("score".to_string(), Value::from(score));
-        storage.add_vertex("Person", props);
+        graph.add_vertex("Person", props);
     }
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test CASE expression with age categorization
@@ -972,8 +970,8 @@ fn test_gql_case_multiple_results() {
 // =============================================================================
 
 /// Helper to create a graph for type conversion tests
-fn create_type_conversion_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_type_conversion_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -983,9 +981,9 @@ fn create_type_conversion_test_graph() -> Graph {
     props.insert("count_str".to_string(), Value::from("42"));
     props.insert("float_str".to_string(), Value::from("3.15"));
     props.insert("bool_str".to_string(), Value::from("true"));
-    storage.add_vertex("Person", props);
+    graph.add_vertex("Person", props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Test toString() converts integer to string
@@ -1144,12 +1142,11 @@ fn test_gql_toboolean_integer() {
 /// Test toBoolean() with "false" string
 #[test]
 fn test_gql_toboolean_string_false() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
     let mut props = HashMap::new();
     props.insert("status".to_string(), Value::from("false"));
-    storage.add_vertex("Test", props);
+    graph.add_vertex("Test", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1209,12 +1206,11 @@ fn test_gql_length_string() {
 /// Test ABS function
 #[test]
 fn test_gql_abs_function() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
     let mut props = HashMap::new();
     props.insert("balance".to_string(), Value::from(-100i64));
-    storage.add_vertex("Account", props);
+    graph.add_vertex("Account", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot
@@ -1228,12 +1224,11 @@ fn test_gql_abs_function() {
 /// Test TRIM function
 #[test]
 fn test_gql_trim_function() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
     let mut props = HashMap::new();
     props.insert("text".to_string(), Value::from("  hello world  "));
-    storage.add_vertex("Test", props);
+    graph.add_vertex("Test", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot.gql("MATCH (t:Test) RETURN trim(t.text)").unwrap();
@@ -1313,12 +1308,11 @@ fn test_gql_substring_function() {
 /// Test REPLACE function
 #[test]
 fn test_gql_replace_function() {
-    let mut storage = InMemoryGraph::new();
+    let graph = CowGraph::new();
     let mut props = HashMap::new();
     props.insert("text".to_string(), Value::from("hello world"));
-    storage.add_vertex("Test", props);
+    graph.add_vertex("Test", props);
 
-    let graph = Graph::new(storage);
     let snapshot = graph.snapshot();
 
     let results = snapshot

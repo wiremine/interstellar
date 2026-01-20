@@ -8,73 +8,69 @@
 
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::CowGraph;
 use std::collections::HashMap;
 
 /// Helper to create a test graph with sample data
-fn create_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
     alice_props.insert("age".to_string(), Value::from(30i64));
-    storage.add_vertex("Person", alice_props);
+    graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
     bob_props.insert("age".to_string(), Value::from(25i64));
-    storage.add_vertex("Person", bob_props);
+    graph.add_vertex("Person", bob_props);
 
     let mut charlie_props = HashMap::new();
     charlie_props.insert("name".to_string(), Value::from("Charlie"));
     charlie_props.insert("age".to_string(), Value::from(35i64));
-    storage.add_vertex("Person", charlie_props);
+    graph.add_vertex("Person", charlie_props);
 
     let mut acme_props = HashMap::new();
     acme_props.insert("name".to_string(), Value::from("Acme Corp"));
-    storage.add_vertex("Company", acme_props);
+    graph.add_vertex("Company", acme_props);
 
     let mut globex_props = HashMap::new();
     globex_props.insert("name".to_string(), Value::from("Globex"));
-    storage.add_vertex("Company", globex_props);
+    graph.add_vertex("Company", globex_props);
 
-    Graph::new(storage)
+    graph
 }
 
 /// Helper to create a test graph with edges for traversal tests
-fn create_graph_with_edges() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_graph_with_edges() -> CowGraph {
+    let graph = CowGraph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
-    let alice = storage.add_vertex("Person", alice_props);
+    let alice = graph.add_vertex("Person", alice_props);
 
     let mut bob_props = HashMap::new();
     bob_props.insert("name".to_string(), Value::from("Bob"));
-    let bob = storage.add_vertex("Person", bob_props);
+    let bob = graph.add_vertex("Person", bob_props);
 
     let mut carol_props = HashMap::new();
     carol_props.insert("name".to_string(), Value::from("Carol"));
-    let carol = storage.add_vertex("Person", carol_props);
+    let carol = graph.add_vertex("Person", carol_props);
 
     let mut dave_props = HashMap::new();
     dave_props.insert("name".to_string(), Value::from("Dave"));
-    let dave = storage.add_vertex("Person", dave_props);
+    let dave = graph.add_vertex("Person", dave_props);
 
-    storage
-        .add_edge(alice, bob, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(alice, carol, "KNOWS", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(bob, carol, "KNOWS", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(bob, carol, "KNOWS", HashMap::new()).unwrap();
+    graph
         .add_edge(bob, dave, "WORKS_WITH", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 // =============================================================================
@@ -350,7 +346,7 @@ fn test_gql_return_property_from_traversal() {
 
 #[test]
 fn test_gql_return_undefined_variable_in_property() {
-    let graph = Graph::in_memory();
+    let graph = CowGraph::new();
     let snapshot = graph.snapshot();
 
     let result = snapshot.gql("MATCH (n:Person) RETURN x.name");
