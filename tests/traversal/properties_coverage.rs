@@ -8,6 +8,7 @@
 //! - Empty properties handling
 //! - Non-element inputs
 
+#![allow(unused_variables)]
 use interstellar::storage::Graph;
 use interstellar::value::{EdgeId, Value, VertexId};
 use std::collections::HashMap;

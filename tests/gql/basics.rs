@@ -6,6 +6,7 @@
 //! - Error handling tests
 //! - API integration tests
 
+#![allow(unused_variables)]
 use interstellar::gql::{compile, parse, GqlError};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;

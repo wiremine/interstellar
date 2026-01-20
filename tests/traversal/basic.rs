@@ -1,5 +1,6 @@
 //! Basic traversal tests including source steps (v, e, inject) and basic operations.
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::storage::Graph;

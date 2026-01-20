@@ -2,6 +2,7 @@
 //!
 //! These tests target uncovered branches and edge cases in mutation execution.
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::gql::{

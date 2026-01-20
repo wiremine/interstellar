@@ -1,5 +1,6 @@
 //! Filter step tests.
 
+#![allow(unused_variables)]
 use interstellar::p;
 use interstellar::traversal::__;
 use interstellar::value::Value;

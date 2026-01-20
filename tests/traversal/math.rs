@@ -10,6 +10,7 @@
 //! - Edge cases (empty input, non-numeric values, domain errors)
 //! - Metadata preservation (path, loops, bulk)
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::storage::Graph;

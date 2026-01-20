@@ -2486,10 +2486,8 @@ impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
         let (source, steps) = self.traversal.into_steps();
 
         // Check if this is a mutation-only traversal (source is Inject([]))
-        let is_mutation_only = match &source {
-            Some(TraversalSource::Inject(values)) if values.is_empty() => true,
-            _ => false,
-        };
+        let is_mutation_only =
+            matches!(&source, Some(TraversalSource::Inject(values)) if values.is_empty());
 
         let results: Vec<Traverser> = if is_mutation_only {
             // For mutation-only traversals, execute steps directly without

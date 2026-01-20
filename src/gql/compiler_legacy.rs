@@ -292,9 +292,9 @@ fn id_to_value(id: u64) -> Value {
 /// [`Value`]: crate::value::Value
 /// [`CompileError`]: crate::gql::error::CompileError
 /// [`parse()`]: crate::gql::parse
-pub fn compile<'g, S: SnapshotLike + ?Sized>(
+pub fn compile<S: SnapshotLike + ?Sized>(
     query: &Query,
-    snapshot: &'g S,
+    snapshot: &S,
 ) -> Result<Vec<Value>, CompileError> {
     compile_with_config(
         query,
@@ -356,9 +356,9 @@ pub fn compile<'g, S: SnapshotLike + ?Sized>(
 ///
 /// [`parse()`]: crate::gql::parse
 /// [`CompileError`]: crate::gql::error::CompileError
-pub fn compile_with_params<'g, S: SnapshotLike + ?Sized>(
+pub fn compile_with_params<S: SnapshotLike + ?Sized>(
     query: &Query,
-    snapshot: &'g S,
+    snapshot: &S,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
     compile_with_config(query, snapshot, params, &CompilerConfig::default())
@@ -404,9 +404,9 @@ pub fn compile_with_params<'g, S: SnapshotLike + ?Sized>(
 /// [`parse()`]: crate::gql::parse
 /// [`CompileError`]: crate::gql::error::CompileError
 /// [`CompileError::ComplexityLimitExceeded`]: crate::gql::error::CompileError::ComplexityLimitExceeded
-pub fn compile_with_config<'g, S: SnapshotLike + ?Sized>(
+pub fn compile_with_config<S: SnapshotLike + ?Sized>(
     query: &Query,
-    snapshot: &'g S,
+    snapshot: &S,
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
@@ -452,9 +452,9 @@ pub fn compile_with_config<'g, S: SnapshotLike + ?Sized>(
 /// ```
 ///
 /// [`parse_statement()`]: crate::gql::parse_statement
-pub fn compile_statement<'g, S: SnapshotLike + ?Sized>(
+pub fn compile_statement<S: SnapshotLike + ?Sized>(
     stmt: &Statement,
-    snapshot: &'g S,
+    snapshot: &S,
 ) -> Result<Vec<Value>, CompileError> {
     compile_statement_with_config(
         stmt,
@@ -506,9 +506,9 @@ pub fn compile_statement<'g, S: SnapshotLike + ?Sized>(
 ///
 /// [`parse_statement()`]: crate::gql::parse_statement
 /// [`CompileError`]: crate::gql::error::CompileError
-pub fn compile_statement_with_params<'g, S: SnapshotLike + ?Sized>(
+pub fn compile_statement_with_params<S: SnapshotLike + ?Sized>(
     stmt: &Statement,
-    snapshot: &'g S,
+    snapshot: &S,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
     compile_statement_with_config(stmt, snapshot, params, &CompilerConfig::default())
@@ -537,9 +537,9 @@ pub fn compile_statement_with_params<'g, S: SnapshotLike + ?Sized>(
 ///
 /// [`parse_statement()`]: crate::gql::parse_statement
 /// [`CompileError::ComplexityLimitExceeded`]: crate::gql::error::CompileError::ComplexityLimitExceeded
-pub fn compile_statement_with_config<'g, S: SnapshotLike + ?Sized>(
+pub fn compile_statement_with_config<S: SnapshotLike + ?Sized>(
     stmt: &Statement,
-    snapshot: &'g S,
+    snapshot: &S,
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
@@ -576,10 +576,10 @@ pub fn compile_statement_with_config<'g, S: SnapshotLike + ?Sized>(
 
 /// Execute a UNION of multiple queries.
 #[allow(dead_code)]
-fn compile_union<'g, S: SnapshotLike + ?Sized>(
+fn compile_union<S: SnapshotLike + ?Sized>(
     queries: &[Query],
     keep_duplicates: bool,
-    snapshot: &'g S,
+    snapshot: &S,
 ) -> Result<Vec<Value>, CompileError> {
     compile_union_with_config(
         queries,
@@ -592,10 +592,10 @@ fn compile_union<'g, S: SnapshotLike + ?Sized>(
 
 /// Execute a UNION of multiple queries with parameters.
 #[allow(dead_code)]
-fn compile_union_with_params<'g, S: SnapshotLike + ?Sized>(
+fn compile_union_with_params<S: SnapshotLike + ?Sized>(
     queries: &[Query],
     keep_duplicates: bool,
-    snapshot: &'g S,
+    snapshot: &S,
     params: &Parameters,
 ) -> Result<Vec<Value>, CompileError> {
     compile_union_with_config(
@@ -608,10 +608,10 @@ fn compile_union_with_params<'g, S: SnapshotLike + ?Sized>(
 }
 
 /// Execute a UNION of multiple queries with parameters and config.
-fn compile_union_with_config<'g, S: SnapshotLike + ?Sized>(
+fn compile_union_with_config<S: SnapshotLike + ?Sized>(
     queries: &[Query],
     keep_duplicates: bool,
-    snapshot: &'g S,
+    snapshot: &S,
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {

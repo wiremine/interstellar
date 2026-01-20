@@ -6,6 +6,7 @@
 //! - OFFSET and SKIP
 //! - Combinations with WHERE
 
+#![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
 use std::collections::HashMap;

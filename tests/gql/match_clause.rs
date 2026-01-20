@@ -6,6 +6,7 @@
 //! - Multi-hop traversal
 //! - Property access in RETURN clause
 
+#![allow(unused_variables)]
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
 use interstellar::storage::Graph;

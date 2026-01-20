@@ -7,6 +7,7 @@
 //! - Edge variable binding and properties
 //! - Path expressions
 
+#![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
 use std::collections::HashMap;

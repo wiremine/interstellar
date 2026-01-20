@@ -1,5 +1,7 @@
 //! Predicate integration tests.
 
+#![allow(unused_variables)]
+#![allow(unused_imports)]
 use interstellar::prelude::*;
 use interstellar::rhai::RhaiEngine;
 

@@ -8,6 +8,7 @@
 //! - None/missing value handling
 //! - Sub-traversal sorting
 
+#![allow(unused_variables)]
 use interstellar::storage::Graph;
 use interstellar::traversal::SnapshotLike;
 use interstellar::value::{Value, VertexId};

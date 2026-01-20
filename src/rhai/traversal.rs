@@ -3279,9 +3279,11 @@ mod tests {
             .collect(),
         );
 
-        graph.add_edge(alice, bob, "knows", HashMap::new());
-        graph.add_edge(alice, carol, "knows", HashMap::new());
-        graph.add_edge(bob, carol, "knows", HashMap::new());
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+        graph
+            .add_edge(alice, carol, "knows", HashMap::new())
+            .unwrap();
+        graph.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
 
         RhaiGraph::from_arc(Arc::new(graph))
     }

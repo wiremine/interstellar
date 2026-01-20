@@ -2,6 +2,7 @@
 //!
 //! Tests for CREATE, SET, REMOVE, DELETE, DETACH DELETE, and MERGE clauses.
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::gql::{parse_statement, MutationError};

@@ -2,6 +2,7 @@
 //!
 //! Tests for comparison, range, string, and composed predicates.
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::p;

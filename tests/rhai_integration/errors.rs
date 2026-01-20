@@ -1,5 +1,6 @@
 //! Error handling integration tests.
 
+#![allow(unused_variables)]
 use interstellar::rhai::{RhaiEngine, RhaiError};
 
 use super::{create_empty_graph, create_social_graph};

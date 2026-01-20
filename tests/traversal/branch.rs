@@ -1,5 +1,6 @@
 //! Branch step tests - union, coalesce, choose, optional, local
 
+#![allow(unused_variables)]
 use interstellar::p;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};

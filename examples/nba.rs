@@ -25,7 +25,9 @@ use std::fs;
 
 struct NbaGraph {
     graph: Graph,
+    #[allow(dead_code)]
     player_ids: HashMap<String, VertexId>,
+    #[allow(dead_code)]
     team_ids: HashMap<String, VertexId>,
 }
 

@@ -8,6 +8,7 @@
 //! - Math function edge cases
 //! - Error handling paths
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::gql::{compile, parse};
@@ -1483,7 +1484,7 @@ fn test_multi_var_pattern_trim() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1561,7 +1562,7 @@ fn test_multi_var_pattern_abs() {
         ]),
     );
 
-    graph.add_edge(alice, bob, "OWES", HashMap::new());
+    graph.add_edge(alice, bob, "OWES", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1596,7 +1597,7 @@ fn test_multi_var_pattern_ceil_floor_round() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(alice, bob, "RATED", HashMap::new());
+    graph.add_edge(alice, bob, "RATED", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1681,7 +1682,7 @@ fn test_multi_var_tointeger() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1736,7 +1737,7 @@ fn test_multi_var_toboolean() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1775,7 +1776,7 @@ fn test_multi_var_radians() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1814,7 +1815,7 @@ fn test_multi_var_degrees() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(alice, bob, "KNOWS", HashMap::new());
+    graph.add_edge(alice, bob, "KNOWS", HashMap::new()).unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -1960,7 +1961,7 @@ fn test_variable_length_path_min_only() {
 
     let results = compile(&query, &snapshot).unwrap();
     // Results depend on graph structure - just verify it runs
-    assert!(results.len() >= 0);
+    let _ = results.len(); // Just exercise the code path
 }
 
 #[test]
@@ -1979,7 +1980,7 @@ fn test_variable_length_path_range() {
     .unwrap();
 
     let results = compile(&query, &snapshot).unwrap();
-    assert!(results.len() >= 0);
+    let _ = results.len(); // Just exercise the code path
 }
 
 // =============================================================================
@@ -2106,7 +2107,7 @@ fn test_multi_var_is_null() {
 
     let results = compile(&query, &snapshot).unwrap();
     // Results depend on graph - just verify it runs
-    assert!(results.len() >= 0);
+    let _ = results.len(); // Just exercise the code path
 }
 
 #[test]
@@ -2125,7 +2126,7 @@ fn test_multi_var_is_not_null() {
 
     let results = compile(&query, &snapshot).unwrap();
     // Bob and Charlie have scores
-    assert!(results.len() >= 0);
+    let _ = results.len(); // Just exercise the code path
 }
 
 // =============================================================================
@@ -2488,15 +2489,17 @@ fn test_edge_property_access() {
         HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
     );
 
-    graph.add_edge(
-        alice,
-        bob,
-        "KNOWS",
-        HashMap::from([
-            ("since".to_string(), Value::Int(2020)),
-            ("strength".to_string(), Value::Float(0.8)),
-        ]),
-    );
+    graph
+        .add_edge(
+            alice,
+            bob,
+            "KNOWS",
+            HashMap::from([
+                ("since".to_string(), Value::Int(2020)),
+                ("strength".to_string(), Value::Float(0.8)),
+            ]),
+        )
+        .unwrap();
 
     let snapshot = graph.snapshot();
 
@@ -3802,7 +3805,7 @@ fn test_single_var_not_exists() {
     let results = compile(&query, &snapshot).unwrap();
 
     // People without outgoing KNOWS edges
-    assert!(results.len() >= 0);
+    let _ = results.len(); // Just exercise the code path
 }
 
 // =============================================================================

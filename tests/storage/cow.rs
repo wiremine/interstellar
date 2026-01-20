@@ -84,7 +84,7 @@ fn cow_graph_basic_edge_operations() {
         )
         .unwrap();
 
-    let knows2 = graph
+    let _knows2 = graph
         .add_edge(bob, charlie, "KNOWS", HashMap::new())
         .unwrap();
 

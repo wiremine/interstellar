@@ -7,6 +7,7 @@
 //! - MATH() function with mathexpr expressions
 //! - CALL subquery handling
 
+#![allow(unused_variables)]
 use interstellar::gql::{compile, parse, CompileError};
 use interstellar::storage::Graph;
 use interstellar::value::Value;

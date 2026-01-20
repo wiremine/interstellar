@@ -11,6 +11,7 @@
 //! - List indexing and slicing
 //! - Pattern comprehension
 
+#![allow(unused_variables)]
 use interstellar::gql::parse;
 use interstellar::prelude::*;
 use interstellar::storage::Graph;

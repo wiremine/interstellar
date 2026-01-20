@@ -13,6 +13,7 @@
 //! - path() function usage
 //! - Edge variable patterns
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::gql::{

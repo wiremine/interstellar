@@ -8,6 +8,7 @@
 //! - String functions (upper, lower, length, trim, substring, replace)
 //! - Math functions (abs, round, floor, ceil)
 
+#![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
 use std::collections::HashMap;

@@ -4,6 +4,7 @@
 //! covered by other test modules. These functions create traversal fragments
 //! that can be composed with bound traversals.
 
+#![allow(unused_variables)]
 use interstellar::traversal::p;
 use interstellar::traversal::__;
 use interstellar::value::Value;
@@ -246,8 +247,8 @@ fn anon_cyclic_path() {
         .out()
         .append(anon)
         .to_list();
-    // May or may not find cycles
-    assert!(results.len() >= 0);
+    // May or may not find cycles (test just exercises the code path)
+    let _ = results.len();
 }
 
 #[test]

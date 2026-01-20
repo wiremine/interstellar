@@ -7,6 +7,7 @@
 //! - `index()` - wraps values with their index
 //! - `property_map()` - returns properties as map of property objects
 
+#![allow(unused_variables)]
 use interstellar::traversal::__;
 use interstellar::value::Value;
 

@@ -7,6 +7,7 @@
 //! - List operations (IN, NOT IN)
 //! - Null checks (IS NULL, IS NOT NULL)
 
+#![allow(unused_variables)]
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
 use interstellar::storage::Graph;

@@ -6,6 +6,7 @@
 //! - WITH PATH and path() function
 //! - UNWIND
 
+#![allow(unused_variables)]
 use interstellar::gql::{parse, parse_statement, Statement};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;

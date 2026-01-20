@@ -128,7 +128,7 @@ impl TestGraphBuilder {
     }
 
     /// Add an edge between vertices by their builder index.
-    pub fn add_edge(mut self, from_idx: usize, to_idx: usize, label: &str) -> Self {
+    pub fn add_edge(self, from_idx: usize, to_idx: usize, label: &str) -> Self {
         let from = self.vertices[from_idx];
         let to = self.vertices[to_idx];
         self.graph
@@ -140,7 +140,7 @@ impl TestGraphBuilder {
     /// Add an edge with properties between vertices by their builder index.
     #[allow(dead_code)]
     pub fn add_edge_with_props(
-        mut self,
+        self,
         from_idx: usize,
         to_idx: usize,
         label: &str,
@@ -177,6 +177,7 @@ impl Default for TestGraphBuilder {
 }
 
 /// Creates an empty graph for testing edge cases.
+#[allow(dead_code)]
 pub fn create_empty_graph() -> Graph {
     Graph::new()
 }
@@ -640,7 +641,7 @@ mod tests {
     #[test]
     fn gql_test_graph_has_expected_structure() {
         let graph = create_gql_test_graph();
-        let snapshot = graph.snapshot();
+        let _snapshot = graph.snapshot();
 
         let results = graph.gql("MATCH (n:Person) RETURN n").unwrap();
         assert_eq!(results.len(), 3);

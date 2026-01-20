@@ -1,5 +1,6 @@
 //! Anonymous traversal tests.
 
+#![allow(unused_variables)]
 use interstellar::traversal::__;
 use interstellar::value::Value;
 

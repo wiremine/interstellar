@@ -4275,7 +4275,7 @@ impl GraphStorage for MmapGraph {
             Some(bitmap) => Box::new(
                 bitmap
                     .into_iter()
-                    .filter_map(move |id| self.get_vertex(VertexId(id as u64))),
+                    .filter_map(move |id| self.get_vertex(VertexId(id))),
             ),
             None => Box::new(std::iter::empty()),
         }
@@ -4301,7 +4301,7 @@ impl GraphStorage for MmapGraph {
             Some(bitmap) => Box::new(
                 bitmap
                     .into_iter()
-                    .filter_map(move |id| self.get_edge(EdgeId(id as u64))),
+                    .filter_map(move |id| self.get_edge(EdgeId(id))),
             ),
             None => Box::new(std::iter::empty()),
         }
@@ -7776,7 +7776,7 @@ mod tests {
         let graph = MmapGraph::open(&path).unwrap();
 
         // Create 3 nodes
-        for i in 0..3 {
+        for _ in 0..3 {
             let slot = graph.allocate_node_slot().unwrap();
             let mut record = NodeRecord::new(slot.0, 0);
             record.first_out_edge = u64::MAX;
@@ -8932,7 +8932,7 @@ mod tests {
         // This mimics what would happen if the process crashed before commit
         {
             let mut wal = WriteAheadLog::open(&wal_path).unwrap();
-            let tx_id = wal.begin_transaction().unwrap();
+            let _tx_id = wal.begin_transaction().unwrap();
             wal.log(WalEntry::InsertNode {
                 id: VertexId(1), // Second node
                 record: SerializableNodeRecord {

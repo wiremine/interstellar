@@ -1,5 +1,6 @@
 //! Navigation step tests.
 
+#![allow(unused_variables)]
 use crate::common::graphs::create_small_graph;
 
 #[test]

@@ -2,6 +2,7 @@
 //!
 //! Tests for schema DDL (CREATE/ALTER/DROP TYPE) and index DDL (CREATE/DROP INDEX).
 
+#![allow(unused_variables)]
 use interstellar::gql::{
     create_index_spec, create_index_spec_for_edge, execute_ddl, parse_statement, DdlStatement,
     Statement,

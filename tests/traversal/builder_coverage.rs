@@ -4,6 +4,7 @@
 //! on anonymous traversals. These are used when building traversal fragments
 //! that get appended to bound traversals.
 
+#![allow(unused_variables)]
 use interstellar::traversal::p;
 use interstellar::traversal::__;
 use interstellar::value::Value;
@@ -216,8 +217,8 @@ fn traversal_simple_path() {
         .out()
         .append(anon)
         .to_list();
-    // All paths at depth 2 should be simple
-    assert!(results.len() >= 0); // May be empty or have results
+    // All paths at depth 2 should be simple (test just exercises the code path)
+    let _ = results.len();
 }
 
 #[test]
@@ -237,8 +238,8 @@ fn traversal_cyclic_path() {
         .out()
         .append(anon)
         .to_list();
-    // May find cycles or not depending on graph structure
-    assert!(results.len() >= 0);
+    // May find cycles or not depending on graph structure (test just exercises the code path)
+    let _ = results.len();
 }
 
 #[test]

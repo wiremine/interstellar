@@ -16,6 +16,7 @@
 //! - LET clause tests
 //! - IS predicate tests
 
+#![allow(unused_variables)]
 use interstellar::gql::{parse, GqlError};
 use interstellar::storage::Graph;
 use interstellar::Value;

@@ -3,6 +3,8 @@
 //! These tests verify the Rhai scripting integration works correctly
 //! with realistic graph scenarios.
 
+#![allow(unused_variables)]
+#![allow(unused_imports)]
 mod anonymous;
 mod errors;
 mod predicates;
@@ -88,25 +90,31 @@ pub fn create_social_graph() -> Arc<Graph> {
     );
 
     // Edges
-    graph.add_edge(
-        alice,
-        bob,
-        "knows",
-        HashMap::from([("since".to_string(), Value::Int(2020))]),
-    );
+    graph
+        .add_edge(
+            alice,
+            bob,
+            "knows",
+            HashMap::from([("since".to_string(), Value::Int(2020))]),
+        )
+        .unwrap();
 
-    graph.add_edge(
-        alice,
-        carol,
-        "knows",
-        HashMap::from([("since".to_string(), Value::Int(2018))]),
-    );
+    graph
+        .add_edge(
+            alice,
+            carol,
+            "knows",
+            HashMap::from([("since".to_string(), Value::Int(2018))]),
+        )
+        .unwrap();
 
-    graph.add_edge(bob, carol, "knows", HashMap::new());
+    graph.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
 
-    graph.add_edge(dave, eve, "knows", HashMap::new());
+    graph.add_edge(dave, eve, "knows", HashMap::new()).unwrap();
 
-    graph.add_edge(alice, acme, "works_at", HashMap::new());
+    graph
+        .add_edge(alice, acme, "works_at", HashMap::new())
+        .unwrap();
 
     Arc::new(graph)
 }
@@ -146,10 +154,10 @@ pub fn create_chain_graph() -> Arc<Graph> {
         HashMap::from([("name".to_string(), Value::String("E".to_string()))]),
     );
 
-    graph.add_edge(a, b, "next", HashMap::new());
-    graph.add_edge(b, c, "next", HashMap::new());
-    graph.add_edge(c, d, "next", HashMap::new());
-    graph.add_edge(d, e, "next", HashMap::new());
+    graph.add_edge(a, b, "next", HashMap::new()).unwrap();
+    graph.add_edge(b, c, "next", HashMap::new()).unwrap();
+    graph.add_edge(c, d, "next", HashMap::new()).unwrap();
+    graph.add_edge(d, e, "next", HashMap::new()).unwrap();
 
     Arc::new(graph)
 }

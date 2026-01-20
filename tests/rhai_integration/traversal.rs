@@ -1,5 +1,7 @@
 //! Traversal integration tests.
 
+#![allow(unused_variables)]
+#![allow(unused_imports)]
 use interstellar::prelude::*;
 use interstellar::rhai::RhaiEngine;
 
@@ -2252,7 +2254,7 @@ fn test_value_map_with_tokens() {
 
     assert_eq!(results.len(), 1);
     // The result should be a map with id and label fields
-    let map = results[0].clone().into_typed_array::<rhai::Map>();
+    let _map = results[0].clone().into_typed_array::<rhai::Map>();
     // Just verify it's a map/object type - the exact structure depends on implementation
     assert!(results[0].is_map());
 }
@@ -2651,12 +2653,12 @@ fn test_choose_options_with_default() {
 
     let person_count = results
         .iter()
-        .filter(|r| r.clone().clone().into_string().ok() == Some("is-person".to_string()))
+        .filter(|r| (*r).clone().into_string().ok() == Some("is-person".to_string()))
         .count();
 
     let unknown_count = results
         .iter()
-        .filter(|r| r.clone().clone().into_string().ok() == Some("unknown-type".to_string()))
+        .filter(|r| (*r).clone().into_string().ok() == Some("unknown-type".to_string()))
         .count();
 
     assert_eq!(person_count, 5);

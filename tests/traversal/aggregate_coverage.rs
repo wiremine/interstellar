@@ -7,6 +7,7 @@
 //! - GroupValue::Traversal returning multiple results
 //! - Empty traversal results
 
+#![allow(unused_variables)]
 use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};

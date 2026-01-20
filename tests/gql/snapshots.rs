@@ -3,6 +3,7 @@
 //! These tests use insta to capture the AST structure of parsed queries
 //! and error messages, ensuring stability across changes.
 
+#![allow(unused_variables)]
 use insta::assert_yaml_snapshot;
 use interstellar::gql::{parse, parse_statement};
 

@@ -2,6 +2,7 @@
 //!
 //! These tests target uncovered branches and edge cases in mutation steps.
 
+#![allow(unused_variables)]
 use std::collections::HashMap;
 
 use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};

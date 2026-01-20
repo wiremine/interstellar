@@ -3,6 +3,7 @@
 //! This module covers edge cases and error paths in the GQL parser that
 //! aren't covered by other test modules.
 
+#![allow(unused_variables)]
 use interstellar::gql::{
     parse, parse_statement, BinaryOperator, EdgeDirection, Expression, Literal, ParseError,
     PatternElement, Statement, UnaryOperator,

@@ -16,7 +16,7 @@
 
 use interstellar::prelude::*;
 use interstellar::storage::cow_mmap::CowMmapGraph;
-use interstellar::storage::{BatchError, GraphStorage};
+use interstellar::storage::GraphStorage;
 use interstellar::StorageError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -105,7 +105,7 @@ fn cow_mmap_basic_edge_operations() {
         )
         .unwrap();
 
-    let knows2 = graph
+    let _knows2 = graph
         .add_edge(bob, charlie, "KNOWS", HashMap::new())
         .unwrap();
 

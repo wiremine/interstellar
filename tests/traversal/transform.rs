@@ -1,5 +1,6 @@
 //! Transform step tests.
 
+#![allow(unused_variables)]
 use interstellar::value::Value;
 
 use crate::common::graphs::create_small_graph;

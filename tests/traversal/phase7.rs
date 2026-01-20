@@ -1,5 +1,6 @@
 //! Phase 7 integration tests - Filter, Transform, and Aggregation Steps
 
+#![allow(unused_variables)]
 use interstellar::p;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
