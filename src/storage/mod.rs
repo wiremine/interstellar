@@ -77,10 +77,6 @@ pub mod cow_mmap;
 // Re-export primary types (new names)
 pub use cow::{BatchContext, BatchError, Graph, GraphSnapshot, GraphState};
 
-// Re-export deprecated aliases for backward compatibility
-#[allow(deprecated)]
-pub use cow::{CowGraph, CowGraphState, CowSnapshot};
-
 pub use inmemory::InMemoryGraph;
 pub use interner::StringInterner;
 
@@ -92,38 +88,6 @@ pub use cow_mmap::{
     BatchError as CowMmapBatchError, CowMmapBatchContext, CowMmapGraph, CowMmapSnapshot,
 };
 
-// =============================================================================
-// Unified API Type Aliases (Spec 33: Unified Graph API)
-// =============================================================================
-//
-// These aliases provide the unified API names from Spec 33. The COW-based types
-// are the preferred implementations and will eventually replace the legacy types.
-//
-// | New Name           | Underlying Type  | Description                     |
-// |--------------------|------------------|---------------------------------|
-// | `UnifiedGraph`     | `CowGraph`       | In-memory graph with COW semantics |
-// | `UnifiedSnapshot`  | `CowSnapshot`    | Immutable snapshot for reads    |
-// | `PersistentGraph`  | `CowMmapGraph`   | Persistent graph with COW (mmap)|
-// | `PersistentSnapshot`| `CowMmapSnapshot`| Immutable persistent snapshot   |
-
-/// In-memory graph with Copy-on-Write semantics.
-///
-/// This is an alias for [`Graph`], the recommended graph type for in-memory use cases.
-/// It provides:
-/// - O(1) snapshot creation via structural sharing
-/// - Lock-free read access on snapshots
-/// - Full traversal and GQL API support
-#[deprecated(since = "0.2.0", note = "Use Graph instead")]
-pub type UnifiedGraph = Graph;
-
-/// Immutable snapshot of an in-memory graph.
-///
-/// This is an alias for [`GraphSnapshot`].
-/// Snapshots are created via [`Graph::snapshot()`](Graph::snapshot) and
-/// provide a consistent, point-in-time view of the graph.
-#[deprecated(since = "0.2.0", note = "Use GraphSnapshot instead")]
-pub type UnifiedSnapshot = GraphSnapshot;
-
 /// Persistent graph with Copy-on-Write semantics and mmap storage.
 ///
 /// This is the recommended graph type for persistent storage. It provides:
@@ -132,8 +96,6 @@ pub type UnifiedSnapshot = GraphSnapshot;
 /// - Full traversal and GQL API support
 ///
 /// Requires the `mmap` feature.
-///
-/// This is an alias for [`CowMmapGraph`].
 #[cfg(feature = "mmap")]
 pub type PersistentGraph = CowMmapGraph;
 
@@ -144,8 +106,6 @@ pub type PersistentGraph = CowMmapGraph;
 /// traversal and GQL API.
 ///
 /// Requires the `mmap` feature.
-///
-/// This is an alias for [`CowMmapSnapshot`].
 #[cfg(feature = "mmap")]
 pub type PersistentSnapshot = CowMmapSnapshot;
 

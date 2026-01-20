@@ -115,7 +115,7 @@ impl<'g> LegacyGraphSnapshot<'g> {
     /// let vertices = g.v().to_list();
     /// ```
     pub fn gremlin(&self) -> crate::traversal::GraphTraversalSource<'_> {
-        crate::traversal::GraphTraversalSource::new(self, self.interner())
+        crate::traversal::GraphTraversalSource::from_snapshot(self)
     }
 
     /// Get the underlying storage.

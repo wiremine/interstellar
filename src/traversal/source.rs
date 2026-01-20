@@ -27,8 +27,6 @@
 
 use std::marker::PhantomData;
 
-#[allow(deprecated)]
-use crate::graph::GraphSnapshot as LegacyGraphSnapshot;
 use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
 use crate::traversal::context::SnapshotLike;
@@ -64,32 +62,17 @@ pub struct GraphTraversalSource<'g> {
 }
 
 impl<'g> GraphTraversalSource<'g> {
-    /// Create a new traversal source from a legacy snapshot.
-    ///
-    /// **DEPRECATED**: Use `from_snapshot()` instead, which works with any
-    /// snapshot type including the new COW-based snapshots.
-    ///
-    /// This is typically called via `snapshot.gremlin()`.
-    #[deprecated(since = "0.2.0", note = "Use from_snapshot() instead")]
-    #[allow(deprecated)]
-    pub fn new(snapshot: &'g LegacyGraphSnapshot<'g>, interner: &'g StringInterner) -> Self {
-        Self {
-            storage: snapshot.storage(),
-            interner,
-        }
-    }
-
     /// Create a new traversal source from any type implementing `SnapshotLike`.
     ///
-    /// This allows traversals to work with `CowSnapshot`, `CowMmapSnapshot`,
+    /// This allows traversals to work with `GraphSnapshot`, `CowMmapSnapshot`,
     /// or any other snapshot type that implements the trait.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let cow_graph = CowGraph::new();
-    /// let cow_snapshot = cow_graph.snapshot();
-    /// let g = GraphTraversalSource::from_snapshot(&cow_snapshot);
+    /// let graph = Graph::new();
+    /// let snapshot = graph.snapshot();
+    /// let g = GraphTraversalSource::from_snapshot(&snapshot);
     /// let count = g.v().count();
     /// ```
     pub fn from_snapshot<S: SnapshotLike + ?Sized>(snapshot: &'g S) -> Self {
@@ -3823,43 +3806,41 @@ impl<'g, In> BoundAddEdgeBuilder<'g, In> {
 // -----------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use std::collections::HashMap;
 
     fn create_empty_graph() -> Graph {
-        Graph::in_memory()
+        Graph::new()
     }
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Add vertices
-        let v1 = storage.add_vertex("person", {
+        let v1 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
             props
         });
 
-        let v2 = storage.add_vertex("person", {
+        let v2 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Bob".to_string()));
             props.insert("age".to_string(), Value::Int(25));
             props
         });
 
-        let v3 = storage.add_vertex("software", {
+        let v3 = graph.add_vertex("software", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Graph DB".to_string()));
             props.insert("version".to_string(), Value::Float(1.0));
             props
         });
 
-        let v4 = storage.add_vertex("person", {
+        let v4 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Charlie".to_string()));
             props.insert("age".to_string(), Value::Int(35));
@@ -3867,11 +3848,11 @@ mod tests {
         });
 
         // Add edges
-        storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
-        storage.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
-        storage.add_edge(v1, v3, "uses", HashMap::new()).unwrap();
-        storage.add_edge(v2, v4, "knows", HashMap::new()).unwrap();
-        storage
+        graph.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
+        graph.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
+        graph.add_edge(v1, v3, "uses", HashMap::new()).unwrap();
+        graph.add_edge(v2, v4, "knows", HashMap::new()).unwrap();
+        graph
             .add_edge(v4, v1, "knows", {
                 let mut props = HashMap::new();
                 props.insert("since".to_string(), Value::Int(2020));
@@ -3879,17 +3860,17 @@ mod tests {
             })
             .unwrap();
 
-        Graph::new(storage)
+        graph
     }
 
     mod graph_traversal_source_tests {
         use super::*;
 
         #[test]
-        fn new_creates_source() {
+        fn from_snapshot_creates_source() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Should be able to access references
             let _ = g.storage();
@@ -3900,7 +3881,7 @@ mod tests {
         fn v_creates_all_vertices_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v().to_list();
             assert_eq!(results.len(), 4);
@@ -3915,7 +3896,7 @@ mod tests {
         fn v_ids_creates_specific_vertices_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v_ids([VertexId(0), VertexId(2)]).to_list();
             assert_eq!(results.len(), 2);
@@ -3929,7 +3910,7 @@ mod tests {
         fn v_ids_filters_nonexistent() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v_ids([VertexId(0), VertexId(999)]).to_list();
             assert_eq!(results.len(), 1);
@@ -3940,7 +3921,7 @@ mod tests {
         fn e_creates_all_edges_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.e().to_list();
             assert_eq!(results.len(), 5);
@@ -3955,7 +3936,7 @@ mod tests {
         fn e_ids_creates_specific_edges_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.e_ids([EdgeId(0), EdgeId(1)]).to_list();
             assert_eq!(results.len(), 2);
@@ -3969,7 +3950,7 @@ mod tests {
         fn e_ids_filters_nonexistent() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.e_ids([EdgeId(0), EdgeId(999)]).to_list();
             assert_eq!(results.len(), 1);
@@ -3980,7 +3961,7 @@ mod tests {
         fn inject_creates_value_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.inject([1i64, 2i64, 3i64]).to_list();
             assert_eq!(results.len(), 3);
@@ -3993,7 +3974,7 @@ mod tests {
         fn inject_with_mixed_types() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let values: Vec<Value> = vec![
                 Value::Int(1),
@@ -4011,7 +3992,7 @@ mod tests {
         fn empty_graph_returns_empty() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             assert_eq!(g.v().count(), 0);
             assert_eq!(g.e().count(), 0);
@@ -4026,7 +4007,7 @@ mod tests {
         fn add_step_chains_correctly() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let traversal: BoundTraversal<'_, (), Value> = g.v().add_step(IdentityStep::new());
             assert_eq!(traversal.step_count(), 1);
@@ -4041,7 +4022,7 @@ mod tests {
         fn append_merges_traversals() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let anon: Traversal<Value, Value> =
                 Traversal::<Value, Value>::new().add_step(IdentityStep::new());
@@ -4057,7 +4038,7 @@ mod tests {
         fn clone_creates_independent_copy() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let t1 = g.v();
             let t2 = t1.clone();
@@ -4072,7 +4053,7 @@ mod tests {
         fn debug_format() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let traversal: BoundTraversal<'_, (), Value> = g.v().add_step(IdentityStep::new());
             let debug_str = format!("{:?}", traversal);
@@ -4088,7 +4069,7 @@ mod tests {
         fn to_list_collects_all() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v().to_list();
             assert_eq!(results.len(), 4);
@@ -4098,7 +4079,7 @@ mod tests {
         fn to_set_deduplicates() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v().to_set();
             assert_eq!(results.len(), 4);
@@ -4108,7 +4089,7 @@ mod tests {
         fn next_returns_first() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.v().next();
             assert!(result.is_some());
@@ -4119,7 +4100,7 @@ mod tests {
         fn next_returns_none_for_empty() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.v().next();
             assert!(result.is_none());
@@ -4129,7 +4110,7 @@ mod tests {
         fn has_next_returns_true_for_nonempty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             assert!(g.v().has_next());
         }
@@ -4138,7 +4119,7 @@ mod tests {
         fn has_next_returns_false_for_empty() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             assert!(!g.v().has_next());
         }
@@ -4147,7 +4128,7 @@ mod tests {
         fn one_returns_single_value() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.v_ids([VertexId(0)]).one();
             assert!(result.is_ok());
@@ -4158,7 +4139,7 @@ mod tests {
         fn one_errors_on_empty() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.v_ids([VertexId(999)]).one();
             assert!(result.is_err());
@@ -4172,7 +4153,7 @@ mod tests {
         fn one_errors_on_multiple() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.v().one();
             assert!(result.is_err());
@@ -4186,7 +4167,7 @@ mod tests {
         fn iterate_consumes_without_collecting() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // This should not panic or error
             g.v().iterate();
@@ -4196,7 +4177,7 @@ mod tests {
         fn count_returns_correct_value() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             assert_eq!(g.v().count(), 4);
             assert_eq!(g.e().count(), 5);
@@ -4206,7 +4187,7 @@ mod tests {
         fn count_returns_zero_for_empty() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             assert_eq!(g.v().count(), 0);
         }
@@ -4215,7 +4196,7 @@ mod tests {
         fn take_returns_first_n() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v().take(2);
             assert_eq!(results.len(), 2);
@@ -4225,7 +4206,7 @@ mod tests {
         fn take_returns_all_if_less_than_n() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let results = g.v().take(100);
             assert_eq!(results.len(), 4);
@@ -4235,7 +4216,7 @@ mod tests {
         fn iter_produces_values() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let values: Vec<Value> = g.v().iter().collect();
             assert_eq!(values.len(), 4);
@@ -4245,7 +4226,7 @@ mod tests {
         fn traversers_produces_traversers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let traversers: Vec<Traverser> = g.v().traversers().collect();
             assert_eq!(traversers.len(), 4);
@@ -4260,7 +4241,7 @@ mod tests {
         fn fold_accumulates() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let count = g
                 .inject([1i64, 2i64, 3i64])
@@ -4272,7 +4253,7 @@ mod tests {
         fn sum_adds_integers() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.inject([1i64, 2i64, 3i64]).sum();
             assert_eq!(result, Value::Int(6));
@@ -4282,7 +4263,7 @@ mod tests {
         fn sum_handles_floats() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let values: Vec<Value> = vec![Value::Int(1), Value::Float(2.5), Value::Int(3)];
             let result = g.inject(values).sum();
@@ -4293,7 +4274,7 @@ mod tests {
         fn sum_empty_returns_zero() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let values: Vec<Value> = vec![];
             let result = g.inject(values).sum();
@@ -4304,7 +4285,7 @@ mod tests {
         fn min_finds_minimum() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.inject([3i64, 1i64, 2i64]).min();
             assert_eq!(result, Some(Value::Int(1)));
@@ -4314,7 +4295,7 @@ mod tests {
         fn min_empty_returns_none() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let values: Vec<Value> = vec![];
             let result = g.inject(values).min();
@@ -4325,7 +4306,7 @@ mod tests {
         fn max_finds_maximum() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let result = g.inject([3i64, 1i64, 2i64]).max();
             assert_eq!(result, Some(Value::Int(3)));
@@ -4335,7 +4316,7 @@ mod tests {
         fn max_empty_returns_none() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let values: Vec<Value> = vec![];
             let result = g.inject(values).max();
@@ -4350,7 +4331,7 @@ mod tests {
         fn executor_iterates_correctly() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let executor = g.v().execute();
             assert_eq!(executor.len(), 4);
@@ -4364,7 +4345,7 @@ mod tests {
         fn executor_empty_for_empty_graph() {
             let graph = create_empty_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let executor = g.v().execute();
             assert_eq!(executor.len(), 0);
@@ -4375,7 +4356,7 @@ mod tests {
         fn executor_size_hint_is_exact() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let executor = g.v().execute();
             let (lower, upper) = executor.size_hint();
@@ -4391,7 +4372,7 @@ mod tests {
         fn has_label_filters_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let people = g.v().has_label("person").to_list();
 
@@ -4406,7 +4387,7 @@ mod tests {
         fn has_label_filters_to_software() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let software = g.v().has_label("software").to_list();
 
@@ -4418,7 +4399,7 @@ mod tests {
         fn has_label_returns_empty_for_nonexistent_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let unknown = g.v().has_label("unknown").to_list();
             assert!(unknown.is_empty());
@@ -4428,7 +4409,7 @@ mod tests {
         fn has_label_filters_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let knows_edges = g.e().has_label("knows").to_list();
 
@@ -4443,7 +4424,7 @@ mod tests {
         fn has_label_any_filters_multiple_labels() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let entities = g.v().has_label_any(["person", "software"]).to_list();
 
@@ -4455,7 +4436,7 @@ mod tests {
         fn has_label_any_works_with_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let edges = g.e().has_label_any(["knows", "uses"]).to_list();
 
@@ -4467,7 +4448,7 @@ mod tests {
         fn has_label_can_be_chained() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // This shouldn't match anything since an element can't have two labels
             // (this tests that chaining works, even if the result is empty)
@@ -4479,7 +4460,7 @@ mod tests {
         fn has_label_count_works() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             let count = g.v().has_label("person").count();
             assert_eq!(count, 3);
@@ -4489,7 +4470,7 @@ mod tests {
         fn has_label_with_specific_vertex_ids() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Vertex IDs 0 and 1 are "person", vertex ID 2 is "software"
             let result = g
@@ -4510,7 +4491,7 @@ mod tests {
         fn with_path_enables_path_tracking() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // With path tracking enabled, paths should be recorded
             let traversers = g.v_ids([VertexId(0)]).with_path().out().traversers();
@@ -4524,7 +4505,7 @@ mod tests {
         fn path_not_tracked_by_default() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Without with_path(), paths should be empty
             let traversers = g.v_ids([VertexId(0)]).out().traversers();
@@ -4537,7 +4518,7 @@ mod tests {
         fn path_step_returns_path_list() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Test path() step returns Value::List of path elements
             let paths = g.v_ids([VertexId(0)]).with_path().out().path().to_list();
@@ -4559,7 +4540,7 @@ mod tests {
         fn path_tracks_multi_hop_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Alice -> Bob -> Charlie or GraphDB (2 hops)
             let traversers = g
@@ -4579,7 +4560,7 @@ mod tests {
         fn as_step_labels_current_position() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Label Alice as "a"
             let traversers = g
@@ -4598,7 +4579,7 @@ mod tests {
         fn select_single_label_returns_value() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Label Alice as "a", then traverse to Bob, then select "a"
             let results = g
@@ -4617,7 +4598,7 @@ mod tests {
         fn select_multiple_labels_returns_map() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Label starting vertex as "a", destination as "b"
             let results = g
@@ -4646,7 +4627,7 @@ mod tests {
         fn select_missing_label_filters_out() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Select a label that was never set
             let results = g
@@ -4663,7 +4644,7 @@ mod tests {
         fn as_step_works_without_path_tracking() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // as_() should work even without with_path() - it stores labels
             let results = g
@@ -4684,7 +4665,7 @@ mod tests {
         fn path_with_edge_steps() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Traverse through edges with path tracking
             let traversers = g
@@ -4704,7 +4685,7 @@ mod tests {
         fn with_path_is_opt_in() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Verify BoundTraversal starts with path tracking disabled
             let traversal = g.v();
@@ -4722,31 +4703,31 @@ mod tests {
         use std::ops::Bound;
 
         fn create_indexed_graph() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add vertices with various ages
-            let _v1 = storage.add_vertex("person", {
+            let _v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(25));
                 props
             });
 
-            let _v2 = storage.add_vertex("person", {
+            let _v2 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
                 props
             });
 
-            let _v3 = storage.add_vertex("person", {
+            let _v3 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Charlie".to_string()));
                 props.insert("age".to_string(), Value::Int(35));
                 props
             });
 
-            let _v4 = storage.add_vertex("company", {
+            let _v4 = graph.add_vertex("company", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("TechCorp".to_string()));
                 props.insert("size".to_string(), Value::Int(100));
@@ -4759,20 +4740,20 @@ mod tests {
                 .property("age")
                 .build()
                 .unwrap();
-            storage.create_index(index_spec).unwrap();
+            graph.create_index(index_spec).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         fn create_graph_with_edge_index() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
-            let v1 = storage.add_vertex("person", HashMap::new());
-            let v2 = storage.add_vertex("person", HashMap::new());
-            let v3 = storage.add_vertex("person", HashMap::new());
+            let v1 = graph.add_vertex("person", HashMap::new());
+            let v2 = graph.add_vertex("person", HashMap::new());
+            let v3 = graph.add_vertex("person", HashMap::new());
 
             // Add edges with weights
-            storage
+            graph
                 .add_edge(v1, v2, "knows", {
                     let mut props = HashMap::new();
                     props.insert("weight".to_string(), Value::Float(1.0));
@@ -4780,7 +4761,7 @@ mod tests {
                 })
                 .unwrap();
 
-            storage
+            graph
                 .add_edge(v2, v3, "knows", {
                     let mut props = HashMap::new();
                     props.insert("weight".to_string(), Value::Float(2.0));
@@ -4788,7 +4769,7 @@ mod tests {
                 })
                 .unwrap();
 
-            storage
+            graph
                 .add_edge(v1, v3, "knows", {
                     let mut props = HashMap::new();
                     props.insert("weight".to_string(), Value::Float(1.0));
@@ -4802,16 +4783,16 @@ mod tests {
                 .property("weight")
                 .build()
                 .unwrap();
-            storage.create_index(index_spec).unwrap();
+            graph.create_index(index_spec).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
         fn v_by_property_finds_exact_match() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find person with age 30 (Bob)
             let results = g.v_by_property(Some("person"), "age", 30i64).to_list();
@@ -4824,7 +4805,7 @@ mod tests {
         fn v_by_property_returns_empty_when_no_match() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // No person with age 100
             let results = g.v_by_property(Some("person"), "age", 100i64).to_list();
@@ -4836,7 +4817,7 @@ mod tests {
         fn v_by_property_with_no_label_searches_all() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find any vertex with age 30 (no label filter)
             let results = g.v_by_property(None, "age", 30i64).to_list();
@@ -4848,7 +4829,7 @@ mod tests {
         fn v_by_property_works_without_index() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // No index on "size", but should still find TechCorp
             let results = g.v_by_property(Some("company"), "size", 100i64).to_list();
@@ -4860,7 +4841,7 @@ mod tests {
         fn v_by_property_range_finds_inclusive_range() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find people aged 25-30 (inclusive)
             let results = g
@@ -4880,7 +4861,7 @@ mod tests {
         fn v_by_property_range_with_exclusive_bounds() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find people aged > 25 and < 35 (exclusive)
             let results = g
@@ -4900,7 +4881,7 @@ mod tests {
         fn v_by_property_range_with_unbounded_end() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find people aged >= 30
             let results = g
@@ -4920,7 +4901,7 @@ mod tests {
         fn v_by_property_range_with_unbounded_start() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find people aged <= 30
             let results = g
@@ -4940,7 +4921,7 @@ mod tests {
         fn v_by_property_range_returns_empty_for_no_match() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // No one aged 100-200
             let results = g
@@ -4959,7 +4940,7 @@ mod tests {
         fn e_by_property_finds_exact_match() {
             let graph = create_graph_with_edge_index();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find edges with weight 1.0
             let results = g.e_by_property(Some("knows"), "weight", 1.0f64).to_list();
@@ -4975,7 +4956,7 @@ mod tests {
         fn e_by_property_returns_empty_when_no_match() {
             let graph = create_graph_with_edge_index();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // No edge with weight 99.0
             let results = g.e_by_property(Some("knows"), "weight", 99.0f64).to_list();
@@ -4987,7 +4968,7 @@ mod tests {
         fn e_by_property_with_no_label_searches_all() {
             let graph = create_graph_with_edge_index();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find any edge with weight 2.0 (no label filter)
             let results = g.e_by_property(None, "weight", 2.0f64).to_list();
@@ -4999,7 +4980,7 @@ mod tests {
         fn v_by_property_can_chain_steps() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find person with age 30, get their name
             let names = g
@@ -5015,7 +4996,7 @@ mod tests {
         fn v_by_property_range_can_chain_steps() {
             let graph = create_indexed_graph();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find people aged 25-35, count them
             let count = g
@@ -5034,7 +5015,7 @@ mod tests {
         fn e_by_property_can_chain_navigation() {
             let graph = create_graph_with_edge_index();
             let snapshot = graph.snapshot();
-            let g = GraphTraversalSource::new(&snapshot, snapshot.interner());
+            let g = GraphTraversalSource::from_snapshot(&snapshot);
 
             // Find edges with weight 1.0, get their target vertices
             let targets = g

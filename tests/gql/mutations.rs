@@ -865,29 +865,21 @@ fn test_mutation_with_none_schema() {
 // Graph API DDL Integration Tests
 // =============================================================================
 
-// These tests use the legacy Graph API with mutate().ddl() for DDL operations.
-// The new COW-based Graph uses a different API pattern.
-#[allow(deprecated)]
-use interstellar::graph::Graph as LegacyGraph;
+// These tests use the Graph API (COW-based) with direct ddl() method.
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_create_node_type() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    // Create a node type using DDL
+    let schema = graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL, age INT)")
+        .unwrap();
 
-        // Create a node type using DDL
-        let schema = mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL, age INT)")
-            .unwrap();
-
-        assert!(schema.has_vertex_schema("Person"));
-        let person = schema.vertex_schema("Person").unwrap();
-        assert!(person.properties.get("name").unwrap().required);
-        assert!(!person.properties.get("age").unwrap().required);
-    }
+    assert!(schema.has_vertex_schema("Person"));
+    let person = schema.vertex_schema("Person").unwrap();
+    assert!(person.properties.get("name").unwrap().required);
+    assert!(!person.properties.get("age").unwrap().required);
 
     // Schema should persist on the graph
     let schema = graph.schema().expect("Schema should be set");
@@ -895,137 +887,112 @@ fn test_graph_ddl_create_node_type() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_create_edge_type() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    // Create node types first
+    graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
+        .unwrap();
+    graph
+        .ddl("CREATE NODE TYPE Company (name STRING NOT NULL)")
+        .unwrap();
 
-        // Create node types first
-        mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
-            .unwrap();
-        mut_handle
-            .ddl("CREATE NODE TYPE Company (name STRING NOT NULL)")
-            .unwrap();
+    // Create an edge type
+    let schema = graph
+        .ddl("CREATE EDGE TYPE WORKS_AT (role STRING NOT NULL) FROM Person TO Company")
+        .unwrap();
 
-        // Create an edge type
-        let schema = mut_handle
-            .ddl("CREATE EDGE TYPE WORKS_AT (role STRING NOT NULL) FROM Person TO Company")
-            .unwrap();
-
-        assert!(schema.has_edge_schema("WORKS_AT"));
-        let works_at = schema.edge_schema("WORKS_AT").unwrap();
-        assert_eq!(works_at.from_labels, vec!["Person"]);
-        assert_eq!(works_at.to_labels, vec!["Company"]);
-    }
+    assert!(schema.has_edge_schema("WORKS_AT"));
+    let works_at = schema.edge_schema("WORKS_AT").unwrap();
+    assert_eq!(works_at.from_labels, vec!["Person"]);
+    assert_eq!(works_at.to_labels, vec!["Company"]);
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_set_validation_mode() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
+        .unwrap();
 
-        mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
-            .unwrap();
+    let schema = graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
 
-        let schema = mut_handle.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
-
-        assert_eq!(schema.mode, ValidationMode::Strict);
-    }
+    assert_eq!(schema.mode, ValidationMode::Strict);
 
     let schema = graph.schema().unwrap();
     assert_eq!(schema.mode, ValidationMode::Strict);
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_alter_node_type() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
+        .unwrap();
 
-        mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
-            .unwrap();
+    // Add a property
+    let schema = graph
+        .ddl("ALTER NODE TYPE Person ADD email STRING")
+        .unwrap();
 
-        // Add a property
-        let schema = mut_handle
-            .ddl("ALTER NODE TYPE Person ADD email STRING")
-            .unwrap();
+    let person = schema.vertex_schema("Person").unwrap();
+    assert!(person.properties.contains_key("email"));
+    assert!(!person.properties.get("email").unwrap().required); // Added properties are optional
 
-        let person = schema.vertex_schema("Person").unwrap();
-        assert!(person.properties.contains_key("email"));
-        assert!(!person.properties.get("email").unwrap().required); // Added properties are optional
-
-        // Allow additional properties
-        let schema = mut_handle
-            .ddl("ALTER NODE TYPE Person ALLOW ADDITIONAL PROPERTIES")
-            .unwrap();
-        assert!(
-            schema
-                .vertex_schema("Person")
-                .unwrap()
-                .additional_properties
-        );
-    }
+    // Allow additional properties
+    let schema = graph
+        .ddl("ALTER NODE TYPE Person ALLOW ADDITIONAL PROPERTIES")
+        .unwrap();
+    assert!(
+        schema
+            .vertex_schema("Person")
+            .unwrap()
+            .additional_properties
+    );
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_drop_node_type() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
+        .unwrap();
+    graph
+        .ddl("CREATE NODE TYPE Company (name STRING NOT NULL)")
+        .unwrap();
 
-        mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
-            .unwrap();
-        mut_handle
-            .ddl("CREATE NODE TYPE Company (name STRING NOT NULL)")
-            .unwrap();
+    assert!(graph.schema().unwrap().has_vertex_schema("Person"));
+    assert!(graph.schema().unwrap().has_vertex_schema("Company"));
 
-        assert!(graph.schema().unwrap().has_vertex_schema("Person"));
-        assert!(graph.schema().unwrap().has_vertex_schema("Company"));
+    // Drop Person type
+    let schema = graph.ddl("DROP NODE TYPE Person").unwrap();
 
-        // Drop Person type
-        let schema = mut_handle.ddl("DROP NODE TYPE Person").unwrap();
-
-        assert!(!schema.has_vertex_schema("Person"));
-        assert!(schema.has_vertex_schema("Company"));
-    }
+    assert!(!schema.has_vertex_schema("Person"));
+    assert!(schema.has_vertex_schema("Company"));
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_full_workflow() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
-
-        // Build schema using DDL
-        mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL, age INT)")
-            .unwrap();
-        mut_handle
-            .ddl("CREATE NODE TYPE Software (name STRING NOT NULL, language STRING)")
-            .unwrap();
-        mut_handle
-            .ddl("CREATE EDGE TYPE KNOWS (since INT) FROM Person TO Person")
-            .unwrap();
-        mut_handle
-            .ddl("CREATE EDGE TYPE CREATED (year INT NOT NULL) FROM Person TO Software")
-            .unwrap();
-        mut_handle.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
-    }
+    // Build schema using DDL
+    graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL, age INT)")
+        .unwrap();
+    graph
+        .ddl("CREATE NODE TYPE Software (name STRING NOT NULL, language STRING)")
+        .unwrap();
+    graph
+        .ddl("CREATE EDGE TYPE KNOWS (since INT) FROM Person TO Person")
+        .unwrap();
+    graph
+        .ddl("CREATE EDGE TYPE CREATED (year INT NOT NULL) FROM Person TO Software")
+        .unwrap();
+    graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
 
     // Verify schema
     let schema = graph.schema().unwrap();
@@ -1042,48 +1009,38 @@ fn test_graph_ddl_full_workflow() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_error_handling() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    // Create a type
+    graph
+        .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
+        .unwrap();
 
-        // Create a type
-        mut_handle
-            .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
-            .unwrap();
+    // Try to create duplicate type - should fail
+    let result = graph.ddl("CREATE NODE TYPE Person (name STRING)");
+    assert!(result.is_err());
 
-        // Try to create duplicate type - should fail
-        let result = mut_handle.ddl("CREATE NODE TYPE Person (name STRING)");
-        assert!(result.is_err());
+    // Try to drop non-existent type - should fail
+    let result = graph.ddl("DROP NODE TYPE NonExistent");
+    assert!(result.is_err());
 
-        // Try to drop non-existent type - should fail
-        let result = mut_handle.ddl("DROP NODE TYPE NonExistent");
-        assert!(result.is_err());
-
-        // Try to alter non-existent type - should fail
-        let result = mut_handle.ddl("ALTER NODE TYPE NonExistent ADD prop STRING");
-        assert!(result.is_err());
-    }
+    // Try to alter non-existent type - should fail
+    let result = graph.ddl("ALTER NODE TYPE NonExistent ADD prop STRING");
+    assert!(result.is_err());
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_graph_ddl_parse_error() {
-    let graph = LegacyGraph::in_memory();
+    let graph = Graph::new();
 
-    {
-        let mut_handle = graph.mutate();
+    // Invalid DDL syntax
+    let result = graph.ddl("CREATE NODE TYPE");
+    assert!(result.is_err());
 
-        // Invalid DDL syntax
-        let result = mut_handle.ddl("CREATE NODE TYPE");
-        assert!(result.is_err());
-
-        // Not a DDL statement (this is a query, not DDL)
-        let result = mut_handle.ddl("MATCH (n) RETURN n");
-        assert!(result.is_err());
-    }
+    // Not a DDL statement (this is a query, not DDL)
+    let result = graph.ddl("MATCH (n) RETURN n");
+    assert!(result.is_err());
 }
 
 // =============================================================================

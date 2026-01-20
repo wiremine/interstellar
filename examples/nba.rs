@@ -383,7 +383,8 @@ fn main() {
     println!("  {}", format_value(&r[0]));
 
     println!("\n--- Michael Jordan's teams (GQL) ---");
-    let r = nba.graph
+    let r = nba
+        .graph
         .gql(r#"MATCH (p:player {name: 'Michael Jordan'})-[:played_for]->(t:team) RETURN t.name"#)
         .unwrap();
     for v in &r {
@@ -391,7 +392,8 @@ fn main() {
     }
 
     println!("\n--- Elite scorers with ORDER BY (GQL) ---");
-    let r = nba.graph
+    let r = nba
+        .graph
         .gql(
             r#"
             MATCH (p:player)
@@ -412,7 +414,8 @@ fn main() {
     }
 
     println!("\n--- Championship winners (EXISTS subquery) ---");
-    let r = nba.graph
+    let r = nba
+        .graph
         .gql(
             r#"
             MATCH (p:player)
@@ -426,7 +429,8 @@ fn main() {
     println!("  {}", names.join(", "));
 
     println!("\n--- Players by position (GROUP BY) ---");
-    let r = nba.graph
+    let r = nba
+        .graph
         .gql(
             r#"
             MATCH (p:player)
@@ -446,7 +450,8 @@ fn main() {
     }
 
     println!("\n--- Scoring tiers (CASE expression) ---");
-    let r = nba.graph
+    let r = nba
+        .graph
         .gql(
             r#"
             MATCH (p:player)
@@ -472,7 +477,8 @@ fn main() {
     }
 
     println!("\n--- Introspection: id() and labels() ---");
-    let r = nba.graph
+    let r = nba
+        .graph
         .gql(
             r#"
             MATCH (p:player)

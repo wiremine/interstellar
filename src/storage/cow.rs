@@ -2883,31 +2883,6 @@ impl<'a> crate::storage::GraphStorageMut for GraphMutWrapper<'a> {
 }
 
 // =============================================================================
-// Backward Compatibility Type Aliases
-// =============================================================================
-
-/// Backward-compatible alias for [`Graph`].
-///
-/// This alias is provided for backward compatibility. New code should use
-/// [`Graph`] directly.
-#[deprecated(since = "0.2.0", note = "Use Graph instead")]
-pub type CowGraph = Graph;
-
-/// Backward-compatible alias for [`GraphSnapshot`].
-///
-/// This alias is provided for backward compatibility. New code should use
-/// [`GraphSnapshot`] directly.
-#[deprecated(since = "0.2.0", note = "Use GraphSnapshot instead")]
-pub type CowSnapshot = GraphSnapshot;
-
-/// Backward-compatible alias for [`GraphState`].
-///
-/// This alias is provided for backward compatibility. New code should use
-/// [`GraphState`] directly.
-#[deprecated(since = "0.2.0", note = "Use GraphState instead")]
-pub type CowGraphState = GraphState;
-
-// =============================================================================
 // Tests
 // =============================================================================
 

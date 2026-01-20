@@ -1078,11 +1078,11 @@ fn cow_mmap_error_edge_missing_vertices() {
 
 #[test]
 fn cow_mmap_behavior_matches_cow_graph() {
-    use interstellar::storage::cow::CowGraph;
+    use interstellar::storage::Graph;
 
     let (_dir, path) = temp_db();
     let mmap_graph = CowMmapGraph::open(&path).unwrap();
-    let mem_graph = CowGraph::new();
+    let mem_graph = Graph::new();
 
     // Perform identical operations on both
     let mmap_alice = mmap_graph

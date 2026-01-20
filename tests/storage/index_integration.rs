@@ -6,10 +6,8 @@
 use std::collections::HashMap;
 use std::ops::Bound;
 
-#[allow(deprecated)]
-use interstellar::graph::Graph as LegacyGraph;
 use interstellar::index::IndexBuilder;
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
 use interstellar::value::{Value, VertexId};
 
 // =============================================================================
@@ -182,18 +180,18 @@ fn vertices_by_property_range_without_index_falls_back_to_scan() {
 
 #[test]
 fn traversal_can_access_indexed_storage_methods() {
-    // Build graph with InMemoryGraph directly to access index methods
-    let mut storage = InMemoryGraph::new();
+    // Build graph with COW Graph which supports indexes directly
+    let graph = Graph::new();
 
     for age in 20..30 {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String(format!("Person{}", age)));
         props.insert("age".to_string(), Value::Int(age));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
     }
 
     // Create index
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("person")
@@ -203,18 +201,11 @@ fn traversal_can_access_indexed_storage_methods() {
         )
         .unwrap();
 
-    // Wrap in Graph for traversal
-    let graph = LegacyGraph::new(storage);
+    // The Graph itself supports indexes
+    assert!(graph.supports_indexes());
 
-    // Access via snapshot/traversal
-    let snapshot = graph.snapshot();
-    let graph_storage = snapshot.storage();
-
-    // The trait method is accessible through the dyn GraphStorage
-    assert!(graph_storage.supports_indexes());
-
-    // Use the indexed lookup via trait method
-    let results: Vec<_> = graph_storage
+    // Use the indexed lookup via the graph
+    let results: Vec<_> = graph
         .vertices_by_property(Some("person"), "age", &Value::Int(25))
         .collect();
 
@@ -226,11 +217,11 @@ fn traversal_can_access_indexed_storage_methods() {
 }
 
 #[test]
-fn index_maintained_after_wrapping_in_graph() {
-    let mut storage = InMemoryGraph::new();
+fn index_maintained_with_graph() {
+    let graph = Graph::new();
 
     // Create unique index first
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("user")
@@ -247,20 +238,16 @@ fn index_maintained_after_wrapping_in_graph() {
         "email".to_string(),
         Value::String("alice@example.com".into()),
     );
-    storage.add_vertex("user", props);
+    graph.add_vertex("user", props);
 
     let mut props = HashMap::new();
     props.insert("email".to_string(), Value::String("bob@example.com".into()));
-    storage.add_vertex("user", props);
-
-    // Wrap in Graph
-    let graph = LegacyGraph::new(storage);
+    graph.add_vertex("user", props);
 
     // Verify index lookup works through Graph snapshot
     let snapshot = graph.snapshot();
-    let graph_storage = snapshot.storage();
 
-    let results: Vec<_> = graph_storage
+    let results: Vec<_> = snapshot
         .vertices_by_property(
             Some("user"),
             "email",
@@ -585,13 +572,10 @@ fn range_query_on_large_graph() {
 
 #[test]
 fn traversal_v_by_property_uses_index() {
-    #[allow(deprecated)]
-    use interstellar::graph::Graph as LegacyGraph;
-
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create index first for best performance
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("person")
@@ -606,14 +590,13 @@ fn traversal_v_by_property_uses_index() {
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".into()));
     props.insert("age".to_string(), Value::Int(30));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Bob".into()));
     props.insert("age".to_string(), Value::Int(25));
-    storage.add_vertex("person", props);
+    graph.add_vertex("person", props);
 
-    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.gremlin();
 
@@ -629,13 +612,10 @@ fn traversal_v_by_property_uses_index() {
 
 #[test]
 fn traversal_v_by_property_range_uses_index() {
-    #[allow(deprecated)]
-    use interstellar::graph::Graph as LegacyGraph;
-
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create BTree index for range queries
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("person")
@@ -650,10 +630,9 @@ fn traversal_v_by_property_range_uses_index() {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String(name.into()));
         props.insert("age".to_string(), Value::Int(age));
-        storage.add_vertex("person", props);
+        graph.add_vertex("person", props);
     }
 
-    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.gremlin();
 
@@ -677,13 +656,10 @@ fn traversal_v_by_property_range_uses_index() {
 
 #[test]
 fn traversal_e_by_property_uses_index() {
-    #[allow(deprecated)]
-    use interstellar::graph::Graph as LegacyGraph;
-
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create edge index
-    storage
+    graph
         .create_index(
             IndexBuilder::edge()
                 .label("knows")
@@ -696,26 +672,25 @@ fn traversal_e_by_property_uses_index() {
     // Add vertices
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".into()));
-    let alice = storage.add_vertex("person", props);
+    let alice = graph.add_vertex("person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Bob".into()));
-    let bob = storage.add_vertex("person", props);
+    let bob = graph.add_vertex("person", props);
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Charlie".into()));
-    let charlie = storage.add_vertex("person", props);
+    let charlie = graph.add_vertex("person", props);
 
     // Add edges with "since" property
     let mut edge_props = HashMap::new();
     edge_props.insert("since".to_string(), Value::Int(2020));
-    storage.add_edge(alice, bob, "knows", edge_props).unwrap();
+    graph.add_edge(alice, bob, "knows", edge_props).unwrap();
 
     let mut edge_props = HashMap::new();
     edge_props.insert("since".to_string(), Value::Int(2022));
-    storage.add_edge(bob, charlie, "knows", edge_props).unwrap();
+    graph.add_edge(bob, charlie, "knows", edge_props).unwrap();
 
-    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.gremlin();
 
@@ -732,13 +707,10 @@ fn traversal_e_by_property_uses_index() {
 
 #[test]
 fn traversal_with_index_chains_complex_queries() {
-    #[allow(deprecated)]
-    use interstellar::graph::Graph as LegacyGraph;
-
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create indexes
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("person")
@@ -769,19 +741,17 @@ fn traversal_with_index_chains_complex_queries() {
         props.insert("name".to_string(), Value::String((*name).into()));
         props.insert("department".to_string(), Value::String((*dept).into()));
         props.insert("age".to_string(), Value::Int(*age));
-        let _id = storage.add_vertex("person", props);
+        let id = graph.add_vertex("person", props);
 
         // Add some edges between consecutive employees
         if i > 0 {
             let prev = VertexId((i - 1) as u64);
-            let curr = VertexId(i as u64);
-            storage
-                .add_edge(prev, curr, "works_with", HashMap::new())
+            graph
+                .add_edge(prev, id, "works_with", HashMap::new())
                 .unwrap();
         }
     }
 
-    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.gremlin();
 

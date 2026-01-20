@@ -25,16 +25,12 @@
 //!
 //! Run: `cargo run --features mmap --example persistence`
 
-use interstellar::gql::{
-    compile_statement, execute_mutation_with_schema, parse_statement, CompileError, MutationError,
-};
-use interstellar::graph::LegacyGraph;
+use interstellar::gql::{compile_statement, parse_statement, GqlError};
 use interstellar::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
-use interstellar::storage::mmap::MmapGraph;
+use interstellar::storage::PersistentGraph;
 use interstellar::value::Value;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 const DB_PATH: &str = "examples/data/persistence_demo.db";
 
@@ -42,18 +38,8 @@ const DB_PATH: &str = "examples/data/persistence_demo.db";
 // Helper Functions
 // =============================================================================
 
-fn execute_with_schema(
-    storage: &mut MmapGraph,
-    query: &str,
-    schema: &GraphSchema,
-) -> Result<Vec<Value>, MutationError> {
-    let stmt = parse_statement(query).map_err(|e| {
-        MutationError::Compile(CompileError::UnsupportedFeature(format!(
-            "Parse error: {}",
-            e
-        )))
-    })?;
-    execute_mutation_with_schema(&stmt, storage, Some(schema))
+fn execute_gql(graph: &PersistentGraph, query: &str) -> Result<Vec<Value>, GqlError> {
+    graph.gql(query)
 }
 
 fn section(title: &str) {
@@ -166,16 +152,20 @@ fn demo_write_graph() -> GraphSchema {
         let _ = fs::remove_file(format!("{}.wal", DB_PATH.trim_end_matches(".db")));
     }
 
-    let mut storage = MmapGraph::open(DB_PATH).expect("Failed to create database");
+    let graph = PersistentGraph::open(DB_PATH).expect("Failed to create database");
     println!("  Database created successfully!");
 
-    // Step 3: Save schema to database
+    // Step 3: Save schema to database and set it for validation
     println!("\n--- Step 3: Save Schema to Database ---");
-    storage.save_schema(&schema).expect("Failed to save schema");
+    graph
+        .mmap_graph()
+        .save_schema(&schema)
+        .expect("Failed to save schema");
+    graph.set_schema(Some(schema.clone()));
     println!("  Schema saved to database file");
 
     // Verify schema was saved
-    if let Ok(Some(loaded)) = storage.load_schema() {
+    if let Ok(Some(loaded)) = graph.mmap_graph().load_schema() {
         println!(
             "  Verified: {} vertex types, {} edge types loaded back",
             loaded.vertex_labels().count(),
@@ -183,10 +173,10 @@ fn demo_write_graph() -> GraphSchema {
         );
     }
 
-    // Step 4: Insert data with batch mode
-    println!("\n--- Step 4: Insert Data (Batch Mode) ---");
-    storage.begin_batch().expect("Failed to begin batch");
-    println!("  Batch mode enabled for efficient bulk loading");
+    // Step 4: Insert data
+    // Note: PersistentGraph uses CowMmapGraph which doesn't require explicit batch mode.
+    // The underlying MmapGraph handles durability automatically.
+    println!("\n--- Step 4: Insert Data ---");
 
     // Insert People
     println!("\n  Inserting Person vertices...");
@@ -197,7 +187,7 @@ fn demo_write_graph() -> GraphSchema {
         "CREATE (p:Person {name: 'Diana', age: 32})",
     ];
     for query in &people {
-        match execute_with_schema(&mut storage, query, &schema) {
+        match execute_gql(&graph, query) {
             Ok(_) => println!(
                 "    [ok] {}",
                 query.chars().skip(8).take(40).collect::<String>()
@@ -213,7 +203,7 @@ fn demo_write_graph() -> GraphSchema {
         "CREATE (c:Company {name: 'DataInc', founded: 2015, industry: 'Analytics'})",
     ];
     for query in &companies {
-        match execute_with_schema(&mut storage, query, &schema) {
+        match execute_gql(&graph, query) {
             Ok(_) => println!(
                 "    [ok] {}",
                 query.chars().skip(8).take(50).collect::<String>()
@@ -229,7 +219,7 @@ fn demo_write_graph() -> GraphSchema {
         "CREATE (p:Project {name: 'Beta', status: 'planning', budget: 50000.0})",
     ];
     for query in &projects {
-        match execute_with_schema(&mut storage, query, &schema) {
+        match execute_gql(&graph, query) {
             Ok(_) => println!(
                 "    [ok] {}",
                 query.chars().skip(8).take(50).collect::<String>()
@@ -248,18 +238,15 @@ fn demo_write_graph() -> GraphSchema {
         "CREATE (c:Company {name: 'MegaCorp'})-[:OWNS]->(p:Project {name: 'Delta', status: 'planning'})",
     ];
     for query in &edges {
-        match execute_with_schema(&mut storage, query, &schema) {
+        match execute_gql(&graph, query) {
             Ok(_) => println!("    [ok] Created edge"),
             Err(e) => println!("    [err] {}", e),
         }
     }
 
-    // Step 5: Commit and checkpoint
-    println!("\n--- Step 5: Commit and Checkpoint ---");
-    storage.commit_batch().expect("Failed to commit batch");
-    println!("  Batch committed");
-
-    storage.checkpoint().expect("Failed to checkpoint");
+    // Step 5: Checkpoint
+    println!("\n--- Step 5: Checkpoint ---");
+    graph.checkpoint().expect("Failed to checkpoint");
     println!("  Checkpoint created - data is now durable!");
 
     // Show database size
@@ -281,12 +268,13 @@ fn demo_read_graph() {
     section("PART 2: READING A PERSISTENT GRAPH");
 
     println!("\n--- Step 1: Open Existing Database ---");
-    let storage = Arc::new(MmapGraph::open(DB_PATH).expect("Failed to open database"));
+    let graph = PersistentGraph::open(DB_PATH).expect("Failed to open database");
     println!("  Database opened: {}", DB_PATH);
 
     // Load schema
     println!("\n--- Step 2: Load Schema from Database ---");
-    let schema = storage
+    let schema = graph
+        .mmap_graph()
         .load_schema()
         .expect("Failed to load schema")
         .expect("No schema found");
@@ -302,8 +290,7 @@ fn demo_read_graph() {
         schema.edge_labels().collect::<Vec<_>>()
     );
 
-    // Create LegacyGraph wrapper for querying
-    let graph = LegacyGraph::from_arc(storage.clone());
+    // Take a snapshot for querying
     let snapshot = graph.snapshot();
 
     // Query with Fluent API
@@ -311,8 +298,11 @@ fn demo_read_graph() {
 
     let g = snapshot.gremlin();
     let person_count = g.v().has_label("Person").count();
+    let g = snapshot.gremlin();
     let company_count = g.v().has_label("Company").count();
+    let g = snapshot.gremlin();
     let project_count = g.v().has_label("Project").count();
+    let g = snapshot.gremlin();
     let edge_count = g.e().count();
 
     println!("  Database contents:");
@@ -366,12 +356,13 @@ fn demo_read_graph() {
 fn demo_validation(schema: &GraphSchema) {
     section("PART 3: SCHEMA VALIDATION");
 
-    let mut storage = MmapGraph::open(DB_PATH).expect("Failed to open database");
+    let graph = PersistentGraph::open(DB_PATH).expect("Failed to open database");
+    graph.set_schema(Some(schema.clone()));
 
     // Test 1: Missing required property
     println!("\n--- Test 1: Missing Required Property ---");
     println!("  Query: CREATE (p:Person {{age: 25}})  -- missing 'name'");
-    let result = execute_with_schema(&mut storage, "CREATE (p:Person {age: 25})", schema);
+    let result = execute_gql(&graph, "CREATE (p:Person {age: 25})");
     match result {
         Ok(_) => println!("  [unexpected] Mutation succeeded"),
         Err(e) => println!("  [rejected] {}", e),
@@ -380,11 +371,7 @@ fn demo_validation(schema: &GraphSchema) {
     // Test 2: Wrong property type
     println!("\n--- Test 2: Wrong Property Type ---");
     println!("  Query: CREATE (p:Person {{name: 'X', age: 'thirty'}})  -- age should be int");
-    let result = execute_with_schema(
-        &mut storage,
-        "CREATE (p:Person {name: 'Test', age: 'thirty'})",
-        schema,
-    );
+    let result = execute_gql(&graph, "CREATE (p:Person {name: 'Test', age: 'thirty'})");
     match result {
         Ok(_) => println!("  [unexpected] Mutation succeeded"),
         Err(e) => println!("  [rejected] {}", e),
@@ -393,10 +380,9 @@ fn demo_validation(schema: &GraphSchema) {
     // Test 3: Invalid edge endpoint
     println!("\n--- Test 3: Invalid Edge Endpoint ---");
     println!("  Query: CREATE (p:Person)-[:KNOWS]->(c:Company)  -- KNOWS is Person->Person");
-    let result = execute_with_schema(
-        &mut storage,
+    let result = execute_gql(
+        &graph,
         "CREATE (p:Person {name: 'A'})-[:KNOWS]->(c:Company {name: 'B'})",
-        schema,
     );
     match result {
         Ok(_) => println!("  [unexpected] Mutation succeeded"),
@@ -406,10 +392,9 @@ fn demo_validation(schema: &GraphSchema) {
     // Test 4: Missing required edge property
     println!("\n--- Test 4: Missing Required Edge Property ---");
     println!("  Query: CREATE (p:Person)-[:WORKS_AT]->(c:Company)  -- missing 'role'");
-    let result = execute_with_schema(
-        &mut storage,
+    let result = execute_gql(
+        &graph,
         "CREATE (p:Person {name: 'X'})-[:WORKS_AT]->(c:Company {name: 'Y'})",
-        schema,
     );
     match result {
         Ok(_) => println!("  [unexpected] Mutation succeeded"),
@@ -419,11 +404,7 @@ fn demo_validation(schema: &GraphSchema) {
     // Test 5: Valid mutation
     println!("\n--- Test 5: Valid Mutation ---");
     println!("  Query: CREATE (p:Person {{name: 'ValidPerson', age: 40}})");
-    let result = execute_with_schema(
-        &mut storage,
-        "CREATE (p:Person {name: 'ValidPerson', age: 40})",
-        schema,
-    );
+    let result = execute_gql(&graph, "CREATE (p:Person {name: 'ValidPerson', age: 40})");
     match result {
         Ok(_) => println!("  [accepted] Person created successfully"),
         Err(e) => println!("  [unexpected] {}", e),
@@ -441,7 +422,8 @@ fn demo_validation(schema: &GraphSchema) {
         .build();
 
     println!("\n  ValidationMode::None (no enforcement):");
-    let result = execute_with_schema(&mut storage, "CREATE (p:Person {age: 25})", &schema_none);
+    graph.set_schema(Some(schema_none));
+    let result = execute_gql(&graph, "CREATE (p:Person {age: 25})");
     match result {
         Ok(_) => println!("    Missing 'name': [allowed]"),
         Err(_) => println!("    Missing 'name': [rejected]"),
@@ -456,11 +438,8 @@ fn demo_validation(schema: &GraphSchema) {
         .build();
 
     println!("\n  ValidationMode::Closed (all labels must have schemas):");
-    let result = execute_with_schema(
-        &mut storage,
-        "CREATE (r:Robot {model: 'R2D2'})",
-        &schema_closed,
-    );
+    graph.set_schema(Some(schema_closed));
+    let result = execute_gql(&graph, "CREATE (r:Robot {model: 'R2D2'})");
     match result {
         Ok(_) => println!("    Unknown label 'Robot': [allowed]"),
         Err(_) => println!("    Unknown label 'Robot': [rejected]"),
@@ -468,7 +447,8 @@ fn demo_validation(schema: &GraphSchema) {
 
     // Mode: Strict (original)
     println!("\n  ValidationMode::Strict (unknown labels allowed, violations rejected):");
-    let result = execute_with_schema(&mut storage, "CREATE (r:Robot {model: 'R2D2'})", schema);
+    graph.set_schema(Some(schema.clone()));
+    let result = execute_gql(&graph, "CREATE (r:Robot {model: 'R2D2'})");
     match result {
         Ok(_) => println!("    Unknown label 'Robot': [allowed]"),
         Err(_) => println!("    Unknown label 'Robot': [rejected]"),
@@ -497,13 +477,14 @@ fn main() {
     println!("\nPersistent Storage Features Demonstrated:");
     println!();
     println!("  Database Operations:");
-    println!("    - MmapGraph::open(path)     -- Create or open database");
-    println!("    - begin_batch() / commit_batch() -- Batch mode for bulk ops");
-    println!("    - checkpoint()              -- Ensure durability");
+    println!("    - PersistentGraph::open(path) -- Create or open database");
+    println!("    - checkpoint()                -- Ensure durability");
+    println!("    - gql(query)                  -- Execute GQL queries and mutations");
     println!();
     println!("  Schema Persistence:");
-    println!("    - save_schema(&schema)      -- Save schema to database");
-    println!("    - load_schema()             -- Load schema from database");
+    println!("    - mmap_graph().save_schema(&schema) -- Save schema to database");
+    println!("    - mmap_graph().load_schema()        -- Load schema from database");
+    println!("    - set_schema(Some(schema))          -- Set schema for validation");
     println!();
     println!("  Schema Validation:");
     println!("    - Required/optional properties");

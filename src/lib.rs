@@ -409,9 +409,6 @@ pub mod prelude {
     // Persistent graph types (mmap feature)
     #[cfg(feature = "mmap")]
     pub use crate::storage::{PersistentGraph, PersistentSnapshot};
-    // Deprecated aliases for backward compatibility
-    #[allow(deprecated)]
-    pub use crate::storage::{UnifiedGraph, UnifiedSnapshot};
     pub use crate::traversal::{
         p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,
         Path, PathElement, PathValue, Traversal, Traverser, __,
