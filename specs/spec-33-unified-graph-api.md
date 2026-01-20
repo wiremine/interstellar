@@ -674,6 +674,182 @@ assert_eq!(snap.traversal().v().count(), 1);
 assert_eq!(g.v().count(), 2);
 ```
 
+### 4.5 Schema Definition (`schemas.rs`)
+
+```rust
+//! Example: Defining and using graph schemas for validation.
+//!
+//! Schemas enable type-safe graph operations by validating vertices
+//! and edges at mutation time.
+
+use interstellar::prelude::*;
+use interstellar::schema::{
+    SchemaBuilder, PropertyType, ValidationMode,
+    validate_vertex, validate_edge, apply_defaults,
+};
+use std::collections::HashMap;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // ==========================================================
+    // 1. Building a Schema with the Fluent API
+    // ==========================================================
+    
+    let schema = SchemaBuilder::new()
+        // Set validation mode: Strict enforces schemas for known types
+        .mode(ValidationMode::Strict)
+        
+        // Define Person vertex schema
+        .vertex("Person")
+            .property("name", PropertyType::String)        // Required
+            .property("email", PropertyType::String)       // Required
+            .optional("age", PropertyType::Int)            // Optional
+            .optional_with_default("active", PropertyType::Bool, Value::Bool(true))
+            .done()
+        
+        // Define Company vertex schema with flexible properties
+        .vertex("Company")
+            .property("name", PropertyType::String)
+            .optional("founded", PropertyType::Int)
+            .optional("tags", PropertyType::List(Some(Box::new(PropertyType::String))))
+            .allow_additional()  // Allow arbitrary extra properties
+            .done()
+        
+        // Define edge schemas with endpoint constraints
+        .edge("WORKS_AT")
+            .from(&["Person"])           // Can only originate from Person
+            .to(&["Company"])            // Can only point to Company
+            .property("role", PropertyType::String)
+            .optional("since", PropertyType::Int)
+            .optional_with_default("weight", PropertyType::Float, Value::Float(1.0))
+            .done()
+        
+        .edge("KNOWS")
+            .from(&["Person"])
+            .to(&["Person"])
+            .optional("since", PropertyType::Int)
+            .done()
+        
+        .build();
+
+    // ==========================================================
+    // 2. Inspecting the Schema
+    // ==========================================================
+    
+    println!("Validation mode: {}", schema.mode);
+    println!("Vertex types: {:?}", schema.vertex_labels().collect::<Vec<_>>());
+    println!("Edge types: {:?}", schema.edge_labels().collect::<Vec<_>>());
+    
+    // Check what edges can connect from Person
+    let edges_from_person = schema.edges_from("Person");
+    println!("Edges from Person: {:?}", edges_from_person);
+    
+    // Get schema details for a vertex type
+    if let Some(person_schema) = schema.vertex_schema("Person") {
+        println!("Person required properties: {:?}", 
+            person_schema.required_properties().collect::<Vec<_>>());
+        println!("Person optional properties: {:?}", 
+            person_schema.optional_properties().collect::<Vec<_>>());
+    }
+
+    // ==========================================================
+    // 3. Validating Data Against the Schema
+    // ==========================================================
+    
+    // Valid vertex data
+    let mut valid_props = HashMap::new();
+    valid_props.insert("name".to_string(), Value::String("Alice".to_string()));
+    valid_props.insert("email".to_string(), Value::String("alice@example.com".to_string()));
+    valid_props.insert("age".to_string(), Value::Int(30));
+    
+    let result = validate_vertex(&schema, "Person", &valid_props);
+    match result {
+        Ok(warnings) => {
+            if warnings.is_empty() {
+                println!("Valid Person vertex!");
+            } else {
+                println!("Valid with warnings: {:?}", warnings);
+            }
+        }
+        Err(errors) => println!("Validation errors: {:?}", errors),
+    }
+    
+    // Invalid vertex data (missing required property)
+    let mut invalid_props = HashMap::new();
+    invalid_props.insert("name".to_string(), Value::String("Bob".to_string()));
+    // Missing required "email" property
+    
+    let result = validate_vertex(&schema, "Person", &invalid_props);
+    assert!(result.is_err(), "Should fail validation");
+
+    // ==========================================================
+    // 4. Applying Default Values
+    // ==========================================================
+    
+    let mut props = HashMap::new();
+    props.insert("name".to_string(), Value::String("Charlie".to_string()));
+    props.insert("email".to_string(), Value::String("charlie@example.com".to_string()));
+    // "active" not provided - will get default value
+    
+    // Apply defaults (for vertex, pass true; for edge, pass false)
+    let props_with_defaults = apply_defaults(&schema, "Person", &props, true);
+    
+    assert_eq!(
+        props_with_defaults.get("active"),
+        Some(&Value::Bool(true)),
+        "Default value should be applied"
+    );
+
+    // ==========================================================
+    // 5. Validation Modes
+    // ==========================================================
+    
+    // ValidationMode::None - No validation (schema is documentation only)
+    // ValidationMode::Warn - Log warnings but allow invalid data
+    // ValidationMode::Strict - Enforce schemas for known types, allow unknown types
+    // ValidationMode::Closed - Require all types to have schemas
+    
+    let closed_schema = SchemaBuilder::new()
+        .mode(ValidationMode::Closed)
+        .vertex("Person")
+            .property("name", PropertyType::String)
+            .done()
+        .build();
+    
+    // In Closed mode, unknown vertex types cause validation errors
+    let result = validate_vertex(&closed_schema, "UnknownType", &HashMap::new());
+    assert!(result.is_err(), "Closed mode rejects unknown types");
+
+    // ==========================================================
+    // 6. Persisting Schemas (with mmap feature)
+    // ==========================================================
+    
+    #[cfg(feature = "mmap")]
+    {
+        use tempfile::tempdir;
+        
+        let dir = tempdir()?;
+        let db_path = dir.path().join("graph.db");
+        
+        // Open persistent graph
+        let graph = PersistentGraph::open(&db_path)?;
+        
+        // Save schema to database file
+        graph.save_schema(&schema)?;
+        
+        // Later, load schema back
+        if let Some(loaded_schema) = graph.load_schema()? {
+            println!("Loaded schema with {} vertex types", 
+                loaded_schema.vertex_schemas.len());
+        }
+        
+        // Clear schema if needed
+        graph.clear_schema()?;
+    }
+
+    Ok(())
+}
+```
+
 ---
 
 ## 5. Migration Checklist
