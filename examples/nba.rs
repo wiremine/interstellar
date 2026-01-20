@@ -221,7 +221,7 @@ fn main() {
 
     let nba = load_nba_graph();
     let snapshot = nba.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Graph statistics
     let players = g.v().has_label("player").count();
@@ -379,11 +379,11 @@ fn main() {
     section("GQL (GRAPH QUERY LANGUAGE)");
 
     println!("\n--- Count players (GQL) ---");
-    let r = snapshot.gql("MATCH (p:player) RETURN count(*)").unwrap();
+    let r = nba.graph.gql("MATCH (p:player) RETURN count(*)").unwrap();
     println!("  {}", format_value(&r[0]));
 
     println!("\n--- Michael Jordan's teams (GQL) ---");
-    let r = snapshot
+    let r = nba.graph
         .gql(r#"MATCH (p:player {name: 'Michael Jordan'})-[:played_for]->(t:team) RETURN t.name"#)
         .unwrap();
     for v in &r {
@@ -391,7 +391,7 @@ fn main() {
     }
 
     println!("\n--- Elite scorers with ORDER BY (GQL) ---");
-    let r = snapshot
+    let r = nba.graph
         .gql(
             r#"
             MATCH (p:player)
@@ -412,7 +412,7 @@ fn main() {
     }
 
     println!("\n--- Championship winners (EXISTS subquery) ---");
-    let r = snapshot
+    let r = nba.graph
         .gql(
             r#"
             MATCH (p:player)
@@ -426,7 +426,7 @@ fn main() {
     println!("  {}", names.join(", "));
 
     println!("\n--- Players by position (GROUP BY) ---");
-    let r = snapshot
+    let r = nba.graph
         .gql(
             r#"
             MATCH (p:player)
@@ -446,7 +446,7 @@ fn main() {
     }
 
     println!("\n--- Scoring tiers (CASE expression) ---");
-    let r = snapshot
+    let r = nba.graph
         .gql(
             r#"
             MATCH (p:player)
@@ -472,7 +472,7 @@ fn main() {
     }
 
     println!("\n--- Introspection: id() and labels() ---");
-    let r = snapshot
+    let r = nba.graph
         .gql(
             r#"
             MATCH (p:player)

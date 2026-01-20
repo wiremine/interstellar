@@ -356,11 +356,11 @@ impl Graph {
         }
     }
 
-    /// Create a traversal source for this graph.
+    /// Create a Gremlin traversal source for this graph.
     ///
-    /// The returned [`CowTraversalSource`] provides a unified API for both
-    /// reads and mutations. Any mutations in the traversal are automatically
-    /// executed when terminal steps are called.
+    /// The returned [`CowTraversalSource`] provides a fluent Gremlin-style API
+    /// for both reads and mutations. Any mutations in the traversal are
+    /// automatically executed when terminal steps are called.
     ///
     /// # Example
     ///
@@ -368,7 +368,7 @@ impl Graph {
     /// use interstellar::storage::cow::Graph;
     ///
     /// let graph = Graph::new();
-    /// let g = graph.traversal();
+    /// let g = graph.gremlin();
     ///
     /// // Create vertices
     /// let alice = g.add_v("Person").property("name", "Alice").next();
@@ -377,7 +377,7 @@ impl Graph {
     /// // Read
     /// assert_eq!(g.v().count(), 2);
     /// ```
-    pub fn traversal(&self) -> CowTraversalSource<'_> {
+    pub fn gremlin(&self) -> CowTraversalSource<'_> {
         CowTraversalSource::new(self)
     }
 
@@ -1386,13 +1386,11 @@ impl Graph {
     // GQL API
     // =========================================================================
 
-    /// Execute a GQL mutation statement.
+    /// Execute a GQL statement (both reads and mutations).
     ///
-    /// This method parses and executes GQL mutation statements (CREATE, SET,
-    /// DELETE, DETACH DELETE, MERGE).
-    ///
-    /// For read-only queries, use [`snapshot().gql()`](crate::graph::GraphSnapshot::gql)
-    /// instead.
+    /// This method parses and executes any GQL statement:
+    /// - **Read queries** (MATCH...RETURN): Executed against a snapshot
+    /// - **Mutations** (CREATE, SET, DELETE, MERGE): Executed against the graph
     ///
     /// # Example
     ///
@@ -1402,29 +1400,71 @@ impl Graph {
     ///
     /// let graph = Graph::new();
     ///
-    /// // Mutations via gql()
-    /// graph.gql("CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
+    /// // Mutations
+    /// graph.gql("CREATE (n:Person {name: 'Alice'})").unwrap();
     /// graph.gql("MATCH (n:Person) SET n.age = 30").unwrap();
     ///
-    /// // Verify the mutation worked
-    /// assert_eq!(graph.snapshot().vertex_count(), 1);
+    /// // Reads
+    /// let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
+    /// assert_eq!(results.len(), 1);
     /// ```
     pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError> {
         let stmt = gql::parse_statement(query)?;
 
         if stmt.is_read_only() {
-            return Err(GqlError::Mutation(
-                "Read-only queries not supported via gql(). \
-                 Use snapshot().gql() for reads."
-                    .to_string(),
-            ));
+            // Execute reads against a snapshot
+            let snapshot = self.snapshot();
+            gql::compile_statement(&stmt, &snapshot).map_err(GqlError::Compile)
+        } else {
+            // Execute mutations against the graph
+            let mut wrapper = GraphMutWrapper { graph: self };
+            let schema = self.schema();
+            gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
+                .map_err(|e| GqlError::Mutation(e.to_string()))
         }
+    }
 
-        // Execute mutation atomically
-        let mut wrapper = GraphMutWrapper { graph: self };
-        let schema = self.schema();
-        gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
-            .map_err(|e| GqlError::Mutation(e.to_string()))
+    /// Execute a GQL query with parameters.
+    ///
+    /// This is a convenience method for executing parameterized queries.
+    /// Parameters can be referenced in the query using `$paramName` syntax.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::Graph;
+    /// use interstellar::gql::Parameters;
+    /// use interstellar::value::Value;
+    ///
+    /// let graph = Graph::new();
+    /// graph.gql("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
+    ///
+    /// let mut params = Parameters::new();
+    /// params.insert("minAge".to_string(), Value::Int(25));
+    ///
+    /// let results = graph.gql_with_params(
+    ///     "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
+    ///     &params,
+    /// ).unwrap();
+    /// assert_eq!(results.len(), 1);
+    /// ```
+    pub fn gql_with_params(
+        &self,
+        query: &str,
+        params: &gql::Parameters,
+    ) -> Result<Vec<Value>, GqlError> {
+        let stmt = gql::parse_statement(query)?;
+
+        if stmt.is_read_only() {
+            // Execute reads against a snapshot
+            let snapshot = self.snapshot();
+            gql::compile_statement_with_params(&stmt, &snapshot, params).map_err(GqlError::Compile)
+        } else {
+            // Mutations with parameters not yet supported
+            Err(GqlError::Mutation(
+                "Parameterized mutations are not yet supported".into(),
+            ))
+        }
     }
 
     /// Execute a DDL (Data Definition Language) statement.
@@ -1560,7 +1600,7 @@ impl Default for Graph {
 /// use std::collections::HashMap;
 ///
 /// let graph = Graph::new();
-/// let g = graph.traversal();
+/// let g = graph.gremlin();
 ///
 /// // Mutations are executed automatically
 /// let alice = g.add_v("Person").property("name", "Alice").next();
@@ -1632,7 +1672,7 @@ impl<'g> CowTraversalSource<'g> {
     /// use interstellar::storage::cow::Graph;
     ///
     /// let graph = Graph::new();
-    /// let g = graph.traversal();
+    /// let g = graph.gremlin();
     ///
     /// let vertex = g.add_v("Person").property("name", "Alice").next();
     /// assert!(vertex.is_some());
@@ -1660,7 +1700,7 @@ impl<'g> CowTraversalSource<'g> {
     /// let alice = graph.add_vertex("Person", HashMap::new());
     /// let bob = graph.add_vertex("Person", HashMap::new());
     ///
-    /// let g = graph.traversal();
+    /// let g = graph.gremlin();
     /// let edge = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
     /// assert!(edge.is_some());
     /// assert_eq!(graph.edge_count(), 1);
@@ -2221,7 +2261,7 @@ impl GraphSnapshot {
         &self.interner_snapshot
     }
 
-    /// Create a traversal source for this snapshot.
+    /// Create a Gremlin traversal source for this snapshot.
     ///
     /// This provides the full Gremlin-style fluent API for querying the graph.
     /// Since `GraphSnapshot` is immutable, only read operations are available.
@@ -2239,81 +2279,13 @@ impl GraphSnapshot {
     /// ]));
     ///
     /// let snapshot = graph.snapshot();
-    /// let g = snapshot.traversal();
+    /// let g = snapshot.gremlin();
     ///
     /// let count = g.v().has_label("Person").count();
     /// assert_eq!(count, 1);
     /// ```
-    pub fn traversal(&self) -> crate::traversal::GraphTraversalSource<'_> {
+    pub fn gremlin(&self) -> crate::traversal::GraphTraversalSource<'_> {
         crate::traversal::GraphTraversalSource::from_snapshot(self)
-    }
-
-    /// Execute a GQL query against this snapshot.
-    ///
-    /// This provides the full GQL query language for pattern matching
-    /// and data retrieval. Since `GraphSnapshot` is immutable, only read
-    /// queries (MATCH/RETURN) are supported.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use interstellar::storage::cow::Graph;
-    /// use interstellar::value::Value;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Graph::new();
-    /// graph.add_vertex("Person", HashMap::from([
-    ///     ("name".to_string(), Value::String("Alice".to_string())),
-    /// ]));
-    ///
-    /// let snapshot = graph.snapshot();
-    /// let results = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
-    /// assert_eq!(results.len(), 1);
-    /// ```
-    pub fn gql(&self, query: &str) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let stmt = crate::gql::parse_statement(query)?;
-        let results = crate::gql::compile_statement(&stmt, self)?;
-        Ok(results)
-    }
-
-    /// Execute a parameterized GQL query against this snapshot.
-    ///
-    /// Parameters provide a safe way to inject values into queries
-    /// without string concatenation, preventing injection attacks.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use interstellar::storage::cow::Graph;
-    /// use interstellar::value::Value;
-    /// use interstellar::gql::Parameters;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Graph::new();
-    /// graph.add_vertex("Person", HashMap::from([
-    ///     ("name".to_string(), Value::String("Alice".to_string())),
-    ///     ("age".to_string(), Value::Int(30)),
-    /// ]));
-    ///
-    /// let snapshot = graph.snapshot();
-    ///
-    /// let mut params = Parameters::new();
-    /// params.insert("minAge".to_string(), Value::Int(25));
-    ///
-    /// let results = snapshot.gql_with_params(
-    ///     "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
-    ///     &params,
-    /// ).unwrap();
-    /// assert_eq!(results.len(), 1);
-    /// ```
-    pub fn gql_with_params(
-        &self,
-        query: &str,
-        params: &crate::gql::Parameters,
-    ) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let stmt = crate::gql::parse_statement(query)?;
-        let results = crate::gql::compile_statement_with_params(&stmt, self, params)?;
-        Ok(results)
     }
 }
 

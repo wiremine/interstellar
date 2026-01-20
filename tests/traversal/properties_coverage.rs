@@ -61,7 +61,7 @@ mod properties_step_tests {
     fn properties_extracts_all_vertex_properties() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Get all properties from vertex with multiple props
         let results: Vec<Value> = g.v_ids([VertexId(0)]).properties().to_list();
@@ -84,7 +84,7 @@ mod properties_step_tests {
     fn properties_extracts_specific_keys() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Get only name property
         let results: Vec<Value> = g.v_ids([VertexId(0)]).properties_keys(["name"]).to_list();
@@ -100,7 +100,7 @@ mod properties_step_tests {
     fn properties_handles_empty_vertex() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Get properties from vertex with no properties
         let results: Vec<Value> = g.v_ids([VertexId(2)]).properties().to_list();
@@ -112,7 +112,7 @@ mod properties_step_tests {
     fn properties_handles_edge() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Get properties from edge
         let results: Vec<Value> = g.e_ids([EdgeId(0)]).properties().to_list();
@@ -124,7 +124,7 @@ mod properties_step_tests {
     fn properties_handles_edge_without_properties() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Get properties from edge with no properties
         let results: Vec<Value> = g.e_ids([EdgeId(1)]).properties().to_list();
@@ -136,7 +136,7 @@ mod properties_step_tests {
     fn properties_ignores_non_elements() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Inject non-element values and call properties
         let results: Vec<Value> = g
@@ -151,7 +151,7 @@ mod properties_step_tests {
     fn properties_with_nonexistent_key() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Get property that doesn't exist
         let results: Vec<Value> = g
@@ -174,7 +174,7 @@ mod value_map_step_tests {
     fn value_map_extracts_all_properties() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(0)]).value_map().to_list();
 
@@ -190,7 +190,7 @@ mod value_map_step_tests {
     fn value_map_with_specific_keys() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g
             .v_ids([VertexId(0)])
@@ -210,7 +210,7 @@ mod value_map_step_tests {
     fn value_map_empty_properties() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g
             .v_ids([VertexId(2)]) // empty vertex
@@ -227,7 +227,7 @@ mod value_map_step_tests {
     fn value_map_edge() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.e_ids([EdgeId(0)]).value_map().to_list();
 
@@ -242,7 +242,7 @@ mod value_map_step_tests {
     fn value_map_ignores_non_elements() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.inject([Value::Int(42)]).value_map().to_list();
 
@@ -267,7 +267,7 @@ mod element_map_step_tests {
     fn element_map_includes_id_and_label() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(0)]).element_map().to_list();
 
@@ -286,7 +286,7 @@ mod element_map_step_tests {
     fn element_map_with_specific_keys() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(0)]).element_map_keys(["name"]).to_list();
 
@@ -305,7 +305,7 @@ mod element_map_step_tests {
     fn element_map_edge_includes_endpoints() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.e_ids([EdgeId(0)]).element_map().to_list();
 
@@ -325,7 +325,7 @@ mod element_map_step_tests {
     fn element_map_empty_vertex() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(2)]).element_map().to_list();
 
@@ -343,7 +343,7 @@ mod element_map_step_tests {
     fn element_map_ignores_non_elements() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g
             .inject([Value::String("test".to_string())])
@@ -371,7 +371,7 @@ mod property_map_step_tests {
     fn property_map_wraps_values_in_lists() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(0)]).property_map().to_list();
 
@@ -388,7 +388,7 @@ mod property_map_step_tests {
     fn property_map_with_specific_keys() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(0)]).property_map_keys(["name"]).to_list();
 
@@ -403,7 +403,7 @@ mod property_map_step_tests {
     fn property_map_empty_vertex() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.v_ids([VertexId(2)]).property_map().to_list();
 
@@ -417,7 +417,7 @@ mod property_map_step_tests {
     fn property_map_edge() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.e_ids([EdgeId(0)]).property_map().to_list();
 
@@ -435,7 +435,7 @@ mod property_map_step_tests {
     fn property_map_ignores_non_elements() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g.inject([Value::Int(42)]).property_map().to_list();
 
@@ -460,7 +460,7 @@ mod path_preservation_tests {
     fn properties_preserves_path() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Path tracking with properties step
         let results: Vec<Value> = g
@@ -478,7 +478,7 @@ mod path_preservation_tests {
     fn value_map_preserves_path() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results: Vec<Value> = g
             .v_ids([VertexId(0)])

@@ -485,7 +485,7 @@ fn main() {
 
     let (graph, _mappings) = load_marvel_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Report graph statistics
     let character_count = g.v().has_label("character").count();

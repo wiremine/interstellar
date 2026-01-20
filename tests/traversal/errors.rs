@@ -6,7 +6,7 @@ use crate::common::graphs::create_small_graph;
 fn one_on_empty_result_returns_error() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let result = g.v().has_label("nonexistent").one();
     assert!(result.is_err());
@@ -16,7 +16,7 @@ fn one_on_empty_result_returns_error() {
 fn one_on_multiple_results_returns_error() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let result = g.v().has_label("person").one();
     assert!(result.is_err());
@@ -26,7 +26,7 @@ fn one_on_multiple_results_returns_error() {
 fn navigation_on_non_element_produces_nothing() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Injected integers can't be navigated
     let results = g.inject([1i64, 2i64]).out().to_list();
@@ -37,7 +37,7 @@ fn navigation_on_non_element_produces_nothing() {
 fn values_on_non_element_produces_nothing() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Injected integers don't have properties
     let results = g.inject([1i64, 2i64]).values("name").to_list();
@@ -48,7 +48,7 @@ fn values_on_non_element_produces_nothing() {
 fn out_v_on_non_edge_produces_nothing() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Vertices can't use out_v (that's for edges)
     let results = g.v().out_v().to_list();
@@ -59,7 +59,7 @@ fn out_v_on_non_edge_produces_nothing() {
 fn select_missing_label_filters_out() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Select a label that was never defined
     let results = g

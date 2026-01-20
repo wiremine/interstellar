@@ -47,10 +47,10 @@ impl RhaiGraph {
         &self.inner
     }
 
-    /// Create a traversal source for this graph.
+    /// Create a Gremlin-style traversal source for this graph.
     ///
     /// This is the main entry point for creating traversals in Rhai scripts.
-    pub fn traversal(&self) -> RhaiTraversalSource {
+    pub fn gremlin(&self) -> RhaiTraversalSource {
         RhaiTraversalSource {
             graph: self.inner.clone(),
         }
@@ -369,7 +369,7 @@ impl RhaiTraversal {
     /// Execute the traversal and return results as a list.
     pub fn to_list(&self) -> Vec<Value> {
         let snapshot = self.graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Build the traversal from source
         let mut bound = match &self.source {
@@ -2235,7 +2235,9 @@ pub fn register_traversal(engine: &mut Engine) {
     engine.register_type_with_name::<RhaiAnonymousTraversal>("AnonymousTraversal");
 
     // RhaiGraph methods - register as method that takes &mut self
-    engine.register_fn("traversal", |g: &mut RhaiGraph| g.traversal());
+    // Register both "gremlin" (new API) and "traversal" (legacy) for compatibility
+    engine.register_fn("gremlin", |g: &mut RhaiGraph| g.gremlin());
+    engine.register_fn("traversal", |g: &mut RhaiGraph| g.gremlin());
 
     // RhaiTraversalSource methods
     register_source_methods(engine);
@@ -3291,7 +3293,7 @@ mod tests {
     #[test]
     fn test_basic_traversal() {
         let rhai_graph = create_test_graph();
-        let g = rhai_graph.traversal();
+        let g = rhai_graph.gremlin();
 
         // Count all vertices
         let count = g.v().count();
@@ -3305,7 +3307,7 @@ mod tests {
     #[test]
     fn test_filter_steps() {
         let rhai_graph = create_test_graph();
-        let g = rhai_graph.traversal();
+        let g = rhai_graph.gremlin();
 
         // Filter by label
         let people = g.v().has_label("person".to_string()).to_list();
@@ -3322,7 +3324,7 @@ mod tests {
     #[test]
     fn test_navigation_steps() {
         let rhai_graph = create_test_graph();
-        let g = rhai_graph.traversal();
+        let g = rhai_graph.gremlin();
 
         // Alice knows 2 people
         let alice_knows = g
@@ -3336,7 +3338,7 @@ mod tests {
     #[test]
     fn test_transform_steps() {
         let rhai_graph = create_test_graph();
-        let g = rhai_graph.traversal();
+        let g = rhai_graph.gremlin();
 
         // Get all names
         let names = g.v().values("name".to_string()).to_list();
@@ -3349,7 +3351,7 @@ mod tests {
     #[test]
     fn test_predicate_filter() {
         let rhai_graph = create_test_graph();
-        let g = rhai_graph.traversal();
+        let g = rhai_graph.gremlin();
 
         // Filter by age >= 30
         let pred = RhaiPredicate::new(crate::traversal::p::gte(30i64));
@@ -3374,7 +3376,7 @@ mod tests {
             .eval_with_scope(
                 &mut scope,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().count()
             "#,
             )
@@ -3399,7 +3401,7 @@ mod tests {
             .eval_with_scope(
                 &mut scope,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().has_where("age", gte(30)).count()
             "#,
             )
@@ -3424,7 +3426,7 @@ mod tests {
             .eval_with_scope(
                 &mut scope,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().has_value("name", "Alice").out().count()
             "#,
             )

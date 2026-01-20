@@ -19,7 +19,7 @@
 //!
 //! // Execute a script
 //! let script = r#"
-//!     let g = graph.traversal();
+//!     let g = graph.gremlin();
 //!     g.v().has_label("person").values("name").to_list()
 //! "#;
 //!
@@ -55,7 +55,7 @@ use crate::storage::Graph;
 /// // Execute with a graph (wrapped in Arc)
 /// let graph = Arc::new(Graph::new());
 /// let result = engine.eval_with_graph(graph, r#"
-///     let g = graph.traversal();
+///     let g = graph.gremlin();
 ///     g.v().count()
 /// "#).unwrap();
 /// ```
@@ -116,7 +116,7 @@ impl RhaiEngine {
     /// ```rust,ignore
     /// let engine = RhaiEngine::new();
     /// let ast = engine.compile(r#"
-    ///     let g = graph.traversal();
+    ///     let g = graph.gremlin();
     ///     g.v().count()
     /// "#)?;
     ///
@@ -164,7 +164,7 @@ impl RhaiEngine {
     /// // ... populate graph ...
     ///
     /// let result: i64 = engine.eval_with_graph(graph, r#"
-    ///     let g = graph.traversal();
+    ///     let g = graph.gremlin();
     ///     g.v().count()
     /// "#)?;
     /// ```
@@ -196,7 +196,7 @@ impl RhaiEngine {
     /// use std::sync::Arc;
     ///
     /// let engine = RhaiEngine::new();
-    /// let ast = engine.compile("graph.traversal().v().count()")?;
+    /// let ast = engine.compile("graph.gremlin().v().count()")?;
     /// let graph = Arc::new(Graph::new());
     ///
     /// let count: i64 = engine.eval_ast_with_graph(graph, &ast)?;
@@ -309,7 +309,7 @@ mod tests {
             .eval_with_graph(
                 graph,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().count()
             "#,
             )
@@ -327,7 +327,7 @@ mod tests {
             .eval_with_graph(
                 graph,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().has_label("person").count()
             "#,
             )
@@ -345,7 +345,7 @@ mod tests {
             .eval_with_graph(
                 graph,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().has_where("age", gte(30)).count()
             "#,
             )
@@ -363,7 +363,7 @@ mod tests {
             .eval_with_graph(
                 graph,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().has_value("name", "Alice").out().count()
             "#,
             )
@@ -380,7 +380,7 @@ mod tests {
         let ast = engine
             .compile(
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().count()
             "#,
             )
@@ -419,7 +419,7 @@ mod tests {
             .run_with_graph(
                 graph,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 let count = g.v().count();
             "#,
             )
@@ -435,7 +435,7 @@ mod tests {
             .eval_with_graph_dynamic(
                 graph,
                 r#"
-                let g = graph.traversal();
+                let g = graph.gremlin();
                 g.v().count()
             "#,
             )

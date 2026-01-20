@@ -35,7 +35,7 @@
 //! let snapshot = graph.snapshot();
 //!
 //! // Execute GQL query
-//! let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+//! let results = graph.gql("MATCH (n:Person) RETURN n").unwrap();
 //! assert_eq!(results.len(), 1);
 //! ```
 //!
@@ -105,7 +105,7 @@
 //! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
-//! let results = snapshot.gql(r#"
+//! let results = graph.gql(r#"
 //!     MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend:Person)
 //!     RETURN friend
 //! "#);
@@ -143,31 +143,31 @@
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // Numeric comparison
-//! let _ = snapshot.gql("MATCH (p:Person) WHERE p.age > 25 RETURN p");
+//! let _ = graph.gql("MATCH (p:Person) WHERE p.age > 25 RETURN p");
 //!
 //! // Combined conditions
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     WHERE p.age >= 25 AND p.age <= 35
 //!     RETURN p
 //! "#);
 //!
 //! // String matching
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     WHERE p.name STARTS WITH 'A'
 //!     RETURN p
 //! "#);
 //!
 //! // Null check
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     WHERE p.email IS NOT NULL
 //!     RETURN p
 //! "#);
 //!
 //! // List membership
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     WHERE p.status IN ['active', 'pending']
 //!     RETURN p
@@ -202,18 +202,18 @@
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // Return multiple properties as a map
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN p.name, p.age");
+//! let _ = graph.gql("MATCH (p:Person) RETURN p.name, p.age");
 //!
 //! // With aliases
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     RETURN p.name AS name, p.age AS years
 //! "#);
 //!
 //! // Aggregation
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN count(*)");
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN avg(p.age)");
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql("MATCH (p:Person) RETURN count(*)");
+//! let _ = graph.gql("MATCH (p:Person) RETURN avg(p.age)");
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     RETURN count(DISTINCT p.city) AS uniqueCities
 //! "#);
@@ -228,13 +228,13 @@
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // Ascending (default)
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN p ORDER BY p.age");
+//! let _ = graph.gql("MATCH (p:Person) RETURN p ORDER BY p.age");
 //!
 //! // Descending
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN p ORDER BY p.age DESC");
+//! let _ = graph.gql("MATCH (p:Person) RETURN p ORDER BY p.age DESC");
 //!
 //! // Multiple sort keys
-//! let _ = snapshot.gql(r#"
+//! let _ = graph.gql(r#"
 //!     MATCH (p:Person)
 //!     RETURN p
 //!     ORDER BY p.age DESC, p.name ASC
@@ -250,10 +250,10 @@
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
 //! // First 10 results
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN p LIMIT 10");
+//! let _ = graph.gql("MATCH (p:Person) RETURN p LIMIT 10");
 //!
 //! // Pagination: skip 20, take 10
-//! let _ = snapshot.gql("MATCH (p:Person) RETURN p LIMIT 10 OFFSET 20");
+//! let _ = graph.gql("MATCH (p:Person) RETURN p LIMIT 10 OFFSET 20");
 //! ```
 //!
 //! ## Complete Query Example
@@ -262,7 +262,7 @@
 //! # use interstellar::prelude::*;
 //! # let graph = Graph::in_memory();
 //! # let snapshot = graph.snapshot();
-//! let results = snapshot.gql(r#"
+//! let results = graph.gql(r#"
 //!     MATCH (p:Person)-[:KNOWS]->(friend:Person)
 //!     WHERE p.age > 25 AND friend.city = 'NYC'
 //!     RETURN p.name AS person, friend.name AS friendName, friend.age
@@ -287,7 +287,7 @@
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
 //!
-//! match snapshot.gql("MATCH (n:Person) RETURN x") {
+//! match graph.gql("MATCH (n:Person) RETURN x") {
 //!     Ok(results) => println!("Found {} results", results.len()),
 //!     Err(GqlError::Parse(e)) => eprintln!("Syntax error: {}", e),
 //!     Err(GqlError::Compile(e)) => eprintln!("Compilation error: {}", e),

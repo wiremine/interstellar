@@ -8,7 +8,7 @@ use crate::common::graphs::create_small_graph;
 fn values_extracts_property() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let names = g.v().has_label("person").values("name").to_list();
     assert_eq!(names.len(), 3);
@@ -26,7 +26,7 @@ fn values_extracts_property() {
 fn values_multi_extracts_multiple_properties() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get name and age from person vertices
     let props = g
@@ -42,7 +42,7 @@ fn values_multi_extracts_multiple_properties() {
 fn id_extracts_element_id() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let ids = g.v().id().to_list();
     assert_eq!(ids.len(), 4);
@@ -56,7 +56,7 @@ fn id_extracts_element_id() {
 fn label_extracts_element_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let labels = g.v().label().dedup().to_list();
     assert_eq!(labels.len(), 2); // "person" and "software"
@@ -66,7 +66,7 @@ fn label_extracts_element_label() {
 fn map_transforms_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let doubled = g
         .inject([1i64, 2i64, 3i64])
@@ -89,7 +89,7 @@ fn map_transforms_values() {
 fn flat_map_expands_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let expanded = g
         .inject([3i64])
@@ -112,7 +112,7 @@ fn flat_map_expands_values() {
 fn constant_replaces_with_constant_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().limit(3).constant("found").to_list();
     assert_eq!(results.len(), 3);
@@ -125,7 +125,7 @@ fn constant_replaces_with_constant_value() {
 fn path_returns_traversal_path() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use as_() to add elements to path
     let paths = g
@@ -149,7 +149,7 @@ fn path_returns_traversal_path() {
 fn as_and_select_labels_and_retrieves() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v_ids([tg.alice])
@@ -173,7 +173,7 @@ fn as_and_select_labels_and_retrieves() {
 fn select_one_retrieves_single_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v_ids([tg.alice])

@@ -673,7 +673,7 @@ fn mutation_executor_execute_mutation_drop_edge_failure() {
 fn add_v_via_api() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results: Vec<Value> = g.add_v("test_label").property("name", "Test").to_list();
 
@@ -687,7 +687,7 @@ fn add_v_via_api() {
 fn add_e_via_api() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results: Vec<Value> = g
         .add_e("knows")
@@ -707,7 +707,7 @@ fn drop_vertex_via_api() {
     let id = graph.add_vertex("item", HashMap::new());
 
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results: Vec<Value> = g.v_ids([id]).drop().to_list();
 

@@ -8,7 +8,7 @@ use crate::common::graphs::create_small_graph;
 fn find_friends_of_friends() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> knows -> ? -> knows -> ?
     let fof = g
@@ -25,7 +25,7 @@ fn find_friends_of_friends() {
 fn find_cycle_back_to_start() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> knows -> Bob -> knows -> Charlie -> knows -> Alice
     let cycle = g
@@ -43,7 +43,7 @@ fn find_cycle_back_to_start() {
 fn find_software_used_by_people_who_know_alice() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // People who know Alice -> uses -> software
     let software = g
@@ -61,7 +61,7 @@ fn find_software_used_by_people_who_know_alice() {
 fn count_edges_per_vertex() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Count all incident edges for each vertex
     let alice_edges = g.v_ids([tg.alice]).both_e().count();
@@ -75,7 +75,7 @@ fn count_edges_per_vertex() {
 fn get_all_names_in_graph() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let names = g.v().values("name").to_list();
     assert_eq!(names.len(), 4);
@@ -94,7 +94,7 @@ fn get_all_names_in_graph() {
 fn get_unique_labels() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let labels = g.v().label().dedup().to_list();
     assert_eq!(labels.len(), 2);
@@ -107,7 +107,7 @@ fn get_unique_labels() {
 fn pagination_with_skip_and_limit() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let page1 = g.v().limit(2).to_list();
     let page2 = g.v().skip(2).limit(2).to_list();
@@ -127,7 +127,7 @@ fn pagination_with_skip_and_limit() {
 fn sum_ages_of_people() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get sum of ages: 30 + 25 + 35 = 90
     let result = g.v().has_label("person").values("age").sum();
@@ -138,7 +138,7 @@ fn sum_ages_of_people() {
 fn traversal_with_path_tracking() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Enable path tracking and get paths
     let paths = g
@@ -164,7 +164,7 @@ fn traversal_with_path_tracking() {
 fn select_multiple_labels() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v_ids([tg.alice])
@@ -187,7 +187,7 @@ fn select_multiple_labels() {
 fn edge_property_access() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get "since" property from knows edges
     let since_values = g.e().has_label("knows").values("since").to_list();
@@ -202,7 +202,7 @@ fn edge_property_access() {
 fn combining_filters_and_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find people who are older than 27 and know someone
     let results = g

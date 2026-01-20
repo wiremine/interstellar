@@ -149,7 +149,7 @@ mod group_step_key_types {
         graph.add_vertex("user", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let result = g
             .v()
@@ -180,7 +180,7 @@ mod group_step_key_types {
         graph.add_vertex("item", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let result = g
             .v()
@@ -207,7 +207,7 @@ mod group_step_key_types {
         graph.add_vertex("item", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let result = g
             .v()
@@ -250,7 +250,7 @@ mod group_count_key_types {
         graph.add_vertex("user", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let result = g
             .v()
@@ -272,7 +272,7 @@ mod group_count_key_types {
         // This tests value_to_map_key for Vertex type
         let graph = create_graph_with_edges();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count edges grouped by target vertex
         let result = g.e().group_count().by_traversal(__::in_v()).build().next();
@@ -289,7 +289,7 @@ mod group_count_key_types {
         // This tests value_to_map_key for Edge type
         let graph = create_graph_with_edges();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group vertices by outgoing edges (unusual but tests edge key handling)
         // First collect edges, then group by identity
@@ -313,7 +313,7 @@ mod group_value_traversal_tests {
     fn group_value_traversal_multiple_results() {
         let graph = create_graph_with_edges();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group by label, collect outgoing neighbor names
         let result = g
@@ -348,7 +348,7 @@ mod group_value_traversal_tests {
         graph.add_vertex("person", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group by label, collect outgoing neighbor names (none exist)
         let result = g
@@ -387,7 +387,7 @@ mod group_value_traversal_tests {
             .unwrap();
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Use a traversal that returns single value (out-degree count)
         let result = g
@@ -420,7 +420,7 @@ mod non_element_input_tests {
     fn group_non_vertex_non_edge_by_label() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Inject integers and try to group by label (should skip them)
         let result = g
@@ -442,7 +442,7 @@ mod non_element_input_tests {
     fn group_count_non_vertex_non_edge_by_property() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Inject strings and try to group count by property (should skip them)
         let result = g
@@ -474,7 +474,7 @@ mod default_selector_tests {
     fn group_step_default_key_is_label() {
         let graph = create_basic_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // group() without by_key or by_label should default to label
         let result = g.v().group().build().next();
@@ -489,7 +489,7 @@ mod default_selector_tests {
     fn group_step_default_value_is_identity() {
         let graph = create_basic_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // group().by_label() without by_value should default to identity
         let result = g.v().group().by_label().build().next();
@@ -509,7 +509,7 @@ mod default_selector_tests {
     fn group_count_step_default_is_label() {
         let graph = create_basic_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // group_count() without by_key or by_label should default to label
         let result = g.v().group_count().build().next();
@@ -533,7 +533,7 @@ mod path_preservation_tests {
     fn group_preserves_last_path() {
         let graph = create_basic_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // With path tracking enabled
         let result = g
@@ -554,7 +554,7 @@ mod path_preservation_tests {
     fn group_count_preserves_last_path() {
         let graph = create_basic_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // With path tracking enabled
         let result = g

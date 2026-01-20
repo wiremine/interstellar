@@ -554,7 +554,7 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
 ///
 /// let graph = Graph::new(/* ... */);
 /// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
+/// let g = snapshot.gremlin();
 ///
 /// // Count vertices by label
 /// let counts = g.v().group_count().by_label().build().to_list();
@@ -685,7 +685,7 @@ impl AnyStep for GroupCountStep {
 ///
 /// let graph = Graph::new(/* ... */);
 /// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
+/// let g = snapshot.gremlin();
 ///
 /// // Count by label
 /// g.v().group_count().by_label().build();
@@ -860,7 +860,7 @@ mod tests {
     fn test_group_by_label_identity() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group all vertices by label
         let result = g.v().group().by_label().by_value().build().next();
@@ -901,7 +901,7 @@ mod tests {
     fn test_group_by_property_collect_property() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group people by age, collect names
         let result = g
@@ -941,7 +941,7 @@ mod tests {
     fn test_group_default_selectors() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Use default selectors (by label, identity value)
         let result = g.v().group().build().next();
@@ -962,7 +962,7 @@ mod tests {
     fn test_group_builder_fluent_api() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Test fluent API chaining
         let result = g
@@ -992,7 +992,7 @@ mod tests {
     fn test_group_empty_input() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Filter to no vertices, then group
         let result = g
@@ -1019,7 +1019,7 @@ mod tests {
     fn test_group_count_by_label() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count all vertices by label
         let result = g.v().group_count().by_label().build().next();
@@ -1039,7 +1039,7 @@ mod tests {
     fn test_group_count_by_property() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count person vertices by age property
         let result = g
@@ -1065,7 +1065,7 @@ mod tests {
     fn test_group_count_default_selector() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group count without specifying selector (should default to label)
         let result = g.v().group_count().build().next();
@@ -1085,7 +1085,7 @@ mod tests {
     fn test_group_count_empty_input() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Filter to no vertices, then group count
         let result = g
@@ -1146,7 +1146,7 @@ mod tests {
     fn test_group_by_traversal_key() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group by out-degree (count of outgoing edges)
         // Since our test graph has no edges, we'll use a simpler traversal
@@ -1183,7 +1183,7 @@ mod tests {
     fn test_group_by_value_traversal() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group by label, collect age property values
         let value_traversal = crate::traversal::__::values("age");
@@ -1244,7 +1244,7 @@ mod tests {
             .unwrap();
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group all edges by label
         let result = g.e().group().by_label().by_value().build().next();
@@ -1291,7 +1291,7 @@ mod tests {
         graph.add_edge(v1, v0, "knows", edge2_props).unwrap();
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group edges by weight property
         let result = g.e().group().by_key("weight").by_value().build().next();
@@ -1310,7 +1310,7 @@ mod tests {
     fn test_group_preserves_path() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Create traversal with path tracking
         let result = g
@@ -1373,7 +1373,7 @@ mod tests {
     fn test_group_count_by_traversal() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count by name property value
         let key_traversal = crate::traversal::__::values("name");
@@ -1419,7 +1419,7 @@ mod tests {
             .unwrap();
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count edges by label
         let result = g.e().group_count().by_label().build().next();
@@ -1455,7 +1455,7 @@ mod tests {
         graph.add_edge(v0, v1, "likes", edge3_props).unwrap();
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count edges by weight property
         let result = g.e().group_count().by_key("weight").build().next();
@@ -1474,7 +1474,7 @@ mod tests {
     fn test_group_count_preserves_path() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Create traversal with path tracking
         let result = g
@@ -1532,7 +1532,7 @@ mod tests {
     fn test_group_count_with_missing_property() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Count by a property that doesn't exist on all vertices
         let result = g.v().group_count().by_key("nonexistent").build().next();
@@ -1550,7 +1550,7 @@ mod tests {
     fn test_group_with_missing_property() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Group by a property that doesn't exist on all vertices
         let result = g

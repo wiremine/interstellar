@@ -80,7 +80,7 @@ fn test_union_with_anonymous() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([A.out("knows"), A.out("works_at")])
                 .count()
@@ -101,7 +101,7 @@ fn test_union_multiple_branches() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([
                     A.out("knows").values("name"),
@@ -129,7 +129,7 @@ fn test_coalesce_with_anonymous() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .coalesce([A.out("manages"), A.out("knows")])
                 .count()
@@ -151,7 +151,7 @@ fn test_coalesce_first_match_wins() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .coalesce([A.out("knows"), A.out("works_at")])
                 .values("name")
@@ -178,7 +178,7 @@ fn test_optional_with_anonymous() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .optional(A.out("works_at"))
                 .count()
@@ -205,7 +205,7 @@ fn test_repeat_with_anonymous() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .repeat(A.out("knows"), 2)
                 .count()
@@ -231,7 +231,7 @@ fn test_anonymous_with_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([A.out().has_label("person")])
                 .count()
@@ -252,7 +252,7 @@ fn test_anonymous_with_has_value() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([A.out("knows").has_value("active", true)])
                 .values("name")
@@ -280,7 +280,7 @@ fn test_anonymous_with_values() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([A.out("knows").values("name")])
                 .to_list()
@@ -301,7 +301,7 @@ fn test_anonymous_with_constant() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([A.out("knows").constant("friend")])
                 .to_list()
@@ -329,7 +329,7 @@ fn test_nested_union() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([
                     A.out("knows"),
@@ -356,7 +356,7 @@ fn test_anonymous_dedup() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("name", within(["Alice", "Bob"]))
                 .union([A.out("knows").dedup()])
                 .count()
@@ -379,7 +379,7 @@ fn test_anonymous_limit() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([A.out().limit(1)])
                 .count()
@@ -405,7 +405,7 @@ fn test_anonymous_in_variable() {
             graph.clone(),
             r#"
             let friends = A.out("knows");
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([friends])
                 .count()
@@ -428,7 +428,7 @@ fn test_multiple_anonymous_variables() {
             r#"
             let friends = A.out("knows");
             let work = A.out("works_at");
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .union([friends, work])
                 .count()
@@ -453,7 +453,7 @@ fn test_anonymous_as_function_parameter() {
                 g.v().has_value("name", "Alice").union([traversal]).count()
             }
             
-            let g = graph.traversal();
+            let g = graph.gremlin();
             apply_union(g, A.out("knows"))
         "#,
         )

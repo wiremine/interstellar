@@ -79,7 +79,7 @@ fn test_gql_variable_path_exact_hops() {
     // Find people exactly 2 hops from Alice
     // Alice -[KNOWS]-> Bob -[KNOWS]-> Carol (2 hops)
     // Alice -[KNOWS]-> Frank -[KNOWS]-> Dave (2 hops)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*2]->(target) RETURN target.name")
         .unwrap();
 
@@ -107,7 +107,7 @@ fn test_gql_variable_path_range() {
     // 1 hop: Bob, Frank
     // 2 hops: Carol (via Bob), Dave (via Frank)
     // 3 hops: Dave (via Bob->Carol), Eve (via Frank->Dave)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(target) RETURN target.name")
         .unwrap();
 
@@ -135,7 +135,7 @@ fn test_gql_variable_path_max_only() {
     let snapshot = graph.snapshot();
 
     // Find people 0-2 hops from Alice (should include Alice herself)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..2]->(target) RETURN target.name")
         .unwrap();
 
@@ -165,7 +165,7 @@ fn test_gql_variable_path_unbounded() {
     let snapshot = graph.snapshot();
 
     // Find all people reachable from Alice
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*]->(target) RETURN target.name")
         .unwrap();
 
@@ -193,7 +193,7 @@ fn test_gql_friends_of_friends() {
     let snapshot = graph.snapshot();
 
     // Classic friends-of-friends: exactly 2 hops
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*2]->(fof) RETURN fof.name")
         .unwrap();
 
@@ -221,7 +221,7 @@ fn test_gql_variable_path_incoming() {
     let snapshot = graph.snapshot();
 
     // Find people who can reach Eve in 1-2 hops
-    let results = snapshot
+    let results = graph
         .gql("MATCH (e:Person {name: 'Eve'})<-[:KNOWS*1..2]-(source) RETURN source.name")
         .unwrap();
 
@@ -247,7 +247,7 @@ fn test_gql_variable_path_bidirectional() {
     let snapshot = graph.snapshot();
 
     // Find people connected to Carol within 2 hops (either direction)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (c:Person {name: 'Carol'})-[:KNOWS*1..2]-(connected) RETURN connected.name")
         .unwrap();
 
@@ -275,7 +275,7 @@ fn test_gql_variable_path_no_label() {
     let snapshot = graph.snapshot();
 
     // Find all vertices reachable in exactly 1 hop via any edge type
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[*1]->(target) RETURN target.name")
         .unwrap();
 
@@ -300,11 +300,11 @@ fn test_gql_variable_path_single_hop() {
     let snapshot = graph.snapshot();
 
     // *1 should be equivalent to regular single-hop traversal
-    let results_single = snapshot
+    let results_single = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(target) RETURN target.name")
         .unwrap();
 
-    let results_star1 = snapshot
+    let results_star1 = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1]->(target) RETURN target.name")
         .unwrap();
 
@@ -373,7 +373,7 @@ fn test_gql_return_distinct_property() {
     let snapshot = graph.snapshot();
 
     // Without DISTINCT - should return 7 cities (with duplicates)
-    let results_no_distinct = snapshot.gql("MATCH (p:Person) RETURN p.city").unwrap();
+    let results_no_distinct = graph.gql("MATCH (p:Person) RETURN p.city").unwrap();
     assert_eq!(
         results_no_distinct.len(),
         7,
@@ -381,7 +381,7 @@ fn test_gql_return_distinct_property() {
     );
 
     // With DISTINCT - should return only 3 unique cities
-    let results_distinct = snapshot
+    let results_distinct = graph
         .gql("MATCH (p:Person) RETURN DISTINCT p.city")
         .unwrap();
     assert_eq!(
@@ -429,7 +429,7 @@ fn test_gql_return_distinct_multiple_properties() {
     let snapshot = graph.snapshot();
 
     // RETURN DISTINCT on multiple properties - deduplicates based on the combination
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN DISTINCT p.city, p.country")
         .unwrap();
 
@@ -450,7 +450,7 @@ fn test_gql_return_distinct_with_variable_path() {
 
     // Find all people reachable from Alice (paths may reach same person multiple ways)
     // Without DISTINCT, if implementation doesn't dedup at traversal level, we might get duplicates
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..4]->(target) RETURN DISTINCT target.name")
         .unwrap();
 
@@ -480,7 +480,7 @@ fn test_gql_return_distinct_with_where() {
 
     // Get distinct cities, but only from the first 5 results (conceptually)
     // Actually, we filter first then distinct
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.city <> 'Chicago' RETURN DISTINCT p.city")
         .unwrap();
 
@@ -511,7 +511,7 @@ fn test_gql_return_distinct_with_order_limit() {
     let snapshot = graph.snapshot();
 
     // Get distinct cities, ordered alphabetically, limit to 2
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN DISTINCT p.city ORDER BY p.city LIMIT 2")
         .unwrap();
 
@@ -538,13 +538,13 @@ fn test_gql_return_distinct_case_insensitive() {
     let snapshot = graph.snapshot();
 
     // Test that DISTINCT keyword is case insensitive
-    let results1 = snapshot
+    let results1 = graph
         .gql("MATCH (p:Person) RETURN DISTINCT p.city")
         .unwrap();
-    let results2 = snapshot
+    let results2 = graph
         .gql("MATCH (p:Person) RETURN distinct p.city")
         .unwrap();
-    let results3 = snapshot
+    let results3 = graph
         .gql("MATCH (p:Person) RETURN Distinct p.city")
         .unwrap();
 
@@ -563,7 +563,7 @@ fn test_gql_return_without_distinct_has_duplicates() {
     let graph = create_distinct_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN p.city").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN p.city").unwrap();
 
     // Should return all 7 values including duplicates
     assert_eq!(results.len(), 7);
@@ -600,8 +600,8 @@ fn test_gql_return_distinct_vertex() {
     let snapshot = graph.snapshot();
 
     // Each person is unique, so DISTINCT shouldn't change the count
-    let results_no_distinct = snapshot.gql("MATCH (p:Person) RETURN p").unwrap();
-    let results_distinct = snapshot.gql("MATCH (p:Person) RETURN DISTINCT p").unwrap();
+    let results_no_distinct = graph.gql("MATCH (p:Person) RETURN p").unwrap();
+    let results_distinct = graph.gql("MATCH (p:Person) RETURN DISTINCT p").unwrap();
 
     assert_eq!(
         results_no_distinct.len(),
@@ -702,7 +702,7 @@ fn test_gql_multi_var_basic_two_variables() {
         RETURN a.name AS person1, b.name AS person2
         ORDER BY person1, person2
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Should have 4 KNOWS relationships
     assert_eq!(results.len(), 4, "Should have 4 KNOWS relationships");
@@ -737,7 +737,7 @@ fn test_gql_multi_var_three_nodes() {
         RETURN p1.name AS person1, c.name AS company, p2.name AS person2
         ORDER BY company, person1, person2
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Should find coworker pairs:
     // StartupInc: Carol-Dave, Dave-Carol
@@ -767,7 +767,7 @@ fn test_gql_multi_var_where_both_variables() {
         RETURN a.name AS older, b.name AS younger
         ORDER BY older
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Alice(30) knows Bob(28) and Carol(35)
     // Bob(28) knows Carol(35)
@@ -793,7 +793,7 @@ fn test_gql_multi_var_with_count() {
         GROUP BY c.name
         ORDER BY company
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // TechCorp: 2 employees (Alice, Bob)
     // StartupInc: 2 employees (Carol, Dave)
@@ -818,7 +818,7 @@ fn test_gql_multi_var_return_one_property() {
         RETURN p.name
         ORDER BY p.name
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Should find Alice and Bob who work at TechCorp
     assert_eq!(results.len(), 2);
@@ -839,7 +839,7 @@ fn test_gql_multi_var_distinct() {
         RETURN DISTINCT c.name AS company
         ORDER BY company
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Should find companies where "known" people work
     assert!(!results.is_empty());
@@ -858,7 +858,7 @@ fn test_gql_multi_var_with_limit() {
         ORDER BY src, dest
         LIMIT 2
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     assert_eq!(results.len(), 2, "Should return only 2 results");
 }
@@ -876,7 +876,7 @@ fn test_gql_multi_var_binding_correctness() {
         RETURN a.name AS source, b.name AS target
         ORDER BY target
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Alice KNOWS Bob and Carol
     assert_eq!(results.len(), 2);
@@ -915,7 +915,7 @@ fn test_gql_multi_var_expression_in_where() {
         RETURN older.name AS older_person, younger.name AS younger_person
         ORDER BY older_person
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Alice(30) -> Bob(28) OK (30 > 28)
     // Alice(30) -> Carol(35) NO (30 < 35)
@@ -1037,7 +1037,7 @@ fn test_gql_edge_variable_basic() {
         RETURN p.name AS player, t.name AS team
         ORDER BY player, team
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Should have 4 PLAYED_FOR relationships
     assert_eq!(results.len(), 4, "Should have 4 PLAYED_FOR relationships");
@@ -1061,7 +1061,7 @@ fn test_gql_edge_property_in_return() {
         RETURN p.name AS player, t.name AS team, e.championships AS rings
         ORDER BY rings DESC, player
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     assert_eq!(results.len(), 4);
 
@@ -1086,7 +1086,7 @@ fn test_gql_edge_property_in_where() {
         RETURN p.name AS player, e.championships AS rings
         ORDER BY rings DESC
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Bob(3) and Alice(2) have 2+ championships
     assert_eq!(results.len(), 2, "Should have 2 players with 2+ rings");
@@ -1108,7 +1108,7 @@ fn test_gql_edge_property_inline_filter() {
         MATCH (p:Person)-[e:PLAYED_FOR {championships: 3}]->(t:Team)
         RETURN p.name AS player, t.name AS team
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Only Bob has exactly 3 championships
     assert_eq!(results.len(), 1);
@@ -1131,7 +1131,7 @@ fn test_gql_edge_property_comparison() {
         RETURN p.name AS player, t.name AS team, e.start_year, e.end_year
         ORDER BY player
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Alice at Bulls: 2015-2020 = 5 years OK
     // Alice at Lakers: 2020-2023 = 3 years NO
@@ -1153,7 +1153,7 @@ fn test_gql_edge_variable_filter_only() {
         RETURN p.name AS person, friend.name AS knows
         ORDER BY person
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Alice knows Bob since 2015 (< 2017) OK
     // Bob knows Carol since 2018 (>= 2017) NO
@@ -1177,7 +1177,7 @@ fn test_gql_multiple_edge_properties_where() {
         RETURN p.name AS player, t.name AS team, e.championships AS rings
         ORDER BY rings DESC
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Alice at Bulls: 2015+, 2 rings OK
     // Alice at Lakers: 2020+, 1 ring OK
@@ -1199,7 +1199,7 @@ fn test_gql_edge_property_aggregation() {
         GROUP BY t.name
         ORDER BY total_rings DESC
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     // Bulls: 2 (Alice) + 3 (Bob) = 5
     // Lakers: 1 (Alice) + 0 (Carol) = 1
@@ -1384,7 +1384,7 @@ fn test_gql_debug_var_path_where() {
         RETURN DISTINCT target.name
         ORDER BY target.name
     "#;
-    let results1: Vec<_> = snapshot.gql(query1).unwrap();
+    let results1: Vec<_> = graph.gql(query1).unwrap();
     println!("With inline filter: {:?}", results1);
 
     // Now test with WHERE clause (triggers multi-var path)
@@ -1394,7 +1394,7 @@ fn test_gql_debug_var_path_where() {
         RETURN DISTINCT target.name
         ORDER BY target.name
     "#;
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     println!("With WHERE clause: {:?}", results2);
 
     // The results should be the same
@@ -1420,7 +1420,7 @@ fn test_gql_debug_path_contents() {
         WHERE p.name = 'Alice'
         RETURN p.name AS source, target.name AS dest
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     println!("1-hop results:");
     for r in &results {
         println!("  {:?}", r);
@@ -1443,7 +1443,7 @@ fn test_gql_debug_2hop_path() {
         RETURN p.name AS source, target.name AS dest
         ORDER BY dest
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     println!("2-hop results:");
     for r in &results {
         println!("  {:?}", r);
@@ -1461,7 +1461,7 @@ fn test_gql_debug_traverser_path() {
     let snapshot = graph.snapshot();
 
     // Use the traversal API directly to see what's happening
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // First find Alice
     let alice_results: Vec<_> = g
@@ -1472,7 +1472,7 @@ fn test_gql_debug_traverser_path() {
     println!("Alice found: {:?}", alice_results);
 
     // Now do 2-hop with path tracking
-    let g2 = snapshot.traversal();
+    let g2 = snapshot.gremlin();
     let path_results: Vec<_> = g2
         .v()
         .with_path()
@@ -1497,7 +1497,7 @@ fn test_gql_debug_traverser_repeat_path() {
     let graph = create_social_network_graph();
     let snapshot = graph.snapshot();
 
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
     let path_results: Vec<_> = g
         .v()
         .with_path()

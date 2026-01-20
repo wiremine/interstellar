@@ -125,7 +125,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
 fn v_returns_all_vertices() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let vertices = g.v().to_list();
     assert_eq!(vertices.len(), 4);
@@ -139,7 +139,7 @@ fn v_returns_all_vertices() {
 fn e_returns_all_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let edges = g.e().to_list();
     assert_eq!(edges.len(), 5);
@@ -153,7 +153,7 @@ fn e_returns_all_edges() {
 fn v_ids_returns_specific_vertices() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let vertices = g.v_ids([tg.alice, tg.charlie]).to_list();
     assert_eq!(vertices.len(), 2);
@@ -167,7 +167,7 @@ fn v_ids_returns_specific_vertices() {
 fn e_ids_returns_specific_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let edges = g
         .e_ids([tg.alice_knows_bob, tg.bob_knows_charlie])
@@ -183,7 +183,7 @@ fn e_ids_returns_specific_edges() {
 fn inject_creates_traversers_from_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([1i64, 2i64, 3i64]).to_list();
     assert_eq!(results.len(), 3);
@@ -196,7 +196,7 @@ fn inject_creates_traversers_from_values() {
 fn count_returns_correct_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     assert_eq!(g.v().count(), 4);
     assert_eq!(g.e().count(), 5);
@@ -206,7 +206,7 @@ fn count_returns_correct_value() {
 fn empty_graph_returns_empty_results() {
     let graph = create_empty_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     assert_eq!(g.v().count(), 0);
     assert_eq!(g.e().count(), 0);
@@ -218,7 +218,7 @@ fn empty_graph_returns_empty_results() {
 fn nonexistent_vertex_ids_filtered_out() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v_ids([tg.alice]).to_list();
     assert_eq!(results.len(), 1);
@@ -233,7 +233,7 @@ fn nonexistent_vertex_ids_filtered_out() {
 fn test_v_all_vertices() {
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let count = g.v().count();
     assert_eq!(count, 4);
@@ -243,7 +243,7 @@ fn test_v_all_vertices() {
 fn test_e_all_edges() {
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let count = g.e().count();
     assert_eq!(count, 5);
@@ -253,7 +253,7 @@ fn test_e_all_edges() {
 fn test_v_ids_specific_vertices() {
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let count = g.v_ids([tg.alice, tg.bob]).count();
     assert_eq!(count, 2);
@@ -263,7 +263,7 @@ fn test_v_ids_specific_vertices() {
 fn test_v_ids_nonexistent_filtered() {
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let fake_id = VertexId(999999);
     let count = g.v_ids([tg.alice, fake_id]).count();
@@ -274,7 +274,7 @@ fn test_v_ids_nonexistent_filtered() {
 fn test_e_ids_specific_edges() {
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let first_edge = g.e().next().unwrap().as_edge_id().unwrap();
     let count = g.e_ids([first_edge]).count();
@@ -285,7 +285,7 @@ fn test_e_ids_specific_edges() {
 fn test_inject_values() {
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([1i64, 2i64, 3i64]).to_list();
     assert_eq!(results.len(), 3);

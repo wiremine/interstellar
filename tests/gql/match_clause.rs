@@ -82,7 +82,7 @@ fn test_gql_outgoing_edge_traversal() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend")
         .unwrap();
 
@@ -94,7 +94,7 @@ fn test_gql_incoming_edge_traversal() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (c:Person {name: 'Carol'})<-[:KNOWS]-(source) RETURN source")
         .unwrap();
 
@@ -106,7 +106,7 @@ fn test_gql_bidirectional_edge_traversal() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (b:Person {name: 'Bob'})-[:KNOWS]-(connected) RETURN connected")
         .unwrap();
 
@@ -122,7 +122,7 @@ fn test_gql_edge_without_label() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (b:Person {name: 'Bob'})-[]->(target) RETURN target")
         .unwrap();
 
@@ -134,7 +134,7 @@ fn test_gql_multi_hop_traversal() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c) RETURN c")
         .unwrap();
 
@@ -146,7 +146,7 @@ fn test_gql_multi_hop_via_different_labels() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:WORKS_WITH]->(c) RETURN c")
         .unwrap();
 
@@ -162,7 +162,7 @@ fn test_gql_property_filter_on_pattern() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend:Person {name: 'Bob'}) RETURN friend")
         .unwrap();
 
@@ -174,7 +174,7 @@ fn test_gql_no_matching_edges() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:WORKS_WITH]->(coworker) RETURN coworker")
         .unwrap();
 
@@ -186,7 +186,7 @@ fn test_gql_chain_of_three_hops() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c)-[:KNOWS]->(d) RETURN d")
         .unwrap();
 
@@ -202,7 +202,7 @@ fn test_gql_return_single_property() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
+    let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
 
     assert_eq!(results.len(), 3, "Should find 3 Person vertices");
 
@@ -231,7 +231,7 @@ fn test_gql_return_numeric_property() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (n:Person) RETURN n.age").unwrap();
+    let results = graph.gql("MATCH (n:Person) RETURN n.age").unwrap();
 
     assert_eq!(results.len(), 3, "Should find 3 Person vertices with age");
 
@@ -260,7 +260,7 @@ fn test_gql_return_multiple_properties() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person {name: 'Alice'}) RETURN n.name, n.age")
         .unwrap();
 
@@ -282,7 +282,7 @@ fn test_gql_return_property_with_alias() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person {name: 'Alice'}) RETURN n.name AS personName")
         .unwrap();
 
@@ -295,7 +295,7 @@ fn test_gql_return_multiple_properties_with_aliases() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person {name: 'Bob'}) RETURN n.name AS name, n.age AS years")
         .unwrap();
 
@@ -317,7 +317,7 @@ fn test_gql_return_missing_property() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (c:Company) RETURN c.age").unwrap();
+    let results = graph.gql("MATCH (c:Company) RETURN c.age").unwrap();
 
     assert_eq!(results.len(), 0, "No Company has age property");
 }
@@ -327,7 +327,7 @@ fn test_gql_return_property_from_traversal() {
     let graph = create_graph_with_edges();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend.name")
         .unwrap();
 
@@ -349,7 +349,7 @@ fn test_gql_return_undefined_variable_in_property() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
 
-    let result = snapshot.gql("MATCH (n:Person) RETURN x.name");
+    let result = graph.gql("MATCH (n:Person) RETURN x.name");
 
     assert!(result.is_err());
     assert!(matches!(result, Err(GqlError::Compile(_))));
@@ -360,7 +360,7 @@ fn test_gql_return_mixed_variable_and_property() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person {name: 'Alice'}) RETURN n, n.name")
         .unwrap();
 

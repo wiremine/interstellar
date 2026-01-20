@@ -39,7 +39,7 @@
 //!
 //! // Create a snapshot for read access
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Traverse: find all people Alice knows
 //! let friends = g.v_ids([alice])
@@ -60,7 +60,7 @@
 //! // Create an empty in-memory graph
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Count vertices (0 in empty graph)
 //! assert_eq!(g.v().count(), 0);
@@ -88,7 +88,7 @@
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Source steps - where traversals begin
 //! let _ = g.v();                    // All vertices
@@ -158,7 +158,7 @@
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Use in branch steps
 //! let _ = g.v().union(vec![
@@ -189,7 +189,7 @@
 //! let snapshot = graph.snapshot();
 //!
 //! // Execute a GQL query
-//! let results = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
+//! let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
 //! assert_eq!(results.len(), 1);
 //! ```
 //!
@@ -203,7 +203,7 @@
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Handle "exactly one" requirement
 //! match g.v().one() {
@@ -271,7 +271,7 @@
 //!     let g = Arc::clone(&graph);
 //!     thread::spawn(move || {
 //!         let snap = g.snapshot();
-//!         snap.traversal().v().count()
+//!         snap.gremlin().v().count()
 //!     })
 //! }).collect();
 //!
@@ -387,7 +387,7 @@ pub mod rhai;
 ///
 /// let graph = Graph::new();
 /// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
+/// let g = snapshot.gremlin();
 /// ```
 ///
 /// This imports:

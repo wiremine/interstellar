@@ -18,7 +18,7 @@ fn test_eq_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", eq(30)).count()
         "#,
         )
@@ -36,7 +36,7 @@ fn test_neq_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").has_where("age", neq(30)).count()
         "#,
         )
@@ -54,7 +54,7 @@ fn test_lt_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", lt(30)).count()
         "#,
         )
@@ -72,7 +72,7 @@ fn test_lte_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", lte(30)).count()
         "#,
         )
@@ -90,7 +90,7 @@ fn test_gt_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", gt(30)).count()
         "#,
         )
@@ -108,7 +108,7 @@ fn test_gte_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", gte(30)).count()
         "#,
         )
@@ -130,7 +130,7 @@ fn test_between_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", between(25, 35)).count()
         "#,
         )
@@ -148,7 +148,7 @@ fn test_inside_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", inside(25, 35)).count()
         "#,
         )
@@ -166,7 +166,7 @@ fn test_outside_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", outside(28, 35)).count()
         "#,
         )
@@ -188,7 +188,7 @@ fn test_within_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("name", within(["Alice", "Bob", "Charlie"])).count()
         "#,
         )
@@ -206,7 +206,7 @@ fn test_without_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").has_where("name", without(["Alice", "Bob"])).count()
         "#,
         )
@@ -228,7 +228,7 @@ fn test_containing_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("name", containing("a")).count()
         "#,
         )
@@ -247,7 +247,7 @@ fn test_starting_with_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("name", starting_with("A")).count()
         "#,
         )
@@ -265,7 +265,7 @@ fn test_ending_with_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").has_where("name", ending_with("e")).count()
         "#,
         )
@@ -283,7 +283,7 @@ fn test_regex_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").has_where("name", regex("^[A-D]")).count()
         "#,
         )
@@ -305,7 +305,7 @@ fn test_not_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", pred_not(gt(30))).count()
         "#,
         )
@@ -323,7 +323,7 @@ fn test_and_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", pred_and(gte(25), lte(30))).count()
         "#,
         )
@@ -341,7 +341,7 @@ fn test_or_predicate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", pred_or(eq(25), eq(40))).count()
         "#,
         )
@@ -360,7 +360,7 @@ fn test_complex_predicate_combination() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let young_adults = pred_and(gte(25), lte(30));
             let seniors = gt(35);
             g.v().has_where("age", pred_or(young_adults, seniors)).count()
@@ -386,7 +386,7 @@ fn test_predicate_with_variable() {
             r#"
             let min_age = 28;
             let max_age = 35;
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("age", between(min_age, max_age)).count()
         "#,
         )
@@ -408,7 +408,7 @@ fn test_predicate_in_function() {
                 g.v().has_where("age", between(min, max)).count()
             }
             
-            let g = graph.traversal();
+            let g = graph.gremlin();
             count_by_age_range(g, 25, 30)
         "#,
         )

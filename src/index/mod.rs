@@ -38,7 +38,7 @@
 //! ).unwrap();
 //!
 //! // Queries automatically use indexes when applicable
-//! let adults = graph.traversal().v()
+//! let adults = graph.gremlin().v()
 //!     .has_label("person")
 //!     .has_where("age", p::gte(18))
 //!     .to_list();

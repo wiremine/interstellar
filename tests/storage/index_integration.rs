@@ -615,7 +615,7 @@ fn traversal_v_by_property_uses_index() {
 
     let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use traversal API with indexed lookup
     let results = g
@@ -655,7 +655,7 @@ fn traversal_v_by_property_range_uses_index() {
 
     let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Range query: ages 28-36
     let results = g
@@ -717,7 +717,7 @@ fn traversal_e_by_property_uses_index() {
 
     let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find edges from 2020
     let results = g
@@ -783,7 +783,7 @@ fn traversal_with_index_chains_complex_queries() {
 
     let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Complex query: Find Engineering people, get their coworkers, filter by age > 30
     let results = g

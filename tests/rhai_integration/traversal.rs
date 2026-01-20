@@ -18,7 +18,7 @@ fn test_v_all_vertices() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().count()
         "#,
         )
@@ -36,7 +36,7 @@ fn test_e_all_edges() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.e().count()
         "#,
         )
@@ -54,7 +54,7 @@ fn test_empty_graph() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().count()
         "#,
         )
@@ -76,7 +76,7 @@ fn test_out_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").out().count()
         "#,
         )
@@ -94,7 +94,7 @@ fn test_out_with_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").out("knows").count()
         "#,
         )
@@ -112,7 +112,7 @@ fn test_in_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Carol").in_().count()
         "#,
         )
@@ -130,7 +130,7 @@ fn test_both_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Bob").both("knows").count()
         "#,
         )
@@ -148,7 +148,7 @@ fn test_out_e_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").out_e().count()
         "#,
         )
@@ -166,7 +166,7 @@ fn test_in_e_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Carol").in_e().count()
         "#,
         )
@@ -185,7 +185,7 @@ fn test_edge_to_vertex_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").out_e("knows").in_v().count()
         "#,
         )
@@ -204,7 +204,7 @@ fn test_chained_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "A").out().out().values("name").to_list()
         "#,
         )
@@ -227,7 +227,7 @@ fn test_has_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").count()
         "#,
         )
@@ -245,7 +245,7 @@ fn test_has_property() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has("age").count()
         "#,
         )
@@ -263,7 +263,7 @@ fn test_has_not_property() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_not("age").count()
         "#,
         )
@@ -281,7 +281,7 @@ fn test_has_value() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").count()
         "#,
         )
@@ -300,7 +300,7 @@ fn test_dedup() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_where("name", within(["Alice", "Bob"])).out("knows").dedup().count()
         "#,
         )
@@ -318,7 +318,7 @@ fn test_limit() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().limit(3).count()
         "#,
         )
@@ -336,7 +336,7 @@ fn test_skip() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().skip(4).count()
         "#,
         )
@@ -354,7 +354,7 @@ fn test_range() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().range(1, 4).count()
         "#,
         )
@@ -376,7 +376,7 @@ fn test_id() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").id().to_list()
         "#,
         )
@@ -394,7 +394,7 @@ fn test_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().label().dedup().to_list()
         "#,
         )
@@ -412,7 +412,7 @@ fn test_values() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("name").to_list()
         "#,
         )
@@ -430,7 +430,7 @@ fn test_value_map() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").value_map().to_list()
         "#,
         )
@@ -449,7 +449,7 @@ fn test_element_map() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").element_map().to_list()
         "#,
         )
@@ -469,7 +469,7 @@ fn test_constant() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").constant(42).to_list()
         "#,
         )
@@ -490,7 +490,7 @@ fn test_identity() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().identity().count()
         "#,
         )
@@ -512,7 +512,7 @@ fn test_as_select() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").as_("a").out("knows").as_("b").select(["a", "b"]).to_list()
         "#,
         )
@@ -531,7 +531,7 @@ fn test_select_one() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").as_("a").out("knows").select_one("a").to_list()
         "#,
         )
@@ -554,7 +554,7 @@ fn test_to_list() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").to_list()
         "#,
         )
@@ -572,7 +572,7 @@ fn test_count() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().count()
         "#,
         )
@@ -590,7 +590,7 @@ fn test_first() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").first()
         "#,
         )
@@ -609,7 +609,7 @@ fn test_first_empty() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().first()
         "#,
         )
@@ -628,7 +628,7 @@ fn test_has_next() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").has_next()
         "#,
         )
@@ -646,7 +646,7 @@ fn test_has_next_empty() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_next()
         "#,
         )
@@ -668,7 +668,7 @@ fn test_order_asc() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("age").order_asc().to_list()
         "#,
         )
@@ -690,7 +690,7 @@ fn test_order_desc() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("age").order_desc().to_list()
         "#,
         )
@@ -717,7 +717,7 @@ fn test_friends_of_friends() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .out("knows")
                 .out("knows")
@@ -743,7 +743,7 @@ fn test_coworkers_query() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .out("works_at")
                 .values("name")
@@ -766,7 +766,7 @@ fn test_multi_step_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .out("knows")
                 .has_label("person")
@@ -793,7 +793,7 @@ fn test_path_length_query() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "A")
                 .out().out().out().out()
                 .values("name")
@@ -820,7 +820,7 @@ fn test_where_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .where_(anon().out("knows"))
                 .count()
@@ -843,7 +843,7 @@ fn test_where_filter_empty() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .where_(anon().out("knows").has_where("age", gt(100)))
                 .count()
@@ -864,7 +864,7 @@ fn test_not_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .not_(anon().out("knows"))
                 .values("name")
@@ -893,7 +893,7 @@ fn test_and_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .and_([
                     anon().out("knows"),
@@ -918,7 +918,7 @@ fn test_and_filter_stricter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .and_([
                     anon().out("knows"),
@@ -946,7 +946,7 @@ fn test_or_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .or_([
                     anon().has_where("age", gt(35)),
@@ -971,7 +971,7 @@ fn test_or_filter_with_names() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .or_([
                     anon().has_value("active", false),
@@ -1003,7 +1003,7 @@ fn test_combined_where_not() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .where_(anon().out("knows"))
                 .not_(anon().out("works_at"))
@@ -1031,7 +1031,7 @@ fn test_both_v_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.e().has_label("knows").both_v().dedup().count()
         "#,
         )
@@ -1052,7 +1052,7 @@ fn test_both_v_without_dedup() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.e().has_label("knows").both_v().count()
         "#,
         )
@@ -1072,7 +1072,7 @@ fn test_both_v_with_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.e().has_label("knows")
                 .both_v()
                 .has_value("active", true)
@@ -1110,7 +1110,7 @@ fn test_repeat_times() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "A")
                 .repeat(anon().out(), 2)
                 .values("name")
@@ -1133,7 +1133,7 @@ fn test_repeat_emit() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "A")
                 .repeat_emit(anon().out(), 2)
                 .values("name")
@@ -1162,7 +1162,7 @@ fn test_repeat_emit_more_hops() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "A")
                 .repeat_emit(anon().out(), 3)
                 .values("name")
@@ -1194,7 +1194,7 @@ fn test_repeat_until() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .repeat_until(anon().out("knows"), anon().has_where("age", gt(30)))
                 .values("name")
@@ -1222,7 +1222,7 @@ fn test_repeat_emit_until() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "A")
                 .repeat_emit_until(anon().out(), anon().has_value("name", "D"))
                 .values("name")
@@ -1255,7 +1255,7 @@ fn test_store_and_cap() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .values("name")
                 .store("names")
@@ -1282,7 +1282,7 @@ fn test_aggregate_and_cap() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .values("age")
                 .aggregate("ages")
@@ -1308,7 +1308,7 @@ fn test_store_multiple_keys() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .store("vertices")
                 .values("name")
@@ -1336,7 +1336,7 @@ fn test_side_effect_with_store() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person")
                 .side_effect(anon().values("name").store("all_names"))
                 .count()
@@ -1358,7 +1358,7 @@ fn test_store_empty_result() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("nonexistent")
                 .store("empty")
                 .cap("empty")
@@ -1383,7 +1383,7 @@ fn test_store_with_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice")
                 .out("knows")
                 .values("name")
@@ -1409,7 +1409,7 @@ fn test_aggregate_is_barrier() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().values("name")
                 .aggregate("all")
                 .cap("all")
@@ -1437,7 +1437,7 @@ fn test_add_v_creates_pending_vertex() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_v("test_label").to_list()
         "#,
         )
@@ -1457,7 +1457,7 @@ fn test_add_v_with_property() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_v("person").property("name", "NewPerson").to_list()
         "#,
         )
@@ -1476,7 +1476,7 @@ fn test_add_v_with_multiple_properties() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_v("person")
                 .property("name", "NewPerson")
                 .property("age", 25)
@@ -1498,7 +1498,7 @@ fn test_add_e_with_endpoints() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_e("test_edge").from_v(0).to_v(1).to_list()
         "#,
         )
@@ -1517,7 +1517,7 @@ fn test_add_e_with_property() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_e("test_edge")
                 .from_v(0)
                 .to_v(1)
@@ -1540,7 +1540,7 @@ fn test_drop_step() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").drop().to_list()
         "#,
         )
@@ -1560,7 +1560,7 @@ fn test_property_on_traversal() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").property("status", "active").to_list()
         "#,
         )
@@ -1580,7 +1580,7 @@ fn test_add_v_source_level() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_v("new_type").to_list()
         "#,
         )
@@ -1599,7 +1599,7 @@ fn test_add_e_source_level() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.add_e("connects").from_v(0).to_v(1).to_list()
         "#,
         )
@@ -1618,7 +1618,7 @@ fn test_anonymous_add_v() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let add_person = anon().add_v("person").property("name", "AnonPerson");
             g.inject([1]).to_list()
         "#,
@@ -1639,7 +1639,7 @@ fn test_anonymous_property() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let add_prop = anon().property("status", "pending");
             g.inject([1]).to_list()
         "#,
@@ -1659,7 +1659,7 @@ fn test_anonymous_drop() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let del = anon().drop();
             g.inject([1]).to_list()
         "#,
@@ -1683,7 +1683,7 @@ fn test_tail() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().tail().count()
         "#,
         )
@@ -1702,7 +1702,7 @@ fn test_tail_n() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().tail_n(3).count()
         "#,
         )
@@ -1721,7 +1721,7 @@ fn test_tail_n_more_than_available() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().tail_n(100).count()
         "#,
         )
@@ -1740,7 +1740,7 @@ fn test_coin() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().coin(0.0).count()
         "#,
         )
@@ -1759,7 +1759,7 @@ fn test_coin_all() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().coin(1.0).count()
         "#,
         )
@@ -1778,7 +1778,7 @@ fn test_sample() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().sample(2).count()
         "#,
         )
@@ -1797,7 +1797,7 @@ fn test_sample_more_than_available() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().sample(100).count()
         "#,
         )
@@ -1817,7 +1817,7 @@ fn test_dedup_by_key() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has("name").dedup_by_key("name").count()
         "#,
         )
@@ -1837,7 +1837,7 @@ fn test_dedup_by_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().dedup_by_label().count()
         "#,
         )
@@ -1857,7 +1857,7 @@ fn test_dedup_by_traversal() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().dedup_by(anon().label()).count()
         "#,
         )
@@ -1877,7 +1877,7 @@ fn test_has_ids() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_ids([0, 1, 2]).count()
         "#,
         )
@@ -1896,7 +1896,7 @@ fn test_has_ids_empty_array() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_ids([]).count()
         "#,
         )
@@ -1915,7 +1915,7 @@ fn test_has_ids_nonexistent() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_ids([999, 1000]).count()
         "#,
         )
@@ -1935,7 +1935,7 @@ fn test_anonymous_tail() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let t = anon().tail();
             g.v().where_(t).count()
         "#,
@@ -1955,7 +1955,7 @@ fn test_anonymous_tail_n() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let t = anon().tail_n(2);
             g.v().where_(t).count()
         "#,
@@ -1976,7 +1976,7 @@ fn test_anonymous_coin() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let c = anon().coin(1.0);
             g.v().where_(c).count()
         "#,
@@ -1995,7 +1995,7 @@ fn test_anonymous_sample() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let s = anon().sample(1);
             g.v().where_(s).count()
         "#,
@@ -2015,7 +2015,7 @@ fn test_anonymous_dedup_by_key() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let d = anon().dedup_by_key("name");
             g.inject([1]).to_list()
         "#,
@@ -2035,7 +2035,7 @@ fn test_anonymous_dedup_by_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let d = anon().dedup_by_label();
             g.inject([1]).to_list()
         "#,
@@ -2055,7 +2055,7 @@ fn test_anonymous_dedup_by() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let d = anon().dedup_by(anon().label());
             g.inject([1]).to_list()
         "#,
@@ -2075,7 +2075,7 @@ fn test_anonymous_has_ids() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let h = anon().has_ids([0, 1]);
             g.inject([1]).to_list()
         "#,
@@ -2096,7 +2096,7 @@ fn test_chained_phase7_steps() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").dedup_by_label().tail_n(5).count()
         "#,
         )
@@ -2120,7 +2120,7 @@ fn test_properties() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").properties().count()
         "#,
         )
@@ -2140,7 +2140,7 @@ fn test_properties_keys() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").properties_keys(["name"]).count()
         "#,
         )
@@ -2160,7 +2160,7 @@ fn test_key() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").properties_keys(["name"]).key().to_list()
         "#,
         )
@@ -2180,7 +2180,7 @@ fn test_value() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").properties_keys(["name"]).value().to_list()
         "#,
         )
@@ -2200,7 +2200,7 @@ fn test_value_map_keys() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").value_map_keys(["name"]).count()
         "#,
         )
@@ -2220,7 +2220,7 @@ fn test_value_map_with_tokens() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").value_map_with_tokens().to_list()
         "#,
         )
@@ -2243,7 +2243,7 @@ fn test_index() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").limit(3).index().to_list()
         "#,
         )
@@ -2263,7 +2263,7 @@ fn test_local() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").local(anon().out("knows").limit(1)).count()
         "#,
         )
@@ -2283,7 +2283,7 @@ fn test_local_with_aggregation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").local(anon().out("knows")).to_list()
         "#,
         )
@@ -2304,7 +2304,7 @@ fn test_anonymous_properties() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let p = anon().properties();
             g.inject([1]).to_list()
         "#,
@@ -2324,7 +2324,7 @@ fn test_anonymous_properties_keys() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let p = anon().properties_keys(["name"]);
             g.inject([1]).to_list()
         "#,
@@ -2344,7 +2344,7 @@ fn test_anonymous_key() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let k = anon().key();
             g.inject([1]).to_list()
         "#,
@@ -2364,7 +2364,7 @@ fn test_anonymous_value() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let v = anon().value();
             g.inject([1]).to_list()
         "#,
@@ -2384,7 +2384,7 @@ fn test_anonymous_value_map_keys() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let vm = anon().value_map_keys(["name"]);
             g.inject([1]).to_list()
         "#,
@@ -2404,7 +2404,7 @@ fn test_anonymous_value_map_with_tokens() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let vm = anon().value_map_with_tokens();
             g.inject([1]).to_list()
         "#,
@@ -2424,7 +2424,7 @@ fn test_anonymous_index() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let i = anon().index();
             g.inject([1]).to_list()
         "#,
@@ -2444,7 +2444,7 @@ fn test_anonymous_local() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let l = anon().local(anon().out());
             g.inject([1]).to_list()
         "#,
@@ -2465,7 +2465,7 @@ fn test_chained_phase8_steps() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").properties_keys(["name"]).key().to_list()
         "#,
         )
@@ -2490,7 +2490,7 @@ fn test_choose_binary_true_branch() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").choose(
                 anon().out(),
                 anon().values("name"),
@@ -2516,7 +2516,7 @@ fn test_choose_binary_false_branch() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").choose(
                 anon().out("manages"),
                 anon().constant("is-manager"),
@@ -2541,7 +2541,7 @@ fn test_choose_binary_with_navigation() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").choose(
                 anon().out("knows"),
                 anon().out("knows"),
@@ -2566,7 +2566,7 @@ fn test_choose_binary_alias() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").choose_binary(
                 anon().out(),
                 anon().constant("has-out"),
@@ -2590,7 +2590,7 @@ fn test_choose_options_basic() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().choose_options(anon().label(), #{
                 "person": anon().values("name"),
                 "company": anon().values("industry")
@@ -2613,7 +2613,7 @@ fn test_choose_options_with_default() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().choose_options(anon().label(), #{
                 "person": anon().constant("is-person"),
                 "_default": anon().constant("unknown-type")
@@ -2649,7 +2649,7 @@ fn test_choose_on_empty_traversal() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "NonExistent").choose(
                 anon().out(),
                 anon().constant("found"),
@@ -2672,7 +2672,7 @@ fn test_choose_multiple_inputs() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").choose(
                 anon().has("age"),
                 anon().values("age"),
@@ -2696,7 +2696,7 @@ fn test_anonymous_choose_binary() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let choose_trav = anon().choose(
                 anon().has("age"),
                 anon().values("name"),
@@ -2721,7 +2721,7 @@ fn test_anonymous_choose_options() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             let choose_trav = anon().choose_options(anon().label(), #{
                 "person": anon().identity(),
                 "_default": anon().identity()
@@ -2745,7 +2745,7 @@ fn test_nested_choose() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_value("name", "Alice").choose(
                 anon().out("knows"),
                 anon().choose(
@@ -2773,7 +2773,7 @@ fn test_choose_with_transform() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").choose(
                 anon().values("age").is_(gte(30)),
                 anon().constant("senior"),
@@ -2801,7 +2801,7 @@ fn test_order_by() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").order_by("age").values("name").to_list()
         "#,
         )
@@ -2835,7 +2835,7 @@ fn test_order_by_desc() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").order_by_desc("age").values("name").to_list()
         "#,
         )
@@ -2869,7 +2869,7 @@ fn test_group_by_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().group_by_label().to_list()
         "#,
         )
@@ -2889,7 +2889,7 @@ fn test_group_count_by_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().group_count_by_label().to_list()
         "#,
         )
@@ -2918,7 +2918,7 @@ fn test_group_count_by_key() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").group_count_by_key("active").to_list()
         "#,
         )
@@ -2943,7 +2943,7 @@ fn test_math_double() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("age").math("_ * 2").to_list()
         "#,
         )
@@ -2971,7 +2971,7 @@ fn test_math_add_constant() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("age").math("_ + 10").to_list()
         "#,
         )
@@ -2994,7 +2994,7 @@ fn test_anonymous_order_by() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").local(anon().order_by("age").limit(1)).values("name").to_list()
         "#,
         )
@@ -3014,7 +3014,7 @@ fn test_anonymous_group_count() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").local(anon().group_count_by_label()).to_list()
         "#,
         )
@@ -3034,7 +3034,7 @@ fn test_anonymous_math() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").local(anon().values("age").math("_ / 2")).to_list()
         "#,
         )
@@ -3062,7 +3062,7 @@ fn test_to_set() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().label().to_set()
         "#,
         )
@@ -3089,7 +3089,7 @@ fn test_to_set_preserves_order() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").out("knows").out("knows").values("name").to_set()
         "#,
         )
@@ -3118,7 +3118,7 @@ fn test_iterate() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").iterate()
         "#,
         )
@@ -3138,7 +3138,7 @@ fn test_take() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("name").take(2)
         "#,
         )
@@ -3158,7 +3158,7 @@ fn test_take_more_than_available() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("name").take(100)
         "#,
         )
@@ -3178,7 +3178,7 @@ fn test_take_zero() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").values("name").take(0)
         "#,
         )
@@ -3197,7 +3197,7 @@ fn test_take_with_order() {
         .eval_with_graph(
             graph.clone(),
             r#"
-            let g = graph.traversal();
+            let g = graph.gremlin();
             g.v().has_label("person").order_by("age").values("name").take(3)
         "#,
         )

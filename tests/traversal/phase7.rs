@@ -14,7 +14,7 @@ use crate::common::graphs::create_small_graph;
 fn test_has_not_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find vertices that don't have an "age" property (software)
     let results = g.v().has_not("age").to_list();
@@ -27,7 +27,7 @@ fn test_has_not_integration() {
 fn test_has_not_with_label_filter() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find people who don't have a "version" property (should be all people)
     let results = g.v().has_label("person").has_not("version").to_list();
@@ -39,7 +39,7 @@ fn test_has_not_with_label_filter() {
 fn test_is_eq_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find vertices where age equals 30
     let results = g.v().values("age").is_eq(Value::Int(30)).to_list();
@@ -52,7 +52,7 @@ fn test_is_eq_integration() {
 fn test_is_with_predicate_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find ages greater than 25
     let results = g.v().values("age").is_(p::gt(25)).to_list();
@@ -66,7 +66,7 @@ fn test_is_with_predicate_integration() {
 fn test_simple_path_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Navigate with path tracking, filter to simple paths
     let results = g
@@ -87,7 +87,7 @@ fn test_simple_path_integration() {
 fn test_cyclic_path_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Navigate with path tracking, filter to cyclic paths
     // Alice -> Bob -> Charlie -> Alice (forms a cycle)
@@ -110,7 +110,7 @@ fn test_cyclic_path_integration() {
 fn test_simple_path_vs_cyclic_path() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all paths with 3 hops
     let all_paths = g
@@ -149,7 +149,7 @@ fn test_simple_path_vs_cyclic_path() {
 fn test_other_v_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Start from Alice, traverse outgoing edges, get the other vertex
     let results = g
@@ -166,7 +166,7 @@ fn test_other_v_integration() {
 fn test_other_v_both_directions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // From Bob, get both knows edges, then other vertices
     let results = g
@@ -192,7 +192,7 @@ fn test_other_v_both_directions() {
 fn test_value_map_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get property map for Alice
     let results = g.v_ids([tg.alice]).value_map().to_list();
@@ -211,7 +211,7 @@ fn test_value_map_integration() {
 fn test_value_map_with_keys() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get only specific properties
     let results = g
@@ -232,7 +232,7 @@ fn test_value_map_with_keys() {
 fn test_value_map_with_tokens() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get property map with id and label tokens
     let results = g.v_ids([tg.alice]).value_map_with_tokens().to_list();
@@ -253,7 +253,7 @@ fn test_value_map_with_tokens() {
 fn test_element_map_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get complete element map for Alice
     let results = g.v_ids([tg.alice]).element_map().to_list();
@@ -275,7 +275,7 @@ fn test_element_map_integration() {
 fn test_element_map_for_edge() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get element map for an edge
     let results = g.e_ids([tg.alice_knows_bob]).element_map().to_list();
@@ -298,7 +298,7 @@ fn test_element_map_for_edge() {
 fn test_unfold_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get value_map, then unfold it into individual property entries
     let results = g.v_ids([tg.alice]).value_map().unfold().to_list();
@@ -323,7 +323,7 @@ fn test_unfold_integration() {
 fn test_unfold_list() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Create a list and unfold it
     let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
@@ -340,7 +340,7 @@ fn test_unfold_list() {
 fn test_mean_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Calculate mean age of all people
     let results = g.v().has_label("person").values("age").mean().to_list();
@@ -354,7 +354,7 @@ fn test_mean_integration() {
 fn test_mean_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Mean of non-existent property should return empty
     let results = g.v().values("nonexistent").mean().to_list();
@@ -366,7 +366,7 @@ fn test_mean_empty() {
 fn test_order_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Order people by age ascending
     let results = g
@@ -388,7 +388,7 @@ fn test_order_integration() {
 fn test_order_descending() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Order people by age descending
     let results = g
@@ -410,7 +410,7 @@ fn test_order_descending() {
 fn test_order_with_limit() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get oldest person
     let results = g
@@ -434,7 +434,7 @@ fn test_order_with_limit() {
 fn test_group_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Group all vertices by label
     let results = g.v().group().by_label().by_value().build().to_list();
@@ -466,7 +466,7 @@ fn test_group_integration() {
 fn test_group_by_property() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Group people by age, collect names
     let results = g
@@ -491,7 +491,7 @@ fn test_group_by_property() {
 fn test_group_count_integration() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Count vertices by label
     let results = g.v().group_count().by_label().build().to_list();
@@ -509,7 +509,7 @@ fn test_group_count_integration() {
 fn test_group_count_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Count edges by label
     let results = g.e().group_count().by_label().build().to_list();
@@ -531,7 +531,7 @@ fn test_group_count_edges() {
 fn test_value_map_unfold_combination() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get properties as map, unfold into individual entries
     let results = g.v_ids([tg.alice]).value_map().unfold().to_list();
@@ -544,7 +544,7 @@ fn test_value_map_unfold_combination() {
 fn test_order_limit_values_combination() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get top 2 oldest people's names
     let results = g
@@ -567,7 +567,7 @@ fn test_order_limit_values_combination() {
 fn test_repeat_simple_path_combination() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Traverse knows edges with path tracking, filter to simple paths
     let results = g
@@ -587,7 +587,7 @@ fn test_repeat_simple_path_combination() {
 fn test_group_with_order() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Group by label, then get the groups and count them
     let results = g.v().group().by_label().by_value().build().to_list();
@@ -605,7 +605,7 @@ fn test_group_with_order() {
 fn test_has_not_with_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find vertices without age property, then navigate to their neighbors
     let results = g.v().has_not("age").out().to_list();
@@ -618,7 +618,7 @@ fn test_has_not_with_navigation() {
 fn test_is_filter_with_aggregation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get ages over 25, then calculate mean
     let results = g.v().values("age").is_(p::gt(25)).mean().to_list();
@@ -632,7 +632,7 @@ fn test_is_filter_with_aggregation() {
 fn test_other_v_with_filter() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get knows edges from Alice, then get other vertex with age filter
     let results = g
@@ -650,7 +650,7 @@ fn test_other_v_with_filter() {
 fn test_element_map_with_select() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get element map and verify structure
     let results = g.v().has_label("person").limit(1).element_map().to_list();
@@ -671,7 +671,7 @@ fn test_element_map_with_select() {
 fn test_group_count_with_has_filter() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Count only people by their age
     let results = g
@@ -697,7 +697,7 @@ fn test_group_count_with_has_filter() {
 fn test_complex_traversal_with_all_new_steps() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Complex: Get people without version property, order by age desc,
     // take top 2, get their element maps
@@ -733,7 +733,7 @@ fn test_complex_traversal_with_all_new_steps() {
 fn test_anonymous_traversal_with_new_steps() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use anonymous traversal in where clause with new steps
     let results = g
@@ -752,7 +752,7 @@ fn test_anonymous_traversal_with_new_steps() {
 fn test_mean_with_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get average age of people who know someone
     let results = g

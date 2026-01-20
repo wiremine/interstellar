@@ -224,7 +224,7 @@ fn test_gql_union_basic() {
     let graph = create_union_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -259,7 +259,7 @@ fn test_gql_union_all_keeps_duplicates() {
     let graph = create_union_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -309,7 +309,7 @@ fn test_gql_union_with_where() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (y:Young) WHERE y.age > 22 RETURN y.name
@@ -344,7 +344,7 @@ fn test_gql_union_combined_single_query_ordering() {
     let graph = create_union_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name ORDER BY a.name LIMIT 2
@@ -391,7 +391,7 @@ fn test_gql_union_multiple_columns() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (e:Employee) RETURN e.name AS person, e.role AS type
@@ -430,7 +430,7 @@ fn test_gql_union_deduplicates_identical_rows() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -461,7 +461,7 @@ fn test_gql_union_all_keeps_identical_rows() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -484,7 +484,7 @@ fn test_gql_union_empty_first_query() {
     let graph = create_union_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (x:NonExistent) RETURN x.name
@@ -504,7 +504,7 @@ fn test_gql_union_empty_second_query() {
     let graph = create_union_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -524,7 +524,7 @@ fn test_gql_union_both_empty() {
     let graph = create_union_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (x:NonExistent1) RETURN x.name
@@ -557,7 +557,7 @@ fn test_gql_triple_union() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -590,7 +590,7 @@ fn test_gql_union_case_insensitive() {
     let snapshot = graph.snapshot();
 
     // Test lowercase 'union'
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -603,7 +603,7 @@ fn test_gql_union_case_insensitive() {
     assert!(!results.is_empty(), "lowercase 'union' should work");
 
     // Test mixed case 'Union'
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -623,7 +623,7 @@ fn test_gql_union_all_case_insensitive() {
     let snapshot = graph.snapshot();
 
     // Test lowercase
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:TypeA) RETURN a.name
@@ -680,7 +680,7 @@ fn test_gql_optional_match_returns_null() {
     let snapshot = graph.snapshot();
 
     // Charles Barkley never won a championship
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player {name: 'Charles Barkley'})
@@ -716,7 +716,7 @@ fn test_gql_optional_match_returns_value() {
     let snapshot = graph.snapshot();
 
     // Michael Jordan won championships
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player {name: 'Michael Jordan'})
@@ -749,7 +749,7 @@ fn test_gql_optional_match_mixed_results() {
     let graph = create_optional_match_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -787,7 +787,7 @@ fn test_gql_optional_match_case_insensitive() {
     let snapshot = graph.snapshot();
 
     // Test lowercase
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player {name: 'Michael Jordan'})
@@ -803,7 +803,7 @@ fn test_gql_optional_match_case_insensitive() {
     );
 
     // Test mixed case
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player {name: 'Michael Jordan'})
@@ -826,7 +826,7 @@ fn test_gql_optional_match_with_where() {
     let snapshot = graph.snapshot();
 
     // Filter to only rows where optional match succeeded
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -860,7 +860,7 @@ fn test_gql_optional_match_preserves_base_rows() {
     let snapshot = graph.snapshot();
 
     // Count all players (should be 3 regardless of optional match)
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -885,7 +885,7 @@ fn test_gql_with_path_returns_path() {
     let snapshot = graph.snapshot();
 
     // Query: find path from Alice to her friends
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person)
@@ -921,7 +921,7 @@ fn test_gql_path_function_elements() {
     let snapshot = graph.snapshot();
 
     // Single path traversal
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
@@ -959,7 +959,7 @@ fn test_gql_path_function_multi_hop() {
     let snapshot = graph.snapshot();
 
     // Multi-hop path: Alice -> Bob -> Carol
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})-[:KNOWS]->(c:Person {name: 'Carol'})
@@ -1011,7 +1011,7 @@ fn test_gql_unwind_list() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:Person)
@@ -1049,7 +1049,7 @@ fn test_gql_unwind_null_produces_no_rows() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:Person)
@@ -1075,7 +1075,7 @@ fn test_gql_unwind_non_list_wraps() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:Person)
@@ -1109,7 +1109,7 @@ fn test_gql_multiple_unwind() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:Person)
@@ -1155,7 +1155,7 @@ fn test_gql_unwind_inline_list() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:Person)
@@ -1200,7 +1200,7 @@ fn test_gql_unwind_with_where() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
         MATCH (p:Person)

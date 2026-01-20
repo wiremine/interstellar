@@ -1623,7 +1623,7 @@ fn cow_mmap_index_with_batch_operations() {
 fn cow_mmap_unified_traversal_add_v_basic() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     let result = g.add_v("Person").next();
 
@@ -1636,7 +1636,7 @@ fn cow_mmap_unified_traversal_add_v_basic() {
 fn cow_mmap_unified_traversal_add_v_with_properties() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     let result = g
         .add_v("Person")
@@ -1664,7 +1664,7 @@ fn cow_mmap_unified_traversal_add_v_with_properties() {
 fn cow_mmap_unified_traversal_add_v_multiple() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();
@@ -1683,7 +1683,7 @@ fn cow_mmap_unified_traversal_add_v_multiple() {
 fn cow_mmap_unified_traversal_add_v_to_list() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     let results = g.add_v("Person").property("name", "Alice").to_list();
 
@@ -1699,7 +1699,7 @@ fn cow_mmap_unified_traversal_add_e_from_source() {
     let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
 
-    let g = graph.traversal();
+    let g = graph.gremlin();
     let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
 
     assert!(result.is_some());
@@ -1721,7 +1721,7 @@ fn cow_mmap_unified_traversal_add_e_with_properties() {
     let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
 
-    let g = graph.traversal();
+    let g = graph.gremlin();
     let result = g
         .add_e("KNOWS")
         .from_id(alice)
@@ -1746,7 +1746,7 @@ fn cow_mmap_unified_traversal_add_e_with_properties() {
 fn cow_mmap_unified_traversal_query_after_mutation() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add vertices via traversal
     g.add_v("Person").property("name", "Alice").iterate();
@@ -1765,7 +1765,7 @@ fn cow_mmap_unified_traversal_query_after_mutation() {
 fn cow_mmap_unified_traversal_full_workflow() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Create vertices
     let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
@@ -1800,7 +1800,7 @@ fn cow_mmap_unified_traversal_full_workflow() {
 fn cow_mmap_unified_traversal_drop_vertex() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add vertices
     let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
@@ -1834,7 +1834,7 @@ fn cow_mmap_unified_traversal_drop_edge() {
 
     assert_eq!(graph.edge_count(), 1);
 
-    let g = graph.traversal();
+    let g = graph.gremlin();
     g.e_ids([edge]).drop().iterate();
 
     assert_eq!(graph.edge_count(), 0);
@@ -1845,7 +1845,7 @@ fn cow_mmap_unified_traversal_drop_edge() {
 fn cow_mmap_unified_traversal_v_returns_all_vertices() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     g.add_v("A").iterate();
     g.add_v("B").iterate();
@@ -1859,7 +1859,7 @@ fn cow_mmap_unified_traversal_v_returns_all_vertices() {
 fn cow_mmap_unified_traversal_v_id_returns_specific_vertex() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
     g.add_v("Person").property("name", "Bob").iterate();
@@ -1877,7 +1877,7 @@ fn cow_mmap_unified_traversal_v_id_returns_specific_vertex() {
 fn cow_mmap_unified_traversal_chained_steps() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Create a mini social graph
     let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
@@ -1904,7 +1904,7 @@ fn cow_mmap_unified_traversal_chained_steps() {
 fn cow_mmap_unified_traversal_count() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     g.add_v("Person").iterate();
     g.add_v("Person").iterate();
@@ -1922,7 +1922,7 @@ fn cow_mmap_unified_traversal_count() {
 fn cow_mmap_unified_traversal_has_next() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     assert!(!g.v().has_next());
 
@@ -1940,7 +1940,7 @@ fn cow_mmap_unified_traversal_persists_after_checkpoint() {
     // Create graph and add data via traversal
     {
         let graph = CowMmapGraph::open(&path).unwrap();
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         let alice_result = g
             .add_v("Person")
@@ -1971,7 +1971,7 @@ fn cow_mmap_unified_traversal_persists_after_checkpoint() {
     // Reopen and verify
     {
         let graph = CowMmapGraph::open(&path).unwrap();
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         assert_eq!(g.v().count(), 2);
         assert_eq!(g.e().count(), 1);
@@ -1985,7 +1985,7 @@ fn cow_mmap_unified_traversal_persists_after_checkpoint() {
 fn cow_mmap_unified_traversal_limit_and_skip() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     for i in 0..10 {
         g.add_v("Node").property("id", i as i64).iterate();
@@ -2005,7 +2005,7 @@ fn cow_mmap_unified_traversal_limit_and_skip() {
 fn cow_mmap_unified_traversal_values() {
     let (_dir, path) = temp_db();
     let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();

@@ -177,11 +177,13 @@ fn demo_advanced_queries() {
     println!("============================================================\n");
 
     let graph = build_family_graph();
-    let snapshot = graph.snapshot();
+
+    // With the unified API, all GQL queries go through graph.gql()
+    // Reads and mutations are auto-detected
 
     // --- Inline WHERE ---
     println!("--- Inline WHERE in Node Patterns ---");
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person WHERE p.id > 3) RETURN p.name AS name, p.id AS id")
         .unwrap();
     println!("People with id > 3:");
@@ -194,7 +196,7 @@ fn demo_advanced_queries() {
     println!("--- Query Parameters ---");
     let mut params = HashMap::new();
     params.insert("targetId".to_string(), Value::Int(4));
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (p:Person WHERE p.id = $targetId) RETURN p.name AS name",
             &params,
@@ -205,7 +207,7 @@ fn demo_advanced_queries() {
 
     // --- Map Literals ---
     println!("--- Map Literals ---");
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person WHERE p.id = 4) RETURN {personName: p.name, personId: p.id} AS profile")
         .unwrap();
     println!("Person profile as map: {:?}", results);
@@ -213,7 +215,7 @@ fn demo_advanced_queries() {
 
     // --- String Concatenation ---
     println!("--- String Concatenation ---");
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person WHERE p.id <= 2) RETURN p.name || ' (ID: ' || p.id || ')' AS formatted")
         .unwrap();
     println!("Formatted names:");
@@ -224,7 +226,7 @@ fn demo_advanced_queries() {
 
     // --- LET Clause ---
     println!("--- LET Clause ---");
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) LET personCount = COUNT(p) RETURN p.name AS name, personCount")
         .unwrap();
     println!("People with total count (first 3):");
@@ -235,7 +237,7 @@ fn demo_advanced_queries() {
 
     // --- List Comprehensions ---
     println!("--- List Comprehensions ---");
-    let results = snapshot
+    let results = graph
         .gql(
             "MATCH (p:Person) \
              LET names = COLLECT(p.name) \
@@ -248,7 +250,7 @@ fn demo_advanced_queries() {
 
     // --- Inline WHERE on Edges ---
     println!("--- Inline WHERE on Edges ---");
-    let results = snapshot
+    let results = graph
         .gql(
             "MATCH (p:Person)-[r:PARTICIPATED_IN WHERE r.role = 'child']->(e) \
              RETURN p.name AS person, labels(e) AS eventType",
@@ -265,7 +267,7 @@ fn demo_advanced_queries() {
     let mut params = HashMap::new();
     params.insert("personId".to_string(), Value::Int(4)); // Alice
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             r#"
             MATCH (person:Person WHERE person.id = $personId)

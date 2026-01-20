@@ -1456,7 +1456,7 @@ fn cow_index_with_batch_operations() {
 #[test]
 fn cow_unified_traversal_add_v_basic() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add a vertex through the unified traversal API
     let result = g.add_v("Person").next();
@@ -1477,7 +1477,7 @@ fn cow_unified_traversal_add_v_basic() {
 #[test]
 fn cow_unified_traversal_add_v_with_properties() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add a vertex with properties
     let result = g
@@ -1506,7 +1506,7 @@ fn cow_unified_traversal_add_v_with_properties() {
 #[test]
 fn cow_unified_traversal_add_v_multiple() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add multiple vertices
     g.add_v("Person").property("name", "Alice").iterate();
@@ -1530,7 +1530,7 @@ fn cow_unified_traversal_add_v_multiple() {
 #[test]
 fn cow_unified_traversal_add_v_to_list() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Use to_list() to add multiple vertices via inject + add_v pattern
     // (Here we just add one, but to_list collects all results)
@@ -1544,14 +1544,14 @@ fn cow_unified_traversal_add_v_to_list() {
 #[test]
 fn cow_unified_traversal_query_after_mutation() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add vertices
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();
 
     // Query the newly added vertices
-    let g2 = graph.traversal();
+    let g2 = graph.gremlin();
     let results = g2.v().has_label("Person").to_list();
 
     assert_eq!(results.len(), 2);
@@ -1572,7 +1572,7 @@ fn cow_unified_traversal_add_e_from_source() {
     );
 
     // Now use traversal API to add an edge
-    let g = graph.traversal();
+    let g = graph.gremlin();
     let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
 
     assert!(result.is_some());
@@ -1594,7 +1594,7 @@ fn cow_unified_traversal_add_e_with_properties() {
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
 
-    let g = graph.traversal();
+    let g = graph.gremlin();
     let result = g
         .add_e("KNOWS")
         .from_id(alice)
@@ -1618,7 +1618,7 @@ fn cow_unified_traversal_add_e_with_properties() {
 fn cow_unified_traversal_full_workflow() {
     // Test the complete workflow: add vertices with traversal, add edges, then query
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add vertices through traversal API
     let alice_value = g
@@ -1656,14 +1656,14 @@ fn cow_unified_traversal_full_workflow() {
     assert_eq!(graph.edge_count(), 1);
 
     // Query through traversal API
-    let g2 = graph.traversal();
+    let g2 = graph.gremlin();
 
     // Get all people
     let people = g2.v().has_label("Person").to_list();
     assert_eq!(people.len(), 2);
 
     // Get Alice's outgoing connections
-    let g3 = graph.traversal();
+    let g3 = graph.gremlin();
     let alice_out = g3.v_id(alice_id).out_label("KNOWS").to_list();
     assert_eq!(alice_out.len(), 1);
 }
@@ -1671,7 +1671,7 @@ fn cow_unified_traversal_full_workflow() {
 #[test]
 fn cow_unified_traversal_drop_vertex() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add a vertex
     let result = g.add_v("Person").property("name", "Alice").next().unwrap();
@@ -1683,7 +1683,7 @@ fn cow_unified_traversal_drop_vertex() {
     assert_eq!(graph.vertex_count(), 1);
 
     // Drop the vertex
-    let g2 = graph.traversal();
+    let g2 = graph.gremlin();
     g2.v_id(vertex_id).drop().iterate();
 
     assert_eq!(graph.vertex_count(), 0);
@@ -1700,7 +1700,7 @@ fn cow_unified_traversal_drop_edge() {
     assert_eq!(graph.edge_count(), 1);
 
     // Drop the edge through traversal API
-    let g = graph.traversal();
+    let g = graph.gremlin();
     // Note: We need to use e_id to start from a specific edge
     // The e() method exists but e_id() for single edge might need to be added
     // For now, let's use e_ids with a single element
@@ -1721,7 +1721,7 @@ fn cow_unified_traversal_v_returns_all_vertices() {
     graph.add_vertex("Software", HashMap::new());
 
     // Query through traversal
-    let g = graph.traversal();
+    let g = graph.gremlin();
     let results = g.v().to_list();
 
     assert_eq!(results.len(), 3);
@@ -1737,7 +1737,7 @@ fn cow_unified_traversal_v_id_returns_specific_vertex() {
     );
     graph.add_vertex("Person", HashMap::new());
 
-    let g = graph.traversal();
+    let g = graph.gremlin();
     let results = g.v_id(alice).to_list();
 
     assert_eq!(results.len(), 1);
@@ -1769,14 +1769,14 @@ fn cow_unified_traversal_chained_steps() {
         .add_edge(bob, software, "USES", HashMap::new())
         .unwrap();
 
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Alice's friends
     let friends = g.v_id(alice).out_label("KNOWS").to_list();
     assert_eq!(friends.len(), 1);
 
     // All people who created or use software
-    let g2 = graph.traversal();
+    let g2 = graph.gremlin();
     let sw_related = g2.v_id(software).in_().has_label("Person").to_list();
     assert_eq!(sw_related.len(), 2);
 }
@@ -1784,17 +1784,17 @@ fn cow_unified_traversal_chained_steps() {
 #[test]
 fn cow_unified_traversal_count() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     g.add_v("Person").iterate();
     g.add_v("Person").iterate();
     g.add_v("Software").iterate();
 
-    let g2 = graph.traversal();
+    let g2 = graph.gremlin();
     let total = g2.v().count();
     assert_eq!(total, 3);
 
-    let g3 = graph.traversal();
+    let g3 = graph.gremlin();
     let people = g3.v().has_label("Person").count();
     assert_eq!(people, 2);
 }
@@ -1802,16 +1802,16 @@ fn cow_unified_traversal_count() {
 #[test]
 fn cow_unified_traversal_has_next() {
     let graph = Graph::new();
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Empty graph should not have vertices
     assert!(!g.v().has_next());
 
     // Add a vertex
-    let g2 = graph.traversal();
+    let g2 = graph.gremlin();
     g2.add_v("Person").iterate();
 
     // Now should have vertices
-    let g3 = graph.traversal();
+    let g3 = graph.gremlin();
     assert!(g3.v().has_next());
 }

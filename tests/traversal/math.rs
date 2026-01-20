@@ -87,7 +87,7 @@ fn extract_f64(v: &Value) -> Option<f64> {
 fn math_multiply_current_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([5i64, 10i64]).math("_ * 2").build().to_list();
 
@@ -100,7 +100,7 @@ fn math_multiply_current_value() {
 fn math_add_to_current_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([1i64, 2i64, 3i64])
@@ -118,7 +118,7 @@ fn math_add_to_current_value() {
 fn math_subtract_from_current_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([100i64]).math("_ - 42").build().to_list();
 
@@ -130,7 +130,7 @@ fn math_subtract_from_current_value() {
 fn math_divide_current_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([20i64, 50i64]).math("_ / 5").build().to_list();
 
@@ -143,7 +143,7 @@ fn math_divide_current_value() {
 fn math_modulo_current_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([17i64, 20i64]).math("_ % 5").build().to_list();
 
@@ -156,7 +156,7 @@ fn math_modulo_current_value() {
 fn math_power_current_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([2i64, 3i64]).math("_ ^ 3").build().to_list();
 
@@ -169,7 +169,7 @@ fn math_power_current_value() {
 fn math_with_float_input() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([Value::Float(2.5), Value::Float(3.5)])
@@ -186,7 +186,7 @@ fn math_with_float_input() {
 fn math_complex_expression() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // (5 + 3) * 2 = 16
     let results = g.inject([5i64]).math("(_ + 3) * 2").build().to_list();
@@ -199,7 +199,7 @@ fn math_complex_expression() {
 fn math_operator_precedence() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // 2 + 3 * 4 = 14 (not 20)
     let results = g.inject([2i64]).math("_ + 3 * 4").build().to_list();
@@ -217,7 +217,7 @@ fn math_operator_precedence() {
 fn math_sqrt_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([16i64, 25i64, 100i64])
@@ -235,7 +235,7 @@ fn math_sqrt_function() {
 fn math_abs_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([Value::Int(-5), Value::Int(5), Value::Float(-3.14)])
@@ -253,7 +253,7 @@ fn math_abs_function() {
 fn math_pow_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([2i64]).math("pow(_, 10)").build().to_list();
 
@@ -265,7 +265,7 @@ fn math_pow_function() {
 fn math_min_max_functions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let min_results = g.inject([5i64]).math("min(_, 3)").build().to_list();
     assert_eq!(min_results[0], Value::Float(3.0));
@@ -278,7 +278,7 @@ fn math_min_max_functions() {
 fn math_floor_ceil_round() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let floor = g
         .inject([Value::Float(3.7)])
@@ -306,7 +306,7 @@ fn math_floor_ceil_round() {
 fn math_trigonometric_functions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // sin(0) = 0
     let sin_results = g.inject([0i64]).math("sin(_)").build().to_list();
@@ -325,7 +325,7 @@ fn math_trigonometric_functions() {
 fn math_log_exp_functions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // exp(0) = 1
     let exp_results = g.inject([0i64]).math("exp(_)").build().to_list();
@@ -344,7 +344,7 @@ fn math_log_exp_functions() {
 fn math_nested_functions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // sqrt(abs(-16)) = 4
     let results = g.inject([-16i64]).math("sqrt(abs(_))").build().to_list();
@@ -361,7 +361,7 @@ fn math_nested_functions() {
 fn math_pi_constant() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([1i64]).math("pi").build().to_list();
 
@@ -376,7 +376,7 @@ fn math_pi_constant() {
 fn math_e_constant() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([1i64]).math("e").build().to_list();
 
@@ -391,7 +391,7 @@ fn math_e_constant() {
 fn math_pi_in_expression() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // sin(pi/2) = 1
     let results = g.inject([1i64]).math("sin(pi / 2)").build().to_list();
@@ -408,7 +408,7 @@ fn math_pi_in_expression() {
 fn math_on_vertex_property_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get ages and double them
     let results = g
@@ -431,7 +431,7 @@ fn math_on_vertex_property_values() {
 fn math_pythagorean_on_properties() {
     let (graph, v1, _v2, _v3) = create_math_test_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // sqrt(3^2 + 4^2) = 5 for v1 (x=3, y=4)
     // We need to use labeled paths for this
@@ -455,7 +455,7 @@ fn math_pythagorean_on_properties() {
 fn anonymous_math_basic() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let anon = __::math("_ * 3").build();
     let results = g.inject([2i64, 4i64]).append(anon).to_list();
@@ -469,7 +469,7 @@ fn anonymous_math_basic() {
 fn anonymous_math_with_sqrt() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let anon = __::math("sqrt(_)").build();
     let results = g.inject([4i64, 9i64, 16i64]).append(anon).to_list();
@@ -484,7 +484,7 @@ fn anonymous_math_with_sqrt() {
 fn anonymous_math_chained_with_filter() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Double values then filter > 10
     let anon = __::math("_ * 2").build();
@@ -503,7 +503,7 @@ fn anonymous_math_chained_with_filter() {
 fn anonymous_math_in_complex_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get ages from people, add 10 years
     let anon = __::values("age");
@@ -532,7 +532,7 @@ fn anonymous_math_in_complex_traversal() {
 fn math_with_labeled_path_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Calculate age difference: Alice's age (30) - Bob's age (25) = 5
     // Note: with_path() is required for labeled path values
@@ -557,7 +557,7 @@ fn math_with_labeled_path_values() {
 fn math_with_multiple_labeled_values() {
     let (graph, v1, _v2, _v3) = create_math_test_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Calculate: sqrt(a.x^2 + b.y^2) using labeled values
     // v1 has x=3, y=4, so sqrt(9+16) = 5
@@ -591,7 +591,7 @@ fn math_age_difference_chain() {
         .build();
 
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Start from first vertex (Alice), traverse to Bob
     // Note: with_path() is required for labeled path values
@@ -620,7 +620,7 @@ fn math_age_difference_chain() {
 fn math_empty_input_stream() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // No vertices with label "nonexistent"
     let results = g
@@ -638,7 +638,7 @@ fn math_empty_input_stream() {
 fn math_non_numeric_values_filtered() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Mix of numeric and string values - strings should be filtered out
     let results = g
@@ -661,7 +661,7 @@ fn math_non_numeric_values_filtered() {
 fn math_division_by_zero_filtered() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // 5/0 = Inf, should be filtered
     let results = g.inject([5i64]).math("_ / 0").build().to_list();
@@ -673,7 +673,7 @@ fn math_division_by_zero_filtered() {
 fn math_sqrt_negative_filtered() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // sqrt(-1) = NaN, should be filtered
     let results = g
@@ -691,7 +691,7 @@ fn math_sqrt_negative_filtered() {
 fn math_log_zero_filtered() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // log(0) = -Inf, should be filtered
     let results = g.inject([0i64, 1i64]).math("log(_)").build().to_list();
@@ -704,7 +704,7 @@ fn math_log_zero_filtered() {
 fn math_log_negative_filtered() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // log(-1) = NaN, should be filtered
     let results = g
@@ -720,7 +720,7 @@ fn math_log_negative_filtered() {
 fn math_very_large_numbers() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Large number that doesn't overflow
     let results = g.inject([1_000_000i64]).math("_ * 1000").build().to_list();
@@ -733,7 +733,7 @@ fn math_very_large_numbers() {
 fn math_overflow_filtered() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Extremely large exponent that overflows to Inf
     let results = g
@@ -753,7 +753,7 @@ fn math_overflow_filtered() {
 fn math_preserves_path() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Check that path is preserved through math step
     let results = g
@@ -782,7 +782,7 @@ fn math_preserves_path() {
 fn math_constant_expression() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Expression that doesn't use current value
     let results = g.inject([1i64, 2i64, 3i64]).math("2 + 3").build().to_list();
@@ -798,7 +798,7 @@ fn math_constant_expression() {
 fn math_pi_times_two() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Expression using constant without current value
     let results = g.inject([1i64]).math("pi * 2").build().to_list();
@@ -818,7 +818,7 @@ fn math_pi_times_two() {
 fn math_percentage_calculation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Calculate percentage: value / 100
     let results = g
@@ -837,7 +837,7 @@ fn math_percentage_calculation() {
 fn math_temperature_conversion() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Celsius to Fahrenheit: F = C * 9/5 + 32
     let results = g
@@ -856,7 +856,7 @@ fn math_temperature_conversion() {
 fn math_distance_formula() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Distance from origin: sqrt(x^2 + y^2) where x=y=current value
     // This is a simplification - same x and y
@@ -878,7 +878,7 @@ fn math_distance_formula() {
 fn math_compound_interest() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Simple interest for 1 year at 5%: principal * (1 + 0.05)
     let results = g.inject([1000i64]).math("_ * 1.05").build().to_list();
@@ -895,7 +895,7 @@ fn math_compound_interest() {
 fn math_clamp_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // clamp(value, min, max)
     let results = g
@@ -918,7 +918,7 @@ fn math_clamp_function() {
 fn math_hyperbolic_functions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // sinh(0) = 0
     let sinh_results = g.inject([0i64]).math("sinh(_)").build().to_list();
@@ -941,7 +941,7 @@ fn math_hyperbolic_functions() {
 fn math_cbrt_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([27i64, 8i64]).math("cbrt(_)").build().to_list();
 
@@ -954,7 +954,7 @@ fn math_cbrt_function() {
 fn math_log2_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([8i64, 16i64]).math("log2(_)").build().to_list();
 
@@ -967,7 +967,7 @@ fn math_log2_function() {
 fn math_signum_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([Value::Int(-5), Value::Int(0), Value::Int(5)])
@@ -985,7 +985,7 @@ fn math_signum_function() {
 fn math_trunc_function() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([Value::Float(3.7), Value::Float(-3.7)])
@@ -1006,7 +1006,7 @@ fn math_trunc_function() {
 fn math_inverse_trig_functions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // asin(0) = 0
     let asin_results = g.inject([0i64]).math("asin(_)").build().to_list();
@@ -1025,7 +1025,7 @@ fn math_inverse_trig_functions() {
 fn math_inverse_trig_domain_errors() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // asin(2) is out of domain [-1, 1], returns NaN -> filtered
     let results = g.inject([2i64]).math("asin(_)").build().to_list();

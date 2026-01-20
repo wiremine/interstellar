@@ -20,7 +20,7 @@ use crate::common::graphs::create_small_graph;
 fn key_step_extracts_property_keys() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all property keys from Alice vertex
     let keys: Vec<Value> = g.v_ids([tg.alice]).properties().key().to_list();
@@ -45,7 +45,7 @@ fn key_step_extracts_property_keys() {
 fn value_step_extracts_property_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all property values from Alice vertex
     let values: Vec<Value> = g.v_ids([tg.alice]).properties().value().to_list();
@@ -60,7 +60,7 @@ fn value_step_extracts_property_values() {
 fn key_and_value_work_with_filtered_properties() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get only "name" property keys
     let keys: Vec<Value> = g
@@ -83,7 +83,7 @@ fn key_and_value_work_with_filtered_properties() {
 fn key_value_chain_on_all_vertices() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all "name" property values from all vertices
     let names: Vec<Value> = g.v().properties_keys(["name"]).value().to_list();
@@ -104,7 +104,7 @@ fn key_value_chain_on_all_vertices() {
 fn loops_returns_zero_outside_repeat() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Outside of repeat, loops() returns 0
     let loop_counts: Vec<Value> = g.v_ids([tg.alice]).loops().to_list();
@@ -115,7 +115,7 @@ fn loops_returns_zero_outside_repeat() {
 fn loops_increments_within_repeat() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Traverse out from Alice up to 2 times, emit at each step with loop count
     // Alice -> Bob (loops=0 after first out)
@@ -142,7 +142,7 @@ fn loops_increments_within_repeat() {
 fn loops_with_until_condition() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Repeat until we find Charlie, then get loop count
     let results: Vec<Value> = g
@@ -164,7 +164,7 @@ fn loops_with_until_condition() {
 fn index_wraps_values_with_position() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get indexed names
     let indexed: Vec<Value> = g.v().has_label("person").values("name").index().to_list();
@@ -188,7 +188,7 @@ fn index_wraps_values_with_position() {
 fn index_starts_at_zero() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get first indexed value
     let first: Option<Value> = g.inject([100i64, 200i64, 300i64]).index().next();
@@ -205,7 +205,7 @@ fn index_starts_at_zero() {
 fn index_preserves_traverser_metadata() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use index in a pipeline with path tracking
     let results: Vec<Value> = g
@@ -235,7 +235,7 @@ fn index_preserves_traverser_metadata() {
 fn property_map_extracts_all_properties() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let maps: Vec<Value> = g.v_ids([tg.alice]).property_map().to_list();
 
@@ -270,7 +270,7 @@ fn property_map_extracts_all_properties() {
 fn property_map_with_specific_keys() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let maps: Vec<Value> = g.v_ids([tg.alice]).property_map_keys(["name"]).to_list();
 
@@ -288,7 +288,7 @@ fn property_map_with_specific_keys() {
 fn property_map_on_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let maps: Vec<Value> = g.e_ids([tg.alice_knows_bob]).property_map().to_list();
 
@@ -315,7 +315,7 @@ fn property_map_on_edges() {
 fn property_map_returns_empty_for_non_elements() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Inject a non-element value and call property_map
     let maps: Vec<Value> = g.inject([42i64]).property_map().to_list();
@@ -336,7 +336,7 @@ fn property_map_returns_empty_for_non_elements() {
 fn key_value_difference_from_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // values("name") directly extracts the value
     let direct_values: Vec<Value> = g.v_ids([tg.alice]).values("name").to_list();
@@ -358,7 +358,7 @@ fn key_value_difference_from_values() {
 fn value_map_vs_property_map() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // value_map returns {key: [value], ...}
     let value_maps: Vec<Value> = g.v_ids([tg.alice]).value_map().to_list();
@@ -395,7 +395,7 @@ fn value_map_vs_property_map() {
 fn index_with_dedup() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Index after dedup
     let indexed: Vec<Value> = g
@@ -419,7 +419,7 @@ fn index_with_dedup() {
 fn anonymous_traversal_key_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::key() and __::value() in anonymous traversals
     let keys: Vec<Value> = g.v_ids([tg.alice]).properties().local(__::key()).to_list();
@@ -439,7 +439,7 @@ fn anonymous_traversal_key_value() {
 fn anonymous_traversal_index() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::index() in anonymous traversal
     let indexed: Vec<Value> = g.inject([1i64, 2i64, 3i64]).local(__::index()).to_list();
@@ -452,7 +452,7 @@ fn anonymous_traversal_index() {
 fn anonymous_traversal_property_map() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::property_map() in anonymous traversal
     let maps: Vec<Value> = g.v_ids([tg.alice]).local(__::property_map()).to_list();
@@ -468,7 +468,7 @@ fn anonymous_traversal_property_map() {
 fn complex_metadata_pipeline() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Complex pipeline using multiple metadata steps:
     // 1. Get all person vertices

@@ -735,7 +735,7 @@ mod tests {
         fn bound_order_natural_ascending() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             let results = g
                 .inject([Value::Int(3), Value::Int(1), Value::Int(2)])
@@ -753,7 +753,7 @@ mod tests {
         fn bound_order_natural_descending() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             let results = g
                 .inject([
@@ -776,7 +776,7 @@ mod tests {
         fn bound_order_by_property_ascending() {
             let graph = create_sorted_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             let results = g
                 .v()
@@ -817,7 +817,7 @@ mod tests {
         fn bound_order_by_property_descending() {
             let graph = create_sorted_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             let results = g
                 .v()
@@ -875,7 +875,7 @@ mod tests {
             graph.add_vertex("person", props3);
 
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             let results = g
                 .v()
@@ -917,7 +917,7 @@ mod tests {
         fn bound_order_preserves_path_tracking() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Test that path tracking is preserved through the builder
             let results = g

@@ -90,7 +90,7 @@ fn test_graph_not_in_scope() {
     let engine = RhaiEngine::new();
 
     // Calling eval without graph should not have 'graph' in scope
-    let result: Result<i64, _> = engine.eval("graph.traversal().v().count()");
+    let result: Result<i64, _> = engine.eval("graph.gremlin().v().count()");
     assert!(result.is_err());
 }
 
@@ -108,7 +108,7 @@ fn test_type_mismatch_count_as_string() {
     let result: Result<String, _> = engine.eval_with_graph(
         graph.clone(),
         r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().count()
     "#,
     );
@@ -130,7 +130,7 @@ fn test_predicate_wrong_argument_count() {
     let result: Result<i64, _> = engine.eval_with_graph(
         graph.clone(),
         r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_where("age", between(10)).count()
     "#,
     );
@@ -146,7 +146,7 @@ fn test_predicate_wrong_argument_type() {
     let result: Result<i64, _> = engine.eval_with_graph(
         graph.clone(),
         r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_where("name", regex("[invalid")).count()
     "#,
     );
@@ -168,7 +168,7 @@ fn test_empty_traversal_count() {
         .eval_with_graph(
             graph.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().count()
     "#,
         )
@@ -186,7 +186,7 @@ fn test_no_match_filter() {
         .eval_with_graph(
             graph.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "NonExistent").count()
     "#,
         )
@@ -204,7 +204,7 @@ fn test_no_match_label() {
         .eval_with_graph(
             graph.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("nonexistent_label").count()
     "#,
         )
@@ -254,7 +254,7 @@ fn test_large_limit() {
         .eval_with_graph(
             graph.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().limit(1000).count()
     "#,
         )
@@ -272,7 +272,7 @@ fn test_skip_more_than_available() {
         .eval_with_graph(
             graph.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().skip(100).count()
     "#,
         )
@@ -299,7 +299,7 @@ fn test_error_doesnt_affect_subsequent_calls() {
         .eval_with_graph(
             graph.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().count()
     "#,
         )
@@ -318,7 +318,7 @@ fn test_multiple_graphs_independent() {
         .eval_with_graph(
             graph1.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().count()
     "#,
         )
@@ -328,7 +328,7 @@ fn test_multiple_graphs_independent() {
         .eval_with_graph(
             graph2.clone(),
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().count()
     "#,
         )

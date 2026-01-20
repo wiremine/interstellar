@@ -108,7 +108,7 @@ fn execute_mutations(
 fn add_v_creates_pending_vertex() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Execute add_v traversal - creates a pending mutation marker
     let results: Vec<Value> = g.add_v("person").to_list();
@@ -128,7 +128,7 @@ fn add_v_creates_pending_vertex() {
 fn add_v_with_properties_creates_pending_vertex() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Execute add_v with properties
     let results: Vec<Value> = g
@@ -197,7 +197,7 @@ fn mutation_executor_from_traversal() {
     {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let traversers: Vec<_> = g
             .add_v("person")
@@ -233,7 +233,7 @@ fn mutation_executor_from_traversal() {
 fn add_e_creates_pending_edge() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get vertex IDs
     let vertices: Vec<Value> = g.v().to_list();
@@ -260,7 +260,7 @@ fn add_e_creates_pending_edge() {
 fn add_e_from_bound_traversal() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get Alice's vertex ID
     let alice_vertex = g
@@ -348,7 +348,7 @@ fn mutation_executor_creates_edge() {
 fn property_on_vertex_creates_pending_update() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get a vertex and add a property
     let results: Vec<Value> = g
@@ -434,7 +434,7 @@ fn mutation_executor_sets_edge_property() {
 fn drop_vertex_creates_pending_deletion() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get a vertex and drop it
     let results: Vec<Value> = g.v().has_value("name", "Alice").drop().to_list();

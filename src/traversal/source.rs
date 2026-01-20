@@ -10,7 +10,7 @@
 //! ```ignore
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Start from all vertices
 //! let results = g.v().to_list();
@@ -42,7 +42,7 @@ use crate::value::{EdgeId, Value, VertexId};
 
 /// Entry point for all bound traversals.
 ///
-/// Created from a `GraphSnapshot` via `snapshot.traversal()` or from any
+/// Created from a `GraphSnapshot` via `snapshot.gremlin()` or from any
 /// type implementing `SnapshotLike` via `GraphTraversalSource::from_snapshot()`.
 ///
 /// The source holds references needed to create an `ExecutionContext` at
@@ -53,7 +53,7 @@ use crate::value::{EdgeId, Value, VertexId};
 /// ```ignore
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
+/// let g = snapshot.gremlin();
 ///
 /// // All methods return BoundTraversal which can be chained
 /// let count = g.v().count();
@@ -69,7 +69,7 @@ impl<'g> GraphTraversalSource<'g> {
     /// **DEPRECATED**: Use `from_snapshot()` instead, which works with any
     /// snapshot type including the new COW-based snapshots.
     ///
-    /// This is typically called via `snapshot.traversal()`.
+    /// This is typically called via `snapshot.gremlin()`.
     #[deprecated(since = "0.2.0", note = "Use from_snapshot() instead")]
     #[allow(deprecated)]
     pub fn new(snapshot: &'g LegacyGraphSnapshot<'g>, interner: &'g StringInterner) -> Self {

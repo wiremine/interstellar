@@ -1061,7 +1061,7 @@ mod tests {
         fn out_traverses_all_outgoing_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice has 2 outgoing edges (knows->Bob, uses->GraphDB)
             let results = g.v_ids([VertexId(0)]).out().to_list();
@@ -1077,7 +1077,7 @@ mod tests {
         fn out_with_label_filter() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice has 1 "knows" edge (to Bob)
             let results = g.v_ids([VertexId(0)]).out_labels(&["knows"]).to_list();
@@ -1089,7 +1089,7 @@ mod tests {
         fn out_from_non_vertex_produces_nothing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Inject a non-vertex value and try to navigate
             let results = g.inject([42i64]).out().to_list();
@@ -1100,7 +1100,7 @@ mod tests {
         fn out_from_vertex_with_no_out_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Charlie has no outgoing edges
             let results = g.v_ids([VertexId(2)]).out().to_list();
@@ -1111,7 +1111,7 @@ mod tests {
         fn out_chained() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice -> Bob -> Charlie (2 hops via knows)
             let results = g
@@ -1127,7 +1127,7 @@ mod tests {
         fn out_with_multiple_labels() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice -> both knows and uses edges
             let results = g
@@ -1141,7 +1141,7 @@ mod tests {
         fn out_with_nonexistent_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // No "likes" edges exist
             let results = g.v_ids([VertexId(0)]).out_labels(&["likes"]).to_list();
@@ -1168,7 +1168,7 @@ mod tests {
         fn in_traverses_all_incoming_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Bob has 1 incoming "knows" edge (from Alice)
             let results = g.v_ids([VertexId(1)]).in_().to_list();
@@ -1180,7 +1180,7 @@ mod tests {
         fn in_with_label_filter() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // GraphDB has 2 incoming "uses" edges (from Alice and Bob)
             let results = g.v_ids([VertexId(3)]).in_labels(&["uses"]).to_list();
@@ -1191,7 +1191,7 @@ mod tests {
         fn in_from_vertex_with_no_in_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice has no incoming edges
             let results = g.v_ids([VertexId(0)]).in_().to_list();
@@ -1212,7 +1212,7 @@ mod tests {
         fn both_traverses_all_directions() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Bob has 1 incoming (Alice), 2 outgoing (Charlie, GraphDB)
             let results = g.v_ids([VertexId(1)]).both().to_list();
@@ -1223,7 +1223,7 @@ mod tests {
         fn both_with_label_filter() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Bob: knows->Charlie (out), knows<-Alice (in) = 2 "knows" neighbors
             let results = g.v_ids([VertexId(1)]).both_labels(&["knows"]).to_list();
@@ -1244,7 +1244,7 @@ mod tests {
         fn out_e_returns_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice has 2 outgoing edges
             let results = g.v_ids([VertexId(0)]).out_e().to_list();
@@ -1260,7 +1260,7 @@ mod tests {
         fn out_e_with_label_filter() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice has 1 "knows" edge
             let results = g.v_ids([VertexId(0)]).out_e_labels(&["knows"]).to_list();
@@ -1281,7 +1281,7 @@ mod tests {
         fn in_e_returns_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // GraphDB has 2 incoming edges
             let results = g.v_ids([VertexId(3)]).in_e().to_list();
@@ -1307,7 +1307,7 @@ mod tests {
         fn both_e_returns_all_edges() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Bob: 1 incoming (knows from Alice), 2 outgoing (knows to Charlie, uses to GraphDB)
             let results = g.v_ids([VertexId(1)]).both_e().to_list();
@@ -1333,7 +1333,7 @@ mod tests {
         fn out_v_returns_source_vertex() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Get edges, then source vertices
             let results = g.e().out_v().to_list();
@@ -1350,7 +1350,7 @@ mod tests {
         fn out_v_from_non_edge_produces_nothing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Inject non-edge value
             let results = g.inject([42i64]).out_v().to_list();
@@ -1361,7 +1361,7 @@ mod tests {
         fn out_e_in_v_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice -> edges -> target vertices (should be same as out())
             let via_out = g.v_ids([VertexId(0)]).out().to_list();
@@ -1384,7 +1384,7 @@ mod tests {
         fn in_v_returns_target_vertex() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Get edges, then target vertices
             let results = g.e().in_v().to_list();
@@ -1411,7 +1411,7 @@ mod tests {
         fn both_v_returns_both_vertices() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Get first edge, then both vertices
             let results = g.e_ids([EdgeId(0)]).both_v().to_list();
@@ -1427,7 +1427,7 @@ mod tests {
         fn both_v_from_non_edge_produces_nothing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             let results = g.v_ids([VertexId(0)]).both_v().to_list();
             assert!(results.is_empty());
@@ -1460,7 +1460,7 @@ mod tests {
         fn other_v_from_out_edge_returns_target() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice (id=0) -> outE -> other_v should give target vertices (Bob, GraphDB)
             // Need path tracking for other_v to work correctly
@@ -1481,7 +1481,7 @@ mod tests {
         fn other_v_from_in_edge_returns_source() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Bob (id=1) has 1 incoming "knows" edge from Alice
             // Bob -> inE -> other_v should give Alice
@@ -1499,7 +1499,7 @@ mod tests {
         fn other_v_from_both_e_returns_opposite() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Bob has 3 incident edges:
             // - knows from Alice (in)
@@ -1524,7 +1524,7 @@ mod tests {
         fn other_v_from_non_edge_produces_nothing() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Starting from a vertex (not an edge) should produce nothing
             let results = g.v_ids([VertexId(0)]).with_path().other_v().to_list();
@@ -1535,7 +1535,7 @@ mod tests {
         fn other_v_with_label_filter() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice -> out_e("knows") -> other_v should give Bob only
             let results = g
@@ -1552,7 +1552,7 @@ mod tests {
         fn other_v_equivalent_to_in_v_after_out_e() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // For outE, other_v should be equivalent to in_v
             let via_other_v = g
@@ -1562,7 +1562,7 @@ mod tests {
                 .other_v()
                 .to_list();
 
-            let g2 = snapshot.traversal();
+            let g2 = snapshot.gremlin();
             let via_in_v = g2
                 .v_ids([VertexId(0)])
                 .out_e_labels(&["knows"])
@@ -1576,7 +1576,7 @@ mod tests {
         fn other_v_equivalent_to_out_v_after_in_e() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // For inE, other_v should be equivalent to out_v
             let via_other_v = g
@@ -1586,7 +1586,7 @@ mod tests {
                 .other_v()
                 .to_list();
 
-            let g2 = snapshot.traversal();
+            let g2 = snapshot.gremlin();
             let via_out_v = g2
                 .v_ids([VertexId(1)])
                 .in_e_labels(&["knows"])
@@ -1601,7 +1601,7 @@ mod tests {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             // Deliberately NOT using with_path()
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Without path tracking, other_v will use fallback behavior
             // (returning dst since we can't determine where we came from)
@@ -1615,7 +1615,7 @@ mod tests {
         fn other_v_chained_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice -> out_e -> other_v -> out_e -> other_v
             // This should go: Alice -> Bob/GraphDB edges -> Bob/GraphDB -> their edges -> targets
@@ -1637,7 +1637,7 @@ mod tests {
         fn other_v_with_injected_edge_no_path() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Inject an edge directly (no path context)
             // Should use fallback behavior
@@ -1656,7 +1656,7 @@ mod tests {
         fn other_v_values_property_access() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Alice -> out_e("knows") -> other_v -> values("name")
             let results = g
@@ -1679,7 +1679,7 @@ mod tests {
         fn complex_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Find all people who use GraphDB (in_edges->source vertices)
             let results = g
@@ -1698,7 +1698,7 @@ mod tests {
         fn multi_hop_traversal() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // Friends of friends: Alice -> knows -> Bob -> knows -> Charlie
             let results = g
@@ -1714,7 +1714,7 @@ mod tests {
         fn dedup_with_navigation() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let g = snapshot.traversal();
+            let g = snapshot.gremlin();
 
             // All neighbors of Alice (may have duplicates if same vertex reachable via multiple edges)
             let with_dups = g.v_ids([VertexId(0)]).out().to_list();

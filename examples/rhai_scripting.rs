@@ -137,7 +137,7 @@ fn example_basic_traversal(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Count vertices
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().count()
     "#;
 
@@ -146,7 +146,7 @@ fn example_basic_traversal(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Get all person names
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("person").values("name").to_list()
     "#;
 
@@ -166,7 +166,7 @@ fn example_predicates(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Find people over 30
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("person").has_where("age", gt(30)).values("name").to_list()
     "#;
 
@@ -182,7 +182,7 @@ fn example_predicates(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Find people between 25 and 35
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("person")
             .has_where("age", between(25, 35))
             .values("name")
@@ -201,7 +201,7 @@ fn example_predicates(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Find people in specific cities
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("person")
             .has_where("city", within(["New York", "Boston"]))
             .values("name")
@@ -224,7 +224,7 @@ fn example_navigation(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Find who Alice knows
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "Alice").out("knows").values("name").to_list()
     "#;
 
@@ -240,7 +240,7 @@ fn example_navigation(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Find who knows Carol
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "Carol").in_("knows").values("name").to_list()
     "#;
 
@@ -256,7 +256,7 @@ fn example_navigation(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Find Alice's coworkers (people at the same company)
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "Alice")
             .out("works_at")
             .in_("works_at")
@@ -282,7 +282,7 @@ fn example_anonymous(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Union: find both friends and workplace
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "Alice")
             .union([
                 A.out("knows").values("name"),
@@ -303,7 +303,7 @@ fn example_anonymous(engine: &RhaiEngine, graph: Arc<Graph>) {
 
     // Coalesce: try to find manager, fall back to direct reports
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "Alice")
             .coalesce([
                 A.out("manages"),    // No managers, so...
@@ -331,7 +331,7 @@ fn example_precompiled(engine: &RhaiEngine, graph: Arc<Graph>) {
     let ast = engine
         .compile(
             r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("person").values("name").to_list()
     "#,
         )
@@ -356,7 +356,7 @@ fn example_complex_query(engine: &RhaiEngine, graph: Arc<Graph>) {
         let friends = A.out("knows");
         let workplace = A.out("works_at");
         
-        let g = graph.traversal();
+        let g = graph.gremlin();
         
         // Start from Alice
         let alice_company = g.v()

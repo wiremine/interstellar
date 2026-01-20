@@ -46,7 +46,7 @@ fn test_gql_count_star() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN count(*)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN count(*)").unwrap();
 
     assert_eq!(results.len(), 1, "COUNT(*) should return single result");
     assert_eq!(results[0], Value::Int(5), "Should count all 5 persons");
@@ -58,7 +58,7 @@ fn test_gql_count_star_with_alias() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN count(*) AS total")
         .unwrap();
 
@@ -76,9 +76,7 @@ fn test_gql_count_property() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN count(p.name)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN count(p.name)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(5), "Should count all names");
@@ -90,7 +88,7 @@ fn test_gql_count_distinct() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN count(DISTINCT p.city)")
         .unwrap();
 
@@ -105,7 +103,7 @@ fn test_gql_sum() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN sum(p.age)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN sum(p.age)").unwrap();
 
     assert_eq!(results.len(), 1);
     // 30 + 25 + 35 + 28 + 22 = 140
@@ -118,7 +116,7 @@ fn test_gql_sum_with_where() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 25 RETURN sum(p.age)")
         .unwrap();
 
@@ -133,7 +131,7 @@ fn test_gql_avg() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN avg(p.age)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN avg(p.age)").unwrap();
 
     assert_eq!(results.len(), 1);
     // (30 + 25 + 35 + 28 + 22) / 5 = 140 / 5 = 28.0
@@ -154,7 +152,7 @@ fn test_gql_min() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN min(p.age)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN min(p.age)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(22), "Min age should be 22");
@@ -166,7 +164,7 @@ fn test_gql_max() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN max(p.age)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN max(p.age)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(35), "Max age should be 35");
@@ -178,7 +176,7 @@ fn test_gql_min_string() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN min(p.name)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN min(p.name)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(
@@ -194,7 +192,7 @@ fn test_gql_max_string() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN max(p.name)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN max(p.name)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(
@@ -210,7 +208,7 @@ fn test_gql_collect() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN collect(p.name)")
         .unwrap();
 
@@ -235,7 +233,7 @@ fn test_gql_collect_distinct() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN collect(DISTINCT p.city)")
         .unwrap();
 
@@ -257,7 +255,7 @@ fn test_gql_multiple_aggregates() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN count(*) AS total, sum(p.age) AS total_age, avg(p.age) AS avg_age")
         .unwrap();
 
@@ -281,7 +279,7 @@ fn test_gql_count_empty() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 100 RETURN count(*)")
         .unwrap();
 
@@ -295,7 +293,7 @@ fn test_gql_avg_empty() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 100 RETURN avg(p.age)")
         .unwrap();
 
@@ -309,7 +307,7 @@ fn test_gql_min_empty() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 100 RETURN min(p.age)")
         .unwrap();
 
@@ -323,7 +321,7 @@ fn test_gql_max_empty() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 100 RETURN max(p.age)")
         .unwrap();
 
@@ -337,7 +335,7 @@ fn test_gql_sum_empty() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 100 RETURN sum(p.age)")
         .unwrap();
 
@@ -351,7 +349,7 @@ fn test_gql_collect_empty() {
     let graph = create_aggregation_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 100 RETURN collect(p.name)")
         .unwrap();
 
@@ -398,7 +396,7 @@ fn test_gql_group_by_count() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city")
         .unwrap();
 
@@ -428,7 +426,7 @@ fn test_gql_group_by_avg() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, avg(p.age) AS avg_age GROUP BY p.city")
         .unwrap();
 
@@ -463,7 +461,7 @@ fn test_gql_group_by_sum() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, sum(p.age) AS total_age GROUP BY p.city")
         .unwrap();
 
@@ -494,7 +492,7 @@ fn test_gql_group_by_min_max() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, min(p.age) AS min_age, max(p.age) AS max_age GROUP BY p.city")
         .unwrap();
 
@@ -544,7 +542,7 @@ fn test_gql_group_by_collect() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, collect(p.name) AS names GROUP BY p.city")
         .unwrap();
 
@@ -585,7 +583,7 @@ fn test_gql_group_by_with_where() {
     let snapshot = graph.snapshot();
 
     // Only include people age >= 25
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age >= 25 RETURN p.city AS city, count(*) AS cnt GROUP BY p.city")
         .unwrap();
 
@@ -621,7 +619,7 @@ fn test_gql_group_by_validation_error() {
     let snapshot = graph.snapshot();
 
     // p.name is not in GROUP BY and not an aggregate - should error
-    let result = snapshot.gql("MATCH (p:Person) RETURN p.city, p.name, count(*) GROUP BY p.city");
+    let result = graph.gql("MATCH (p:Person) RETURN p.city, p.name, count(*) GROUP BY p.city");
 
     assert!(
         result.is_err(),
@@ -643,7 +641,7 @@ fn test_gql_group_by_with_order_by() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city ORDER BY cnt DESC")
         .unwrap();
 
@@ -675,7 +673,7 @@ fn test_gql_group_by_with_limit() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city ORDER BY cnt DESC LIMIT 2")
         .unwrap();
 
@@ -705,7 +703,7 @@ fn test_gql_group_by_no_alias() {
     let snapshot = graph.snapshot();
 
     // No alias on p.city - the key should default to "p.city" (variable.property format)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city, count(*) GROUP BY p.city")
         .unwrap();
 
@@ -729,7 +727,7 @@ fn test_gql_group_by_multiple_aggregates() {
     let graph = create_group_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             "MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt, sum(p.age) AS total, avg(p.age) AS avg_age GROUP BY p.city",
         )
@@ -781,7 +779,7 @@ fn test_gql_group_by_single_return_count_only() {
 
     // This is a bit unusual - GROUP BY city but only return the count
     // The city value is computed but not returned
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN count(*) AS cnt GROUP BY p.city")
         .unwrap();
 
@@ -815,7 +813,7 @@ fn test_gql_having_count_filter() {
     let snapshot = graph.snapshot();
 
     // Only return groups with more than 1 person
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 1")
         .unwrap();
 
@@ -846,7 +844,7 @@ fn test_gql_having_count_gte() {
     let snapshot = graph.snapshot();
 
     // Only return groups with 2 or more people
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) >= 2")
         .unwrap();
 
@@ -860,7 +858,7 @@ fn test_gql_having_count_equals() {
     let snapshot = graph.snapshot();
 
     // Only return groups with exactly 3 people
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) = 3")
         .unwrap();
 
@@ -884,7 +882,7 @@ fn test_gql_having_avg_filter() {
     let snapshot = graph.snapshot();
 
     // Only return groups with average age >= 30
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, avg(p.age) AS avg_age GROUP BY p.city HAVING avg(p.age) >= 30")
         .unwrap();
 
@@ -907,7 +905,7 @@ fn test_gql_having_with_alias() {
     let snapshot = graph.snapshot();
 
     // Use alias in HAVING clause
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING cnt > 1")
         .unwrap();
 
@@ -921,7 +919,7 @@ fn test_gql_having_and_condition() {
     let snapshot = graph.snapshot();
 
     // Multiple conditions with AND
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt, avg(p.age) AS avg_age GROUP BY p.city HAVING count(*) > 1 AND avg(p.age) < 35")
         .unwrap();
 
@@ -945,7 +943,7 @@ fn test_gql_having_or_condition() {
     let snapshot = graph.snapshot();
 
     // Multiple conditions with OR
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) = 1 OR count(*) = 3")
         .unwrap();
 
@@ -979,7 +977,7 @@ fn test_gql_having_filters_all() {
     let snapshot = graph.snapshot();
 
     // No group has count > 10
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 10")
         .unwrap();
 
@@ -993,7 +991,7 @@ fn test_gql_having_sum_filter() {
     let snapshot = graph.snapshot();
 
     // Only return groups where sum of ages > 50
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, sum(p.age) AS total_age GROUP BY p.city HAVING sum(p.age) > 50")
         .unwrap();
 
@@ -1014,7 +1012,7 @@ fn test_gql_having_with_order_by_limit() {
     let snapshot = graph.snapshot();
 
     // Filter, order, and limit
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt GROUP BY p.city HAVING count(*) > 1 ORDER BY cnt DESC LIMIT 1")
         .unwrap();
 

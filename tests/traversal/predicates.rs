@@ -19,7 +19,7 @@ use crate::common::graphs::create_small_graph;
 fn has_where_eq_filters_by_property_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age exactly 30
     let results = g.v().has_where("age", p::eq(30)).to_list();
@@ -32,7 +32,7 @@ fn has_where_eq_filters_by_property_value() {
 fn has_where_neq_filters_out_property_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age not equal to 30
     // Bob (25), Charlie (35) should match; Alice (30) should not
@@ -54,7 +54,7 @@ fn has_where_neq_filters_out_property_value() {
 fn has_where_gte_filters_correctly() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age >= 30
     // Alice (30), Charlie (35) should match; Bob (25) should not
@@ -71,7 +71,7 @@ fn has_where_gte_filters_correctly() {
 fn has_where_gt_filters_correctly() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age > 30
     // Only Charlie (35) should match
@@ -85,7 +85,7 @@ fn has_where_gt_filters_correctly() {
 fn has_where_lt_filters_correctly() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age < 30
     // Only Bob (25) should match
@@ -99,7 +99,7 @@ fn has_where_lt_filters_correctly() {
 fn has_where_lte_filters_correctly() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age <= 30
     // Alice (30), Bob (25) should match; Charlie (35) should not
@@ -116,7 +116,7 @@ fn has_where_lte_filters_correctly() {
 fn has_where_cross_type_comparison() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Float predicate value compared against Int property
     // age >= 29.5 should match Alice (30), Charlie (35)
@@ -133,7 +133,7 @@ fn has_where_cross_type_comparison() {
 fn has_where_missing_property_filters_out() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB has no "age" property, should be filtered out
     // All person vertices have age
@@ -153,7 +153,7 @@ fn has_where_missing_property_filters_out() {
 fn has_where_between_filters_range() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age in [25, 35)
     // Alice (30), Bob (25) should match; Charlie (35) should not (exclusive end)
@@ -171,7 +171,7 @@ fn has_where_between_filters_range() {
 fn has_where_between_inclusive_start() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age in [30, 40)
     // Start value is inclusive: Alice (30), Charlie (35) should match
@@ -188,7 +188,7 @@ fn has_where_between_inclusive_start() {
 fn has_where_between_exclusive_end() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age in [20, 30)
     // End value is exclusive: only Bob (25) should match
@@ -202,7 +202,7 @@ fn has_where_between_exclusive_end() {
 fn has_where_inside_filters_exclusive() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age in (25, 35) - exclusive both ends
     // Only Alice (30) should match; Bob (25), Charlie (35) at boundaries excluded
@@ -216,7 +216,7 @@ fn has_where_inside_filters_exclusive() {
 fn has_where_inside_excludes_boundaries() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for age in (29, 31) - should only match Alice (30)
     let results = g.v().has_where("age", p::inside(29, 31)).to_list();
@@ -229,7 +229,7 @@ fn has_where_inside_excludes_boundaries() {
 fn has_where_outside_filters_outside_range() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age outside [26, 34]
     // Bob (25) < 26: matches; Alice (30) in range: doesn't match; Charlie (35) > 34: matches
@@ -247,7 +247,7 @@ fn has_where_outside_filters_outside_range() {
 fn has_where_outside_boundaries_not_outside() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age outside [25, 35]
     // Boundaries are NOT outside, so Bob (25) and Charlie (35) don't match
@@ -265,7 +265,7 @@ fn has_where_outside_boundaries_not_outside() {
 fn has_where_starting_with_filters_strings() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name starting with "A"
     // Alice should match
@@ -279,7 +279,7 @@ fn has_where_starting_with_filters_strings() {
 fn has_where_starting_with_multiple_matches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name starting with "C" or "G"
     // Charlie and GraphDB start with different letters, neither matches
@@ -294,7 +294,7 @@ fn has_where_starting_with_multiple_matches() {
 fn has_where_ending_with_filters_strings() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name ending with "e"
     // Alice and Charlie both end with "e"
@@ -311,7 +311,7 @@ fn has_where_ending_with_filters_strings() {
 fn has_where_ending_with_no_matches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name ending with "z"
     // No names end with "z"
@@ -324,7 +324,7 @@ fn has_where_ending_with_no_matches() {
 fn has_where_containing_filters_strings() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name containing "li"
     // Alice, Charlie both contain "li"
@@ -341,7 +341,7 @@ fn has_where_containing_filters_strings() {
 fn has_where_containing_single_match() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name containing "ob"
     // Only Bob contains "ob"
@@ -355,7 +355,7 @@ fn has_where_containing_single_match() {
 fn has_where_string_predicate_on_non_string_property_fails() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Apply string predicate to numeric property - should match nothing
     // age is Int, not String
@@ -368,7 +368,7 @@ fn has_where_string_predicate_on_non_string_property_fails() {
 fn has_where_regex_filters_strings() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with name matching regex "^[AB].*"
     // Alice and Bob start with A or B
@@ -385,7 +385,7 @@ fn has_where_regex_filters_strings() {
 fn has_where_regex_exact_match() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for name exactly "Bob"
     let results = g.v().has_where("name", p::regex("^Bob$")).to_list();
@@ -402,7 +402,7 @@ fn has_where_regex_exact_match() {
 fn has_where_and_composed_predicate() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age >= 25 AND age <= 30
     // Alice (30), Bob (25) should match; Charlie (35) should not
@@ -422,7 +422,7 @@ fn has_where_and_composed_predicate() {
 fn has_where_or_composed_predicate() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age == 25 OR age == 35
     // Bob (25), Charlie (35) should match; Alice (30) should not
@@ -442,7 +442,7 @@ fn has_where_or_composed_predicate() {
 fn has_where_not_composed_predicate() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age NOT equal to 30
     // Bob (25), Charlie (35) should match; Alice (30) should not
@@ -463,7 +463,7 @@ fn has_where_not_composed_predicate() {
 fn has_where_complex_nested_predicate() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for: (age >= 30 AND age < 35) OR age == 25
     // Matches: Alice (30 >= 30 AND 30 < 35), Bob (25 == 25)
@@ -484,7 +484,7 @@ fn has_where_complex_nested_predicate() {
 fn has_where_and_with_string_predicates() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for names that start with a letter and contain specific substring
     // Names starting with "A" AND containing "lic" -> Alice
@@ -501,7 +501,7 @@ fn has_where_and_with_string_predicates() {
 fn has_where_or_with_string_predicates() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for names ending with "b" OR containing "arl"
     // Bob ends with "b", Charlie contains "arl"
@@ -521,7 +521,7 @@ fn has_where_or_with_string_predicates() {
 fn has_where_not_with_between() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for ages NOT in [26, 34]
     // Bob (25) and Charlie (35) should match
@@ -546,7 +546,7 @@ fn has_where_not_with_between() {
 fn has_where_within_filters_by_set_membership() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age in {25, 35}
     // Bob (25), Charlie (35) should match
@@ -563,7 +563,7 @@ fn has_where_within_filters_by_set_membership() {
 fn has_where_without_filters_by_exclusion() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for vertices with age NOT in {25, 35}
     // Only Alice (30) should match
@@ -581,7 +581,7 @@ fn has_where_without_filters_by_exclusion() {
 fn has_where_within_with_strings() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter for names in {"Alice", "Charlie"}
     let results = g
@@ -604,7 +604,7 @@ fn has_where_within_with_strings() {
 fn has_where_on_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter edges by "since" property
     // knows edges have since: 2020, 2021, 2019
@@ -621,7 +621,7 @@ fn has_where_on_edges() {
 fn has_where_on_edge_with_range() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter edges with since between 2019 and 2021 (exclusive end)
     let results = g
@@ -641,7 +641,7 @@ fn has_where_on_edge_with_range() {
 fn has_where_chained_with_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Start from Alice, get neighbors older than 30
     // Alice -> Bob (25, no), GraphDB (no age)
@@ -659,7 +659,7 @@ fn has_where_chained_with_navigation() {
 fn has_where_in_where_step() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find vertices that have an outgoing neighbor with age < 30
     // Alice -> Bob (25 < 30): Alice passes
@@ -679,7 +679,7 @@ fn has_where_in_where_step() {
 fn has_where_in_union_branches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Union with different predicates per branch
     let results = g
@@ -776,7 +776,7 @@ fn has_where_spec_graph_integration() {
     // Use the spec-compliant test graph for spec alignment
     let tg = create_spec_test_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find adults (age >= 18) who work at a company
     // All persons are adults, Alice and Bob work at Acme

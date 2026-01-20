@@ -147,7 +147,7 @@ fn create_test_graph() -> TestGraph {
 fn test_branch_routes_by_label() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Route based on vertex label:
     // - person vertices: follow "knows" edges
@@ -176,7 +176,7 @@ fn test_branch_routes_by_label() {
 fn test_branch_with_identity_option() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Route by label, use identity for persons to keep them
     let results = g
@@ -204,7 +204,7 @@ fn test_branch_with_identity_option() {
 fn test_branch_with_property_value_key() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Route by status property
     let results = g
@@ -236,7 +236,7 @@ fn test_branch_with_property_value_key() {
 fn test_branch_with_none_default() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Route by label, with default for unknown labels
     let results = g
@@ -263,7 +263,7 @@ fn test_branch_with_none_default() {
 fn test_branch_none_branch_used_when_no_match() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Only handle "person", use default for everything else
     let results = g
@@ -291,7 +291,7 @@ fn test_branch_none_branch_used_when_no_match() {
 fn test_branch_filters_unmatched_without_none() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Only handle "person", no default -> software vertices filtered out
     let count = g
@@ -309,7 +309,7 @@ fn test_branch_filters_unmatched_without_none() {
 fn test_branch_filters_when_branch_traversal_empty() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use a property that doesn't exist on some vertices
     let results = g
@@ -335,7 +335,7 @@ fn test_branch_filters_when_branch_traversal_empty() {
 fn test_branch_with_integer_key() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Route by priority property (integer)
     let results = g
@@ -365,7 +365,7 @@ fn test_branch_with_integer_key() {
 fn test_branch_with_i32_key() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // i32 keys should work (converted to i64 internally)
     let results = g
@@ -418,7 +418,7 @@ fn test_branch_with_boolean_key() {
     });
 
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v()
@@ -444,7 +444,7 @@ fn test_branch_with_boolean_key() {
 fn test_choose_by_equivalent_to_branch() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Using branch()
     let branch_results = g
@@ -472,7 +472,7 @@ fn test_choose_by_equivalent_to_branch() {
 fn test_choose_by_with_option_none() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v()
@@ -511,7 +511,7 @@ fn test_choose_by_with_option_none() {
 fn test_branch_preserves_path() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v_ids([test.alice])
@@ -536,7 +536,7 @@ fn test_branch_preserves_path() {
 fn test_branch_path_with_multiple_inputs() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v()
@@ -566,7 +566,7 @@ fn test_branch_path_with_multiple_inputs() {
 fn test_branch_builder_continuation_out() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Using out() continuation after branch
     let results = g
@@ -587,7 +587,7 @@ fn test_branch_builder_continuation_out() {
 fn test_branch_builder_continuation_has_label() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Using has_label() continuation after branch
     let count = g
@@ -606,7 +606,7 @@ fn test_branch_builder_continuation_has_label() {
 fn test_branch_builder_terminal_count() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Direct terminal method on builder
     let count = g
@@ -623,7 +623,7 @@ fn test_branch_builder_terminal_count() {
 fn test_branch_builder_terminal_next() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Using next() terminal
     let result = g
@@ -643,7 +643,7 @@ fn test_branch_builder_terminal_next() {
 fn test_branch_builder_terminal_has_next() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // has_next should return true when there are results
     let has_results = g
@@ -674,7 +674,7 @@ fn test_branch_builder_terminal_has_next() {
 fn test_branch_with_empty_input() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // No vertices match, so branch receives empty input
     let results = g
@@ -691,7 +691,7 @@ fn test_branch_with_empty_input() {
 fn test_branch_option_produces_multiple_results() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Option branch that produces multiple results per input
     let results = g
@@ -708,7 +708,7 @@ fn test_branch_option_produces_multiple_results() {
 fn test_branch_multiple_options_same_key_overwrites() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Adding same key twice should overwrite
     let results = g
@@ -733,7 +733,7 @@ fn test_branch_multiple_options_same_key_overwrites() {
 fn test_branch_chained_with_filter() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v()
@@ -761,7 +761,7 @@ fn test_branch_chained_with_filter() {
 fn test_branch_with_transform_in_option() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use values in branch to transform per-vertex
     let results = g

@@ -109,12 +109,12 @@ impl<'g> LegacyGraphSnapshot<'g> {
     ///
     /// let graph = Graph::in_memory();
     /// let snapshot = graph.snapshot();
-    /// let g = snapshot.traversal();
+    /// let g = snapshot.gremlin();
     ///
     /// // Start traversing
     /// let vertices = g.v().to_list();
     /// ```
-    pub fn traversal(&self) -> crate::traversal::GraphTraversalSource<'_> {
+    pub fn gremlin(&self) -> crate::traversal::GraphTraversalSource<'_> {
         crate::traversal::GraphTraversalSource::new(self, self.interner())
     }
 
@@ -131,99 +131,6 @@ impl<'g> LegacyGraphSnapshot<'g> {
     #[inline]
     pub fn interner(&self) -> &StringInterner {
         self.graph.storage.interner()
-    }
-
-    /// Execute a GQL query or statement against this snapshot.
-    ///
-    /// Parses and executes the GQL query or UNION statement, returning matching
-    /// results as a vector of [`Value`](crate::value::Value)s.
-    ///
-    /// Supports both single queries and UNION/UNION ALL statements:
-    /// - `MATCH (n:Person) RETURN n.name` - single query
-    /// - `MATCH (a:A) RETURN a.name UNION MATCH (b:B) RETURN b.name` - UNION (deduplicates)
-    /// - `MATCH (a:A) RETURN a.name UNION ALL MATCH (b:B) RETURN b.name` - UNION ALL (keeps dupes)
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use interstellar::prelude::*;
-    /// use interstellar::storage::InMemoryGraph;
-    ///
-    /// // Create storage with data
-    /// let mut storage = InMemoryGraph::new();
-    /// let mut props = std::collections::HashMap::new();
-    /// props.insert("name".to_string(), Value::from("Alice"));
-    /// storage.add_vertex("Person", props);
-    ///
-    /// // Wrap in Graph for querying
-    /// let graph = Graph::new(storage);
-    ///
-    /// let snapshot = graph.snapshot();
-    /// let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
-    /// assert_eq!(results.len(), 1);
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`GqlError`](crate::gql::GqlError) if:
-    /// - The query has a syntax error ([`ParseError`](crate::gql::ParseError))
-    /// - The query references undefined variables ([`CompileError`](crate::gql::CompileError))
-    pub fn gql(&self, query: &str) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let stmt = crate::gql::parse_statement(query)?;
-        let results = crate::gql::compile_statement(&stmt, self)?;
-        Ok(results)
-    }
-
-    /// Execute a parameterized GQL query against this snapshot.
-    ///
-    /// Similar to [`gql()`](Self::gql), but allows passing query parameters that
-    /// can be referenced in the query using `$paramName` syntax. Parameters provide
-    /// a safe way to inject values into queries without string concatenation.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use interstellar::prelude::*;
-    /// use interstellar::storage::InMemoryGraph;
-    /// use interstellar::gql::Parameters;
-    ///
-    /// // Create storage with data
-    /// let mut storage = InMemoryGraph::new();
-    /// let mut props = std::collections::HashMap::new();
-    /// props.insert("name".to_string(), Value::from("Alice"));
-    /// props.insert("age".to_string(), Value::from(30));
-    /// storage.add_vertex("Person", props);
-    ///
-    /// // Wrap in Graph for querying
-    /// let graph = Graph::new(storage);
-    ///
-    /// let snapshot = graph.snapshot();
-    ///
-    /// // Use parameters instead of string interpolation
-    /// let mut params = Parameters::new();
-    /// params.insert("minAge".to_string(), Value::Int(25));
-    ///
-    /// let results = snapshot.gql_with_params(
-    ///     "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
-    ///     &params,
-    /// ).unwrap();
-    /// assert_eq!(results.len(), 1);
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`GqlError`](crate::gql::GqlError) if:
-    /// - The query has a syntax error
-    /// - A parameter referenced in the query is not provided in `params`
-    /// - The query references undefined variables
-    pub fn gql_with_params(
-        &self,
-        query: &str,
-        params: &crate::gql::Parameters,
-    ) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let stmt = crate::gql::parse_statement(query)?;
-        let results = crate::gql::compile_statement_with_params(&stmt, self, params)?;
-        Ok(results)
     }
 
     /// Get the current schema from the parent graph.
@@ -548,7 +455,7 @@ impl LegacyGraph {
     ///
     /// // Create a snapshot for read access
     /// let snapshot = graph.snapshot();
-    /// let g = snapshot.traversal();
+    /// let g = snapshot.gremlin();
     ///
     /// // Traverse the graph
     /// let count = g.v().count();
@@ -655,7 +562,7 @@ impl LegacyGraph {
     ///
     /// // Ready to use - start with a snapshot
     /// let snapshot = graph.snapshot();
-    /// let g = snapshot.traversal();
+    /// let g = snapshot.gremlin();
     /// assert_eq!(g.v().count(), 0); // Empty graph
     /// ```
     pub fn in_memory() -> Self {
@@ -911,7 +818,7 @@ mod tests {
         // Thread 1 holds snapshot with traversal
         let handle1 = thread::spawn(move || {
             let snap = graph_clone.snapshot();
-            let _g = snap.traversal();
+            let _g = snap.gremlin();
             thread::sleep(Duration::from_millis(100));
             // Read lock held until snap drops
         });
@@ -945,9 +852,9 @@ mod tests {
         let snap2 = graph.snapshot();
         let snap3 = graph.snapshot();
 
-        let _g1 = snap1.traversal();
-        let _g2 = snap2.traversal();
-        let _g3 = snap3.traversal();
+        let _g1 = snap1.gremlin();
+        let _g2 = snap2.gremlin();
+        let _g3 = snap3.gremlin();
 
         // All traversals should coexist (multiple readers allowed)
         // No assertion needed - this tests that it doesn't deadlock
@@ -959,8 +866,8 @@ mod tests {
         let snap = graph.snapshot();
 
         // Can create multiple traversals from the same snapshot
-        let _g1 = snap.traversal();
-        let _g2 = snap.traversal();
+        let _g1 = snap.gremlin();
+        let _g2 = snap.gremlin();
 
         // Both should work without issues
     }
@@ -1068,12 +975,13 @@ pub trait UnifiedGraph: Send + Sync {
     /// Set the schema.
     fn set_schema(&self, schema: GraphSchema);
 
-    /// Execute a GQL mutation statement.
+    /// Execute a GQL statement (both reads and mutations).
     ///
-    /// For read-only queries, use `snapshot().gql()` instead.
+    /// - Read queries (MATCH...RETURN) are executed against a snapshot
+    /// - Mutations (CREATE, SET, DELETE) are executed against the graph
     fn gql(&self, statement: &str) -> Result<Vec<Value>, GqlError>;
 
-    /// Execute a parameterized GQL mutation statement.
+    /// Execute a parameterized GQL statement.
     fn gql_with_params(
         &self,
         statement: &str,
@@ -1103,33 +1011,13 @@ pub trait UnifiedGraph: Send + Sync {
 /// // Read via GraphStorage API
 /// let vertex = snap.get_vertex(VertexId(1));
 ///
-/// // Read via GQL
-/// let results = snap.gql("MATCH (p:Person) RETURN p.name").unwrap();
-///
-/// // Read via traversal (when available on the concrete type)
-/// // let g = snap.traversal();
-/// ```ignore
+/// // Read via Gremlin traversal
+/// let g = snap.gremlin();
+/// let names = g.v().has_label("Person").values("name").to_list();
+/// ```
 pub trait UnifiedSnapshot: crate::storage::GraphStorage + Send + Sync + Clone {
     /// Get the string interner for label resolution.
     fn interner(&self) -> &StringInterner;
-
-    /// Execute a GQL read query against this snapshot.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the query is a mutation (use `graph.gql()` for mutations).
-    fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError>;
-
-    /// Execute a parameterized GQL query against this snapshot.
-    fn gql_with_params(
-        &self,
-        query: &str,
-        params: HashMap<String, Value>,
-    ) -> Result<Vec<Value>, GqlError>;
-
-    // Note: traversal() method is intentionally not included here.
-    // Each concrete type provides its own traversal() method that returns
-    // the appropriate traversal source type. This will be unified in Phase 4.
 }
 
 // =============================================================================

@@ -10,7 +10,7 @@ use crate::common::graphs::create_small_graph;
 fn has_label_filters_vertices_by_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let people = g.v().has_label("person").to_list();
     assert_eq!(people.len(), 3); // Alice, Bob, Charlie
@@ -23,7 +23,7 @@ fn has_label_filters_vertices_by_label() {
 fn has_label_filters_edges_by_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let knows_edges = g.e().has_label("knows").to_list();
     assert_eq!(knows_edges.len(), 3);
@@ -36,7 +36,7 @@ fn has_label_filters_edges_by_label() {
 fn has_label_any_filters_by_multiple_labels() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let all = g.v().has_label_any(["person", "software"]).to_list();
     assert_eq!(all.len(), 4);
@@ -46,7 +46,7 @@ fn has_label_any_filters_by_multiple_labels() {
 fn has_label_returns_empty_for_nonexistent_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().has_label("unknown").to_list();
     assert!(results.is_empty());
@@ -56,7 +56,7 @@ fn has_label_returns_empty_for_nonexistent_label() {
 fn has_filters_by_property_existence() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // All vertices have "name"
     let with_name = g.v().has("name").to_list();
@@ -75,7 +75,7 @@ fn has_filters_by_property_existence() {
 fn has_value_filters_by_property_value() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let alice = g.v().has_value("name", "Alice").to_list();
     assert_eq!(alice.len(), 1);
@@ -88,7 +88,7 @@ fn has_value_filters_by_property_value() {
 fn has_id_filters_vertices_by_id() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let result = g.v().has_id(tg.alice).to_list();
     assert_eq!(result.len(), 1);
@@ -99,7 +99,7 @@ fn has_id_filters_vertices_by_id() {
 fn has_ids_filters_by_multiple_ids() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().has_ids([tg.alice, tg.bob, tg.charlie]).to_list();
     assert_eq!(results.len(), 3);
@@ -109,7 +109,7 @@ fn has_ids_filters_by_multiple_ids() {
 fn filter_with_custom_predicate() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter injected values
     let positives = g
@@ -125,7 +125,7 @@ fn filter_with_custom_predicate() {
 fn dedup_removes_duplicates() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([1i64, 2i64, 1i64, 3i64, 2i64]).dedup().to_list();
     assert_eq!(results.len(), 3);
@@ -135,7 +135,7 @@ fn dedup_removes_duplicates() {
 fn limit_restricts_result_count() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().limit(2).to_list();
     assert_eq!(results.len(), 2);
@@ -145,7 +145,7 @@ fn limit_restricts_result_count() {
 fn limit_with_more_than_available() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().limit(100).to_list();
     assert_eq!(results.len(), 4);
@@ -155,7 +155,7 @@ fn limit_with_more_than_available() {
 fn skip_skips_elements() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).skip(2).to_list();
     assert_eq!(results.len(), 3);
@@ -166,7 +166,7 @@ fn skip_skips_elements() {
 fn range_selects_range_of_elements() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .inject([0i64, 1i64, 2i64, 3i64, 4i64, 5i64])
@@ -182,7 +182,7 @@ fn range_selects_range_of_elements() {
 fn chained_filters() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find person vertices with age property
     let results = g.v().has_label("person").has("age").to_list();
@@ -197,7 +197,7 @@ fn chained_filters() {
 fn test_tail_with_order() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Order by age ascending and get last 2 (oldest people)
     let results = g
@@ -219,7 +219,7 @@ fn test_tail_with_order() {
 fn test_tail_single_element() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get the last person by age (oldest)
     let results = g
@@ -239,7 +239,7 @@ fn test_tail_single_element() {
 fn test_tail_chained_with_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get outgoing edges from Alice, take last 2
     let results = g.v().has_id(tg.alice).out_e().tail_n(2).to_list();
@@ -256,7 +256,7 @@ fn test_tail_chained_with_navigation() {
 fn test_dedup_by_key_with_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all vertices connected to Alice via "knows", dedup by label
     let results = g
@@ -274,7 +274,7 @@ fn test_dedup_by_key_with_navigation() {
 fn test_dedup_by_traversal_with_values() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Dedup vertices by their age value
     let results = g
@@ -295,7 +295,7 @@ fn test_dedup_by_traversal_with_values() {
 fn test_coin_zero_filters_all() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // coin(0.0) should filter out everything
     let results = g.v().coin(0.0).to_list();
@@ -307,7 +307,7 @@ fn test_coin_zero_filters_all() {
 fn test_coin_one_passes_all() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // coin(1.0) should pass everything
     let all_vertices = g.v().to_list();
@@ -320,7 +320,7 @@ fn test_coin_one_passes_all() {
 fn test_coin_with_filter_chain() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter persons, then apply coin(1.0)
     let results = g.v().has_label("person").coin(1.0).to_list();
@@ -336,7 +336,7 @@ fn test_coin_with_filter_chain() {
 fn test_sample_respects_limit() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Sample 2 vertices from all
     let results = g.v().sample(2).to_list();
@@ -348,7 +348,7 @@ fn test_sample_respects_limit() {
 fn test_sample_with_fewer_elements() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Sample 10 from 3 persons should return all 3
     let results = g.v().has_label("person").sample(10).to_list();
@@ -360,7 +360,7 @@ fn test_sample_with_fewer_elements() {
 fn test_sample_chained_with_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all edges, sample 2
     let results = g.e().sample(2).to_list();
@@ -376,7 +376,7 @@ fn test_sample_chained_with_navigation() {
 fn test_has_key_on_properties() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get properties of Alice, filter by key "age"
     let results = g.v().has_id(tg.alice).properties().has_key("age").to_list();
@@ -388,7 +388,7 @@ fn test_has_key_on_properties() {
 fn test_has_key_any_on_properties() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get properties of Alice, filter by key "name" or "age"
     let results = g
@@ -405,7 +405,7 @@ fn test_has_key_any_on_properties() {
 fn test_has_prop_value_on_properties() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all person properties, filter by value "Alice"
     let results = g
@@ -426,7 +426,7 @@ fn test_has_prop_value_on_properties() {
 fn test_where_p_with_comparison() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter ages > 25
     let results = g
@@ -445,7 +445,7 @@ fn test_where_p_with_comparison() {
 fn test_where_p_with_within() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter ages within [25, 35]
     let results = g
@@ -464,7 +464,7 @@ fn test_where_p_with_within() {
 fn test_where_p_with_between() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter ages between 25 (inclusive) and 35 (exclusive)
     let results = g
@@ -483,7 +483,7 @@ fn test_where_p_with_between() {
 fn test_where_p_combined_with_and() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter ages >= 25 AND <= 30
     let results = g
@@ -506,7 +506,7 @@ fn test_where_p_combined_with_and() {
 fn test_chain_dedup_tail() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all vertices reachable from Alice via "knows" (up to 2 hops),
     // dedup and get tail
@@ -527,7 +527,7 @@ fn test_chain_dedup_tail() {
 fn test_chain_sample_where_p() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Sample 10 person vertices (returns all 3), then filter by age > 25
     let results = g
@@ -545,7 +545,7 @@ fn test_chain_sample_where_p() {
 fn test_chain_order_tail_where_p() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Order ages ascending, take last 2 (oldest), filter >= 30
     let results = g
@@ -568,7 +568,7 @@ fn test_chain_order_tail_where_p() {
 fn test_anonymous_traversal_tail() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use tail_n directly on injected values
     let results = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).tail_n(2).to_list();
@@ -583,7 +583,7 @@ fn test_anonymous_traversal_tail() {
 fn test_anonymous_traversal_sample() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use sample directly on injected values
     let results = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).sample(2).to_list();
@@ -595,7 +595,7 @@ fn test_anonymous_traversal_sample() {
 fn test_anonymous_traversal_where_p() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use anonymous where_p in a filter context
     let results = g
@@ -611,7 +611,7 @@ fn test_anonymous_traversal_where_p() {
 fn test_full_pipeline_with_new_steps() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Complex pipeline:
     // 1. Start with all vertices
@@ -645,7 +645,7 @@ fn test_full_pipeline_with_new_steps() {
 fn where_filters_by_sub_traversal_existence() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that have outgoing edges
     // Alice: out to Bob, GraphDB (2 out) -> passes
@@ -660,7 +660,7 @@ fn where_filters_by_sub_traversal_existence() {
 fn where_filters_by_labeled_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that have outgoing "knows" edges
     // Alice: knows Bob -> passes
@@ -681,7 +681,7 @@ fn where_filters_by_labeled_edges() {
 fn where_filters_by_chained_sub_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that know someone who uses software
     // Alice knows Bob, Bob uses GraphDB -> Alice passes
@@ -698,7 +698,7 @@ fn where_filters_by_chained_sub_traversal() {
 fn where_empty_sub_traversal_filters_out() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // No vertex has outgoing "nonexistent" edges
     let results = g.v().where_(__::out_labels(&["nonexistent"])).to_list();
@@ -713,7 +713,7 @@ fn where_empty_sub_traversal_filters_out() {
 fn not_filters_to_traversers_without_outgoing_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices WITHOUT outgoing edges
     // GraphDB has no outgoing edges -> passes
@@ -727,7 +727,7 @@ fn not_filters_to_traversers_without_outgoing_edges() {
 fn not_is_inverse_of_where() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Vertices with outgoing edges (where)
     let with_out = g.v().where_(__::out()).to_list();
@@ -753,7 +753,7 @@ fn not_is_inverse_of_where() {
 fn not_filters_by_labeled_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices WITHOUT outgoing "uses" edges
     // Alice: uses GraphDB -> filtered out
@@ -772,7 +772,7 @@ fn not_filters_by_labeled_edges() {
 fn not_with_has_label_sub_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that are NOT persons
     // This uses a sub-traversal pattern - filter out if has_label matches
@@ -785,7 +785,7 @@ fn not_with_has_label_sub_traversal() {
 fn not_finds_leaf_vertices() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Leaf vertices have no outgoing edges
     // In this graph, only GraphDB has no outgoing edges
@@ -806,7 +806,7 @@ fn not_finds_leaf_vertices() {
 fn and_requires_all_conditions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that have BOTH outgoing AND incoming edges
     // Alice: out(Bob,GraphDB), in(Charlie) -> passes
@@ -821,7 +821,7 @@ fn and_requires_all_conditions() {
 fn and_short_circuits_on_first_failure() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Require outgoing "knows" AND outgoing "uses" edges
     // Alice: knows(Bob), uses(GraphDB) -> passes
@@ -843,7 +843,7 @@ fn and_short_circuits_on_first_failure() {
 fn and_with_empty_vec_passes_all() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Empty and_ should pass all traversers (vacuous truth)
     let results = g.v().and_(vec![]).to_list();
@@ -858,7 +858,7 @@ fn and_with_empty_vec_passes_all() {
 fn or_accepts_any_condition() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that have EITHER "knows" OR "uses" outgoing edges
     // Alice: knows(Bob), uses(GraphDB) -> passes
@@ -876,7 +876,7 @@ fn or_accepts_any_condition() {
 fn or_short_circuits_on_first_success() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Keep vertices that are person OR software
     let results = g
@@ -890,7 +890,7 @@ fn or_short_circuits_on_first_success() {
 fn or_with_empty_vec_filters_all() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Empty or_ should filter all traversers (no conditions to satisfy)
     let results = g.v().or_(vec![]).to_list();
@@ -901,7 +901,7 @@ fn or_with_empty_vec_filters_all() {
 fn or_finds_vertices_with_either_edge_type() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find vertices that either use something OR are used by someone
     // Alice: uses(GraphDB) -> passes
@@ -928,7 +928,7 @@ fn or_finds_vertices_with_either_edge_type() {
 fn where_and_not_combined() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find persons who don't use anything
     // Filter to persons first, then filter out those who use something
@@ -945,7 +945,7 @@ fn where_and_not_combined() {
 fn nested_filter_steps() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Find vertices that know someone who knows someone
     // Alice knows Bob, Bob knows Charlie -> Alice passes
@@ -967,7 +967,7 @@ fn nested_filter_steps() {
 fn anonymous_where_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::where_ factory to create anonymous traversal
     let anon = __::where_(__::out());
@@ -979,7 +979,7 @@ fn anonymous_where_factory() {
 fn anonymous_not_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::not factory to create anonymous traversal
     let anon = __::not(__::out());
@@ -992,7 +992,7 @@ fn anonymous_not_factory() {
 fn anonymous_and_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::and_ factory to create anonymous traversal
     let anon = __::and_(vec![__::out(), __::in_()]);
@@ -1004,7 +1004,7 @@ fn anonymous_and_factory() {
 fn anonymous_or_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::or_ factory to create anonymous traversal
     let anon = __::or_(vec![__::has_label("person"), __::has_label("software")]);

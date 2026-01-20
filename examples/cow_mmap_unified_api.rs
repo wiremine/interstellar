@@ -51,7 +51,7 @@ fn main() {
         let graph = CowMmapGraph::open(&db_path).expect("Failed to open graph");
 
         // Get a traversal source
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         // Create vertices using Gremlin-style API
         // next() returns Option<Value>, extract VertexId with as_vertex_id()
@@ -132,7 +132,7 @@ fn main() {
 
         // Reopen the same database
         let graph = CowMmapGraph::open(&db_path).expect("Failed to reopen graph");
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         // Verify data persisted
         let vertex_count = g.v().count();
@@ -192,7 +192,7 @@ fn main() {
         println!("Updated Bob's properties via GQL");
 
         // Verify with Gremlin query
-        let g = graph.traversal();
+        let g = graph.gremlin();
         let all_names: Vec<Value> = g.v().has_label("Person").values("name").to_list();
         println!("All people after GQL: {:?}", all_names);
 
@@ -207,7 +207,7 @@ fn main() {
         println!("\n--- Part 4: Complex Queries ---\n");
 
         let graph = CowMmapGraph::open(&db_path).expect("Failed to reopen graph");
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         // Who does Alice know? (using stored ID)
         let alice_knows: Vec<Value> = g.v_id(alice_id).out_label("KNOWS").values("name").to_list();
@@ -241,7 +241,7 @@ fn main() {
         println!("\n--- Part 5: Traversal Mutations ---\n");
 
         let graph = CowMmapGraph::open(&db_path).expect("Failed to reopen graph");
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         // Add property via traversal
         g.v_id(charlie_id).property("skill", "Rust").iterate();
@@ -270,7 +270,7 @@ fn main() {
         println!("\n--- Part 6: GQL DELETE ---\n");
 
         let graph = CowMmapGraph::open(&db_path).expect("Failed to reopen graph");
-        let g = graph.traversal();
+        let g = graph.gremlin();
 
         let before = g.v().count();
         println!("Vertices before delete: {}", before);

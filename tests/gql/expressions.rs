@@ -81,7 +81,7 @@ fn test_gql_exists_basic() {
     let snapshot = graph.snapshot();
 
     // Find players who have won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -112,7 +112,7 @@ fn test_gql_not_exists() {
     let snapshot = graph.snapshot();
 
     // Find players who have NOT won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -143,7 +143,7 @@ fn test_gql_exists_with_target_label() {
     let snapshot = graph.snapshot();
 
     // Find players who played for a team (all players should match)
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -163,7 +163,7 @@ fn test_gql_exists_combined_with_and() {
     let snapshot = graph.snapshot();
 
     // Find shooting guards who have won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -183,7 +183,7 @@ fn test_gql_exists_combined_with_or() {
     let snapshot = graph.snapshot();
 
     // Find point guards OR players who have won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -203,7 +203,7 @@ fn test_gql_exists_no_match() {
     let snapshot = graph.snapshot();
 
     // Find players who have an edge type that doesn't exist
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -223,7 +223,7 @@ fn test_gql_exists_with_count() {
     let snapshot = graph.snapshot();
 
     // Count players who have won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -308,7 +308,7 @@ fn test_gql_exists_incoming_edge() {
     let snapshot = graph.snapshot();
 
     // Find teams that have players who played for them
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (t:team)
@@ -328,7 +328,7 @@ fn test_gql_exists_bidirectional() {
     let snapshot = graph.snapshot();
 
     // Find vertices with any played_for relationship (bidirectional)
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (n)
@@ -349,7 +349,7 @@ fn test_gql_exists_with_property_filter() {
 
     // Find players who played for a team with 6+ championships
     // Only Bulls have exactly 6 championships, Lakers have 17
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -380,7 +380,7 @@ fn test_gql_exists_with_target_property_filter_multiple_results() {
 
     // Find players who played for a team with 0 championships
     // Only Suns have 0 championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -412,7 +412,7 @@ fn test_gql_exists_multiple_conditions_complex() {
 
     // Find shooting guards who have NOT won championships
     // This combines property filter with NOT EXISTS
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -432,7 +432,7 @@ fn test_gql_exists_with_order_by() {
     let snapshot = graph.snapshot();
 
     // Find players who have won championships, ordered by name
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -455,7 +455,7 @@ fn test_gql_exists_with_limit() {
     let snapshot = graph.snapshot();
 
     // Find first player who has NOT won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -483,7 +483,7 @@ fn test_gql_exists_nested_not() {
     // Double negation: NOT NOT EXISTS should equal EXISTS
     // Find players where it's NOT true that they have NOT won championships
     // (i.e., players who HAVE won championships)
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -514,7 +514,7 @@ fn test_gql_exists_with_distinct() {
     let snapshot = graph.snapshot();
 
     // Get distinct positions of players who have won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -535,7 +535,7 @@ fn test_gql_exists_return_multiple_properties() {
     let snapshot = graph.snapshot();
 
     // Return multiple properties for players who have won championships
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -568,7 +568,7 @@ fn test_gql_exists_empty_graph() {
     let snapshot = graph.snapshot();
 
     // EXISTS on empty graph should return no results
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -593,7 +593,7 @@ fn test_gql_exists_no_edges() {
     let snapshot = graph.snapshot();
 
     // EXISTS should return false for a player with no outgoing edges
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -606,7 +606,7 @@ fn test_gql_exists_no_edges() {
     assert_eq!(results.len(), 0);
 
     // NOT EXISTS should return true for a player with no outgoing edges
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -634,7 +634,7 @@ fn test_gql_exists_self_loop() {
     let snapshot = graph.snapshot();
 
     // EXISTS should work with self-loops
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -655,7 +655,7 @@ fn test_gql_exists_aggregate_over_filtered() {
     let snapshot = graph.snapshot();
 
     // Count and collect names of championship winners
-    let results: Vec<_> = snapshot
+    let results: Vec<_> = graph
         .gql(
             r#"
         MATCH (p:player)
@@ -717,7 +717,7 @@ fn test_gql_coalesce_first_value() {
     let snapshot = graph.snapshot();
 
     // Alice has nickname, so COALESCE should return nickname
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN coalesce(p.nickname, p.name)")
         .unwrap();
 
@@ -732,7 +732,7 @@ fn test_gql_coalesce_fallback() {
     let snapshot = graph.snapshot();
 
     // Bob has no nickname, so COALESCE should return name
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Bob' RETURN coalesce(p.nickname, p.name)")
         .unwrap();
 
@@ -747,7 +747,7 @@ fn test_gql_coalesce_literal_default() {
     let snapshot = graph.snapshot();
 
     // Bob has no nickname, so return default literal
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Bob' RETURN coalesce(p.nickname, 'No Nickname')")
         .unwrap();
 
@@ -762,7 +762,7 @@ fn test_gql_coalesce_multiple_args() {
     let snapshot = graph.snapshot();
 
     // For Carol: name is null, nickname exists
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.nickname = 'Carol the Great' RETURN coalesce(p.name, p.nickname, 'Unknown')")
         .unwrap();
 
@@ -776,7 +776,7 @@ fn test_gql_coalesce_case_insensitive() {
     let graph = create_coalesce_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Bob' RETURN COALESCE(p.nickname, p.name)")
         .unwrap();
 
@@ -817,7 +817,7 @@ fn test_gql_case_age_category() {
     let graph = create_case_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person) 
@@ -841,7 +841,7 @@ fn test_gql_case_else_branch() {
     let graph = create_case_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person) 
@@ -866,7 +866,7 @@ fn test_gql_case_grade() {
     let snapshot = graph.snapshot();
 
     // Alice has score 92, should be 'A'
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person) 
@@ -896,7 +896,7 @@ fn test_gql_case_no_else_returns_null() {
     let snapshot = graph.snapshot();
 
     // Eve (age 55) won't match any WHEN condition if we check for age < 20
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person) 
@@ -918,7 +918,7 @@ fn test_gql_case_multiple_results() {
     let graph = create_case_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person)
@@ -992,7 +992,7 @@ fn test_gql_tostring_integer() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toString(p.age)")
         .unwrap();
 
@@ -1006,7 +1006,7 @@ fn test_gql_tostring_float() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toString(p.score)")
         .unwrap();
 
@@ -1024,7 +1024,7 @@ fn test_gql_tostring_boolean() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toString(p.active)")
         .unwrap();
 
@@ -1038,7 +1038,7 @@ fn test_gql_tointeger_string() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toInteger(p.count_str)")
         .unwrap();
 
@@ -1052,7 +1052,7 @@ fn test_gql_tointeger_float() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toInteger(p.score)")
         .unwrap();
 
@@ -1066,7 +1066,7 @@ fn test_gql_tointeger_invalid_string() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toInteger(p.name)")
         .unwrap();
 
@@ -1080,9 +1080,7 @@ fn test_gql_tofloat_integer() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN toFloat(p.age)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN toFloat(p.age)").unwrap();
 
     assert_eq!(results.len(), 1);
     if let Value::Float(f) = results[0] {
@@ -1098,7 +1096,7 @@ fn test_gql_tofloat_string() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toFloat(p.float_str)")
         .unwrap();
 
@@ -1116,7 +1114,7 @@ fn test_gql_toboolean_string_true() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toBoolean(p.bool_str)")
         .unwrap();
 
@@ -1131,7 +1129,7 @@ fn test_gql_toboolean_integer() {
     let snapshot = graph.snapshot();
 
     // Non-zero integer should be true
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN toBoolean(p.age)")
         .unwrap();
 
@@ -1149,7 +1147,7 @@ fn test_gql_toboolean_string_false() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (t:Test) RETURN toBoolean(t.status)")
         .unwrap();
 
@@ -1167,9 +1165,7 @@ fn test_gql_upper_function() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN upper(p.name)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN upper(p.name)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("ALICE".to_string()));
@@ -1181,9 +1177,7 @@ fn test_gql_lower_function() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN lower(p.name)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN lower(p.name)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("alice".to_string()));
@@ -1195,9 +1189,7 @@ fn test_gql_length_string() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN length(p.name)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN length(p.name)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(5)); // "Alice" has 5 characters
@@ -1213,7 +1205,7 @@ fn test_gql_abs_function() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Account) RETURN abs(a.balance)")
         .unwrap();
 
@@ -1231,7 +1223,7 @@ fn test_gql_trim_function() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (t:Test) RETURN trim(t.text)").unwrap();
+    let results = graph.gql("MATCH (t:Test) RETURN trim(t.text)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("hello world".to_string()));
@@ -1243,9 +1235,7 @@ fn test_gql_round_function() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN round(p.score)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN round(p.score)").unwrap();
 
     assert_eq!(results.len(), 1);
     if let Value::Float(f) = results[0] {
@@ -1261,9 +1251,7 @@ fn test_gql_floor_function() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN floor(p.score)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN floor(p.score)").unwrap();
 
     assert_eq!(results.len(), 1);
     if let Value::Float(f) = results[0] {
@@ -1279,9 +1267,7 @@ fn test_gql_ceil_function() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN ceil(p.score)")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN ceil(p.score)").unwrap();
 
     assert_eq!(results.len(), 1);
     if let Value::Float(f) = results[0] {
@@ -1297,7 +1283,7 @@ fn test_gql_substring_function() {
     let graph = create_type_conversion_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN substring(p.name, 0, 3)")
         .unwrap();
 
@@ -1315,7 +1301,7 @@ fn test_gql_replace_function() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (t:Test) RETURN replace(t.text, 'world', 'there')")
         .unwrap();
 

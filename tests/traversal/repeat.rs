@@ -10,7 +10,7 @@ fn repeat_out_compiles_with_anonymous_traversal() {
     // Acceptance criteria: g.v().repeat(__.out()) compiles
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // This should compile - the main acceptance criteria
     let _results = g.v().repeat(__::out()).times(1).to_list();
@@ -21,7 +21,7 @@ fn repeat_returns_repeat_traversal_builder() {
     // Acceptance criteria: Returns RepeatTraversal for configuration
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Should be able to chain configuration methods
     let results = g
@@ -39,7 +39,7 @@ fn repeat_returns_repeat_traversal_builder() {
 fn repeat_out_times_2_traverses_two_hops() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -knows-> Bob -knows-> Charlie
     let results = g
@@ -56,7 +56,7 @@ fn repeat_out_times_2_traverses_two_hops() {
 fn repeat_until_terminates_on_condition() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Traverse until reaching a software vertex
     // Note: Add times(5) as safety to prevent infinite loops on cyclic graphs
@@ -78,7 +78,7 @@ fn repeat_until_terminates_on_condition() {
 fn repeat_emit_includes_intermediates() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> Bob -> Charlie with emit
     let results = g
@@ -100,7 +100,7 @@ fn repeat_emit_includes_intermediates() {
 fn repeat_emit_first_includes_starting_vertex() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Include Alice in results
     let results = g
@@ -123,7 +123,7 @@ fn repeat_emit_first_includes_starting_vertex() {
 fn repeat_emit_if_selectively_emits() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Emit only software vertices during traversal
     let results = g
@@ -145,7 +145,7 @@ fn repeat_emit_if_selectively_emits() {
 fn repeat_continuation_step_returns_bound_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // After repeat, should be able to continue with bound traversal methods
     let results = g
@@ -163,7 +163,7 @@ fn repeat_continuation_step_returns_bound_traversal() {
 fn repeat_with_dedup_continuation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Multiple paths may reach same vertex; dedup after repeat
     let results = g
@@ -186,7 +186,7 @@ fn repeat_with_dedup_continuation() {
 fn repeat_from_multiple_starting_vertices() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Start from both Alice and Bob
     let results = g
@@ -207,7 +207,7 @@ fn repeat_from_multiple_starting_vertices() {
 fn repeat_from_leaf_vertex_with_no_outgoing_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB has no outgoing edges
     let results = g.v_ids([tg.graphdb]).repeat(__::out()).times(3).to_list();
@@ -221,7 +221,7 @@ fn repeat_from_leaf_vertex_with_no_outgoing_edges() {
 fn repeat_times_zero_returns_input_unchanged() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // times(0) means don't iterate at all
     let results = g.v_ids([tg.alice]).repeat(__::out()).times(0).to_list();

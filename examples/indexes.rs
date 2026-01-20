@@ -290,12 +290,12 @@ fn demo_traversal_with_indexes() {
     subsection("Traversal queries (using indexes internally)");
 
     // Count all products
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
     let count = g.v().has_label("product").count();
     println!("  Total products: {}", count);
 
     // Query by category (uses index internally in has_value)
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
     let electronics: Vec<_> = g
         .v()
         .has_label("product")

@@ -52,7 +52,7 @@ fn test_gql_where_greater_than() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 28 RETURN p.name")
         .unwrap();
 
@@ -75,7 +75,7 @@ fn test_gql_where_less_than() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age < 28 RETURN p.name")
         .unwrap();
 
@@ -88,7 +88,7 @@ fn test_gql_where_equality() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN p")
         .unwrap();
 
@@ -100,7 +100,7 @@ fn test_gql_where_not_equal() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.city <> 'NYC' RETURN p.name")
         .unwrap();
 
@@ -123,7 +123,7 @@ fn test_gql_where_and() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 25 AND p.city = 'NYC' RETURN p.name")
         .unwrap();
 
@@ -146,7 +146,7 @@ fn test_gql_where_or() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' OR p.name = 'Bob' RETURN p.name")
         .unwrap();
 
@@ -169,7 +169,7 @@ fn test_gql_where_not() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE NOT p.active RETURN p.name")
         .unwrap();
 
@@ -183,13 +183,13 @@ fn test_gql_where_greater_equal_less_equal() {
     let snapshot = graph.snapshot();
 
     // >= test
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age >= 30 RETURN p.name")
         .unwrap();
     assert_eq!(results.len(), 2, "Should find Alice (30) and Carol (35)");
 
     // <= test
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age <= 28 RETURN p.name")
         .unwrap();
     assert_eq!(results.len(), 2, "Should find Bob (25) and Dave (28)");
@@ -213,7 +213,7 @@ fn test_gql_where_contains() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name CONTAINS 'Anderson' RETURN p")
         .unwrap();
 
@@ -238,7 +238,7 @@ fn test_gql_where_starts_with() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name STARTS WITH 'Al' RETURN p.name")
         .unwrap();
 
@@ -263,7 +263,7 @@ fn test_gql_where_ends_with() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.email ENDS WITH '.com' RETURN p")
         .unwrap();
 
@@ -275,7 +275,7 @@ fn test_gql_where_in_list() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.city IN ['NYC', 'LA'] RETURN p.name")
         .unwrap();
 
@@ -299,7 +299,7 @@ fn test_gql_where_not_in_list() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.city NOT IN ['NYC', 'LA'] RETURN p.name")
         .unwrap();
 
@@ -312,7 +312,7 @@ fn test_gql_where_is_null() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.active IS NULL RETURN p.name")
         .unwrap();
 
@@ -329,7 +329,7 @@ fn test_gql_where_is_not_null() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.active IS NOT NULL RETURN p.name")
         .unwrap();
 
@@ -345,7 +345,7 @@ fn test_gql_where_complex_predicate() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE (p.age > 25 AND p.city = 'NYC') OR p.name = 'Bob' RETURN p.name")
         .unwrap();
 
@@ -357,7 +357,7 @@ fn test_gql_where_age_range() {
     let graph = create_where_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age >= 25 AND p.age <= 30 RETURN p.name")
         .unwrap();
 
@@ -405,7 +405,7 @@ fn test_gql_where_with_traversal() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) WHERE friend.age > 30 RETURN friend.name")
         .unwrap();
 
@@ -418,7 +418,7 @@ fn test_gql_where_undefined_variable() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
 
-    let result = snapshot.gql("MATCH (n:Person) WHERE x.age > 30 RETURN n");
+    let result = graph.gql("MATCH (n:Person) WHERE x.age > 30 RETURN n");
 
     assert!(result.is_err());
     assert!(matches!(result, Err(GqlError::Compile(_))));

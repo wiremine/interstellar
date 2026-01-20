@@ -15,7 +15,7 @@ fn graph_in_memory_basic_usage() {
     assert_eq!(snapshot.vertex_count(), 0);
 
     // Test traversal API
-    let _g = snapshot.traversal();
+    let _g = snapshot.gremlin();
 }
 
 #[test]

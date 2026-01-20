@@ -156,7 +156,7 @@ fn main() {
 
     let graph = load_royals_graph();
     let snapshot = graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Graph statistics
     let vertices = g.v().count();
@@ -272,18 +272,18 @@ fn main() {
     section("GQL (GRAPH QUERY LANGUAGE)");
 
     println!("\n--- Count people (GQL) ---");
-    let r = snapshot.gql("MATCH (p:person) RETURN count(*)").unwrap();
+    let r = graph.gql("MATCH (p:person) RETURN count(*)").unwrap();
     println!("  {}", format_value(&r[0]));
 
     println!("\n--- Monarchs (GQL) ---");
-    let r = snapshot
+    let r = graph
         .gql("MATCH (p:person) WHERE p.is_monarch = true RETURN p.name")
         .unwrap();
     let names: Vec<String> = r.iter().map(format_value).collect();
     println!("  {}", names.join(", "));
 
     println!("\n--- Elizabeth II's grandchildren (GQL multi-hop) ---");
-    let r = snapshot
+    let r = graph
         .gql(
             r#"
             MATCH (e:person {name: 'Elizabeth II'})-[:parent_of]->()-[:parent_of]->(gc:person)
@@ -295,7 +295,7 @@ fn main() {
     println!("  {}", names.join(", "));
 
     println!("\n--- Royals with children (EXISTS) ---");
-    let r = snapshot
+    let r = graph
         .gql(
             r#"
             MATCH (p:person)
@@ -307,7 +307,7 @@ fn main() {
     println!("  {} royals have children", format_value(&r[0]));
 
     println!("\n--- Prince George's ancestors (variable-length path) ---");
-    let r = snapshot
+    let r = graph
         .gql(
             r#"
             MATCH (p:person {name: 'Prince George'})-[:child_of*1..4]->(ancestor:person)
@@ -319,7 +319,7 @@ fn main() {
     println!("  {}", names.join(", "));
 
     println!("\n--- House counts (GROUP BY) ---");
-    let r = snapshot
+    let r = graph
         .gql(
             r#"
             MATCH (p:person)
@@ -341,7 +341,7 @@ fn main() {
     }
 
     println!("\n--- Monarch status (CASE expression) ---");
-    let r = snapshot
+    let r = graph
         .gql(
             r#"
             MATCH (p:person)
@@ -362,7 +362,7 @@ fn main() {
     }
 
     println!("\n--- Introspection: id() and labels() ---");
-    let r = snapshot
+    let r = graph
         .gql(
             r#"
             MATCH (p:person {name: 'Victoria'})

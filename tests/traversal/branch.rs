@@ -14,7 +14,7 @@ use crate::common::graphs::create_small_graph;
 fn union_returns_neighbors_from_both_directions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has:
     // - out: Bob (knows), GraphDB (uses)
@@ -37,7 +37,7 @@ fn union_returns_neighbors_from_both_directions() {
 fn union_merges_results_in_traverser_major_order() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // With multiple inputs, results should be grouped by input traverser
     // Alice -> (out results, then in results)
@@ -78,7 +78,7 @@ fn union_merges_results_in_traverser_major_order() {
 fn union_with_empty_branches_vec() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Empty branches vec should produce no results
     let results = g.v().union(vec![]).to_list();
@@ -89,7 +89,7 @@ fn union_with_empty_branches_vec() {
 fn union_with_branch_producing_no_results() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // One branch produces results, one doesn't
     // GraphDB has no outgoing edges but has incoming "uses" edges
@@ -110,7 +110,7 @@ fn union_with_branch_producing_no_results() {
 fn union_with_all_empty_branches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // All branches produce no results (nonexistent edge labels)
     let results = g
@@ -128,7 +128,7 @@ fn union_with_all_empty_branches() {
 fn union_with_single_branch_matches_direct_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // union with single branch should equal direct traversal
     let union_results = g.v_ids([tg.alice]).union(vec![__::out()]).to_list();
@@ -155,7 +155,7 @@ fn union_with_single_branch_matches_direct_traversal() {
 fn union_with_labeled_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice: knows->Bob, uses->GraphDB
     // Get neighbors via both edge types using union
@@ -175,7 +175,7 @@ fn union_with_labeled_edges() {
 fn union_with_chained_sub_traversals() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get either outgoing neighbors or their names
     let results = g
@@ -201,7 +201,7 @@ fn union_with_chained_sub_traversals() {
 fn union_preserves_traverser_metadata() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Test that path metadata is preserved through union
     let results = g
@@ -236,7 +236,7 @@ fn union_preserves_traverser_metadata() {
 fn anonymous_union_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::union factory to create anonymous traversal
     let anon = __::union(vec![__::out(), __::in_()]);
@@ -250,7 +250,7 @@ fn anonymous_union_factory() {
 fn union_on_all_vertices() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get all neighbors (both directions) for all vertices
     let results = g.v().union(vec![__::out(), __::in_()]).to_list();
@@ -269,7 +269,7 @@ fn union_on_all_vertices() {
 fn union_dedup_removes_duplicates() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Union may produce duplicates; dedup should remove them
     let results = g
@@ -294,7 +294,7 @@ fn union_dedup_removes_duplicates() {
 fn coalesce_returns_first_non_empty_branch() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has "name" property but no "nickname" property
     // coalesce should skip the empty nickname branch and return name
@@ -311,7 +311,7 @@ fn coalesce_returns_first_non_empty_branch() {
 fn coalesce_uses_first_branch_when_it_has_results() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has "name" property - first branch should be used
     let results = g
@@ -327,7 +327,7 @@ fn coalesce_uses_first_branch_when_it_has_results() {
 fn coalesce_returns_empty_when_all_branches_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // All branches produce no results (nonexistent properties)
     let results = g
@@ -346,7 +346,7 @@ fn coalesce_returns_empty_when_all_branches_empty() {
 fn coalesce_with_empty_branches_vec() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Empty branches vec should produce no results
     let results = g.v_ids([tg.alice]).coalesce(vec![]).to_list();
@@ -357,7 +357,7 @@ fn coalesce_with_empty_branches_vec() {
 fn coalesce_short_circuits_on_first_success() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // First branch returns "name", second would return "age"
     // Coalesce should only return name (short-circuit)
@@ -375,7 +375,7 @@ fn coalesce_short_circuits_on_first_success() {
 fn coalesce_with_traversal_branches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB has no outgoing edges but has incoming edges
     // First branch (out) should be empty, second (in) should have results
@@ -395,7 +395,7 @@ fn coalesce_with_traversal_branches() {
 fn coalesce_on_multiple_inputs() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Each input traverser is evaluated independently
     // Alice has out edges (knows Bob, uses GraphDB) -> first branch succeeds
@@ -421,7 +421,7 @@ fn coalesce_on_multiple_inputs() {
 fn coalesce_with_labeled_edge_branches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Try to get "uses" neighbors first, fall back to "knows" neighbors
     // Alice has both: uses->GraphDB and knows->Bob
@@ -439,7 +439,7 @@ fn coalesce_with_labeled_edge_branches() {
 fn coalesce_falls_back_through_multiple_empty_branches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // First two branches empty, third has results
     let results = g
@@ -459,7 +459,7 @@ fn coalesce_falls_back_through_multiple_empty_branches() {
 fn anonymous_coalesce_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::coalesce factory to create anonymous traversal
     let anon = __::coalesce(vec![__::values("nickname"), __::values("name")]);
@@ -474,7 +474,7 @@ fn anonymous_coalesce_factory() {
 fn coalesce_with_chained_sub_traversals() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // More complex branches with chained steps
     // First branch: out().has_label("software") - returns GraphDB
@@ -500,7 +500,7 @@ fn coalesce_with_chained_sub_traversals() {
 fn choose_branches_based_on_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // If person, get outgoing "knows" edges; otherwise get all outgoing edges
     // Alice is a person -> should get Bob (knows)
@@ -521,7 +521,7 @@ fn choose_branches_based_on_label() {
 fn choose_executes_if_false_branch_when_condition_fails() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB is software, not person -> should take if_false branch
     // if_false branch: in_() returns Alice and Bob (who use GraphDB)
@@ -544,7 +544,7 @@ fn choose_executes_if_false_branch_when_condition_fails() {
 fn choose_evaluates_condition_per_traverser() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Multiple inputs: Alice (person) and GraphDB (software)
     // Each should be evaluated independently:
@@ -573,7 +573,7 @@ fn choose_evaluates_condition_per_traverser() {
 fn choose_with_property_condition() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Condition based on property: if age >= 30, get "knows" neighbors, else get all neighbors
     // Alice (age 30) -> true branch -> Bob
@@ -601,7 +601,7 @@ fn choose_with_property_condition() {
 fn choose_if_true_branch_returns_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Condition true but if_true branch returns nothing
     // Alice is person, but has no "worksAt" edges
@@ -622,7 +622,7 @@ fn choose_if_true_branch_returns_empty() {
 fn choose_if_false_branch_returns_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB is not person, so takes if_false branch
     // if_false branch looks for nonexistent edge label
@@ -642,7 +642,7 @@ fn choose_if_false_branch_returns_empty() {
 fn choose_with_chained_condition() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Complex condition: has outgoing "knows" edge to someone named "Bob"
     // Alice knows Bob -> condition true -> get "uses" edges -> GraphDB
@@ -663,7 +663,7 @@ fn choose_with_chained_condition() {
 fn choose_condition_false_for_chained_condition() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Bob knows Charlie (not "Alice"), so condition is false
     // Should take if_false branch -> in_() -> Alice (who knows Bob)
@@ -684,7 +684,7 @@ fn choose_condition_false_for_chained_condition() {
 fn anonymous_choose_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::choose factory to create anonymous traversal
     let anon = __::choose(
@@ -704,7 +704,7 @@ fn anonymous_choose_factory() {
 fn choose_with_identity_branches() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // If person, return self (identity); otherwise return nothing
     // Using identity() for if_true, empty traversal for if_false
@@ -727,7 +727,7 @@ fn choose_with_identity_branches() {
 fn choose_all_persons_get_true_branch() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // All persons: Alice, Bob, Charlie
     // Each takes true branch (out_labels(["knows"]))
@@ -757,7 +757,7 @@ fn choose_all_persons_get_true_branch() {
 fn optional_returns_sub_traversal_results_when_present() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has outgoing "knows" edge to Bob
     // optional should return Bob (sub-traversal result)
@@ -774,7 +774,7 @@ fn optional_returns_sub_traversal_results_when_present() {
 fn optional_keeps_original_when_sub_traversal_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB has no outgoing edges
     // optional should return GraphDB itself (original)
@@ -788,7 +788,7 @@ fn optional_keeps_original_when_sub_traversal_empty() {
 fn optional_per_traverser_evaluation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has out edges, GraphDB does not
     // Alice -> sub-traversal results (Bob, GraphDB)
@@ -812,7 +812,7 @@ fn optional_per_traverser_evaluation() {
 fn optional_with_labeled_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Bob has "knows" edge to Charlie, but no "worksAt" edges
     // optional(out_labels(["worksAt"])) should return Bob (original)
@@ -829,7 +829,7 @@ fn optional_with_labeled_edges() {
 fn optional_returns_multiple_results_from_sub_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has two outgoing edges: knows->Bob, uses->GraphDB
     // optional should return both
@@ -845,7 +845,7 @@ fn optional_returns_multiple_results_from_sub_traversal() {
 fn optional_with_chained_sub_traversal() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> out().has_label("person") -> Bob (Charlie is also person but not direct neighbor)
     let results = g
@@ -861,7 +861,7 @@ fn optional_with_chained_sub_traversal() {
 fn optional_chained_sub_traversal_returns_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> out().has_label("company") -> empty (no company vertices)
     // Should fall back to Alice
@@ -878,7 +878,7 @@ fn optional_chained_sub_traversal_returns_empty() {
 fn optional_with_property_filter() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> out neighbors with age < 30 -> Bob (age 25)
     let results = g
@@ -894,7 +894,7 @@ fn optional_with_property_filter() {
 fn optional_with_property_filter_returns_empty() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> out neighbors with age > 100 -> empty
     // Should fall back to Alice
@@ -911,7 +911,7 @@ fn optional_with_property_filter_returns_empty() {
 fn anonymous_optional_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::optional factory to create anonymous traversal
     let anon = __::optional(__::out_labels(&["knows"]));
@@ -927,7 +927,7 @@ fn anonymous_optional_factory() {
 fn optional_all_inputs_have_results() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // All persons have outgoing "knows" edges
     // Alice -> Bob, Bob -> Charlie, Charlie -> Alice
@@ -947,7 +947,7 @@ fn optional_all_inputs_have_results() {
 fn optional_all_inputs_fallback() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // No vertex has "nonexistent" edges, all should fall back to original
     let results = g
@@ -966,7 +966,7 @@ fn optional_all_inputs_fallback() {
 fn optional_mixed_results_and_fallbacks() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // "uses" edges: Alice->GraphDB, Bob->GraphDB
     // Charlie has no "uses" edges -> falls back to Charlie
@@ -993,7 +993,7 @@ fn optional_mixed_results_and_fallbacks() {
 fn local_executes_sub_traversal_per_traverser() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // local() should execute the sub-traversal independently for each input
     // Alice has 2 out neighbors (Bob, GraphDB)
@@ -1015,7 +1015,7 @@ fn local_executes_sub_traversal_per_traverser() {
 fn local_with_empty_sub_traversal_produces_nothing() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB has no outgoing edges
     // local(out()) should produce nothing for GraphDB
@@ -1028,7 +1028,7 @@ fn local_with_empty_sub_traversal_produces_nothing() {
 fn local_limit_per_traverser() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has 2 out neighbors, Bob has 2 out neighbors
     // local(out().limit(1)) should return 1 neighbor per-traverser
@@ -1045,7 +1045,7 @@ fn local_limit_per_traverser() {
 fn local_vs_global_limit() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Global limit: limits across all traversers
     let global_results = g.v_ids([tg.alice, tg.bob]).out().limit(2).to_list();
@@ -1065,7 +1065,7 @@ fn local_vs_global_limit() {
 fn local_dedup_per_traverser() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Create a scenario where dedup matters per-traverser
     // Using union to create duplicates, then local dedup
@@ -1083,7 +1083,7 @@ fn local_dedup_per_traverser() {
 fn local_dedup_per_traverser_multiple_inputs() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Multiple inputs, each gets its own dedup scope
     // Alice union(knows,knows) -> Bob, Bob -> dedup -> Bob
@@ -1105,7 +1105,7 @@ fn local_dedup_per_traverser_multiple_inputs() {
 fn local_with_filter_steps() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Filter within local scope
     // Get out neighbors that are persons
@@ -1124,7 +1124,7 @@ fn local_with_filter_steps() {
 fn local_with_property_filter() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get out neighbors with age < 30
     // Alice's neighbors: Bob (25), GraphDB (no age)
@@ -1141,7 +1141,7 @@ fn local_with_property_filter() {
 fn local_with_values_transform() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get names of out neighbors, per-traverser
     let results = g
@@ -1169,7 +1169,7 @@ fn local_with_values_transform() {
 fn local_with_chained_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Two-hop traversal within local
     // Alice -> out -> (Bob, GraphDB) -> out -> (Charlie, GraphDB, Alice, Bob)
@@ -1187,7 +1187,7 @@ fn local_with_chained_navigation() {
 fn anonymous_local_factory() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use __::local factory to create anonymous traversal
     let anon = __::local(__::out().limit(1));
@@ -1202,7 +1202,7 @@ fn anonymous_local_factory() {
 fn local_preserves_traverser_isolation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Verify that each traverser's local scope is truly isolated
     // Using skip to show per-traverser behavior
@@ -1221,7 +1221,7 @@ fn local_preserves_traverser_isolation() {
 fn local_with_range_step() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has 2 neighbors, range(0,1) takes first 1
     // Bob has 2 neighbors, range(0,1) takes first 1
@@ -1237,7 +1237,7 @@ fn local_with_range_step() {
 fn local_with_labeled_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get only "knows" neighbors within local scope
     let results = g
@@ -1257,7 +1257,7 @@ fn local_with_labeled_edges() {
 fn local_mixed_results_per_traverser() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice: 2 out neighbors
     // Charlie: 1 out neighbor (knows Alice)

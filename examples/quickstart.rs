@@ -50,7 +50,7 @@ fn demo_gremlin(graph: &Graph) {
     println!("## Mutations\n");
 
     // Get a traversal source for mutations
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Add vertices using addV()
     println!("Adding vertices with g.add_v()...");
@@ -142,7 +142,7 @@ fn demo_gremlin(graph: &Graph) {
     println!("\n## Traversals\n");
 
     // Get a fresh traversal source
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Count vertices and edges
     println!("Basic counts:");
@@ -210,7 +210,7 @@ fn demo_gremlin(graph: &Graph) {
         .iterate();
     println!(
         "   Vertex count after drop: {}",
-        graph.traversal().v().count()
+        graph.gremlin().v().count()
     );
 }
 
@@ -223,7 +223,8 @@ fn demo_gql(graph: &Graph) {
     println!("  PART 2: GQL (GRAPH QUERY LANGUAGE)");
     println!("------------------------------------------------------------------------\n");
 
-    let snapshot = graph.snapshot();
+    // With the unified API, all GQL queries go through graph.gql()
+    // It auto-detects reads vs mutations and handles them appropriately
 
     // Basic MATCH query
     println!("## Basic Queries\n");
@@ -231,14 +232,14 @@ fn demo_gql(graph: &Graph) {
     println!("Count all people:");
     let query = "MATCH (p:Person) RETURN count(*)";
     println!("   {}", query);
-    let result = snapshot.gql(query).unwrap();
+    let result = graph.gql(query).unwrap();
     println!("   -> {:?}\n", result[0]);
 
     // Return properties
     println!("Get names and ages, ordered by age:");
     let query = "MATCH (p:Person) RETURN p.name, p.age ORDER BY p.age";
     println!("   {}", query);
-    let results = snapshot.gql(query).unwrap();
+    let results = graph.gql(query).unwrap();
     for row in &results {
         if let Value::Map(m) = row {
             let name = m.get("p.name").unwrap_or(&Value::Null);
@@ -253,7 +254,7 @@ fn demo_gql(graph: &Graph) {
     println!("Who knows whom:");
     let query = "MATCH (a:Person)-[:knows]->(b:Person) RETURN a.name, b.name";
     println!("   {}", query);
-    let results = snapshot.gql(query).unwrap();
+    let results = graph.gql(query).unwrap();
     for row in &results {
         if let Value::Map(m) = row {
             let a = m.get("a.name").unwrap_or(&Value::Null);
@@ -268,7 +269,7 @@ fn demo_gql(graph: &Graph) {
     println!("People over 28:");
     let query = "MATCH (p:Person) WHERE p.age > 28 RETURN p.name, p.age";
     println!("   {}", query);
-    let results = snapshot.gql(query).unwrap();
+    let results = graph.gql(query).unwrap();
     for row in &results {
         if let Value::Map(m) = row {
             let name = m.get("p.name").unwrap_or(&Value::Null);
@@ -287,7 +288,7 @@ fn demo_gql(graph: &Graph) {
     "#;
     println!("   MATCH (a:Person {{name: 'Alice'}})-[:knows]->()-[:knows]->(fof:Person)");
     println!("   RETURN DISTINCT fof.name");
-    let results = snapshot.gql(query).unwrap();
+    let results = graph.gql(query).unwrap();
     for row in &results {
         println!("   -> {}", format_value(row));
     }
@@ -305,7 +306,7 @@ fn demo_gql(graph: &Graph) {
     println!("   MATCH (p:Person)");
     println!("   RETURN p.city, avg(p.age) AS avg_age");
     println!("   GROUP BY p.city ORDER BY avg_age DESC");
-    let results = snapshot.gql(query).unwrap();
+    let results = graph.gql(query).unwrap();
     for row in &results {
         if let Value::Map(m) = row {
             let city = m.get("p.city").unwrap_or(&Value::Null);
@@ -323,10 +324,7 @@ fn demo_gql(graph: &Graph) {
     graph.gql(query).unwrap();
     println!(
         "   Vertex count after CREATE: {:?}",
-        graph
-            .snapshot()
-            .gql("MATCH (p:Person) RETURN count(*)")
-            .unwrap()[0]
+        graph.gql("MATCH (p:Person) RETURN count(*)").unwrap()[0]
     );
 
     println!("\nUpdate a property:");
@@ -334,7 +332,6 @@ fn demo_gql(graph: &Graph) {
     println!("   {}", query);
     graph.gql(query).unwrap();
     let result = graph
-        .snapshot()
         .gql("MATCH (p:Person {name: 'Alice'}) RETURN p.age")
         .unwrap();
     println!("   Alice's new age: {:?}", result[0]);

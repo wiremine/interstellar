@@ -142,7 +142,7 @@ fn create_test_graph() -> TestGraph {
 fn test_store_stores_vertex_values() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Store all person vertices
     let results = g
@@ -166,7 +166,7 @@ fn test_store_stores_vertex_values() {
 fn test_store_stores_property_values() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Store all person names
     let results = g
@@ -193,7 +193,7 @@ fn test_store_stores_property_values() {
 fn test_store_is_lazy() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Note: Due to the traversal executor's eager collection after each step,
     // store() will process all values from the previous step before limit()
@@ -223,7 +223,7 @@ fn test_store_is_lazy() {
 fn test_store_preserves_traverser_values() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Store should pass through values unchanged
     let results = g
@@ -249,7 +249,7 @@ fn test_store_preserves_traverser_values() {
 fn test_aggregate_collects_all_values() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Aggregate all person vertices
     let results = g
@@ -271,7 +271,7 @@ fn test_aggregate_collects_all_values() {
 fn test_aggregate_is_barrier() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Aggregate is a barrier - it collects ALL values before continuing
     // Even with limit after aggregate, all values are collected
@@ -296,7 +296,7 @@ fn test_aggregate_is_barrier() {
 fn test_aggregate_re_emits_all_values() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // After aggregate, all values should continue through the pipeline
     let results = g
@@ -322,7 +322,7 @@ fn test_aggregate_re_emits_all_values() {
 fn test_cap_single_key_returns_list() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().has_label("person").store("x").cap("x").to_list();
 
@@ -334,7 +334,7 @@ fn test_cap_single_key_returns_list() {
 fn test_cap_multi_returns_map() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Store in two different keys
     let results = g
@@ -359,7 +359,7 @@ fn test_cap_multi_returns_map() {
 fn test_cap_missing_key_returns_empty_list() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v()
@@ -380,7 +380,7 @@ fn test_cap_missing_key_returns_empty_list() {
 fn test_cap_consumes_input_stream() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Cap should consume input, then emit the side effect data
     let results = g.v().has_label("person").store("x").cap("x").to_list();
@@ -397,7 +397,7 @@ fn test_cap_consumes_input_stream() {
 fn test_side_effect_executes_sub_traversal() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Execute side effect that stores neighbors
     let results = g
@@ -419,7 +419,7 @@ fn test_side_effect_executes_sub_traversal() {
 fn test_side_effect_preserves_original_traverser() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Side effect should pass through original traverser
     let results = g
@@ -437,7 +437,7 @@ fn test_side_effect_preserves_original_traverser() {
 fn test_side_effect_with_complex_sub_traversal() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Side effect with filtering in sub-traversal
     let count = g
@@ -458,7 +458,7 @@ fn test_side_effect_with_complex_sub_traversal() {
 fn test_profile_records_count() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().has_label("person").profile().cap("profile").to_list();
 
@@ -481,7 +481,7 @@ fn test_profile_records_count() {
 fn test_profile_records_time() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g.v().has_label("person").profile().cap("profile").to_list();
 
@@ -504,7 +504,7 @@ fn test_profile_records_time() {
 fn test_profile_with_custom_key() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let results = g
         .v()
@@ -532,7 +532,7 @@ fn test_profile_with_custom_key() {
 fn test_profile_passes_through_values() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Profile should not change the traversal output
     let results = g.v().has_label("person").profile().values("name").to_list();
@@ -553,7 +553,7 @@ fn test_profile_passes_through_values() {
 fn test_anonymous_store() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use anonymous traversal with store
     let results = g
@@ -570,7 +570,7 @@ fn test_anonymous_store() {
 fn test_anonymous_aggregate() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Use anonymous traversal with aggregate - aggregate is barrier then emits all
     let count = g.v().has_label("person").append(__::aggregate("x")).count();
@@ -583,7 +583,7 @@ fn test_anonymous_aggregate() {
 fn test_anonymous_cap() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Store then cap using anonymous traversal
     let results = g
@@ -601,7 +601,7 @@ fn test_anonymous_cap() {
 fn test_anonymous_side_effect() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Anonymous side effect that stores outgoing neighbors
     let results = g
@@ -622,7 +622,7 @@ fn test_anonymous_side_effect() {
 fn test_anonymous_profile() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Anonymous profile step
     let results = g
@@ -650,7 +650,7 @@ fn test_anonymous_profile() {
 fn test_store_and_aggregate_combined() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Store lazily, then aggregate (barrier)
     let results = g
@@ -682,7 +682,7 @@ fn test_store_and_aggregate_combined() {
 fn test_multiple_profile_steps() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Multiple profile steps with different keys
     let results = g
@@ -710,7 +710,7 @@ fn test_multiple_profile_steps() {
 fn test_side_effect_in_union() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Side effects in union branches
     let results = g
@@ -744,7 +744,7 @@ fn test_side_effect_in_union() {
 fn test_empty_traversal_side_effects() {
     let test = create_test_graph();
     let snapshot = test.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Side effects on empty traversal
     let results = g

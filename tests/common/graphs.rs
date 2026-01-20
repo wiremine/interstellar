@@ -52,7 +52,7 @@ impl TestGraph {
     /// ```ignore
     /// let tg = create_small_graph();
     /// let snapshot = tg.graph.snapshot();
-    /// let results = snapshot.traversal().v().has_label("person").to_list();
+    /// let results = snapshot.gremlin().v().has_label("person").to_list();
     /// ```
     pub fn snapshot(&self) -> GraphSnapshot {
         self.graph.snapshot()
@@ -606,7 +606,7 @@ mod tests {
     fn small_graph_has_expected_structure() {
         let tg = create_small_graph();
         let snapshot = tg.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         assert_eq!(g.v().to_list().len(), 4);
         assert_eq!(g.e().to_list().len(), 5);
@@ -618,7 +618,7 @@ mod tests {
     fn medium_graph_has_expected_structure() {
         let tg = create_medium_graph();
         let snapshot = tg.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         assert_eq!(g.v().to_list().len(), 5);
         assert_eq!(g.v().has_label("person").to_list().len(), 3);
@@ -630,7 +630,7 @@ mod tests {
     fn social_graph_has_expected_structure() {
         let tg = create_social_graph();
         let snapshot = tg.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         assert_eq!(g.v().to_list().len(), 7); // 5 people + 2 software
         assert_eq!(g.v().has_label("person").to_list().len(), 5);
@@ -642,10 +642,10 @@ mod tests {
         let graph = create_gql_test_graph();
         let snapshot = graph.snapshot();
 
-        let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+        let results = graph.gql("MATCH (n:Person) RETURN n").unwrap();
         assert_eq!(results.len(), 3);
 
-        let results = snapshot.gql("MATCH (c:Company) RETURN c").unwrap();
+        let results = graph.gql("MATCH (c:Company) RETURN c").unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -660,7 +660,7 @@ mod tests {
             .build();
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         assert_eq!(g.v().to_list().len(), 3);
         assert_eq!(g.e().to_list().len(), 2);

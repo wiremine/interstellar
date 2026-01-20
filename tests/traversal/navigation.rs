@@ -6,7 +6,7 @@ use crate::common::graphs::create_small_graph;
 fn out_traverses_to_outgoing_neighbors() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has outgoing edges to Bob and GraphDB
     let neighbors = g.v_ids([tg.alice]).out().to_list();
@@ -17,7 +17,7 @@ fn out_traverses_to_outgoing_neighbors() {
 fn out_labels_filters_by_edge_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice knows Bob only
     let knows = g.v_ids([tg.alice]).out_labels(&["knows"]).to_list();
@@ -32,7 +32,7 @@ fn out_labels_filters_by_edge_label() {
 fn in_traverses_to_incoming_neighbors() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has incoming edge from Charlie
     let known_by = g.v_ids([tg.alice]).in_().to_list();
@@ -43,7 +43,7 @@ fn in_traverses_to_incoming_neighbors() {
 fn in_labels_filters_by_edge_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // GraphDB is used by Alice and Bob
     let used_by = g.v_ids([tg.graphdb]).in_labels(&["uses"]).to_list();
@@ -54,7 +54,7 @@ fn in_labels_filters_by_edge_label() {
 fn both_traverses_in_both_directions() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has: out to Bob, out to GraphDB, in from Charlie
     let neighbors = g.v_ids([tg.alice]).both().to_list();
@@ -65,7 +65,7 @@ fn both_traverses_in_both_directions() {
 fn both_labels_filters_by_edge_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice: knows->Bob, <-knows Charlie
     let knows = g.v_ids([tg.alice]).both_labels(&["knows"]).to_list();
@@ -76,7 +76,7 @@ fn both_labels_filters_by_edge_label() {
 fn out_e_returns_outgoing_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has 2 outgoing edges
     let edges = g.v_ids([tg.alice]).out_e().to_list();
@@ -90,7 +90,7 @@ fn out_e_returns_outgoing_edges() {
 fn out_e_labels_filters_by_edge_label() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     let knows_edges = g.v_ids([tg.alice]).out_e_labels(&["knows"]).to_list();
     assert_eq!(knows_edges.len(), 1);
@@ -100,7 +100,7 @@ fn out_e_labels_filters_by_edge_label() {
 fn in_e_returns_incoming_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has 1 incoming edge (from Charlie)
     let edges = g.v_ids([tg.alice]).in_e().to_list();
@@ -111,7 +111,7 @@ fn in_e_returns_incoming_edges() {
 fn both_e_returns_all_incident_edges() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice has 3 incident edges (2 out, 1 in)
     let edges = g.v_ids([tg.alice]).both_e().to_list();
@@ -122,7 +122,7 @@ fn both_e_returns_all_incident_edges() {
 fn out_v_returns_source_vertex_of_edge() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get source vertices of all edges
     let sources = g.e().out_v().to_list();
@@ -136,7 +136,7 @@ fn out_v_returns_source_vertex_of_edge() {
 fn in_v_returns_target_vertex_of_edge() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Get target vertices of all edges
     let targets = g.e().in_v().to_list();
@@ -150,7 +150,7 @@ fn in_v_returns_target_vertex_of_edge() {
 fn both_v_returns_both_vertices_of_edge() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Each edge produces 2 vertices
     let vertices = g.e_ids([tg.alice_knows_bob]).both_v().to_list();
@@ -161,7 +161,7 @@ fn both_v_returns_both_vertices_of_edge() {
 fn multi_hop_navigation() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
 
     // Alice -> knows -> Bob -> knows -> Charlie
     let two_hops = g

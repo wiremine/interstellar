@@ -348,7 +348,7 @@ impl CowMmapGraph {
     /// use interstellar::storage::cow_mmap::CowMmapGraph;
     ///
     /// let graph = CowMmapGraph::open("test.db").unwrap();
-    /// let g = graph.traversal();
+    /// let g = graph.gremlin();
     ///
     /// // Create vertices
     /// let alice = g.add_v("Person").property("name", "Alice").next();
@@ -357,7 +357,7 @@ impl CowMmapGraph {
     /// // Read
     /// assert_eq!(g.v().count(), 2);
     /// ```
-    pub fn traversal(&self) -> CowMmapTraversalSource<'_> {
+    pub fn gremlin(&self) -> CowMmapTraversalSource<'_> {
         CowMmapTraversalSource::new(self)
     }
 
@@ -1530,13 +1530,11 @@ impl CowMmapGraph {
     // GQL API
     // =========================================================================
 
-    /// Execute a GQL mutation statement.
+    /// Execute a GQL statement (both reads and mutations).
     ///
-    /// This method parses and executes GQL mutation statements (CREATE, SET,
-    /// DELETE, DETACH DELETE, MERGE).
-    ///
-    /// For read-only queries, use [`snapshot().gql()`](crate::graph::GraphSnapshot::gql)
-    /// instead.
+    /// This method parses and executes any GQL statement:
+    /// - **Read queries** (MATCH...RETURN): Executed against a snapshot
+    /// - **Mutations** (CREATE, SET, DELETE, MERGE): Executed against the graph
     ///
     /// # Example
     ///
@@ -1545,26 +1543,50 @@ impl CowMmapGraph {
     ///
     /// let graph = CowMmapGraph::open("test.db").unwrap();
     ///
-    /// // Mutations via gql()
+    /// // Mutations
     /// graph.gql("CREATE (:Person {name: 'Alice'})").unwrap();
     /// graph.gql("MATCH (n:Person) SET n.age = 30").unwrap();
+    ///
+    /// // Reads
+    /// let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
     /// ```
     pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError> {
         let stmt = gql::parse_statement(query)?;
 
         if stmt.is_read_only() {
-            return Err(GqlError::Mutation(
-                "Read-only queries not supported via gql(). \
-                 Use snapshot().gql() for reads."
-                    .to_string(),
-            ));
+            // Execute reads against a snapshot
+            let snapshot = self.snapshot();
+            gql::compile_statement(&stmt, &snapshot).map_err(GqlError::Compile)
+        } else {
+            // Execute mutations against the graph
+            let mut wrapper = CowMmapGraphMutWrapper { graph: self };
+            let schema = self.schema();
+            gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
+                .map_err(|e| GqlError::Mutation(e.to_string()))
         }
+    }
 
-        // Execute mutation atomically
-        let mut wrapper = CowMmapGraphMutWrapper { graph: self };
-        let schema = self.schema();
-        gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
-            .map_err(|e| GqlError::Mutation(e.to_string()))
+    /// Execute a GQL query with parameters.
+    ///
+    /// This is a convenience method for executing parameterized queries.
+    /// Parameters can be referenced in the query using `$paramName` syntax.
+    pub fn gql_with_params(
+        &self,
+        query: &str,
+        params: &gql::Parameters,
+    ) -> Result<Vec<Value>, GqlError> {
+        let stmt = gql::parse_statement(query)?;
+
+        if stmt.is_read_only() {
+            // Execute reads against a snapshot
+            let snapshot = self.snapshot();
+            gql::compile_statement_with_params(&stmt, &snapshot, params).map_err(GqlError::Compile)
+        } else {
+            // Mutations with parameters not yet supported
+            Err(GqlError::Mutation(
+                "Parameterized mutations are not yet supported".into(),
+            ))
+        }
     }
 
     // =========================================================================
@@ -1624,37 +1646,12 @@ impl CowMmapSnapshot {
         &self.interner_snapshot
     }
 
-    /// Create a traversal source for this snapshot.
+    /// Create a Gremlin traversal source for this snapshot.
     ///
     /// This provides the full Gremlin-style fluent API for querying the graph.
     /// Since `CowMmapSnapshot` is immutable, only read operations are available.
-    pub fn traversal(&self) -> crate::traversal::GraphTraversalSource<'_> {
+    pub fn gremlin(&self) -> crate::traversal::GraphTraversalSource<'_> {
         crate::traversal::GraphTraversalSource::from_snapshot(self)
-    }
-
-    /// Execute a GQL query against this snapshot.
-    ///
-    /// This provides the full GQL query language for pattern matching
-    /// and data retrieval. Since `CowMmapSnapshot` is immutable, only read
-    /// queries (MATCH/RETURN) are supported.
-    pub fn gql(&self, query: &str) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let stmt = crate::gql::parse_statement(query)?;
-        let results = crate::gql::compile_statement(&stmt, self)?;
-        Ok(results)
-    }
-
-    /// Execute a parameterized GQL query against this snapshot.
-    ///
-    /// Parameters provide a safe way to inject values into queries
-    /// without string concatenation, preventing injection attacks.
-    pub fn gql_with_params(
-        &self,
-        query: &str,
-        params: &crate::gql::Parameters,
-    ) -> Result<Vec<crate::value::Value>, crate::gql::GqlError> {
-        let stmt = crate::gql::parse_statement(query)?;
-        let results = crate::gql::compile_statement_with_params(&stmt, self, params)?;
-        Ok(results)
     }
 }
 
@@ -2305,7 +2302,7 @@ impl<'a> crate::storage::GraphStorageMut for CowMmapGraphMutWrapper<'a> {
 /// use std::collections::HashMap;
 ///
 /// let graph = CowMmapGraph::open("test.db").unwrap();
-/// let g = graph.traversal();
+/// let g = graph.gremlin();
 ///
 /// // Mutations are executed automatically
 /// let alice = g.add_v("Person").property("name", "Alice").next();
@@ -2377,7 +2374,7 @@ impl<'g> CowMmapTraversalSource<'g> {
     /// use interstellar::storage::cow_mmap::CowMmapGraph;
     ///
     /// let graph = CowMmapGraph::open("test.db").unwrap();
-    /// let g = graph.traversal();
+    /// let g = graph.gremlin();
     ///
     /// let vertex = g.add_v("Person").property("name", "Alice").next();
     /// assert!(vertex.is_some());
@@ -2405,7 +2402,7 @@ impl<'g> CowMmapTraversalSource<'g> {
     /// let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     /// let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
     ///
-    /// let g = graph.traversal();
+    /// let g = graph.gremlin();
     /// let edge = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
     /// assert!(edge.is_some());
     /// assert_eq!(graph.edge_count(), 1);

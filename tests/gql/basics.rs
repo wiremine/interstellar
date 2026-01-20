@@ -52,7 +52,7 @@ fn test_gql_match_with_label() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+    let results = graph.gql("MATCH (n:Person) RETURN n").unwrap();
 
     // Should find 3 Person vertices
     assert_eq!(results.len(), 3);
@@ -68,7 +68,7 @@ fn test_gql_match_different_label() {
     let graph = create_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (c:Company) RETURN c").unwrap();
+    let results = graph.gql("MATCH (c:Company) RETURN c").unwrap();
 
     // Should find 2 Company vertices
     assert_eq!(results.len(), 2);
@@ -80,7 +80,7 @@ fn test_gql_match_all_vertices() {
     let snapshot = graph.snapshot();
 
     // No label filter - should return all vertices
-    let results = snapshot.gql("MATCH (n) RETURN n").unwrap();
+    let results = graph.gql("MATCH (n) RETURN n").unwrap();
 
     // Should find all 5 vertices (3 Person + 2 Company)
     assert_eq!(results.len(), 5);
@@ -92,7 +92,7 @@ fn test_gql_match_no_results() {
     let snapshot = graph.snapshot();
 
     // Label that doesn't exist
-    let results = snapshot.gql("MATCH (x:NonExistent) RETURN x").unwrap();
+    let results = graph.gql("MATCH (x:NonExistent) RETURN x").unwrap();
 
     assert_eq!(results.len(), 0);
 }
@@ -102,7 +102,7 @@ fn test_gql_empty_graph() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+    let results = graph.gql("MATCH (n:Person) RETURN n").unwrap();
 
     assert_eq!(results.len(), 0);
 }
@@ -117,15 +117,15 @@ fn test_gql_case_insensitive_keywords() {
     let snapshot = graph.snapshot();
 
     // lowercase
-    let r1 = snapshot.gql("match (n:Person) return n").unwrap();
+    let r1 = graph.gql("match (n:Person) return n").unwrap();
     assert_eq!(r1.len(), 3);
 
     // UPPERCASE
-    let r2 = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
+    let r2 = graph.gql("MATCH (n:Person) RETURN n").unwrap();
     assert_eq!(r2.len(), 3);
 
     // Mixed case
-    let r3 = snapshot.gql("Match (n:Person) Return n").unwrap();
+    let r3 = graph.gql("Match (n:Person) Return n").unwrap();
     assert_eq!(r3.len(), 3);
 }
 
@@ -135,7 +135,7 @@ fn test_gql_whitespace_tolerance() {
     let snapshot = graph.snapshot();
 
     // Extra whitespace
-    let results = snapshot
+    let results = graph
         .gql("  MATCH  (  n  :  Person  )  RETURN  n  ")
         .unwrap();
     assert_eq!(results.len(), 3);
@@ -150,7 +150,7 @@ fn test_gql_parse_error_missing_return() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
 
-    let result = snapshot.gql("MATCH (n:Person)");
+    let result = graph.gql("MATCH (n:Person)");
 
     assert!(result.is_err());
     assert!(matches!(result, Err(GqlError::Parse(_))));
@@ -168,7 +168,7 @@ fn test_gql_parse_error_unclosed_paren() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
 
-    let result = snapshot.gql("MATCH (n:Person RETURN n");
+    let result = graph.gql("MATCH (n:Person RETURN n");
 
     assert!(result.is_err());
     assert!(matches!(result, Err(GqlError::Parse(_))));
@@ -180,7 +180,7 @@ fn test_gql_compile_error_undefined_variable() {
     let snapshot = graph.snapshot();
 
     // Variable 'x' is not defined in MATCH clause
-    let result = snapshot.gql("MATCH (n:Person) RETURN x");
+    let result = graph.gql("MATCH (n:Person) RETURN x");
 
     assert!(result.is_err());
     assert!(matches!(result, Err(GqlError::Compile(_))));
@@ -198,7 +198,7 @@ fn test_gql_method_on_snapshot() {
 
     // Test that gql() method works on snapshot
     let snapshot = graph.snapshot();
-    let results = snapshot.gql("MATCH (n:Test) RETURN n").unwrap();
+    let results = graph.gql("MATCH (n:Test) RETURN n").unwrap();
 
     assert_eq!(results.len(), 1);
 }
@@ -209,9 +209,9 @@ fn test_gql_multiple_queries_same_snapshot() {
     let snapshot = graph.snapshot();
 
     // Run multiple queries on the same snapshot
-    let persons = snapshot.gql("MATCH (p:Person) RETURN p").unwrap();
-    let companies = snapshot.gql("MATCH (c:Company) RETURN c").unwrap();
-    let all = snapshot.gql("MATCH (n) RETURN n").unwrap();
+    let persons = graph.gql("MATCH (p:Person) RETURN p").unwrap();
+    let companies = graph.gql("MATCH (c:Company) RETURN c").unwrap();
+    let all = graph.gql("MATCH (n) RETURN n").unwrap();
 
     assert_eq!(persons.len(), 3);
     assert_eq!(companies.len(), 2);

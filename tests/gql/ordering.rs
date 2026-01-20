@@ -41,7 +41,7 @@ fn test_gql_order_by_ascending() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age")
         .unwrap();
 
@@ -67,7 +67,7 @@ fn test_gql_order_by_descending() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age DESC")
         .unwrap();
 
@@ -93,7 +93,7 @@ fn test_gql_order_by_asc_explicit() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age ASC")
         .unwrap();
 
@@ -117,7 +117,7 @@ fn test_gql_order_by_string() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.name ORDER BY p.name")
         .unwrap();
 
@@ -141,7 +141,7 @@ fn test_gql_order_by_with_where() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 25 RETURN p.age ORDER BY p.age")
         .unwrap();
 
@@ -169,7 +169,7 @@ fn test_gql_limit() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 3")
         .unwrap();
 
@@ -195,7 +195,7 @@ fn test_gql_limit_offset() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 OFFSET 2")
         .unwrap();
 
@@ -217,7 +217,7 @@ fn test_gql_limit_larger_than_results() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 100")
         .unwrap();
 
@@ -233,7 +233,7 @@ fn test_gql_offset_larger_than_results() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 10 OFFSET 100")
         .unwrap();
 
@@ -245,9 +245,7 @@ fn test_gql_limit_without_order() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN p.name LIMIT 2")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN p.name LIMIT 2").unwrap();
 
     assert_eq!(results.len(), 2, "Should return 2 results");
 }
@@ -257,7 +255,7 @@ fn test_gql_order_limit_where() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age >= 25 RETURN p.age ORDER BY p.age DESC LIMIT 2")
         .unwrap();
 
@@ -281,7 +279,7 @@ fn test_gql_limit_skip() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 SKIP 2")
         .unwrap();
 
@@ -303,7 +301,7 @@ fn test_gql_skip_limit() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age SKIP 2 LIMIT 2")
         .unwrap();
 
@@ -329,11 +327,11 @@ fn test_gql_skip_equals_offset() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let offset_results = snapshot
+    let offset_results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 OFFSET 1")
         .unwrap();
 
-    let skip_results = snapshot
+    let skip_results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 2 SKIP 1")
         .unwrap();
 
@@ -348,7 +346,7 @@ fn test_gql_skip_larger_than_results() {
     let graph = create_order_by_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.age ORDER BY p.age LIMIT 10 SKIP 100")
         .unwrap();
 

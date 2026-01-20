@@ -26,7 +26,7 @@
 //! Run: `cargo run --features mmap --example persistence`
 
 use interstellar::gql::{
-    execute_mutation_with_schema, parse_statement, CompileError, MutationError,
+    compile_statement, execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
 use interstellar::graph::LegacyGraph;
 use interstellar::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
@@ -309,7 +309,7 @@ fn demo_read_graph() {
     // Query with Fluent API
     println!("\n--- Step 3: Query with Fluent API ---");
 
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
     let person_count = g.v().has_label("Person").count();
     let company_count = g.v().has_label("Company").count();
     let project_count = g.v().has_label("Project").count();
@@ -322,7 +322,7 @@ fn demo_read_graph() {
     println!("    Edges: {}", edge_count);
 
     // List all people
-    let g = snapshot.traversal();
+    let g = snapshot.gremlin();
     let names: Vec<String> = g
         .v()
         .has_label("Person")
@@ -338,9 +338,8 @@ fn demo_read_graph() {
     // Query with GQL
     println!("\n--- Step 4: Query with GQL ---");
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN p.name, p.age")
-        .unwrap();
+    let stmt = parse_statement("MATCH (p:Person) RETURN p.name, p.age").unwrap();
+    let results = compile_statement(&stmt, &snapshot).unwrap();
     println!("  GQL: MATCH (p:Person) RETURN p.name, p.age");
     for result in results.iter().take(3) {
         println!("    {:?}", result);
@@ -350,9 +349,10 @@ fn demo_read_graph() {
     }
 
     // Query edges
-    let results = snapshot
-        .gql("MATCH (p:Person)-[r:WORKS_AT]->(c:Company) RETURN p.name, r.role, c.name")
-        .unwrap();
+    let stmt =
+        parse_statement("MATCH (p:Person)-[r:WORKS_AT]->(c:Company) RETURN p.name, r.role, c.name")
+            .unwrap();
+    let results = compile_statement(&stmt, &snapshot).unwrap();
     println!("\n  GQL: MATCH (p)-[:WORKS_AT]->(c) RETURN p.name, r.role, c.name");
     for result in &results {
         println!("    {:?}", result);

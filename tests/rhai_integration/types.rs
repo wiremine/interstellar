@@ -40,7 +40,7 @@ fn test_vertex_id_from_traversal() {
 
     // Get vertex IDs from traversal
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().id().to_list()
     "#;
 
@@ -55,7 +55,7 @@ fn test_value_list_from_traversal() {
 
     // Get names as list
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_label("person").values("name").to_list()
     "#;
 
@@ -75,7 +75,7 @@ fn test_value_map_from_traversal() {
 
     // Get value maps
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_value("name", "Alice").value_map().to_list()
     "#;
 
@@ -95,7 +95,7 @@ fn test_dynamic_to_value_in_predicate() {
     // Test that dynamic values work in predicates
     let script = r#"
         let age_limit = 30;
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_where("age", gte(age_limit)).count()
     "#;
 
@@ -111,7 +111,7 @@ fn test_array_in_within_predicate() {
     // Test that arrays work in within()
     let script = r#"
         let names = ["Alice", "Bob"];
-        let g = graph.traversal();
+        let g = graph.gremlin();
         g.v().has_where("name", within(names)).count()
     "#;
 
@@ -126,7 +126,7 @@ fn test_mixed_types_in_script() {
 
     // Test script with mixed types
     let script = r#"
-        let g = graph.traversal();
+        let g = graph.gremlin();
         let count = g.v().count();
         let names = g.v().has_label("person").values("name").to_list();
         

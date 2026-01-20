@@ -126,7 +126,7 @@ mod mixed_type_sorting {
     fn order_by_mixed_type_property_asc() {
         let graph = create_mixed_type_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Sort by value property which has different types
         let results = g
@@ -146,7 +146,7 @@ mod mixed_type_sorting {
     fn order_natural_with_mixed_value_types() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Inject mixed types and sort naturally
         let results = g
@@ -178,7 +178,7 @@ mod bool_sorting {
     fn order_by_bool_property_ascending() {
         let graph = create_bool_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g
             .v()
@@ -201,7 +201,7 @@ mod bool_sorting {
     fn order_by_bool_property_descending() {
         let graph = create_bool_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g
             .v()
@@ -223,7 +223,7 @@ mod bool_sorting {
     fn order_natural_bools_ascending() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g
             .inject([Value::Bool(true), Value::Bool(false), Value::Bool(true)])
@@ -250,7 +250,7 @@ mod edge_sorting {
     fn order_edges_by_property_ascending() {
         let graph = create_edge_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g.e().order().by_key_asc("weight").build().to_list();
 
@@ -288,7 +288,7 @@ mod edge_sorting {
     fn order_edges_by_property_descending() {
         let graph = create_edge_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g.e().order().by_key_desc("weight").build().to_list();
 
@@ -334,7 +334,7 @@ mod missing_property_sorting {
     fn order_with_some_missing_properties() {
         let graph = create_missing_prop_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Sort by age - one vertex doesn't have age property
         let results = g
@@ -354,7 +354,7 @@ mod missing_property_sorting {
     fn order_by_nonexistent_property() {
         let graph = create_missing_prop_graph();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Sort by property that doesn't exist on any vertex
         let results = g
@@ -398,7 +398,7 @@ mod subtraversal_sorting {
         graph.add_vertex("person", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Sort by score using a sub-traversal
         let sub = __::values("score");
@@ -451,7 +451,7 @@ mod order_builder_edge_cases {
     fn order_with_no_by_clause_defaults_to_asc() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // order() with no by_* calls should default to natural ascending
         let results = g
@@ -487,7 +487,7 @@ mod order_builder_edge_cases {
         graph.add_vertex("person", props);
 
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         // Sort by last name asc, then first name asc
         let results = g
@@ -540,7 +540,7 @@ mod non_element_sorting {
     fn order_null_values() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g
             .inject([Value::Null, Value::Int(1), Value::Null, Value::Int(2)])
@@ -559,7 +559,7 @@ mod non_element_sorting {
     fn order_list_values() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let results = g
             .inject([
@@ -581,7 +581,7 @@ mod non_element_sorting {
     fn order_map_values() {
         let graph = Graph::new();
         let snapshot = graph.snapshot();
-        let g = snapshot.traversal();
+        let g = snapshot.gremlin();
 
         let mut map1 = HashMap::new();
         map1.insert("key".to_string(), Value::Int(1));

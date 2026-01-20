@@ -113,7 +113,7 @@
 //!
 //! let graph = Graph::in_memory();
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // Use next() which returns Option, then provide a default
 //! let name = g.v()
@@ -140,7 +140,7 @@
 //! ]));
 //!
 //! let snapshot = graph.snapshot();
-//! let g = snapshot.traversal();
+//! let g = snapshot.gremlin();
 //!
 //! // This will fail because there are 2 people
 //! match g.v().has_label("person").one() {
@@ -206,7 +206,7 @@
 //!
 //! fn get_user_friends(graph: &Graph, user_id: VertexId) -> Vec<Value> {
 //!     let snapshot = graph.snapshot();
-//!     let g = snapshot.traversal();
+//!     let g = snapshot.gremlin();
 //!     
 //!     // Try to get friends, but return empty list if user doesn't exist
 //!     // (Note: traversals handle missing vertices gracefully by returning empty results)
@@ -556,7 +556,7 @@ pub enum StorageError {
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
+/// let g = snapshot.gremlin();
 ///
 /// // Empty graph: one() returns NotOne(0)
 /// let result = g.v().one();
@@ -613,7 +613,7 @@ pub enum TraversalError {
     /// ]));
     ///
     /// let snapshot = graph.snapshot();
-    /// let g = snapshot.traversal();
+    /// let g = snapshot.gremlin();
     ///
     /// // Fails because there are 2 people
     /// match g.v().has_label("person").one() {

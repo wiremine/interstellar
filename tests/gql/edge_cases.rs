@@ -183,7 +183,7 @@ fn test_gql_compile_error_helpful_message() {
     let graph = Graph::new();
     let snapshot = graph.snapshot();
 
-    let result = snapshot.gql("MATCH (n:Person) RETURN x");
+    let result = graph.gql("MATCH (n:Person) RETURN x");
     assert!(result.is_err());
 
     if let Err(e) = result {
@@ -314,7 +314,7 @@ fn test_gql_unicode_japanese_characters() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person) WHERE p.name = '田中太郎' RETURN p.name, p.city";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -342,7 +342,7 @@ fn test_gql_unicode_german_umlauts() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.name ORDER BY p.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 2);
 
     if let Value::String(name) = &results[0] {
@@ -362,7 +362,7 @@ fn test_gql_unicode_russian_cyrillic() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person) WHERE p.city = 'Москва' RETURN p.name";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -382,7 +382,7 @@ fn test_gql_unicode_arabic() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.name, p.city"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -403,7 +403,7 @@ fn test_gql_unicode_emoji() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.name, p.status"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -426,7 +426,7 @@ fn test_gql_unicode_mixed_scripts() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (i:Item) RETURN i.description"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -449,7 +449,7 @@ fn test_gql_special_chars_whitespace() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.bio, p.data"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -477,7 +477,7 @@ fn test_gql_empty_string_property() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person) WHERE p.nickname = '' RETURN p.name";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -502,7 +502,7 @@ fn test_gql_large_integer_values() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (e:Entity) RETURN e.id, e.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -528,7 +528,7 @@ fn test_gql_negative_integer_values() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (a:Account) WHERE a.balance < 0 RETURN a.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -558,11 +558,11 @@ fn test_gql_zero_comparisons() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (n:Number) WHERE n.value = 0 RETURN n.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     let query2 = r#"MATCH (n:Number) WHERE n.value >= 0 RETURN n.name ORDER BY n.value"#;
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     assert_eq!(results2.len(), 2);
 }
 
@@ -578,7 +578,7 @@ fn test_gql_float_precision() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (t:Test) RETURN t.rate"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -600,7 +600,7 @@ fn test_gql_small_float_values() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (m:Math) RETURN m.epsilon"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -623,7 +623,7 @@ fn test_gql_missing_property_returns_null() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN p.name, p.age"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     assert_eq!(
         results.len(),
@@ -648,7 +648,7 @@ fn test_gql_is_null_missing_property() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) WHERE p.age IS NULL RETURN p.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -677,7 +677,7 @@ fn test_gql_is_not_null() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) WHERE p.email IS NOT NULL RETURN p.name ORDER BY p.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 2);
 
     if let Value::Map(row) = &results[0] {
@@ -697,7 +697,7 @@ fn test_gql_explicit_null_property() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) WHERE p.middlename IS NULL RETURN p.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 }
 
@@ -722,7 +722,7 @@ fn test_gql_boolean_property_true() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (u:User) WHERE u.active = true RETURN u.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -752,7 +752,7 @@ fn test_gql_boolean_property_false() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (u:User) WHERE u.verified = false RETURN u.name ORDER BY u.name"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 2);
 
     if let Value::Map(row) = &results[0] {
@@ -872,7 +872,7 @@ fn test_gql_social_network_direct_friends() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person {name: 'Alice'})-[:KNOWS]->(friend:Person) RETURN friend.name ORDER BY friend.name";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 3);
 
     let names: Vec<&str> = results
@@ -894,7 +894,7 @@ fn test_gql_social_network_friends_of_friends() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person {name: 'Alice'})-[:KNOWS]->(:Person)-[:KNOWS]->(fof:Person) WHERE fof.name <> 'Alice' RETURN DISTINCT fof.name ORDER BY fof.name";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
 
     let names: Vec<&str> = results
         .iter()
@@ -917,7 +917,7 @@ fn test_gql_social_network_filter_by_age() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person) WHERE p.age > 30 RETURN p.name, p.age ORDER BY p.age DESC";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 5);
 
     if let Value::Map(row) = &results[0] {
@@ -938,7 +938,7 @@ fn test_gql_social_network_city_filter_with_limit() {
         ORDER BY p.age
         LIMIT 2
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 2);
 
     if let Value::Map(row) = &results[0] {
@@ -959,7 +959,7 @@ fn test_gql_social_network_count_friends() {
         RETURN p.name, COUNT(friend) AS friend_count
         ORDER BY friend_count DESC, p.name
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 8);
 
     if let Value::Map(row) = &results[0] {
@@ -973,7 +973,7 @@ fn test_gql_social_network_avg_friend_age() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p:Person {name: 'Alice'})-[:KNOWS]->(friend:Person) RETURN AVG(friend.age) AS avg_age";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -997,7 +997,7 @@ fn test_gql_social_network_coworkers() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (p1:Person)-[:KNOWS]->(c:Person) RETURN p1.name, c.name AS friend ORDER BY p1.name, friend LIMIT 5";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert!(!results.is_empty());
 }
 
@@ -1012,7 +1012,7 @@ fn test_gql_social_network_city_strangers() {
         RETURN p.name
         ORDER BY p.name
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 3);
 }
 
@@ -1027,7 +1027,7 @@ fn test_gql_social_network_variable_length_path() {
         RETURN DISTINCT target.name
         ORDER BY target.name
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert!(!results.is_empty());
 }
 
@@ -1041,7 +1041,7 @@ fn test_gql_social_network_collect_names() {
         WHERE p.city = 'LA'
         RETURN COLLECT(p.name) AS la_people
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1064,7 +1064,7 @@ fn test_gql_social_network_combined_where_and() {
         RETURN p.name, p.age
         ORDER BY p.age
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 5);
 }
 
@@ -1079,7 +1079,7 @@ fn test_gql_social_network_combined_where_or() {
         RETURN p.name
         ORDER BY p.name
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 5);
 }
 
@@ -1092,7 +1092,7 @@ fn test_gql_social_network_min_max_age() {
         MATCH (p:Person)
         RETURN MIN(p.age) AS youngest, MAX(p.age) AS oldest
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1111,7 +1111,7 @@ fn test_gql_social_network_sum_ages() {
         WHERE p.city = 'NYC'
         RETURN SUM(p.age) AS total_age
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1138,7 +1138,7 @@ fn test_gql_stress_1000_vertices() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (p:Person) RETURN COUNT(p) AS total"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1146,7 +1146,7 @@ fn test_gql_stress_1000_vertices() {
     }
 
     let query2 = r#"MATCH (p:Person) WHERE p.group = 5 RETURN COUNT(p) AS count"#;
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     assert_eq!(results2.len(), 1);
 
     if let Value::Map(row) = &results2[0] {
@@ -1186,7 +1186,7 @@ fn test_gql_stress_dense_graph() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (a:Node)-[:CONNECTS]->(b:Node) RETURN COUNT(*) AS edge_count"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1200,7 +1200,7 @@ fn test_gql_stress_dense_graph() {
         WHERE a.tier = 0
         RETURN COUNT(*) AS connections
     "#;
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     assert_eq!(results2.len(), 1);
 }
 
@@ -1219,7 +1219,7 @@ fn test_gql_stress_large_aggregation() {
     let snapshot = graph.snapshot();
 
     let query = r#"MATCH (t:Transaction) RETURN SUM(t.amount) AS total"#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1234,7 +1234,7 @@ fn test_gql_stress_large_aggregation() {
         RETURN t.category, AVG(t.amount) AS avg_amount, COUNT(t) AS count
         ORDER BY t.category
     "#;
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     assert_eq!(results2.len(), 5);
 
     if let Value::Map(row) = &results2[0] {
@@ -1262,7 +1262,7 @@ fn test_gql_stress_large_order_by() {
         ORDER BY i.score DESC
         LIMIT 10
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 10);
 
     let mut prev_score = i64::MAX;
@@ -1292,7 +1292,7 @@ fn test_gql_stress_large_offset() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (r:Record) RETURN r.index ORDER BY r.index LIMIT 1000 OFFSET 290";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 10);
 
     if let Value::Map(row) = &results[0] {
@@ -1322,7 +1322,7 @@ fn test_gql_stress_multi_hop_traversal() {
     let snapshot = graph.snapshot();
 
     let query = "MATCH (n:ChainNode {name: 'Node0'})-[:NEXT]->(next:ChainNode) RETURN next.name";
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::String(name) = &results[0] {
@@ -1333,7 +1333,7 @@ fn test_gql_stress_multi_hop_traversal() {
 
     let query2 =
         "MATCH (n:ChainNode {name: 'Node0'})-[:NEXT*5]->(target:ChainNode) RETURN target.name";
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     assert_eq!(results2.len(), 1);
 
     if let Value::String(name) = &results2[0] {
@@ -1366,19 +1366,19 @@ fn test_gql_stress_multiple_labels() {
     let snapshot = graph.snapshot();
 
     let query1 = r#"MATCH (p:Person) RETURN COUNT(p) AS count"#;
-    let results1: Vec<_> = snapshot.gql(query1).unwrap();
+    let results1: Vec<_> = graph.gql(query1).unwrap();
     if let Value::Map(row) = &results1[0] {
         assert_eq!(row.get("count"), Some(&Value::Int(100i64)));
     }
 
     let query2 = r#"MATCH (c:Company) RETURN COUNT(c) AS count"#;
-    let results2: Vec<_> = snapshot.gql(query2).unwrap();
+    let results2: Vec<_> = graph.gql(query2).unwrap();
     if let Value::Map(row) = &results2[0] {
         assert_eq!(row.get("count"), Some(&Value::Int(50i64)));
     }
 
     let query3 = r#"MATCH (p:Product) RETURN COUNT(p) AS count"#;
-    let results3: Vec<_> = snapshot.gql(query3).unwrap();
+    let results3: Vec<_> = graph.gql(query3).unwrap();
     if let Value::Map(row) = &results3[0] {
         assert_eq!(row.get("count"), Some(&Value::Int(75i64)));
     }
@@ -1405,7 +1405,7 @@ fn test_gql_stress_distinct_many_duplicates() {
         RETURN DISTINCT i.category
         ORDER BY i.category
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 10);
 }
 
@@ -1429,7 +1429,7 @@ fn test_gql_stress_complex_where() {
         WHERE e.active = true AND (e.tier = 'T0' OR e.tier = 'T2') AND e.value > 100
         RETURN COUNT(e) AS count
     "#;
-    let results: Vec<_> = snapshot.gql(query).unwrap();
+    let results: Vec<_> = graph.gql(query).unwrap();
     assert_eq!(results.len(), 1);
 
     if let Value::Map(row) = &results[0] {
@@ -1448,7 +1448,7 @@ fn test_gql_edge_traversal_phase_2_6() {
     let graph = create_pattern_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend")
         .unwrap();
     assert_eq!(
@@ -1457,12 +1457,12 @@ fn test_gql_edge_traversal_phase_2_6() {
         "Alice should know 2 people (Bob and Carol)"
     );
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (b:Person {name: 'Bob'})<-[:KNOWS]-(source) RETURN source")
         .unwrap();
     assert_eq!(results.len(), 1, "Bob should be known by 1 person (Alice)");
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (b:Person {name: 'Bob'})-[:KNOWS]-(connected) RETURN connected")
         .unwrap();
     assert_eq!(
@@ -1477,7 +1477,7 @@ fn test_gql_property_return_phase_2_6() {
     let graph = create_property_return_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN p.name").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN p.name").unwrap();
     assert_eq!(results.len(), 2, "Should find 2 Person vertices");
 
     let names: Vec<&str> = results
@@ -1505,7 +1505,7 @@ fn test_gql_multi_hop_phase_2_6() {
     let graph = create_multi_hop_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c) RETURN c.name")
         .unwrap();
 
@@ -1543,17 +1543,17 @@ fn test_gql_comprehensive_edge_traversal() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend) RETURN friend")
         .unwrap();
     assert_eq!(results.len(), 2, "Alice knows 2 people");
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (b:Person {name: 'Bob'})<-[:KNOWS]-(source) RETURN source")
         .unwrap();
     assert_eq!(results.len(), 1, "Bob is known by 1 person");
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (b:Person {name: 'Bob'})-[:KNOWS]-(connected) RETURN connected")
         .unwrap();
     assert_eq!(
@@ -1579,7 +1579,7 @@ fn test_gql_property_return_values() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN p.name").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN p.name").unwrap();
     assert_eq!(results.len(), 2);
 
     assert!(results.contains(&Value::String("Alice".to_string())));
@@ -1614,7 +1614,7 @@ fn test_gql_multi_hop_with_property_filters() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b)-[:KNOWS]->(c) RETURN c.name")
         .unwrap();
 
@@ -1631,7 +1631,7 @@ fn test_gql_order_by_multiple_columns() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.department, p.name, p.salary ORDER BY p.department, p.salary DESC")
         .unwrap();
 
@@ -1670,7 +1670,7 @@ fn test_gql_order_by_mixed_directions() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.department, p.name, p.age ORDER BY p.department ASC, p.age DESC")
         .unwrap();
 
@@ -1713,7 +1713,7 @@ fn test_gql_limit_with_order_top_n() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.name, p.salary ORDER BY p.salary DESC LIMIT 3")
         .unwrap();
 
@@ -1745,7 +1745,7 @@ fn test_gql_offset_pagination() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.salary ORDER BY p.salary DESC LIMIT 3 OFFSET 3")
         .unwrap();
 
@@ -1771,7 +1771,7 @@ fn test_gql_aggregation_with_filter() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.department = 'Engineering' RETURN count(*) AS count, sum(p.salary) AS total_salary, avg(p.salary) AS avg_salary")
         .unwrap();
 
@@ -1803,7 +1803,7 @@ fn test_gql_aggregations_with_aliases() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN count(*) AS headcount, min(p.age) AS youngest, max(p.age) AS oldest, avg(p.age) AS avg_age")
         .unwrap();
 
@@ -1825,7 +1825,7 @@ fn test_gql_collect_all_values() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.department = 'Marketing' RETURN collect(p.name) AS names")
         .unwrap();
 
@@ -1849,7 +1849,7 @@ fn test_gql_count_distinct_departments() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN count(DISTINCT p.department) AS num_departments")
         .unwrap();
 
@@ -1870,7 +1870,7 @@ fn test_gql_single_aggregation_no_alias() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot.gql("MATCH (p:Person) RETURN count(*)").unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN count(*)").unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(8), "Should count all 8 people");
@@ -1896,7 +1896,7 @@ fn test_gql_order_by_with_nulls() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.name, p.score ORDER BY p.score")
         .unwrap();
 
@@ -1924,9 +1924,7 @@ fn test_gql_limit_zero() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
-        .gql("MATCH (p:Person) RETURN p.name LIMIT 0")
-        .unwrap();
+    let results = graph.gql("MATCH (p:Person) RETURN p.name LIMIT 0").unwrap();
 
     assert_eq!(results.len(), 0, "LIMIT 0 should return empty result");
 }
@@ -1936,7 +1934,7 @@ fn test_gql_offset_beyond_results() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.name LIMIT 10 OFFSET 100")
         .unwrap();
 
@@ -1952,7 +1950,7 @@ fn test_gql_combined_where_order_limit() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 25 RETURN p.name, p.age ORDER BY p.age ASC LIMIT 2")
         .unwrap();
 
@@ -1997,7 +1995,7 @@ fn test_gql_sum_floats() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Product) RETURN sum(p.price) AS total")
         .unwrap();
 
@@ -2038,7 +2036,7 @@ fn test_gql_avg_mixed_numeric() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (i:Item) RETURN avg(i.value) AS average")
         .unwrap();
 
@@ -2063,7 +2061,7 @@ fn test_gql_order_by_aliased_property() {
     let graph = create_phase47_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.name AS employee_name, p.salary AS pay ORDER BY p.salary DESC LIMIT 3")
         .unwrap();
 
@@ -2130,7 +2128,7 @@ fn test_gql_id_function_vertex() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN id(p)")
         .unwrap();
 
@@ -2143,7 +2141,7 @@ fn test_gql_id_function_edge() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[e:knows]->(q:Person) RETURN id(e)")
         .unwrap();
 
@@ -2156,7 +2154,7 @@ fn test_gql_id_function_with_alias() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN id(p) AS vertex_id, p.name")
         .unwrap();
 
@@ -2177,7 +2175,7 @@ fn test_gql_id_function_in_order_by() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) RETURN p.name, id(p) AS vid ORDER BY vid")
         .unwrap();
 
@@ -2199,7 +2197,7 @@ fn test_gql_labels_function_basic() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN labels(p)")
         .unwrap();
 
@@ -2218,7 +2216,7 @@ fn test_gql_labels_function_company() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (c:Company) RETURN labels(c) AS vertex_labels")
         .unwrap();
 
@@ -2239,7 +2237,7 @@ fn test_gql_labels_function_on_edge_returns_null() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[e:knows]->(q:Person) RETURN labels(e) AS edge_labels")
         .unwrap();
 
@@ -2255,7 +2253,7 @@ fn test_gql_type_function_basic() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[e:knows]->(q:Person) RETURN type(e)")
         .unwrap();
 
@@ -2268,7 +2266,7 @@ fn test_gql_type_function_different_edges() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person)-[e]->(target)
@@ -2301,7 +2299,7 @@ fn test_gql_type_function_with_alias() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH ()-[e:works_at]->() RETURN type(e) AS edge_type")
         .unwrap();
 
@@ -2320,7 +2318,7 @@ fn test_gql_type_function_on_vertex_returns_null() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN type(p) AS vertex_type")
         .unwrap();
 
@@ -2336,7 +2334,7 @@ fn test_gql_properties_function_vertex() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.name = 'Alice' RETURN properties(p)")
         .unwrap();
 
@@ -2359,7 +2357,7 @@ fn test_gql_properties_function_edge() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[e:works_at]->(c:Company) RETURN properties(e)")
         .unwrap();
 
@@ -2381,7 +2379,7 @@ fn test_gql_properties_function_with_alias() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (c:Company) RETURN properties(c) AS all_props, c.name")
         .unwrap();
 
@@ -2408,7 +2406,7 @@ fn test_gql_properties_function_empty_properties() {
 
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:EmptyNode) RETURN properties(n)")
         .unwrap();
 
@@ -2426,7 +2424,7 @@ fn test_gql_introspection_combined() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person)
@@ -2461,7 +2459,7 @@ fn test_gql_introspection_edge_combined() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person)-[e:knows]->(q:Person)
@@ -2493,7 +2491,7 @@ fn test_gql_introspection_with_aggregation() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (p:Person)
@@ -2523,7 +2521,7 @@ fn test_gql_introspection_with_where() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (n:Person)
@@ -2545,7 +2543,7 @@ fn test_gql_is_predicate_equivalent_greater_than() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age > 25 RETURN p.name")
         .unwrap();
 
@@ -2558,7 +2556,7 @@ fn test_gql_is_predicate_equivalent_range() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age >= 20 AND p.age < 28 RETURN p.name")
         .unwrap();
 
@@ -2571,7 +2569,7 @@ fn test_gql_is_predicate_equivalent_equality() {
     let graph = create_introspection_test_graph();
     let snapshot = graph.snapshot();
 
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person) WHERE p.age = 30 RETURN p.name")
         .unwrap();
 
@@ -2665,7 +2663,7 @@ fn test_gql_inline_where_node_simple() {
     let snapshot = graph.snapshot();
 
     // Only adults (age > 21)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person WHERE n.age > 21) RETURN n.name")
         .unwrap();
 
@@ -2693,7 +2691,7 @@ fn test_gql_inline_where_node_equality() {
     let snapshot = graph.snapshot();
 
     // Only active people
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person WHERE n.active = true) RETURN n.name")
         .unwrap();
 
@@ -2718,7 +2716,7 @@ fn test_gql_inline_where_node_compound() {
     let snapshot = graph.snapshot();
 
     // Adults who are active
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person WHERE n.age >= 18 AND n.active = true) RETURN n.name")
         .unwrap();
 
@@ -2745,7 +2743,7 @@ fn test_gql_inline_where_edge_simple() {
     let snapshot = graph.snapshot();
 
     // Only relationships established since 2020
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person)-[r:KNOWS WHERE r.since >= 2020]->(b:Person) RETURN a.name, b.name")
         .unwrap();
 
@@ -2759,7 +2757,7 @@ fn test_gql_inline_where_edge_strength() {
     let snapshot = graph.snapshot();
 
     // Only strong relationships (strength > 0.5)
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person)-[r:KNOWS WHERE r.strength > 0.5]->(b:Person) RETURN a.name, b.name")
         .unwrap();
 
@@ -2773,7 +2771,7 @@ fn test_gql_inline_where_combined_node_and_edge() {
     let snapshot = graph.snapshot();
 
     // Active people who have strong recent relationships
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (a:Person WHERE a.active = true)-[r:KNOWS WHERE r.since >= 2020 AND r.strength > 0.5]->(b:Person)
@@ -2792,7 +2790,7 @@ fn test_gql_inline_where_with_global_where() {
     let snapshot = graph.snapshot();
 
     // Inline WHERE on source node, global WHERE on target
-    let results = snapshot
+    let results = graph
         .gql(
             r#"
             MATCH (a:Person WHERE a.age > 21)-[r:KNOWS]->(b:Person)
@@ -2814,7 +2812,7 @@ fn test_gql_inline_where_no_matches() {
     let snapshot = graph.snapshot();
 
     // Impossible condition
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person WHERE n.age > 100) RETURN n.name")
         .unwrap();
 
@@ -2827,7 +2825,7 @@ fn test_gql_inline_where_edge_no_matches() {
     let snapshot = graph.snapshot();
 
     // Impossible edge condition
-    let results = snapshot
+    let results = graph
         .gql("MATCH (a:Person)-[r:KNOWS WHERE r.since > 2030]->(b:Person) RETURN a.name")
         .unwrap();
 
@@ -2840,12 +2838,12 @@ fn test_gql_inline_where_equivalent_to_global() {
     let snapshot = graph.snapshot();
 
     // Inline WHERE version
-    let inline_results = snapshot
+    let inline_results = graph
         .gql("MATCH (n:Person WHERE n.age > 21) RETURN n.name")
         .unwrap();
 
     // Global WHERE version
-    let global_results = snapshot
+    let global_results = graph
         .gql("MATCH (n:Person) WHERE n.age > 21 RETURN n.name")
         .unwrap();
 
@@ -2863,7 +2861,7 @@ fn test_gql_inline_where_string_comparison() {
     let snapshot = graph.snapshot();
 
     // Filter by name starting with 'A' or 'B'
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person WHERE n.name < 'C') RETURN n.name")
         .unwrap();
 
@@ -2883,7 +2881,7 @@ fn test_gql_parameter_in_where_clause() {
     let mut params = interstellar::gql::Parameters::new();
     params.insert("minAge".to_string(), Value::Int(30));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name",
             &params,
@@ -2906,7 +2904,7 @@ fn test_gql_parameter_equality() {
     let mut params = interstellar::gql::Parameters::new();
     params.insert("targetAge".to_string(), Value::Int(25));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.age = $targetAge RETURN n.name",
             &params,
@@ -2929,7 +2927,7 @@ fn test_gql_parameter_in_list() {
     params.insert("age1".to_string(), Value::Int(25));
     params.insert("age2".to_string(), Value::Int(35));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.age IN [$age1, $age2] RETURN n.name",
             &params,
@@ -2953,7 +2951,7 @@ fn test_gql_multiple_parameters() {
     params.insert("minAge".to_string(), Value::Int(25));
     params.insert("maxAge".to_string(), Value::Int(32));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.age >= $minAge AND n.age <= $maxAge RETURN n.name",
             &params,
@@ -2976,7 +2974,7 @@ fn test_gql_parameter_in_return_expression() {
     let mut params = interstellar::gql::Parameters::new();
     params.insert("multiplier".to_string(), Value::Int(2));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.name = 'Alice' RETURN n.age * $multiplier",
             &params,
@@ -2995,7 +2993,7 @@ fn test_gql_unbound_parameter_error() {
 
     let params = interstellar::gql::Parameters::new(); // Empty params
 
-    let result = snapshot.gql_with_params(
+    let result = graph.gql_with_params(
         "MATCH (n:Person) WHERE n.age >= $undefinedParam RETURN n.name",
         &params,
     );
@@ -3022,7 +3020,7 @@ fn test_gql_parameter_string_value() {
     let mut params = interstellar::gql::Parameters::new();
     params.insert("searchName".to_string(), Value::from("Alice"));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.name = $searchName RETURN n.age",
             &params,
@@ -3042,7 +3040,7 @@ fn test_gql_parameter_with_null() {
     params.insert("value".to_string(), Value::Null);
 
     // Comparing with null should use IS NULL logic
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE $value IS NULL RETURN n.name",
             &params,
@@ -3062,7 +3060,7 @@ fn test_gql_parameter_reuse() {
     params.insert("threshold".to_string(), Value::Int(30));
 
     // Use same parameter twice
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (n:Person) WHERE n.age >= $threshold AND $threshold > 20 RETURN n.name",
             &params,
@@ -3081,11 +3079,11 @@ fn test_gql_empty_params_works_like_regular_query() {
     let params = interstellar::gql::Parameters::new();
 
     // Query without parameters should work with empty params
-    let results_with_params = snapshot
+    let results_with_params = graph
         .gql_with_params("MATCH (n:Person) RETURN n.name", &params)
         .unwrap();
 
-    let results_regular = snapshot.gql("MATCH (n:Person) RETURN n.name").unwrap();
+    let results_regular = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
 
     assert_eq!(results_with_params.len(), results_regular.len());
 
@@ -3113,7 +3111,7 @@ fn test_gql_parameter_float_comparison() {
     let mut params = interstellar::gql::Parameters::new();
     params.insert("maxPrice".to_string(), Value::Float(25.0));
 
-    let results = snapshot
+    let results = graph
         .gql_with_params(
             "MATCH (p:Product) WHERE p.price < $maxPrice RETURN p.name",
             &params,
@@ -3134,7 +3132,7 @@ fn test_gql_let_simple_expression() {
     let snapshot = graph.snapshot();
 
     // Simple LET binding a computed value
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person) LET doubled = n.age * 2 RETURN n.name, doubled")
         .unwrap();
 
@@ -3194,7 +3192,7 @@ fn test_gql_let_count_aggregate() {
     let snapshot = graph.snapshot();
 
     // Use LET to count friends
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[:KNOWS]->(f) LET friendCount = COUNT(f) RETURN p.name, friendCount")
         .unwrap();
 
@@ -3238,7 +3236,7 @@ fn test_gql_let_collect_aggregate() {
     let snapshot = graph.snapshot();
 
     // Use LET to collect friend names
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[:KNOWS]->(f) LET friends = COLLECT(f.name) RETURN p.name, friends")
         .unwrap();
 
@@ -3265,7 +3263,7 @@ fn test_gql_let_multiple_clauses() {
     let snapshot = graph.snapshot();
 
     // Multiple LET clauses - later ones can reference earlier
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person) LET doubled = n.age * 2 LET plusTen = doubled + 10 RETURN n.name, plusTen")
         .unwrap();
 
@@ -3298,7 +3296,7 @@ fn test_gql_let_sum_aggregate() {
     let snapshot = graph.snapshot();
 
     // Use LET with SUM aggregate
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person) LET totalAge = SUM(n.age) RETURN n.name, totalAge")
         .unwrap();
 
@@ -3319,7 +3317,7 @@ fn test_gql_let_avg_aggregate() {
     let snapshot = graph.snapshot();
 
     // Use LET with AVG aggregate
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person) LET avgAge = AVG(n.age) RETURN n.name, avgAge")
         .unwrap();
 
@@ -3344,7 +3342,7 @@ fn test_gql_let_with_where() {
     let snapshot = graph.snapshot();
 
     // LET should be evaluated after WHERE
-    let results = snapshot
+    let results = graph
         .gql("MATCH (n:Person) WHERE n.age > 25 LET doubled = n.age * 2 RETURN n.name, doubled")
         .unwrap();
 
@@ -3396,7 +3394,7 @@ fn test_gql_let_size_of_collect() {
     let snapshot = graph.snapshot();
 
     // Chain LET clauses: collect then size
-    let results = snapshot
+    let results = graph
         .gql("MATCH (p:Person)-[:KNOWS]->(f) LET friends = COLLECT(f.name) LET numFriends = SIZE(friends) RETURN p.name, numFriends")
         .unwrap();
 

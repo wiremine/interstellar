@@ -15,7 +15,7 @@
 //! let engine = RhaiEngine::new();
 //!
 //! let script = r#"
-//!     let g = graph.traversal();
+//!     let g = graph.gremlin();
 //!     g.v().has_label("person").values("name").to_list()
 //! "#;
 //!

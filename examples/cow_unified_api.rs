@@ -28,7 +28,7 @@ fn main() {
     println!("--- Part 1: Gremlin-style Mutations ---\n");
 
     // Get a traversal source - this is the entry point for all operations
-    let g = graph.traversal();
+    let g = graph.gremlin();
 
     // Create vertices using add_v() - mutations execute automatically on next()
     // next() returns Option<Value>, and for add_v it's Value::Vertex(id)
