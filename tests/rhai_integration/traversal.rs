@@ -1535,7 +1535,18 @@ fn test_drop_step() {
     let engine = RhaiEngine::new();
     let graph = create_social_graph();
 
-    // drop() should mark elements for deletion
+    // Get initial vertex count
+    let initial_count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            g.v().count()
+        "#,
+        )
+        .unwrap();
+
+    // drop() should delete the element
     let results: rhai::Array = engine
         .eval_with_graph(
             graph.clone(),
@@ -1546,8 +1557,21 @@ fn test_drop_step() {
         )
         .unwrap();
 
-    // drop creates pending deletion markers
-    assert_eq!(results.len(), 1);
+    // drop() executes the deletion and returns empty (no result for deleted items)
+    assert_eq!(results.len(), 0);
+
+    // Verify the vertex was actually deleted
+    let final_count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            g.v().count()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(final_count, initial_count - 1);
 }
 
 #[test]

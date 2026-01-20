@@ -18,7 +18,7 @@
 //! - `aggregation`: GROUP BY, aggregates, HAVING
 //!
 //! [`Query`]: crate::gql::ast::Query
-//! [`GraphSnapshot`]: crate::graph::GraphSnapshot
+//! [`GraphSnapshot`]: crate::storage::GraphSnapshot
 
 // Helper types and functions
 mod helpers;

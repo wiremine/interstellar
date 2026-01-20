@@ -27,7 +27,7 @@
 //! let results = execute_mutation(&stmt, &mut storage).unwrap();
 //! ```
 //!
-//! [`GraphSnapshot`]: crate::graph::GraphSnapshot
+//! [`GraphSnapshot`]: crate::storage::GraphSnapshot
 //! [`GraphStorageMut`]: crate::storage::GraphStorageMut
 
 use std::collections::HashMap;

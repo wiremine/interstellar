@@ -61,7 +61,7 @@
 //! - Type mismatches in expressions
 //!
 //! [`Query`]: crate::gql::ast::Query
-//! [`GraphSnapshot`]: crate::graph::GraphSnapshot
+//! [`GraphSnapshot`]: crate::storage::GraphSnapshot
 //! [`CompileError`]: crate::gql::error::CompileError
 
 use std::collections::HashMap;
@@ -288,7 +288,7 @@ fn id_to_value(id: u64) -> Value {
 /// ```
 ///
 /// [`Query`]: crate::gql::ast::Query
-/// [`GraphSnapshot`]: crate::graph::GraphSnapshot
+/// [`GraphSnapshot`]: crate::storage::GraphSnapshot
 /// [`Value`]: crate::value::Value
 /// [`CompileError`]: crate::gql::error::CompileError
 /// [`parse()`]: crate::gql::parse

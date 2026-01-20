@@ -278,7 +278,7 @@
 //! - [`ParseError`] - Syntax errors in the query text
 //! - [`CompileError`] - Semantic errors (undefined variables, type mismatches)
 //!
-//! Both are wrapped in [`GqlError`] when using [`GraphSnapshot::gql()`](crate::graph::GraphSnapshot::gql).
+//! Both are wrapped in [`GqlError`] when using [`Graph::gql()`](crate::storage::Graph::gql).
 //!
 //! ```rust
 //! use interstellar::prelude::*;

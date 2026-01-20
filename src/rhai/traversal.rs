@@ -11,6 +11,7 @@ use rhai::{Dynamic, Engine, ImmutableString};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::storage::cow::CowBoundTraversal;
 use crate::storage::Graph;
 use crate::traversal::step::IdentityStep;
 use crate::traversal::{Traversal, TraversalSource, __};
@@ -367,9 +368,12 @@ impl RhaiTraversal {
     }
 
     /// Execute the traversal and return results as a list.
+    ///
+    /// Uses `graph.gremlin()` which supports both read and mutation operations.
+    /// Any pending mutations (add_v, add_e, property, drop) are automatically
+    /// executed against the graph.
     pub fn to_list(&self) -> Vec<Value> {
-        let snapshot = self.graph.snapshot();
-        let g = snapshot.gremlin();
+        let g = self.graph.gremlin();
 
         // Build the traversal from source
         let mut bound = match &self.source {
@@ -386,7 +390,7 @@ impl RhaiTraversal {
 
         // Apply each step
         for step in &self.steps {
-            bound = apply_step(bound, step);
+            bound = apply_step_cow(bound, step);
         }
 
         bound.to_list()
@@ -1693,170 +1697,132 @@ impl RhaiAnonymousTraversal {
 // Step Application
 // =============================================================================
 
-/// Apply a step to a bound traversal.
+/// Apply a step to a CowBoundTraversal (supports mutations).
+///
+/// This function uses `add_step()` with step types directly, which works with
+/// `CowBoundTraversal` for mutation support via `graph.gremlin()`.
 #[allow(unused_imports)]
-fn apply_step<'g, In>(
-    bound: crate::traversal::BoundTraversal<'g, In, Value>,
+fn apply_step_cow<'g, In>(
+    bound: CowBoundTraversal<'g, In, Value>,
     step: &RhaiStep,
-) -> crate::traversal::BoundTraversal<'g, In, Value> {
+) -> CowBoundTraversal<'g, In, Value> {
     use crate::traversal::filter::*;
     use crate::traversal::navigation::*;
-    use crate::traversal::transform::{Order, OrderStep, *};
+    use crate::traversal::sideeffect::*;
+    use crate::traversal::transform::*;
 
     match step {
         // Navigation
-        RhaiStep::Out(labels) if labels.is_empty() => bound.out(),
-        RhaiStep::Out(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.out_labels(&label_refs)
-        }
-        RhaiStep::In(labels) if labels.is_empty() => bound.in_(),
-        RhaiStep::In(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.in_labels(&label_refs)
-        }
-        RhaiStep::Both(labels) if labels.is_empty() => bound.both(),
-        RhaiStep::Both(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.both_labels(&label_refs)
-        }
-        RhaiStep::OutE(labels) if labels.is_empty() => bound.out_e(),
-        RhaiStep::OutE(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.out_e_labels(&label_refs)
-        }
-        RhaiStep::InE(labels) if labels.is_empty() => bound.in_e(),
-        RhaiStep::InE(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.in_e_labels(&label_refs)
-        }
-        RhaiStep::BothE(labels) if labels.is_empty() => bound.both_e(),
-        RhaiStep::BothE(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.both_e_labels(&label_refs)
-        }
-        RhaiStep::OutV => bound.out_v(),
-        RhaiStep::InV => bound.in_v(),
-        RhaiStep::OtherV => bound.other_v(),
-        RhaiStep::BothV => bound.both_v(),
+        RhaiStep::Out(labels) if labels.is_empty() => bound.add_step(OutStep::new()),
+        RhaiStep::Out(labels) => bound.add_step(OutStep::with_labels(labels.clone())),
+        RhaiStep::In(labels) if labels.is_empty() => bound.add_step(InStep::new()),
+        RhaiStep::In(labels) => bound.add_step(InStep::with_labels(labels.clone())),
+        RhaiStep::Both(labels) if labels.is_empty() => bound.add_step(BothStep::new()),
+        RhaiStep::Both(labels) => bound.add_step(BothStep::with_labels(labels.clone())),
+        RhaiStep::OutE(labels) if labels.is_empty() => bound.add_step(OutEStep::new()),
+        RhaiStep::OutE(labels) => bound.add_step(OutEStep::with_labels(labels.clone())),
+        RhaiStep::InE(labels) if labels.is_empty() => bound.add_step(InEStep::new()),
+        RhaiStep::InE(labels) => bound.add_step(InEStep::with_labels(labels.clone())),
+        RhaiStep::BothE(labels) if labels.is_empty() => bound.add_step(BothEStep::new()),
+        RhaiStep::BothE(labels) => bound.add_step(BothEStep::with_labels(labels.clone())),
+        RhaiStep::OutV => bound.add_step(OutVStep),
+        RhaiStep::InV => bound.add_step(InVStep),
+        RhaiStep::OtherV => bound.add_step(OtherVStep),
+        RhaiStep::BothV => bound.add_step(BothVStep),
 
         // Filter
-        RhaiStep::HasLabel(labels) if labels.len() == 1 => bound.has_label(labels[0].clone()),
-        RhaiStep::HasLabel(labels) => bound.has_label_any(labels.clone()),
-        RhaiStep::Has(key) => bound.has(key.clone()),
-        RhaiStep::HasNot(key) => bound.has_not(key.clone()),
-        RhaiStep::HasValue(key, value) => bound.has_value(key.clone(), value.clone()),
-        RhaiStep::HasWhere(key, pred) => bound.has_where(key.clone(), pred.clone()),
-        RhaiStep::HasId(id) => {
-            match id {
-                Value::Vertex(vid) => bound.has_id(*vid),
-                Value::Edge(eid) => bound.has_id(*eid),
-                Value::Int(n) => bound.has_id(VertexId(*n as u64)),
-                _ => bound, // Ignore invalid IDs
-            }
+        RhaiStep::HasLabel(labels) if labels.len() == 1 => {
+            bound.add_step(HasLabelStep::single(labels[0].clone()))
         }
-        RhaiStep::Dedup => bound.dedup(),
-        RhaiStep::Limit(n) => bound.limit(*n),
-        RhaiStep::Skip(n) => bound.skip(*n),
-        RhaiStep::Range(start, end) => bound.range(*start, *end),
-        RhaiStep::IsEq(value) => bound.is_eq(value.clone()),
-        RhaiStep::Is(pred) => bound.is_(pred.clone()),
-        RhaiStep::SimplePath => bound.simple_path(),
-        RhaiStep::CyclicPath => bound.cyclic_path(),
+        RhaiStep::HasLabel(labels) => bound.add_step(HasLabelStep::any(labels.clone())),
+        RhaiStep::Has(key) => bound.add_step(HasStep::new(key.clone())),
+        RhaiStep::HasNot(key) => bound.add_step(HasNotStep::new(key.clone())),
+        RhaiStep::HasValue(key, value) => {
+            bound.add_step(HasValueStep::new(key.clone(), value.clone()))
+        }
+        RhaiStep::HasWhere(key, pred) => {
+            bound.add_step(HasWhereStep::new(key.clone(), pred.clone()))
+        }
+        RhaiStep::Dedup => bound.add_step(DedupStep),
+        RhaiStep::Limit(n) => bound.add_step(LimitStep::new(*n)),
+        RhaiStep::Skip(n) => bound.add_step(SkipStep::new(*n)),
+        RhaiStep::Range(start, end) => bound.add_step(RangeStep::new(*start, *end)),
+        RhaiStep::IsEq(value) => bound.add_step(IsStep::eq(value.clone())),
+        RhaiStep::Is(pred) => bound.add_step(IsStep::new(pred.clone())),
+        RhaiStep::SimplePath => bound.add_step(SimplePathStep::new()),
+        RhaiStep::CyclicPath => bound.add_step(CyclicPathStep::new()),
+        RhaiStep::HasId(id) => match id {
+            Value::Vertex(vid) => bound.add_step(HasIdStep::vertex(*vid)),
+            Value::Edge(eid) => bound.add_step(HasIdStep::edge(*eid)),
+            Value::Int(n) => bound.add_step(HasIdStep::vertex(VertexId(*n as u64))),
+            _ => bound, // Ignore invalid IDs
+        },
 
         // Advanced filter steps (Phase 7)
-        RhaiStep::Tail => bound.tail(),
-        RhaiStep::TailN(n) => bound.tail_n(*n),
-        RhaiStep::Coin(probability) => bound.coin(*probability),
-        RhaiStep::Sample(n) => bound.sample(*n),
-        RhaiStep::DedupByKey(key) => bound.dedup_by_key(key.clone()),
-        RhaiStep::DedupByLabel => bound.dedup_by_label(),
-        RhaiStep::DedupBy(traversal) => bound.dedup_by(traversal.to_traversal()),
-        RhaiStep::HasIds(ids) => {
-            let values: Vec<Value> = ids.clone();
-            bound.has_ids(values)
-        }
+        RhaiStep::Tail => bound.add_step(TailStep::last()),
+        RhaiStep::TailN(n) => bound.add_step(TailStep::new(*n)),
+        RhaiStep::Coin(probability) => bound.add_step(CoinStep::new(*probability)),
+        RhaiStep::Sample(n) => bound.add_step(SampleStep::new(*n)),
+        RhaiStep::DedupByKey(key) => bound.add_step(DedupByKeyStep::new(key.clone())),
+        RhaiStep::DedupByLabel => bound.add_step(DedupByLabelStep::new()),
+        RhaiStep::DedupBy(t) => bound.add_step(DedupByTraversalStep::new(t.to_traversal())),
+        RhaiStep::HasIds(ids) => bound.add_step(HasIdStep::from_values(ids.clone())),
 
         // Transform
-        RhaiStep::Id => bound.id(),
-        RhaiStep::Label => bound.label(),
-        RhaiStep::Values(key) => bound.values(key.clone()),
-        RhaiStep::ValuesMulti(keys) => bound.values_multi(keys.clone()),
-        RhaiStep::ValueMap => bound.value_map(),
-        RhaiStep::ElementMap => bound.element_map(),
-        RhaiStep::Path => bound.path(),
-        RhaiStep::Constant(value) => bound.constant(value.clone()),
+        RhaiStep::Id => bound.add_step(IdStep),
+        RhaiStep::Label => bound.add_step(LabelStep),
+        RhaiStep::Values(key) => bound.add_step(ValuesStep::new(key.clone())),
+        RhaiStep::ValuesMulti(keys) => bound.add_step(ValuesStep::multi(keys.clone())),
+        RhaiStep::ValueMap => bound.add_step(ValueMapStep::new()),
+        RhaiStep::ElementMap => bound.add_step(ElementMapStep::new()),
+        RhaiStep::Path => bound.add_step(PathStep::new()),
+        RhaiStep::Constant(value) => bound.add_step(ConstantStep::new(value.clone())),
         RhaiStep::Identity => bound.add_step(IdentityStep),
-        RhaiStep::Unfold => bound.unfold(),
-        RhaiStep::Mean => bound.mean(),
-        // Note: Fold, Count, Sum, Min, Max are terminal operations in Gremlin,
-        // not chaining steps. For Rhai, we handle these as no-ops in step chains
-        // since they would need to be terminal steps instead.
+        RhaiStep::Unfold => bound.add_step(UnfoldStep),
+        RhaiStep::Mean => bound.add_step(MeanStep),
+        // Fold, Count, Sum, Min, Max are terminal operations - skip in step chains
         RhaiStep::Fold | RhaiStep::Count | RhaiStep::Sum | RhaiStep::Min | RhaiStep::Max => bound,
 
         // Advanced transform steps (Phase 8)
-        RhaiStep::Properties => bound.properties(),
-        RhaiStep::PropertiesKeys(keys) => {
-            let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-            bound.properties_keys(key_refs)
+        RhaiStep::Properties => bound.add_step(PropertiesStep::new()),
+        RhaiStep::PropertiesKeys(keys) => bound.add_step(PropertiesStep::with_keys(keys.clone())),
+        RhaiStep::Key => bound.add_step(KeyStep),
+        RhaiStep::PropValue => bound.add_step(ValueStep),
+        RhaiStep::ValueMapKeys(keys) => bound.add_step(ValueMapStep::with_keys(keys.clone())),
+        RhaiStep::ValueMapWithTokens => bound.add_step(ValueMapStep::new().with_tokens()),
+        RhaiStep::Index => bound.add_step(IndexStep),
+        RhaiStep::Local(sub) => {
+            use crate::traversal::branch::LocalStep;
+            bound.add_step(LocalStep::new(sub.to_traversal()))
         }
-        RhaiStep::Key => bound.key(),
-        RhaiStep::PropValue => bound.value(),
-        RhaiStep::ValueMapKeys(keys) => {
-            let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-            bound.value_map_keys(key_refs)
-        }
-        RhaiStep::ValueMapWithTokens => bound.value_map_with_tokens(),
-        RhaiStep::Index => bound.index(),
-        RhaiStep::Local(traversal) => bound.local(traversal.to_traversal()),
 
         // Modulator
-        RhaiStep::As(label) => bound.as_(label.as_str()),
-        RhaiStep::Select(labels) => {
-            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
-            bound.select(&label_refs)
-        }
-        RhaiStep::SelectOne(label) => bound.select_one(label.as_str()),
+        RhaiStep::As(label) => bound.add_step(AsStep::new(label.clone())),
+        RhaiStep::Select(labels) => bound.add_step(SelectStep::new(labels.clone())),
+        RhaiStep::SelectOne(label) => bound.add_step(SelectStep::single(label.clone())),
 
-        // Order - use add_step with OrderStep directly
+        // Order
         RhaiStep::Order(asc) => {
-            if *asc {
-                bound.add_step(OrderStep::by_natural(Order::Asc))
-            } else {
-                bound.add_step(OrderStep::by_natural(Order::Desc))
-            }
+            use crate::traversal::transform::order::{Order, OrderStep};
+            let order = if *asc { Order::Asc } else { Order::Desc };
+            bound.add_step(OrderStep::by_natural(order))
         }
 
         // Branch
         RhaiStep::Union(traversals) => {
+            use crate::traversal::branch::UnionStep;
             let anon_traversals: Vec<_> = traversals.iter().map(|t| t.to_traversal()).collect();
-            bound.union(anon_traversals)
+            bound.add_step(UnionStep::new(anon_traversals))
         }
         RhaiStep::Coalesce(traversals) => {
+            use crate::traversal::branch::CoalesceStep;
             let anon_traversals: Vec<_> = traversals.iter().map(|t| t.to_traversal()).collect();
-            bound.coalesce(anon_traversals)
+            bound.add_step(CoalesceStep::new(anon_traversals))
         }
-        RhaiStep::Optional(traversal) => bound.optional(traversal.to_traversal()),
-
-        // Repeat - use the builder pattern and chain with .identity() to get back BoundTraversal
-        RhaiStep::RepeatTimes(traversal, times) => bound
-            .repeat(traversal.to_traversal())
-            .times(*times)
-            .identity(),
-        RhaiStep::RepeatUntil(traversal, until) => bound
-            .repeat(traversal.to_traversal())
-            .until(until.to_traversal())
-            .identity(),
-        RhaiStep::RepeatEmit(traversal, times) => bound
-            .repeat(traversal.to_traversal())
-            .times(*times)
-            .emit()
-            .identity(),
-        RhaiStep::RepeatEmitUntil(traversal, until) => bound
-            .repeat(traversal.to_traversal())
-            .until(until.to_traversal())
-            .emit()
-            .identity(),
+        RhaiStep::Optional(traversal) => {
+            use crate::traversal::branch::OptionalStep;
+            bound.add_step(OptionalStep::new(traversal.to_traversal()))
+        }
         RhaiStep::Choose(cond, true_branch, false_branch) => {
             use crate::traversal::branch::ChooseStep;
             bound.add_step(ChooseStep::new(
@@ -1868,8 +1834,8 @@ fn apply_step<'g, In>(
         RhaiStep::ChooseOption(key_traversal, options, default) => {
             use crate::traversal::branch::{BranchStep, OptionKey};
             let mut step = BranchStep::new(key_traversal.to_traversal());
-            for (value, traversal) in options {
-                step = step.add_option(OptionKey::Value(value.clone()), traversal.to_traversal());
+            for (value, t) in options {
+                step = step.add_option(OptionKey::Value(value.clone()), t.to_traversal());
             }
             if let Some(default_traversal) = default {
                 step = step.add_none_option(default_traversal.to_traversal());
@@ -1877,24 +1843,48 @@ fn apply_step<'g, In>(
             bound.add_step(step)
         }
 
+        // Repeat steps
+        RhaiStep::RepeatTimes(traversal, times) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new().with_times(*times);
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+        RhaiStep::RepeatUntil(traversal, until) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new().with_until(until.to_traversal());
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+        RhaiStep::RepeatEmit(traversal, times) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new().with_times(*times).with_emit();
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+        RhaiStep::RepeatEmitUntil(traversal, until) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new()
+                .with_until(until.to_traversal())
+                .with_emit();
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+
         // Traversal-based filter steps (Phase 2)
-        RhaiStep::Where(cond) => bound.where_(cond.to_traversal()),
-        RhaiStep::Not(cond) => bound.not(cond.to_traversal()),
+        RhaiStep::Where(cond) => bound.append(__::where_(cond.to_traversal())),
+        RhaiStep::Not(cond) => bound.append(__::not(cond.to_traversal())),
         RhaiStep::And(conds) => {
             let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
-            bound.and_(anon_traversals)
+            bound.append(__::and_(anon_traversals))
         }
         RhaiStep::Or(conds) => {
             let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
-            bound.or_(anon_traversals)
+            bound.append(__::or_(anon_traversals))
         }
 
         // Side effect steps (Phase 5)
-        RhaiStep::Store(key) => bound.store(key.clone()),
-        RhaiStep::Aggregate(key) => bound.aggregate(key.clone()),
-        RhaiStep::Cap(key) => bound.cap(key.clone()),
-        RhaiStep::CapMulti(keys) => bound.cap_multi(keys.clone()),
-        RhaiStep::SideEffect(traversal) => bound.side_effect(traversal.to_traversal()),
+        RhaiStep::Store(key) => bound.add_step(StoreStep::new(key.clone())),
+        RhaiStep::Aggregate(key) => bound.add_step(AggregateStep::new(key.clone())),
+        RhaiStep::Cap(key) => bound.add_step(CapStep::new(key.clone())),
+        RhaiStep::CapMulti(keys) => bound.add_step(CapStep::multi(keys.clone())),
+        RhaiStep::SideEffect(t) => bound.add_step(SideEffectStep::new(t.to_traversal())),
 
         // Mutation steps (Phase 6)
         RhaiStep::AddV(label) => {
@@ -1902,7 +1892,7 @@ fn apply_step<'g, In>(
             bound.add_step(AddVStep::new(label.clone()))
         }
         RhaiStep::AddE { label, from, to } => {
-            use crate::traversal::mutation::{AddEStep, EdgeEndpoint};
+            use crate::traversal::mutation::AddEStep;
             let mut step = AddEStep::new(label.clone());
             if let Some(endpoint) = from {
                 step = match endpoint {
@@ -1918,8 +1908,14 @@ fn apply_step<'g, In>(
             }
             bound.add_step(step)
         }
-        RhaiStep::Property(key, value) => bound.property(key.clone(), value.clone()),
-        RhaiStep::Drop => bound.drop(),
+        RhaiStep::Property(key, value) => {
+            use crate::traversal::mutation::PropertyStep;
+            bound.add_step(PropertyStep::new(key.clone(), value.clone()))
+        }
+        RhaiStep::Drop => {
+            use crate::traversal::mutation::DropStep;
+            bound.add_step(DropStep)
+        }
 
         // Builder pattern steps (Phase 11)
         RhaiStep::OrderBy(key, asc) => {
@@ -1927,11 +1923,11 @@ fn apply_step<'g, In>(
             let order = if *asc { Order::Asc } else { Order::Desc };
             bound.add_step(OrderStep::by_property(key.clone(), order))
         }
-        RhaiStep::OrderByTraversal(traversal, asc) => {
+        RhaiStep::OrderByTraversal(sub, asc) => {
             use crate::traversal::transform::order::{Order, OrderKey, OrderStep};
             let order = if *asc { Order::Asc } else { Order::Desc };
             bound.add_step(OrderStep::with_keys(vec![OrderKey::Traversal(
-                traversal.to_traversal(),
+                sub.to_traversal(),
                 order,
             )]))
         }
