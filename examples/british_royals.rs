@@ -10,25 +10,23 @@
 //!
 //! Run: `cargo run --example british_royals`
 
-use interstellar::graph::Graph;
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphSnapshot, GraphStorage};
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::Arc;
 
 // =============================================================================
 // Data Loading
 // =============================================================================
 
-fn load_royals_graph() -> (Graph, Arc<InMemoryGraph>) {
+fn load_royals_graph() -> Graph {
     let json_str = fs::read_to_string("examples/fixtures/british_royals.json")
         .expect("Failed to read british_royals.json");
     let data: JsonValue = serde_json::from_str(&json_str).expect("Failed to parse JSON");
 
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     let mut person_ids: HashMap<String, VertexId> = HashMap::new();
 
     // Load persons
@@ -58,7 +56,7 @@ fn load_royals_graph() -> (Graph, Arc<InMemoryGraph>) {
                 props.insert("abdicated".to_string(), Value::Bool(v));
             }
 
-            let vid = storage.add_vertex("person", props);
+            let vid = graph.add_vertex("person", props);
             person_ids.insert(json_id.to_string(), vid);
         }
     }
@@ -69,8 +67,8 @@ fn load_royals_graph() -> (Graph, Arc<InMemoryGraph>) {
             let parent_id = rel["parent_id"].as_str().unwrap_or("");
             let child_id = rel["child_id"].as_str().unwrap_or("");
             if let (Some(&p), Some(&c)) = (person_ids.get(parent_id), person_ids.get(child_id)) {
-                let _ = storage.add_edge(p, c, "parent_of", HashMap::new());
-                let _ = storage.add_edge(c, p, "child_of", HashMap::new());
+                let _ = graph.add_edge(p, c, "parent_of", HashMap::new());
+                let _ = graph.add_edge(c, p, "child_of", HashMap::new());
             }
         }
     }
@@ -85,24 +83,22 @@ fn load_royals_graph() -> (Graph, Arc<InMemoryGraph>) {
                 if let Some(d) = marriage["marriage_date"].as_str() {
                     props.insert("marriage_date".to_string(), Value::String(d.to_string()));
                 }
-                let _ = storage.add_edge(p1, p2, "married_to", props.clone());
-                let _ = storage.add_edge(p2, p1, "married_to", props);
+                let _ = graph.add_edge(p1, p2, "married_to", props.clone());
+                let _ = graph.add_edge(p2, p1, "married_to", props);
             }
         }
     }
 
-    let storage = Arc::new(storage);
-    let graph = Graph::from_arc(storage.clone());
-    (graph, storage)
+    graph
 }
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
-fn get_name(storage: &Arc<InMemoryGraph>, value: &Value) -> String {
+fn get_name(snapshot: &GraphSnapshot, value: &Value) -> String {
     if let Some(vid) = value.as_vertex_id() {
-        if let Some(vertex) = storage.get_vertex(vid) {
+        if let Some(vertex) = snapshot.get_vertex(vid) {
             if let Some(Value::String(name)) = vertex.properties.get("name") {
                 return name.clone();
             }
@@ -111,13 +107,13 @@ fn get_name(storage: &Arc<InMemoryGraph>, value: &Value) -> String {
     format!("{:?}", value)
 }
 
-fn display_names(storage: &Arc<InMemoryGraph>, results: &[Value]) -> String {
+fn display_names(snapshot: &GraphSnapshot, results: &[Value]) -> String {
     if results.is_empty() {
         return "(none)".to_string();
     }
     results
         .iter()
-        .map(|v| get_name(storage, v))
+        .map(|v| get_name(snapshot, v))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -158,7 +154,7 @@ fn section(title: &str) {
 fn main() {
     println!("=== British Royal Family Graph Database Example ===\n");
 
-    let (graph, storage) = load_royals_graph();
+    let graph = load_royals_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -174,14 +170,14 @@ fn main() {
 
     println!("\n--- All monarchs ---");
     let monarchs = g.v().has_value("is_monarch", true).to_list();
-    println!("{}", display_names(&storage, &monarchs));
+    println!("{}", display_names(&snapshot, &monarchs));
 
     println!("\n--- Living royals (has_not death_date) ---");
     let living = g.v().has_label("person").has_not("death_date").to_list();
     println!(
         "{} living: {}",
         living.len(),
-        display_names(&storage, &living)
+        display_names(&snapshot, &living)
     );
 
     println!("\n--- Elizabeth II's children ---");
@@ -190,7 +186,7 @@ fn main() {
         .has_value("name", "Elizabeth II")
         .out_labels(&["parent_of"])
         .to_list();
-    println!("{}", display_names(&storage, &children));
+    println!("{}", display_names(&snapshot, &children));
 
     println!("\n--- Charles III's spouses ---");
     let spouses = g
@@ -198,7 +194,7 @@ fn main() {
         .has_value("name", "Charles III")
         .out_labels(&["married_to"])
         .to_list();
-    println!("{}", display_names(&storage, &spouses));
+    println!("{}", display_names(&snapshot, &spouses));
 
     println!("\n--- Prince George's ancestors (repeat 4 generations) ---");
     let ancestors = g
@@ -209,7 +205,7 @@ fn main() {
         .emit()
         .dedup()
         .to_list();
-    println!("{}", display_names(&storage, &ancestors));
+    println!("{}", display_names(&snapshot, &ancestors));
 
     println!("\n--- Victoria's monarch descendants ---");
     let line = g
@@ -219,7 +215,7 @@ fn main() {
         .times(6)
         .emit()
         .to_list();
-    println!("{}", display_names(&storage, &line));
+    println!("{}", display_names(&snapshot, &line));
 
     println!("\n--- Royals without children (not + where) ---");
     let childless = g
@@ -254,7 +250,7 @@ fn main() {
         .to_list();
     for m in &ordered {
         if let Some(vid) = m.as_vertex_id() {
-            if let Some(v) = storage.get_vertex(vid) {
+            if let Some(v) = snapshot.get_vertex(vid) {
                 let name = v
                     .properties
                     .get("name")

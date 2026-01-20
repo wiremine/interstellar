@@ -8,7 +8,7 @@
 //! - None/missing value handling
 //! - Sub-traversal sorting
 
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::traversal::SnapshotLike;
 use interstellar::value::{Value, VertexId};
 use std::collections::HashMap;
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 // Helper Functions
 // =============================================================================
 
-fn create_mixed_type_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_mixed_type_graph() -> Graph {
+    let graph = Graph::new();
 
     // Vertex 0: int value
     let mut props = HashMap::new();
@@ -43,8 +43,8 @@ fn create_mixed_type_graph() -> CowGraph {
     graph
 }
 
-fn create_bool_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_bool_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("active".to_string(), Value::Bool(false));
@@ -61,8 +61,8 @@ fn create_bool_graph() -> CowGraph {
     graph
 }
 
-fn create_edge_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_edge_graph() -> Graph {
+    let graph = Graph::new();
 
     graph.add_vertex("person", HashMap::new());
     graph.add_vertex("person", HashMap::new());
@@ -92,8 +92,8 @@ fn create_edge_graph() -> CowGraph {
     graph
 }
 
-fn create_missing_prop_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_missing_prop_graph() -> Graph {
+    let graph = Graph::new();
 
     // Vertex with age
     let mut props = HashMap::new();
@@ -144,7 +144,7 @@ mod mixed_type_sorting {
 
     #[test]
     fn order_natural_with_mixed_value_types() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -221,7 +221,7 @@ mod bool_sorting {
 
     #[test]
     fn order_natural_bools_ascending() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -380,7 +380,7 @@ mod subtraversal_sorting {
 
     #[test]
     fn order_by_subtraversal_property() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
@@ -449,7 +449,7 @@ mod order_builder_edge_cases {
 
     #[test]
     fn order_with_no_by_clause_defaults_to_asc() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -468,7 +468,7 @@ mod order_builder_edge_cases {
 
     #[test]
     fn order_with_multiple_by_clauses() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         // Same last name, different first names
         let mut props = HashMap::new();
@@ -538,7 +538,7 @@ mod non_element_sorting {
 
     #[test]
     fn order_null_values() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -557,7 +557,7 @@ mod non_element_sorting {
 
     #[test]
     fn order_list_values() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -579,7 +579,7 @@ mod non_element_sorting {
 
     #[test]
     fn order_map_values() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 

@@ -971,8 +971,7 @@ impl AnyStep for OtherVStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
@@ -984,28 +983,28 @@ mod tests {
     ///   +--uses--> GraphDB <--uses--+
     /// ```
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Add vertices
-        let alice = storage.add_vertex("person", {
+        let alice = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props
         });
 
-        let bob = storage.add_vertex("person", {
+        let bob = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Bob".to_string()));
             props
         });
 
-        let charlie = storage.add_vertex("person", {
+        let charlie = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Charlie".to_string()));
             props
         });
 
-        let graphdb = storage.add_vertex("software", {
+        let graphdb = graph.add_vertex("software", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("GraphDB".to_string()));
             props
@@ -1013,23 +1012,21 @@ mod tests {
 
         // Add edges
         // Alice -> Bob (knows)
-        storage
-            .add_edge(alice, bob, "knows", HashMap::new())
-            .unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
         // Bob -> Charlie (knows)
-        storage
+        graph
             .add_edge(bob, charlie, "knows", HashMap::new())
             .unwrap();
         // Alice -> GraphDB (uses)
-        storage
+        graph
             .add_edge(alice, graphdb, "uses", HashMap::new())
             .unwrap();
         // Bob -> GraphDB (uses)
-        storage
+        graph
             .add_edge(bob, graphdb, "uses", HashMap::new())
             .unwrap();
 
-        Graph::new(storage)
+        graph
     }
 
     mod out_step_tests {

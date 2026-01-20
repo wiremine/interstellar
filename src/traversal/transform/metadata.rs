@@ -413,17 +413,17 @@ impl crate::traversal::step::AnyStep for IndexStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::step::AnyStep;
+    use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Vertex 0: person with name and age
-        storage.add_vertex("person", {
+        let v0 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
@@ -431,14 +431,14 @@ mod tests {
         });
 
         // Vertex 1: person with name only
-        storage.add_vertex("person", {
+        let v1 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Bob".to_string()));
             props
         });
 
         // Vertex 2: software with name and version
-        storage.add_vertex("software", {
+        let v2 = graph.add_vertex("software", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Graph DB".to_string()));
             props.insert("version".to_string(), Value::Float(1.0));
@@ -446,11 +446,11 @@ mod tests {
         });
 
         // Vertex 3: company with no properties
-        storage.add_vertex("company", HashMap::new());
+        graph.add_vertex("company", HashMap::new());
 
         // Edge 0: knows with since property
-        storage
-            .add_edge(VertexId(0), VertexId(1), "knows", {
+        graph
+            .add_edge(v0, v1, "knows", {
                 let mut props = HashMap::new();
                 props.insert("since".to_string(), Value::Int(2020));
                 props.insert("weight".to_string(), Value::Float(0.8));
@@ -459,11 +459,9 @@ mod tests {
             .unwrap();
 
         // Edge 1: uses with no properties
-        storage
-            .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
-            .unwrap();
+        graph.add_edge(v1, v2, "uses", HashMap::new()).unwrap();
 
-        Graph::new(storage)
+        graph
     }
 
     // =========================================================================

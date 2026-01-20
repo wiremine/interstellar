@@ -13,7 +13,7 @@
 
 use interstellar::gql::parse;
 use interstellar::prelude::*;
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 // =============================================================================
 
 /// Helper to create a basic test graph
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -43,15 +43,15 @@ fn create_test_graph() -> CowGraph {
 }
 
 /// Helper to create a graph with a single dummy vertex for testing expressions
-fn create_dummy_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_dummy_graph() -> Graph {
+    let graph = Graph::new();
     graph.add_vertex("Dummy", HashMap::new());
     graph
 }
 
 /// Create a test graph with email data for regex tests
-fn create_regex_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_regex_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -77,8 +77,8 @@ fn create_regex_test_graph() -> CowGraph {
 }
 
 /// Helper to create a graph with relationships for WITH clause testing
-fn create_with_clause_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_with_clause_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -127,8 +127,8 @@ fn create_with_clause_graph() -> CowGraph {
     graph
 }
 
-fn create_pattern_comprehension_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_pattern_comprehension_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -317,7 +317,7 @@ fn test_gql_list_comprehension_empty_list() {
 
 #[test]
 fn test_gql_list_comprehension_null_handling() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -339,7 +339,7 @@ fn test_gql_list_comprehension_null_handling() {
 
 #[test]
 fn test_gql_list_comprehension_property_access() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice_id = graph.add_vertex("Person", {
         let mut props = HashMap::new();
@@ -940,7 +940,7 @@ fn test_gql_regex_contains_pattern() {
 
 #[test]
 fn test_gql_regex_with_null() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -1044,7 +1044,7 @@ fn test_gql_regex_with_not() {
 
 #[test]
 fn test_gql_regex_digit_pattern() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Product A"));
@@ -2073,7 +2073,7 @@ fn test_gql_index_with_expression() {
 
 #[test]
 fn test_gql_index_access_on_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert(
@@ -2271,7 +2271,7 @@ fn test_gql_slice_on_non_list() {
 
 #[test]
 fn test_gql_slice_on_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert(
@@ -2309,7 +2309,7 @@ fn test_gql_slice_on_property() {
 
 #[test]
 fn test_gql_index_in_where_clause() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert(
@@ -2341,7 +2341,7 @@ fn test_gql_index_in_where_clause() {
 
 #[test]
 fn test_gql_slice_in_return() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert(

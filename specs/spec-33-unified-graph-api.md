@@ -704,12 +704,14 @@ assert_eq!(g.v().count(), 2);
 
 - [x] `examples/cow_unified_api.rs` - demonstrates unified CowGraph API
 - [x] `examples/cow_mmap_unified_api.rs` - demonstrates persistent CowMmapGraph API
-- [ ] Migrate `examples/gql.rs` (uses legacy API, works but not migrated)
-- [ ] Migrate `examples/nba.rs` (uses legacy API, works but not migrated)
-- [ ] Migrate `examples/marvel.rs` (uses legacy API, works but not migrated)
-- [ ] Migrate `examples/british_royals.rs` (uses legacy API, works but not migrated)
-- [ ] Migrate `examples/indexes.rs` (uses legacy API, works but not migrated)
-- [ ] Migrate `examples/rhai_scripting.rs` (works, uses Rhai-specific API)
+- [x] Migrate `examples/gql.rs` - uses unified `Graph` API
+- [x] Migrate `examples/nba.rs` - uses unified `Graph` API
+- [x] Migrate `examples/marvel.rs` - uses `Graph` and `GraphSnapshot`
+- [x] Migrate `examples/british_royals.rs` - uses `Graph` and `GraphSnapshot`
+- [x] Migrate `examples/indexes.rs` - Part 3 uses unified `Graph`
+- [x] Migrate `examples/rhai_scripting.rs` - uses `Arc<Graph>` for Rhai engine
+- [x] `examples/quickstart.rs` - NEW comprehensive quickstart demo
+- [x] `examples/persistence.rs` - uses `LegacyGraph` for MmapGraph wrapping (intentional)
 
 ---
 

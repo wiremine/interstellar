@@ -8,13 +8,13 @@
 //! - CALL subquery handling
 
 use interstellar::gql::{compile, parse, CompileError};
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::value::Value;
 use std::collections::HashMap;
 
 #[test]
 fn test_compile_simple_match() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add test data
     let mut props = HashMap::new();
@@ -39,7 +39,7 @@ fn test_compile_simple_match() {
 
 #[test]
 fn test_compile_no_label() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add test data
     let props1 = HashMap::new();
@@ -58,7 +58,7 @@ fn test_compile_no_label() {
 
 #[test]
 fn test_compile_undefined_variable() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
     let query = parse("MATCH (n:Person) RETURN x").unwrap();
     let result = compile(&query, &snapshot);
@@ -73,8 +73,8 @@ fn test_compile_undefined_variable() {
 // Math Function Tests (Phase 4: Math-GQL Integration)
 // =========================================================================
 
-fn create_math_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_math_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::from(16));
@@ -427,8 +427,8 @@ fn test_combined_math_expression() {
 // CALL Subquery Tests (Phase 5: CALL Subquery Implementation)
 // =========================================================================
 
-fn create_call_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_call_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create people
     let mut alice_props = HashMap::new();

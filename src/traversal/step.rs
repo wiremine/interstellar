@@ -478,15 +478,15 @@ pub fn execute_traversal_from<'a, In, Out>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
+    use crate::traversal::SnapshotLike;
     use crate::value::{Value, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
-        storage.add_vertex("person", HashMap::new());
-        Graph::new(storage)
+        let graph = Graph::new();
+        graph.add_vertex("person", HashMap::new());
+        graph
     }
 
     mod any_step_tests {
@@ -866,30 +866,30 @@ mod tests {
         use crate::value::EdgeId;
 
         fn create_populated_graph() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add 3 vertices
-            let v1 = storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props
             });
-            let v2 = storage.add_vertex("person", {
+            let v2 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props
             });
-            let v3 = storage.add_vertex("software", {
+            let v3 = graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props
             });
 
             // Add 2 edges
-            storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
-            storage.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
+            graph.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
+            graph.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -1140,8 +1140,7 @@ mod tests {
         #[test]
         fn start_step_empty_graph_returns_empty() {
             // Create empty graph
-            let storage = InMemoryGraph::new();
-            let graph = Graph::new(storage);
+            let graph = Graph::new();
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
@@ -1200,32 +1199,32 @@ mod tests {
         use crate::traversal::Traversal;
 
         fn create_populated_graph() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add 3 vertices
-            let v1 = storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
                 props
             });
-            let v2 = storage.add_vertex("person", {
+            let v2 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props.insert("age".to_string(), Value::Int(25));
                 props
             });
-            let v3 = storage.add_vertex("software", {
+            let v3 = graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props
             });
 
             // Add edges
-            storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
-            storage.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
+            graph.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
+            graph.add_edge(v2, v3, "uses", HashMap::new()).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]

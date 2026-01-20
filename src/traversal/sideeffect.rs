@@ -579,33 +579,33 @@ impl<'a, I: Iterator<Item = Traverser>> Iterator for ProfileIterator<'a, I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
+    use crate::traversal::SnapshotLike;
     use crate::value::{Value, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
-        storage.add_vertex("person", {
+        graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
             props
         });
-        storage.add_vertex("person", {
+        graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Bob".to_string()));
             props.insert("age".to_string(), Value::Int(25));
             props
         });
-        storage.add_vertex("software", {
+        graph.add_vertex("software", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Graph DB".to_string()));
             props
         });
 
-        Graph::new(storage)
+        graph
     }
 
     mod store_step_tests {

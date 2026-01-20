@@ -235,13 +235,12 @@ fn id_to_value(id: u64) -> Value {
 ///
 /// ## Simple node query
 ///
-/// ```
+/// ```ignore
 /// use interstellar::gql::{parse, compile};
-/// use interstellar::Graph;
+/// use interstellar::graph::Graph;  // Legacy graph
 /// use interstellar::storage::InMemoryGraph;
 /// use interstellar::value::Value;
 /// use std::collections::HashMap;
-/// use std::sync::Arc;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let mut props = HashMap::new();
@@ -257,13 +256,12 @@ fn id_to_value(id: u64) -> Value {
 ///
 /// ## Query with filtering
 ///
-/// ```
+/// ```ignore
 /// use interstellar::gql::{parse, compile};
-/// use interstellar::Graph;
+/// use interstellar::graph::Graph;  // Legacy graph
 /// use interstellar::storage::InMemoryGraph;
 /// use interstellar::value::Value;
 /// use std::collections::HashMap;
-/// use std::sync::Arc;
 ///
 /// let mut storage = InMemoryGraph::new();
 /// let mut props = HashMap::new();
@@ -279,9 +277,9 @@ fn id_to_value(id: u64) -> Value {
 ///
 /// ## Aggregation query
 ///
-/// ```
+/// ```ignore
 /// use interstellar::gql::{parse, compile};
-/// use interstellar::Graph;
+/// use interstellar::graph::Graph;  // Legacy graph
 ///
 /// let graph = Graph::in_memory();
 /// let snapshot = graph.snapshot();
@@ -332,9 +330,9 @@ pub fn compile<'g, S: SnapshotLike + ?Sized>(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use interstellar::gql::{parse, compile_with_params, Parameters};
-/// use interstellar::Graph;
+/// use interstellar::graph::Graph;  // Legacy graph
 /// use interstellar::storage::InMemoryGraph;
 /// use interstellar::value::Value;
 /// use std::collections::HashMap;

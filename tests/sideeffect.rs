@@ -14,8 +14,7 @@
 
 use std::collections::HashMap;
 
-use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 
@@ -49,24 +48,24 @@ struct TestGraph {
 ///     GraphDB              Redis               
 /// ```
 fn create_test_graph() -> TestGraph {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add person vertices
-    let alice = storage.add_vertex("person", {
+    let alice = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
         props.insert("age".to_string(), Value::Int(30));
         props
     });
 
-    let bob = storage.add_vertex("person", {
+    let bob = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Bob".to_string()));
         props.insert("age".to_string(), Value::Int(25));
         props
     });
 
-    let charlie = storage.add_vertex("person", {
+    let charlie = graph.add_vertex("person", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Charlie".to_string()));
         props.insert("age".to_string(), Value::Int(35));
@@ -74,14 +73,14 @@ fn create_test_graph() -> TestGraph {
     });
 
     // Add software vertices
-    let graphdb = storage.add_vertex("software", {
+    let graphdb = graph.add_vertex("software", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("GraphDB".to_string()));
         props.insert("version".to_string(), Value::Float(2.0));
         props
     });
 
-    let redis = storage.add_vertex("software", {
+    let redis = graph.add_vertex("software", {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Redis".to_string()));
         props.insert("version".to_string(), Value::Float(7.0));
@@ -90,7 +89,7 @@ fn create_test_graph() -> TestGraph {
 
     // Add edges
     // Alice knows Bob
-    storage
+    graph
         .add_edge(alice, bob, "knows", {
             let mut props = HashMap::new();
             props.insert("since".to_string(), Value::Int(2020));
@@ -99,7 +98,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     // Bob knows Charlie
-    storage
+    graph
         .add_edge(bob, charlie, "knows", {
             let mut props = HashMap::new();
             props.insert("since".to_string(), Value::Int(2021));
@@ -108,7 +107,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     // Alice created GraphDB
-    storage
+    graph
         .add_edge(alice, graphdb, "created", {
             let mut props = HashMap::new();
             props.insert("year".to_string(), Value::Int(2019));
@@ -117,7 +116,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     // Bob created Redis
-    storage
+    graph
         .add_edge(bob, redis, "created", {
             let mut props = HashMap::new();
             props.insert("year".to_string(), Value::Int(2020));
@@ -126,7 +125,7 @@ fn create_test_graph() -> TestGraph {
         .unwrap();
 
     TestGraph {
-        graph: Graph::new(storage),
+        graph,
         alice,
         bob,
         charlie,

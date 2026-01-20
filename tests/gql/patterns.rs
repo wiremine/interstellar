@@ -8,7 +8,7 @@
 //! - Path expressions
 
 use interstellar::prelude::*;
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -23,8 +23,8 @@ use std::collections::HashMap;
 ///         \                                         /
 ///          -[KNOWS]-> Frank -----[KNOWS]-----------
 /// ```
-fn create_variable_length_path_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_variable_length_path_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create Person vertices
     let mut alice_props = HashMap::new();
@@ -342,8 +342,8 @@ fn test_gql_variable_path_single_hop() {
 // =============================================================================
 
 /// Helper to create a graph with duplicate property values for DISTINCT tests
-fn create_distinct_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_distinct_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create Person vertices with duplicate cities
     let people = vec![
@@ -407,7 +407,7 @@ fn test_gql_return_distinct_property() {
 /// Test RETURN DISTINCT with multiple properties
 #[test]
 fn test_gql_return_distinct_multiple_properties() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create people with duplicate city/country combinations
     let people = vec![
@@ -616,8 +616,8 @@ fn test_gql_return_distinct_vertex() {
 // =============================================================================
 
 /// Helper function to create a graph for multi-variable tests
-fn create_multi_var_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_multi_var_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create people
     let alice = graph.add_vertex("Person", {
@@ -929,8 +929,8 @@ fn test_gql_multi_var_expression_in_where() {
 // =============================================================================
 
 /// Helper function to create a graph with edge properties for testing
-fn create_edge_property_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_edge_property_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create people
     let alice = graph.add_vertex("Person", {
@@ -1234,8 +1234,8 @@ fn test_gql_edge_property_aggregation() {
 // =============================================================================
 
 /// Helper to create a social network graph for debug tests
-fn create_social_network_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_social_network_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create people
     let mut alice_props = HashMap::new();

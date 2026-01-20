@@ -8,7 +8,7 @@
 //! `CowMmapGraph` uses a hybrid architecture:
 //!
 //! - **Disk layer**: `MmapGraph` handles persistence, WAL, and crash recovery
-//! - **COW layer**: `CowGraphState` provides in-memory snapshot isolation
+//! - **COW layer**: `GraphState` provides in-memory snapshot isolation
 //! - **Sync protocol**: Mutations apply to both layers atomically
 //!
 //! ```text
@@ -16,7 +16,7 @@
 //! │                        CowMmapGraph                              │
 //! ├─────────────────────────────────────────────────────────────────┤
 //! │  ┌─────────────────┐    ┌─────────────────────────────────┐    │
-//! │  │   MmapGraph     │◄──►│   RwLock<CowGraphState>         │    │
+//! │  │   MmapGraph     │◄──►│   RwLock<GraphState>         │    │
 //! │  │  (persistence)  │    │   (in-memory COW layer)         │    │
 //! │  └─────────────────┘    └─────────────────────────────────┘    │
 //! └─────────────────────────────────────────────────────────────────┘
@@ -67,7 +67,7 @@ use crate::index::{
     BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
 };
 use crate::schema::GraphSchema;
-use crate::storage::cow::{CowGraphState, EdgeData, NodeData};
+use crate::storage::cow::{EdgeData, GraphState, NodeData};
 use crate::storage::interner::StringInterner;
 use crate::storage::mmap::MmapGraph;
 use crate::storage::{Edge, GraphStorage, Vertex};
@@ -120,7 +120,7 @@ pub struct CowMmapGraph {
     mmap: MmapGraph,
 
     /// COW state for snapshot isolation
-    state: RwLock<CowGraphState>,
+    state: RwLock<GraphState>,
 
     /// Optional schema for validation
     schema: RwLock<Option<GraphSchema>>,
@@ -202,12 +202,12 @@ impl CowMmapGraph {
         })
     }
 
-    /// Load all data from MmapGraph into a CowGraphState.
+    /// Load all data from MmapGraph into a GraphState.
     ///
     /// This scans all vertices and edges from disk and builds the in-memory
     /// COW representation with proper adjacency lists.
-    fn load_state_from_mmap(mmap: &MmapGraph) -> CowGraphState {
-        let mut state = CowGraphState::new();
+    fn load_state_from_mmap(mmap: &MmapGraph) -> GraphState {
+        let mut state = GraphState::new();
 
         // Track max IDs to set next_*_id counters
         let mut max_vertex_id: u64 = 0;
@@ -805,7 +805,7 @@ impl CowMmapGraph {
 
     /// Populate an index with existing graph data.
     fn populate_index_internal(
-        state: &CowGraphState,
+        state: &GraphState,
         index: &mut dyn PropertyIndex,
     ) -> Result<(), IndexError> {
         let spec = index.spec().clone();
@@ -1608,7 +1608,7 @@ impl CowMmapGraph {
 ///
 /// `CowMmapSnapshot` is `Send + Sync` and can be freely shared across threads.
 pub struct CowMmapSnapshot {
-    state: Arc<CowGraphState>,
+    state: Arc<GraphState>,
     /// Cloned interner - snapshot-local, no shared lock
     interner_snapshot: Arc<StringInterner>,
 }
@@ -1678,7 +1678,7 @@ impl Clone for CowMmapSnapshot {
     }
 }
 
-// SAFETY: CowMmapSnapshot only contains Arc<CowGraphState> which is Send + Sync
+// SAFETY: CowMmapSnapshot only contains Arc<GraphState> which is Send + Sync
 unsafe impl Send for CowMmapSnapshot {}
 unsafe impl Sync for CowMmapSnapshot {}
 
@@ -1868,7 +1868,7 @@ enum BatchOperation {
 pub struct CowMmapBatchContext<'g> {
     #[allow(dead_code)] // Reserved for future use (e.g., reading during batch)
     graph: &'g CowMmapGraph,
-    pending_state: CowGraphState,
+    pending_state: GraphState,
     operations: Vec<BatchOperation>,
 }
 

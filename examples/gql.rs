@@ -28,10 +28,9 @@
 use interstellar::gql::{
     execute_mutation, execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
-use interstellar::graph::Graph;
 use interstellar::prelude::*;
 use interstellar::schema::{PropertyType, SchemaBuilder, ValidationMode};
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -68,64 +67,108 @@ fn execute_with_schema(
 
 /// Build a family tree graph for demonstrating advanced query features.
 fn build_family_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
-    // Create people
-    let mut props = HashMap::new();
-    props.insert("name".to_string(), Value::String("John Smith".to_string()));
-    props.insert("id".to_string(), Value::Int(1));
-    let john = storage.add_vertex("Person", props);
+    // Create people using add_vertex
+    let john = graph.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("John Smith".to_string())),
+            ("id".to_string(), Value::Int(1)),
+        ]),
+    );
 
-    let mut props = HashMap::new();
-    props.insert("name".to_string(), Value::String("Mary Smith".to_string()));
-    props.insert("id".to_string(), Value::Int(2));
-    let mary = storage.add_vertex("Person", props);
+    let mary = graph.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Mary Smith".to_string())),
+            ("id".to_string(), Value::Int(2)),
+        ]),
+    );
 
-    let mut props = HashMap::new();
-    props.insert("name".to_string(), Value::String("Alice Smith".to_string()));
-    props.insert("id".to_string(), Value::Int(4));
-    let alice = storage.add_vertex("Person", props);
+    let alice = graph.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Alice Smith".to_string())),
+            ("id".to_string(), Value::Int(4)),
+        ]),
+    );
 
-    let mut props = HashMap::new();
-    props.insert("name".to_string(), Value::String("Bob Smith".to_string()));
-    props.insert("id".to_string(), Value::Int(5));
-    let bob = storage.add_vertex("Person", props);
+    let bob = graph.add_vertex(
+        "Person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Bob Smith".to_string())),
+            ("id".to_string(), Value::Int(5)),
+        ]),
+    );
 
     // Create birth events
-    let mut props = HashMap::new();
-    props.insert("year".to_string(), Value::Int(1990));
-    let alice_birth = storage.add_vertex("Birth", props);
+    let alice_birth = graph.add_vertex(
+        "Birth",
+        HashMap::from([("year".to_string(), Value::Int(1990))]),
+    );
 
-    let mut props = HashMap::new();
-    props.insert("year".to_string(), Value::Int(1992));
-    let bob_birth = storage.add_vertex("Birth", props);
+    let bob_birth = graph.add_vertex(
+        "Birth",
+        HashMap::from([("year".to_string(), Value::Int(1992))]),
+    );
 
     // Connect people to birth events
-    let mut props = HashMap::new();
-    props.insert("role".to_string(), Value::String("child".to_string()));
-    let _ = storage.add_edge(alice, alice_birth, "PARTICIPATED_IN", props);
+    graph
+        .add_edge(
+            alice,
+            alice_birth,
+            "PARTICIPATED_IN",
+            HashMap::from([("role".to_string(), Value::String("child".to_string()))]),
+        )
+        .unwrap();
 
-    let mut props = HashMap::new();
-    props.insert("role".to_string(), Value::String("parent".to_string()));
-    let _ = storage.add_edge(john, alice_birth, "PARTICIPATED_IN", props);
+    graph
+        .add_edge(
+            john,
+            alice_birth,
+            "PARTICIPATED_IN",
+            HashMap::from([("role".to_string(), Value::String("parent".to_string()))]),
+        )
+        .unwrap();
 
-    let mut props = HashMap::new();
-    props.insert("role".to_string(), Value::String("parent".to_string()));
-    let _ = storage.add_edge(mary, alice_birth, "PARTICIPATED_IN", props);
+    graph
+        .add_edge(
+            mary,
+            alice_birth,
+            "PARTICIPATED_IN",
+            HashMap::from([("role".to_string(), Value::String("parent".to_string()))]),
+        )
+        .unwrap();
 
-    let mut props = HashMap::new();
-    props.insert("role".to_string(), Value::String("child".to_string()));
-    let _ = storage.add_edge(bob, bob_birth, "PARTICIPATED_IN", props);
+    graph
+        .add_edge(
+            bob,
+            bob_birth,
+            "PARTICIPATED_IN",
+            HashMap::from([("role".to_string(), Value::String("child".to_string()))]),
+        )
+        .unwrap();
 
-    let mut props = HashMap::new();
-    props.insert("role".to_string(), Value::String("parent".to_string()));
-    let _ = storage.add_edge(john, bob_birth, "PARTICIPATED_IN", props);
+    graph
+        .add_edge(
+            john,
+            bob_birth,
+            "PARTICIPATED_IN",
+            HashMap::from([("role".to_string(), Value::String("parent".to_string()))]),
+        )
+        .unwrap();
 
-    let mut props = HashMap::new();
-    props.insert("role".to_string(), Value::String("parent".to_string()));
-    let _ = storage.add_edge(mary, bob_birth, "PARTICIPATED_IN", props);
+    graph
+        .add_edge(
+            mary,
+            bob_birth,
+            "PARTICIPATED_IN",
+            HashMap::from([("role".to_string(), Value::String("parent".to_string()))]),
+        )
+        .unwrap();
 
-    Graph::new(storage)
+    graph
 }
 
 fn demo_advanced_queries() {
@@ -490,40 +533,37 @@ fn demo_ddl() {
     println!("PART 3B: SCHEMA WITH DDL STATEMENTS");
     println!("============================================================\n");
 
-    let graph = Graph::in_memory();
+    let graph = Graph::new();
 
     println!("Creating schema via DDL:");
-    {
-        let mut_handle = graph.mutate();
 
-        mut_handle
-            .ddl("CREATE NODE TYPE Employee (name STRING NOT NULL, email STRING)")
-            .unwrap();
-        println!("  CREATE NODE TYPE Employee (name STRING NOT NULL, email STRING)");
+    graph
+        .ddl("CREATE NODE TYPE Employee (name STRING NOT NULL, email STRING)")
+        .unwrap();
+    println!("  CREATE NODE TYPE Employee (name STRING NOT NULL, email STRING)");
 
-        mut_handle
-            .ddl("CREATE NODE TYPE Department (name STRING NOT NULL, budget INT)")
-            .unwrap();
-        println!("  CREATE NODE TYPE Department (name STRING NOT NULL, budget INT)");
+    graph
+        .ddl("CREATE NODE TYPE Department (name STRING NOT NULL, budget INT)")
+        .unwrap();
+    println!("  CREATE NODE TYPE Department (name STRING NOT NULL, budget INT)");
 
-        mut_handle
-            .ddl("CREATE EDGE TYPE BELONGS_TO (since INT) FROM Employee TO Department")
-            .unwrap();
-        println!("  CREATE EDGE TYPE BELONGS_TO ... FROM Employee TO Department");
+    graph
+        .ddl("CREATE EDGE TYPE BELONGS_TO (since INT) FROM Employee TO Department")
+        .unwrap();
+    println!("  CREATE EDGE TYPE BELONGS_TO ... FROM Employee TO Department");
 
-        mut_handle
-            .ddl("ALTER NODE TYPE Employee ADD hire_date INT")
-            .unwrap();
-        println!("  ALTER NODE TYPE Employee ADD hire_date INT");
+    graph
+        .ddl("ALTER NODE TYPE Employee ADD hire_date INT")
+        .unwrap();
+    println!("  ALTER NODE TYPE Employee ADD hire_date INT");
 
-        mut_handle
-            .ddl("ALTER NODE TYPE Employee ALLOW ADDITIONAL PROPERTIES")
-            .unwrap();
-        println!("  ALTER NODE TYPE Employee ALLOW ADDITIONAL PROPERTIES");
+    graph
+        .ddl("ALTER NODE TYPE Employee ALLOW ADDITIONAL PROPERTIES")
+        .unwrap();
+    println!("  ALTER NODE TYPE Employee ALLOW ADDITIONAL PROPERTIES");
 
-        mut_handle.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
-        println!("  SET SCHEMA VALIDATION STRICT");
-    }
+    graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
+    println!("  SET SCHEMA VALIDATION STRICT");
 
     let schema = graph.schema().expect("Schema should be set");
     println!("\nResulting schema:");

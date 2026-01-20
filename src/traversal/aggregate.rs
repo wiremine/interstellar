@@ -825,35 +825,35 @@ impl<'g, In> BoundGroupCountBuilder<'g, In> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
+    use crate::traversal::SnapshotLike;
     use std::collections::HashMap as StdHashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Add person vertices with different ages
         let mut props1 = StdHashMap::new();
         props1.insert("name".to_string(), Value::String("Alice".to_string()));
         props1.insert("age".to_string(), Value::Int(29));
-        storage.add_vertex("person", props1);
+        graph.add_vertex("person", props1);
 
         let mut props2 = StdHashMap::new();
         props2.insert("name".to_string(), Value::String("Bob".to_string()));
         props2.insert("age".to_string(), Value::Int(29));
-        storage.add_vertex("person", props2);
+        graph.add_vertex("person", props2);
 
         let mut props3 = StdHashMap::new();
         props3.insert("name".to_string(), Value::String("Charlie".to_string()));
         props3.insert("age".to_string(), Value::Int(30));
-        storage.add_vertex("person", props3);
+        graph.add_vertex("person", props3);
 
         // Add software vertices
         let mut props4 = StdHashMap::new();
         props4.insert("name".to_string(), Value::String("lop".to_string()));
-        storage.add_vertex("software", props4);
+        graph.add_vertex("software", props4);
 
-        Graph::new(storage)
+        graph
     }
 
     #[test]
@@ -1217,50 +1217,32 @@ mod tests {
 
     #[test]
     fn test_group_edges_by_label() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Create vertices
         let mut props1 = StdHashMap::new();
         props1.insert("name".to_string(), Value::String("v1".to_string()));
-        storage.add_vertex("person", props1);
+        let v1 = graph.add_vertex("person", props1);
 
         let mut props2 = StdHashMap::new();
         props2.insert("name".to_string(), Value::String("v2".to_string()));
-        storage.add_vertex("person", props2);
+        let v2 = graph.add_vertex("person", props2);
 
         let mut props3 = StdHashMap::new();
         props3.insert("name".to_string(), Value::String("v3".to_string()));
-        storage.add_vertex("software", props3);
+        let v3 = graph.add_vertex("software", props3);
 
         // Create edges
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(1),
-                "knows",
-                StdHashMap::new(),
-            )
+        graph.add_edge(v1, v2, "knows", StdHashMap::new()).unwrap();
+
+        graph
+            .add_edge(v1, v3, "created", StdHashMap::new())
             .unwrap();
 
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(2),
-                "created",
-                StdHashMap::new(),
-            )
+        graph
+            .add_edge(v2, v3, "created", StdHashMap::new())
             .unwrap();
 
-        storage
-            .add_edge(
-                crate::value::VertexId(1),
-                crate::value::VertexId(2),
-                "created",
-                StdHashMap::new(),
-            )
-            .unwrap();
-
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -1294,35 +1276,20 @@ mod tests {
 
     #[test]
     fn test_group_edges_by_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
-        storage.add_vertex("person", StdHashMap::new());
-        storage.add_vertex("person", StdHashMap::new());
+        let v0 = graph.add_vertex("person", StdHashMap::new());
+        let v1 = graph.add_vertex("person", StdHashMap::new());
 
         // Create edges with weight property
         let mut edge1_props = StdHashMap::new();
         edge1_props.insert("weight".to_string(), Value::Float(0.5));
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(1),
-                "knows",
-                edge1_props,
-            )
-            .unwrap();
+        graph.add_edge(v0, v1, "knows", edge1_props).unwrap();
 
         let mut edge2_props = StdHashMap::new();
         edge2_props.insert("weight".to_string(), Value::Float(0.8));
-        storage
-            .add_edge(
-                crate::value::VertexId(1),
-                crate::value::VertexId(0),
-                "knows",
-                edge2_props,
-            )
-            .unwrap();
+        graph.add_edge(v1, v0, "knows", edge2_props).unwrap();
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -1434,41 +1401,23 @@ mod tests {
 
     #[test]
     fn test_group_count_edges_by_label() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
-        storage.add_vertex("person", StdHashMap::new());
-        storage.add_vertex("person", StdHashMap::new());
-        storage.add_vertex("software", StdHashMap::new());
+        let v0 = graph.add_vertex("person", StdHashMap::new());
+        let v1 = graph.add_vertex("person", StdHashMap::new());
+        let v2 = graph.add_vertex("software", StdHashMap::new());
 
         // Create edges
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(1),
-                "knows",
-                StdHashMap::new(),
-            )
+        graph.add_edge(v0, v1, "knows", StdHashMap::new()).unwrap();
+
+        graph
+            .add_edge(v0, v2, "created", StdHashMap::new())
             .unwrap();
 
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(2),
-                "created",
-                StdHashMap::new(),
-            )
+        graph
+            .add_edge(v1, v2, "created", StdHashMap::new())
             .unwrap();
 
-        storage
-            .add_edge(
-                crate::value::VertexId(1),
-                crate::value::VertexId(2),
-                "created",
-                StdHashMap::new(),
-            )
-            .unwrap();
-
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -1487,46 +1436,24 @@ mod tests {
 
     #[test]
     fn test_group_count_edges_by_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
-        storage.add_vertex("person", StdHashMap::new());
-        storage.add_vertex("person", StdHashMap::new());
+        let v0 = graph.add_vertex("person", StdHashMap::new());
+        let v1 = graph.add_vertex("person", StdHashMap::new());
 
         // Create edges with weight property
         let mut edge1_props = StdHashMap::new();
         edge1_props.insert("weight".to_string(), Value::Float(0.5));
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(1),
-                "knows",
-                edge1_props,
-            )
-            .unwrap();
+        graph.add_edge(v0, v1, "knows", edge1_props).unwrap();
 
         let mut edge2_props = StdHashMap::new();
         edge2_props.insert("weight".to_string(), Value::Float(0.5));
-        storage
-            .add_edge(
-                crate::value::VertexId(1),
-                crate::value::VertexId(0),
-                "knows",
-                edge2_props,
-            )
-            .unwrap();
+        graph.add_edge(v1, v0, "knows", edge2_props).unwrap();
 
         let mut edge3_props = StdHashMap::new();
         edge3_props.insert("weight".to_string(), Value::Float(0.8));
-        storage
-            .add_edge(
-                crate::value::VertexId(0),
-                crate::value::VertexId(1),
-                "likes",
-                edge3_props,
-            )
-            .unwrap();
+        graph.add_edge(v0, v1, "likes", edge3_props).unwrap();
 
-        let graph = Graph::new(storage);
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 

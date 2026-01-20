@@ -4,8 +4,7 @@
 
 use std::collections::HashMap;
 
-use interstellar::graph::Graph;
-use interstellar::storage::{CowGraph, GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
 use interstellar::traversal::mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
     PropertyStep,
@@ -672,7 +671,7 @@ fn mutation_executor_execute_mutation_drop_edge_failure() {
 
 #[test]
 fn add_v_via_api() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -686,7 +685,7 @@ fn add_v_via_api() {
 
 #[test]
 fn add_e_via_api() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -704,7 +703,7 @@ fn add_e_via_api() {
 
 #[test]
 fn drop_vertex_via_api() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let id = graph.add_vertex("item", HashMap::new());
 
     let snapshot = graph.snapshot();

@@ -2,18 +2,17 @@
 //!
 //! These tests verify the in-memory storage backend functionality.
 
-use interstellar::graph::Graph;
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
 use interstellar::value::Value;
 use std::collections::HashMap;
 
 #[test]
 fn graph_in_memory_basic_usage() {
-    let graph = Graph::in_memory();
+    let graph = Graph::new();
 
     // Verify empty graph
     let snapshot = graph.snapshot();
-    assert_eq!(snapshot.graph.storage().vertex_count(), 0);
+    assert_eq!(snapshot.vertex_count(), 0);
 
     // Test traversal API
     let _g = snapshot.traversal();

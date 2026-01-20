@@ -17,7 +17,7 @@
 //! - IS predicate tests
 
 use interstellar::gql::{parse, GqlError};
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -26,8 +26,8 @@ use std::collections::{HashMap, HashSet};
 // =============================================================================
 
 /// Helper to create a basic test graph
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -48,8 +48,8 @@ fn create_test_graph() -> CowGraph {
 }
 
 /// Helper to create a graph with rich edge relationships for pattern tests
-fn create_pattern_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_pattern_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -75,8 +75,8 @@ fn create_pattern_test_graph() -> CowGraph {
 }
 
 /// Helper to create a graph with age property for property return tests
-fn create_property_return_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_property_return_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -92,8 +92,8 @@ fn create_property_return_graph() -> CowGraph {
 }
 
 /// Helper to create a graph for multi-hop traversal tests
-fn create_multi_hop_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_multi_hop_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -114,8 +114,8 @@ fn create_multi_hop_graph() -> CowGraph {
 }
 
 /// Helper to create a more comprehensive test graph for Phase 4.7 tests
-fn create_phase47_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_phase47_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let people = vec![
         ("Alice", 30i64, "Engineering", 100000i64),
@@ -180,7 +180,7 @@ fn test_gql_parse_error_missing_clause_position() {
 
 #[test]
 fn test_gql_compile_error_helpful_message() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     let result = snapshot.gql("MATCH (n:Person) RETURN x");
@@ -299,7 +299,7 @@ fn test_gql_compile_error_pattern_start_message() {
 
 #[test]
 fn test_gql_unicode_japanese_characters() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("田中太郎"));
@@ -327,7 +327,7 @@ fn test_gql_unicode_japanese_characters() {
 
 #[test]
 fn test_gql_unicode_german_umlauts() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Müller"));
@@ -352,7 +352,7 @@ fn test_gql_unicode_german_umlauts() {
 
 #[test]
 fn test_gql_unicode_russian_cyrillic() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Иванов"));
@@ -372,7 +372,7 @@ fn test_gql_unicode_russian_cyrillic() {
 
 #[test]
 fn test_gql_unicode_arabic() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("محمد"));
@@ -393,7 +393,7 @@ fn test_gql_unicode_arabic() {
 
 #[test]
 fn test_gql_unicode_emoji() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Test User 🎉"));
@@ -414,7 +414,7 @@ fn test_gql_unicode_emoji() {
 
 #[test]
 fn test_gql_unicode_mixed_scripts() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert(
@@ -439,7 +439,7 @@ fn test_gql_unicode_mixed_scripts() {
 
 #[test]
 fn test_gql_special_chars_whitespace() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("bio".to_string(), Value::from("Line 1\nLine 2\nLine 3"));
@@ -462,7 +462,7 @@ fn test_gql_special_chars_whitespace() {
 
 #[test]
 fn test_gql_empty_string_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -491,7 +491,7 @@ fn test_gql_empty_string_property() {
 
 #[test]
 fn test_gql_large_integer_values() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let large_val = i64::MAX - 1000;
     let mut props = HashMap::new();
@@ -512,7 +512,7 @@ fn test_gql_large_integer_values() {
 
 #[test]
 fn test_gql_negative_integer_values() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let small_val = i64::MIN + 1000;
     let mut props = HashMap::new();
@@ -538,7 +538,7 @@ fn test_gql_negative_integer_values() {
 
 #[test]
 fn test_gql_zero_comparisons() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("value".to_string(), Value::Int(0i64));
@@ -568,7 +568,7 @@ fn test_gql_zero_comparisons() {
 
 #[test]
 fn test_gql_float_precision() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("rate".to_string(), Value::Float(0.1 + 0.2));
@@ -590,7 +590,7 @@ fn test_gql_float_precision() {
 
 #[test]
 fn test_gql_small_float_values() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let tiny = 1e-10f64;
     let mut props = HashMap::new();
@@ -614,7 +614,7 @@ fn test_gql_small_float_values() {
 
 #[test]
 fn test_gql_missing_property_returns_null() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -634,7 +634,7 @@ fn test_gql_missing_property_returns_null() {
 
 #[test]
 fn test_gql_is_null_missing_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -658,7 +658,7 @@ fn test_gql_is_null_missing_property() {
 
 #[test]
 fn test_gql_is_not_null() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -687,7 +687,7 @@ fn test_gql_is_not_null() {
 
 #[test]
 fn test_gql_explicit_null_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -707,7 +707,7 @@ fn test_gql_explicit_null_property() {
 
 #[test]
 fn test_gql_boolean_property_true() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -732,7 +732,7 @@ fn test_gql_boolean_property_true() {
 
 #[test]
 fn test_gql_boolean_property_false() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -764,8 +764,8 @@ fn test_gql_boolean_property_false() {
 // Social Network Integration Tests
 // =============================================================================
 
-fn create_social_network_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_social_network_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -1125,7 +1125,7 @@ fn test_gql_social_network_sum_ages() {
 
 #[test]
 fn test_gql_stress_1000_vertices() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..1000 {
         let mut props = HashMap::new();
@@ -1156,7 +1156,7 @@ fn test_gql_stress_1000_vertices() {
 
 #[test]
 fn test_gql_stress_dense_graph() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut vertex_ids = Vec::new();
     for i in 0..50 {
@@ -1206,7 +1206,7 @@ fn test_gql_stress_dense_graph() {
 
 #[test]
 fn test_gql_stress_large_aggregation() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..500 {
         let mut props = HashMap::new();
@@ -1244,7 +1244,7 @@ fn test_gql_stress_large_aggregation() {
 
 #[test]
 fn test_gql_stress_large_order_by() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..200 {
         let mut props = HashMap::new();
@@ -1281,7 +1281,7 @@ fn test_gql_stress_large_order_by() {
 
 #[test]
 fn test_gql_stress_large_offset() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..300 {
         let mut props = HashMap::new();
@@ -1302,7 +1302,7 @@ fn test_gql_stress_large_offset() {
 
 #[test]
 fn test_gql_stress_multi_hop_traversal() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut vertex_ids = Vec::new();
     for i in 0..100 {
@@ -1345,7 +1345,7 @@ fn test_gql_stress_multi_hop_traversal() {
 
 #[test]
 fn test_gql_stress_multiple_labels() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..100 {
         let mut props = HashMap::new();
@@ -1386,7 +1386,7 @@ fn test_gql_stress_multiple_labels() {
 
 #[test]
 fn test_gql_stress_distinct_many_duplicates() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..500 {
         let mut props = HashMap::new();
@@ -1411,7 +1411,7 @@ fn test_gql_stress_distinct_many_duplicates() {
 
 #[test]
 fn test_gql_stress_complex_where() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for i in 0..200 {
         let mut props = HashMap::new();
@@ -1519,7 +1519,7 @@ fn test_gql_multi_hop_phase_2_6() {
 
 #[test]
 fn test_gql_comprehensive_edge_traversal() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -1565,7 +1565,7 @@ fn test_gql_comprehensive_edge_traversal() {
 
 #[test]
 fn test_gql_property_return_values() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -1588,7 +1588,7 @@ fn test_gql_property_return_values() {
 
 #[test]
 fn test_gql_multi_hop_with_property_filters() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -1878,7 +1878,7 @@ fn test_gql_single_aggregation_no_alias() {
 
 #[test]
 fn test_gql_order_by_with_nulls() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("Alice"));
@@ -1978,7 +1978,7 @@ fn test_gql_combined_where_order_limit() {
 
 #[test]
 fn test_gql_sum_floats() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("Product A"));
@@ -2019,7 +2019,7 @@ fn test_gql_sum_floats() {
 
 #[test]
 fn test_gql_avg_mixed_numeric() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("A"));
@@ -2092,8 +2092,8 @@ fn test_gql_order_by_aliased_property() {
 // Introspection Function Tests
 // =============================================================================
 
-fn create_introspection_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_introspection_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -2402,7 +2402,7 @@ fn test_gql_properties_function_with_alias() {
 
 #[test]
 fn test_gql_properties_function_empty_properties() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex("EmptyNode", HashMap::new());
 
@@ -2583,8 +2583,8 @@ fn test_gql_is_predicate_equivalent_equality() {
 // Inline WHERE Tests
 // =============================================================================
 
-fn create_inline_where_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_inline_where_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create people with various ages
     let alice = graph.add_vertex("Person", {
@@ -3096,7 +3096,7 @@ fn test_gql_empty_params_works_like_regular_query() {
 
 #[test]
 fn test_gql_parameter_float_comparison() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Item1"));
@@ -3166,7 +3166,7 @@ fn test_gql_let_simple_expression() {
 
 #[test]
 fn test_gql_let_count_aggregate() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create people with friends
     let alice_id = graph.add_vertex("Person", {
@@ -3212,7 +3212,7 @@ fn test_gql_let_count_aggregate() {
 
 #[test]
 fn test_gql_let_collect_aggregate() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice_id = graph.add_vertex("Person", {
         let mut props = HashMap::new();
@@ -3370,7 +3370,7 @@ fn test_gql_let_with_where() {
 
 #[test]
 fn test_gql_let_size_of_collect() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice_id = graph.add_vertex("Person", {
         let mut props = HashMap::new();

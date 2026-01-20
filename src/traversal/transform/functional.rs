@@ -200,24 +200,24 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::step::AnyStep;
+    use crate::traversal::SnapshotLike;
     use crate::value::VertexId;
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Vertex 0: person with name and age
-        storage.add_vertex("person", {
+        graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
             props
         });
 
-        Graph::new(storage)
+        graph
     }
 
     // =========================================================================
@@ -1425,43 +1425,43 @@ impl<'g, In> BoundMathBuilder<'g, In> {
 #[cfg(test)]
 mod project_tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::context::ExecutionContext;
     use crate::traversal::step::AnyStep;
+    use crate::traversal::SnapshotLike;
     use crate::traversal::{Traversal, Traverser};
     use crate::value::{Value, VertexId};
     use std::collections::HashMap;
 
     fn create_projection_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Vertex 0: Alice, age 30, 2 friends
         let mut props0 = HashMap::new();
         props0.insert("name".to_string(), Value::String("Alice".to_string()));
         props0.insert("age".to_string(), Value::Int(30));
-        let alice = storage.add_vertex("person", props0);
+        let alice = graph.add_vertex("person", props0);
 
         // Vertex 1: Bob, age 25, 1 friend
         let mut props1 = HashMap::new();
         props1.insert("name".to_string(), Value::String("Bob".to_string()));
         props1.insert("age".to_string(), Value::Int(25));
-        let bob = storage.add_vertex("person", props1);
+        let bob = graph.add_vertex("person", props1);
 
         // Vertex 2: Charlie, age 35, 0 friends
         let mut props2 = HashMap::new();
         props2.insert("name".to_string(), Value::String("Charlie".to_string()));
         props2.insert("age".to_string(), Value::Int(35));
-        let charlie = storage.add_vertex("person", props2);
+        let charlie = graph.add_vertex("person", props2);
 
         // Alice knows Bob and Charlie
-        let _ = storage.add_edge(alice, bob, "knows", HashMap::new());
-        let _ = storage.add_edge(alice, charlie, "knows", HashMap::new());
+        let _ = graph.add_edge(alice, bob, "knows", HashMap::new());
+        let _ = graph.add_edge(alice, charlie, "knows", HashMap::new());
 
         // Bob knows Alice
-        let _ = storage.add_edge(bob, alice, "knows", HashMap::new());
+        let _ = graph.add_edge(bob, alice, "knows", HashMap::new());
 
-        Graph::new(storage)
+        graph
     }
 
     mod project_step_construction {
@@ -1728,35 +1728,34 @@ mod project_tests {
 #[cfg(test)]
 mod math_tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
-    use crate::traversal::context::ExecutionContext;
+    use crate::storage::Graph;
+    use crate::traversal::context::{ExecutionContext, SnapshotLike};
     use crate::traversal::step::AnyStep;
     use crate::traversal::Traverser;
     use crate::value::Value;
     use std::collections::HashMap;
 
     fn create_math_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Vertex 0: Alice, age 30
         let mut props0 = HashMap::new();
         props0.insert("name".to_string(), Value::String("Alice".to_string()));
         props0.insert("age".to_string(), Value::Int(30));
         props0.insert("score".to_string(), Value::Float(85.5));
-        let alice = storage.add_vertex("person", props0);
+        let alice = graph.add_vertex("person", props0);
 
         // Vertex 1: Bob, age 25
         let mut props1 = HashMap::new();
         props1.insert("name".to_string(), Value::String("Bob".to_string()));
         props1.insert("age".to_string(), Value::Int(25));
         props1.insert("score".to_string(), Value::Float(92.0));
-        let bob = storage.add_vertex("person", props1);
+        let bob = graph.add_vertex("person", props1);
 
         // Alice knows Bob
-        let _ = storage.add_edge(alice, bob, "knows", HashMap::new());
+        let _ = graph.add_edge(alice, bob, "knows", HashMap::new());
 
-        Graph::new(storage)
+        graph
     }
 
     mod math_step_construction {

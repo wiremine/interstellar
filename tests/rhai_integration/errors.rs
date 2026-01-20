@@ -47,7 +47,7 @@ fn test_runtime_error_undefined_variable() {
     let engine = RhaiEngine::new();
     let graph = create_social_graph();
 
-    let result: Result<i64, _> = engine.eval_with_graph(&graph, "undefined_variable");
+    let result: Result<i64, _> = engine.eval_with_graph(graph.clone(), "undefined_variable");
     assert!(result.is_err());
 }
 
@@ -56,7 +56,7 @@ fn test_runtime_error_undefined_function() {
     let engine = RhaiEngine::new();
     let graph = create_social_graph();
 
-    let result: Result<i64, _> = engine.eval_with_graph(&graph, "undefined_function()");
+    let result: Result<i64, _> = engine.eval_with_graph(graph.clone(), "undefined_function()");
     assert!(result.is_err());
 }
 
@@ -67,7 +67,7 @@ fn test_runtime_error_wrong_type() {
 
     // Try to call a method that doesn't exist on the type
     let result: Result<i64, _> =
-        engine.eval_with_graph(&graph, r#"let x = "string"; x.nonexistent_method()"#);
+        engine.eval_with_graph(graph.clone(), r#"let x = "string"; x.nonexistent_method()"#);
     assert!(result.is_err());
 }
 
@@ -106,7 +106,7 @@ fn test_type_mismatch_count_as_string() {
     // count() returns i64, trying to use as string should work (Rhai coercion)
     // or fail depending on operation
     let result: Result<String, _> = engine.eval_with_graph(
-        &graph,
+        graph.clone(),
         r#"
         let g = graph.traversal();
         g.v().count()
@@ -128,7 +128,7 @@ fn test_predicate_wrong_argument_count() {
 
     // between() requires exactly 2 arguments
     let result: Result<i64, _> = engine.eval_with_graph(
-        &graph,
+        graph.clone(),
         r#"
         let g = graph.traversal();
         g.v().has_where("age", between(10)).count()
@@ -144,7 +144,7 @@ fn test_predicate_wrong_argument_type() {
 
     // regex() with invalid regex pattern - should error at runtime or return no matches
     let result: Result<i64, _> = engine.eval_with_graph(
-        &graph,
+        graph.clone(),
         r#"
         let g = graph.traversal();
         g.v().has_where("name", regex("[invalid")).count()
@@ -166,7 +166,7 @@ fn test_empty_traversal_count() {
 
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
         let g = graph.traversal();
         g.v().count()
@@ -184,7 +184,7 @@ fn test_no_match_filter() {
 
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
         let g = graph.traversal();
         g.v().has_value("name", "NonExistent").count()
@@ -202,7 +202,7 @@ fn test_no_match_label() {
 
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
         let g = graph.traversal();
         g.v().has_label("nonexistent_label").count()
@@ -252,7 +252,7 @@ fn test_large_limit() {
     // Limit larger than result set
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
         let g = graph.traversal();
         g.v().limit(1000).count()
@@ -270,7 +270,7 @@ fn test_skip_more_than_available() {
 
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
         let g = graph.traversal();
         g.v().skip(100).count()
@@ -291,13 +291,13 @@ fn test_error_doesnt_affect_subsequent_calls() {
     let graph = create_social_graph();
 
     // First call fails
-    let result1: Result<i64, _> = engine.eval_with_graph(&graph, "undefined_function()");
+    let result1: Result<i64, _> = engine.eval_with_graph(graph.clone(), "undefined_function()");
     assert!(result1.is_err());
 
     // Second call should still work
     let result2: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
         let g = graph.traversal();
         g.v().count()
@@ -316,7 +316,7 @@ fn test_multiple_graphs_independent() {
 
     let count1: i64 = engine
         .eval_with_graph(
-            &graph1,
+            graph1.clone(),
             r#"
         let g = graph.traversal();
         g.v().count()
@@ -326,7 +326,7 @@ fn test_multiple_graphs_independent() {
 
     let count2: i64 = engine
         .eval_with_graph(
-            &graph2,
+            graph2.clone(),
             r#"
         let g = graph.traversal();
         g.v().count()

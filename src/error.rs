@@ -84,25 +84,23 @@
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
 //! use std::collections::HashMap;
-//! use std::sync::Arc;
 //!
 //! fn setup_graph() -> Result<Graph, StorageError> {
-//!     let mut storage = InMemoryGraph::new();
+//!     let graph = Graph::new();
 //!     
-//!     let alice = storage.add_vertex("person", HashMap::from([
+//!     let alice = graph.add_vertex("person", HashMap::from([
 //!         ("name".to_string(), Value::from("Alice")),
 //!     ]));
 //!     
-//!     let bob = storage.add_vertex("person", HashMap::from([
+//!     let bob = graph.add_vertex("person", HashMap::from([
 //!         ("name".to_string(), Value::from("Bob")),
 //!     ]));
 //!     
 //!     // The `?` propagates any error up to the caller
-//!     storage.add_edge(alice, bob, "knows", HashMap::new())?;
+//!     graph.add_edge(alice, bob, "knows", HashMap::new())?;
 //!     
-//!     Ok(Graph::new(storage))
+//!     Ok(graph)
 //! }
 //! ```
 //!
@@ -131,19 +129,16 @@
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
 //! use std::collections::HashMap;
-//! use std::sync::Arc;
 //!
-//! let mut storage = InMemoryGraph::new();
-//! storage.add_vertex("person", HashMap::from([
+//! let graph = Graph::new();
+//! graph.add_vertex("person", HashMap::from([
 //!     ("name".to_string(), Value::from("Alice")),
 //! ]));
-//! storage.add_vertex("person", HashMap::from([
+//! graph.add_vertex("person", HashMap::from([
 //!     ("name".to_string(), Value::from("Bob")),
 //! ]));
 //!
-//! let graph = Graph::new(storage);
 //! let snapshot = graph.snapshot();
 //! let g = snapshot.traversal();
 //!
@@ -606,20 +601,17 @@ pub enum TraversalError {
     ///
     /// ```rust
     /// use interstellar::prelude::*;
-    /// use interstellar::storage::InMemoryGraph;
     /// use std::collections::HashMap;
-    /// use std::sync::Arc;
     ///
-    /// let mut storage = InMemoryGraph::new();
+    /// let graph = Graph::new();
     /// // Add two people - one() will fail
-    /// storage.add_vertex("person", HashMap::from([
+    /// graph.add_vertex("person", HashMap::from([
     ///     ("name".to_string(), Value::from("Alice")),
     /// ]));
-    /// storage.add_vertex("person", HashMap::from([
+    /// graph.add_vertex("person", HashMap::from([
     ///     ("name".to_string(), Value::from("Bob")),
     /// ]));
     ///
-    /// let graph = Graph::new(storage);
     /// let snapshot = graph.snapshot();
     /// let g = snapshot.traversal();
     ///

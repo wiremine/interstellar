@@ -8,12 +8,12 @@
 
 use interstellar::gql::{compile, parse, GqlError};
 use interstellar::prelude::*;
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
 
 /// Helper to create a test graph with sample data
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create Person vertices
     let mut alice_props = HashMap::new();
@@ -99,7 +99,7 @@ fn test_gql_match_no_results() {
 
 #[test]
 fn test_gql_empty_graph() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
@@ -147,7 +147,7 @@ fn test_gql_whitespace_tolerance() {
 
 #[test]
 fn test_gql_parse_error_missing_return() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     let result = snapshot.gql("MATCH (n:Person)");
@@ -165,7 +165,7 @@ fn test_gql_parse_error_missing_match() {
 
 #[test]
 fn test_gql_parse_error_unclosed_paren() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     let result = snapshot.gql("MATCH (n:Person RETURN n");
@@ -176,7 +176,7 @@ fn test_gql_parse_error_unclosed_paren() {
 
 #[test]
 fn test_gql_compile_error_undefined_variable() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     // Variable 'x' is not defined in MATCH clause
@@ -192,7 +192,7 @@ fn test_gql_compile_error_undefined_variable() {
 
 #[test]
 fn test_gql_method_on_snapshot() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let props = HashMap::new();
     graph.add_vertex("Test", props);
 

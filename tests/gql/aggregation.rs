@@ -9,7 +9,7 @@
 //! - Empty result set handling
 
 use interstellar::prelude::*;
-use interstellar::storage::cow::CowGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 // =============================================================================
 
 /// Helper to create a test graph for aggregation tests
-fn create_aggregation_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_aggregation_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create Person vertices with various ages and cities
     let people = vec![
@@ -368,8 +368,8 @@ fn test_gql_collect_empty() {
 // =============================================================================
 
 /// Helper to create a test graph for GROUP BY tests
-fn create_group_by_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_group_by_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create Person vertices with various cities and ages
     let people = vec![

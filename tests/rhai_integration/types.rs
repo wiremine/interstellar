@@ -44,7 +44,7 @@ fn test_vertex_id_from_traversal() {
         g.v().id().to_list()
     "#;
 
-    let result: rhai::Array = engine.eval_with_graph(&graph, script).unwrap();
+    let result: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     assert_eq!(result.len(), 6); // 5 people + 1 company
 }
 
@@ -59,7 +59,7 @@ fn test_value_list_from_traversal() {
         g.v().has_label("person").values("name").to_list()
     "#;
 
-    let result: rhai::Array = engine.eval_with_graph(&graph, script).unwrap();
+    let result: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     assert_eq!(result.len(), 5);
 
     // Check that names are strings
@@ -79,7 +79,7 @@ fn test_value_map_from_traversal() {
         g.v().has_value("name", "Alice").value_map().to_list()
     "#;
 
-    let result: rhai::Array = engine.eval_with_graph(&graph, script).unwrap();
+    let result: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     assert_eq!(result.len(), 1);
 
     // The result should be a map
@@ -99,7 +99,7 @@ fn test_dynamic_to_value_in_predicate() {
         g.v().has_where("age", gte(age_limit)).count()
     "#;
 
-    let count: i64 = engine.eval_with_graph(&graph, script).unwrap();
+    let count: i64 = engine.eval_with_graph(graph.clone(), script).unwrap();
     assert_eq!(count, 3); // Alice(30), Carol(35), Dave(40)
 }
 
@@ -115,7 +115,7 @@ fn test_array_in_within_predicate() {
         g.v().has_where("name", within(names)).count()
     "#;
 
-    let count: i64 = engine.eval_with_graph(&graph, script).unwrap();
+    let count: i64 = engine.eval_with_graph(graph.clone(), script).unwrap();
     assert_eq!(count, 2);
 }
 
@@ -137,7 +137,7 @@ fn test_mixed_types_in_script() {
         }
     "#;
 
-    let result: rhai::Map = engine.eval_with_graph(&graph, script).unwrap();
+    let result: rhai::Map = engine.eval_with_graph(graph.clone(), script).unwrap();
     assert!(result.contains_key("vertex_count"));
     assert!(result.contains_key("person_names"));
 }

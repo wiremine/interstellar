@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::value::{EdgeId, Value, VertexId};
 
-use crate::common::graphs::{create_empty_cow_graph, create_small_cow_graph};
+use crate::common::graphs::{create_empty_graph, create_small_graph};
 
 // =============================================================================
 // Spec-Compliant Test Graph (used by basic_source_tests)
@@ -31,7 +31,7 @@ use crate::common::graphs::{create_empty_cow_graph, create_small_cow_graph};
 /// | bob    | acme   | works_at | since: 2018  |
 #[allow(dead_code)]
 struct SpecTestGraph {
-    graph: CowGraph,
+    graph: Graph,
     alice: VertexId,
     bob: VertexId,
     carol: VertexId,
@@ -39,7 +39,7 @@ struct SpecTestGraph {
 }
 
 fn create_spec_test_graph() -> SpecTestGraph {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex("person", {
         let mut props = HashMap::new();
@@ -123,7 +123,7 @@ fn create_spec_test_graph() -> SpecTestGraph {
 
 #[test]
 fn v_returns_all_vertices() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -137,7 +137,7 @@ fn v_returns_all_vertices() {
 
 #[test]
 fn e_returns_all_edges() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -151,7 +151,7 @@ fn e_returns_all_edges() {
 
 #[test]
 fn v_ids_returns_specific_vertices() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -165,7 +165,7 @@ fn v_ids_returns_specific_vertices() {
 
 #[test]
 fn e_ids_returns_specific_edges() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -181,7 +181,7 @@ fn e_ids_returns_specific_edges() {
 
 #[test]
 fn inject_creates_traversers_from_values() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -194,7 +194,7 @@ fn inject_creates_traversers_from_values() {
 
 #[test]
 fn count_returns_correct_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -204,7 +204,7 @@ fn count_returns_correct_value() {
 
 #[test]
 fn empty_graph_returns_empty_results() {
-    let graph = create_empty_cow_graph();
+    let graph = create_empty_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -216,7 +216,7 @@ fn empty_graph_returns_empty_results() {
 
 #[test]
 fn nonexistent_vertex_ids_filtered_out() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 

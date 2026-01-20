@@ -11,8 +11,8 @@ mod types;
 
 use interstellar::prelude::*;
 use interstellar::rhai::RhaiEngine;
-use interstellar::storage::InMemoryGraph;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Create a social graph for testing.
 ///
@@ -26,11 +26,11 @@ use std::collections::HashMap;
 ///
 ///   Dave(40) --knows--> Eve(28)
 /// ```
-pub fn create_social_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+pub fn create_social_graph() -> Arc<Graph> {
+    let graph = Graph::new();
 
     // People
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -39,7 +39,7 @@ pub fn create_social_graph() -> Graph {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -48,7 +48,7 @@ pub fn create_social_graph() -> Graph {
         ]),
     );
 
-    let carol = storage.add_vertex(
+    let carol = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Carol".to_string())),
@@ -57,7 +57,7 @@ pub fn create_social_graph() -> Graph {
         ]),
     );
 
-    let dave = storage.add_vertex(
+    let dave = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Dave".to_string())),
@@ -66,7 +66,7 @@ pub fn create_social_graph() -> Graph {
         ]),
     );
 
-    let eve = storage.add_vertex(
+    let eve = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Eve".to_string())),
@@ -76,7 +76,7 @@ pub fn create_social_graph() -> Graph {
     );
 
     // Company
-    let acme = storage.add_vertex(
+    let acme = graph.add_vertex(
         "company",
         HashMap::from([
             ("name".to_string(), Value::String("Acme Corp".to_string())),
@@ -88,42 +88,32 @@ pub fn create_social_graph() -> Graph {
     );
 
     // Edges
-    storage
-        .add_edge(
-            alice,
-            bob,
-            "knows",
-            HashMap::from([("since".to_string(), Value::Int(2020))]),
-        )
-        .unwrap();
+    graph.add_edge(
+        alice,
+        bob,
+        "knows",
+        HashMap::from([("since".to_string(), Value::Int(2020))]),
+    );
 
-    storage
-        .add_edge(
-            alice,
-            carol,
-            "knows",
-            HashMap::from([("since".to_string(), Value::Int(2018))]),
-        )
-        .unwrap();
+    graph.add_edge(
+        alice,
+        carol,
+        "knows",
+        HashMap::from([("since".to_string(), Value::Int(2018))]),
+    );
 
-    storage
-        .add_edge(bob, carol, "knows", HashMap::new())
-        .unwrap();
+    graph.add_edge(bob, carol, "knows", HashMap::new());
 
-    storage
-        .add_edge(dave, eve, "knows", HashMap::new())
-        .unwrap();
+    graph.add_edge(dave, eve, "knows", HashMap::new());
 
-    storage
-        .add_edge(alice, acme, "works_at", HashMap::new())
-        .unwrap();
+    graph.add_edge(alice, acme, "works_at", HashMap::new());
 
-    Graph::new(storage)
+    Arc::new(graph)
 }
 
 /// Create an empty graph for testing edge cases.
-pub fn create_empty_graph() -> Graph {
-    Graph::in_memory()
+pub fn create_empty_graph() -> Arc<Graph> {
+    Arc::new(Graph::new())
 }
 
 /// Create a simple chain graph for path testing.
@@ -132,34 +122,34 @@ pub fn create_empty_graph() -> Graph {
 /// ```text
 /// A --> B --> C --> D --> E
 /// ```
-pub fn create_chain_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+pub fn create_chain_graph() -> Arc<Graph> {
+    let graph = Graph::new();
 
-    let a = storage.add_vertex(
+    let a = graph.add_vertex(
         "node",
         HashMap::from([("name".to_string(), Value::String("A".to_string()))]),
     );
-    let b = storage.add_vertex(
+    let b = graph.add_vertex(
         "node",
         HashMap::from([("name".to_string(), Value::String("B".to_string()))]),
     );
-    let c = storage.add_vertex(
+    let c = graph.add_vertex(
         "node",
         HashMap::from([("name".to_string(), Value::String("C".to_string()))]),
     );
-    let d = storage.add_vertex(
+    let d = graph.add_vertex(
         "node",
         HashMap::from([("name".to_string(), Value::String("D".to_string()))]),
     );
-    let e = storage.add_vertex(
+    let e = graph.add_vertex(
         "node",
         HashMap::from([("name".to_string(), Value::String("E".to_string()))]),
     );
 
-    storage.add_edge(a, b, "next", HashMap::new()).unwrap();
-    storage.add_edge(b, c, "next", HashMap::new()).unwrap();
-    storage.add_edge(c, d, "next", HashMap::new()).unwrap();
-    storage.add_edge(d, e, "next", HashMap::new()).unwrap();
+    graph.add_edge(a, b, "next", HashMap::new());
+    graph.add_edge(b, c, "next", HashMap::new());
+    graph.add_edge(c, d, "next", HashMap::new());
+    graph.add_edge(d, e, "next", HashMap::new());
 
-    Graph::new(storage)
+    Arc::new(graph)
 }

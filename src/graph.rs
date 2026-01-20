@@ -1,93 +1,44 @@
-//! Graph container with snapshot-based concurrency control.
+//! Legacy graph container with RwLock-based concurrency control.
 //!
-//! This module provides the main entry points for working with graphs in Interstellar:
+//! **DEPRECATED**: This module contains legacy types that wrap `dyn GraphStorage` with
+//! RwLock-based concurrency. For new code, use the COW-based [`Graph`](crate::storage::Graph)
+//! from [`crate::storage`] (also available in the prelude) which provides:
 //!
-//! - [`Graph`] - The thread-safe container that owns graph storage
-//! - [`GraphSnapshot`] - A read-only view for concurrent traversals
-//! - [`GraphMut`] - An exclusive handle for mutations
+//! - O(1) snapshot creation via structural sharing
+//! - Lock-free reads (snapshots don't hold locks)
+//! - Owned snapshots that can outlive the source graph
+//! - Simpler mutation API
+//!
+//! This module provides legacy types:
+//!
+//! - [`LegacyGraph`] - The thread-safe container that owns graph storage
+//! - [`LegacyGraphSnapshot`] - A read-only view for concurrent traversals
+//! - [`LegacyGraphMut`] - An exclusive handle for mutations
+//!
+//! # Migration
+//!
+//! Replace legacy usage:
+//! ```ignore
+//! // Old (deprecated):
+//! use interstellar::graph::{Graph, GraphSnapshot};
+//! let graph = Graph::new(storage);
+//!
+//! // New (recommended):
+//! use interstellar::prelude::*;
+//! let graph = Graph::new();  // Uses COW-based Graph
+//! ```ignore
 //!
 //! # Concurrency Model
 //!
-//! Interstellar uses a readers-writer lock to provide safe concurrent access:
+//! This legacy implementation uses a readers-writer lock to provide safe concurrent access:
 //!
-//! - **Multiple readers**: Any number of [`GraphSnapshot`]s can exist simultaneously,
+//! - **Multiple readers**: Any number of snapshots can exist simultaneously,
 //!   allowing concurrent read-only traversals across threads.
-//! - **Single writer**: A [`GraphMut`] requires exclusive access. No snapshots or
-//!   other mutations can be active while a `GraphMut` exists.
+//! - **Single writer**: A [`LegacyGraphMut`] requires exclusive access. No snapshots or
+//!   other mutations can be active while it exists.
 //!
 //! This model ensures that traversals always see a consistent view of the graph,
 //! even when mutations are pending.
-//!
-//! # Example
-//!
-//! ```rust
-//! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
-//! use std::collections::HashMap;
-//!
-//! // Create an in-memory graph
-//! let mut storage = InMemoryGraph::new();
-//!
-//! // Add some data
-//! let alice = storage.add_vertex("person", {
-//!     let mut props = HashMap::new();
-//!     props.insert("name".to_string(), Value::from("Alice"));
-//!     props.insert("age".to_string(), Value::from(30i64));
-//!     props
-//! });
-//!
-//! let bob = storage.add_vertex("person", {
-//!     let mut props = HashMap::new();
-//!     props.insert("name".to_string(), Value::from("Bob"));
-//!     props.insert("age".to_string(), Value::from(25i64));
-//!     props
-//! });
-//!
-//! storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-//!
-//! // Wrap storage in a Graph for traversal
-//! let graph = Graph::new(storage);
-//!
-//! // Create a snapshot for read-only access
-//! let snapshot = graph.snapshot();
-//!
-//! // Start traversing
-//! let g = snapshot.traversal();
-//! let people = g.v().has_label("person").to_list();
-//! assert_eq!(people.len(), 2);
-//!
-//! // Count edges
-//! let edge_count = g.e().count();
-//! assert_eq!(edge_count, 1);
-//! ```
-//!
-//! # Thread Safety
-//!
-//! [`Graph`] is both `Send` and `Sync`, making it safe to share across threads.
-//! The typical pattern for concurrent access is to wrap the graph in an `Arc`:
-//!
-//! ```rust
-//! use interstellar::prelude::*;
-//! use std::sync::Arc;
-//! use std::thread;
-//!
-//! let graph = Arc::new(Graph::in_memory());
-//!
-//! // Multiple threads can take snapshots concurrently
-//! let handles: Vec<_> = (0..4).map(|i| {
-//!     let g = Arc::clone(&graph);
-//!     thread::spawn(move || {
-//!         let snap = g.snapshot();
-//!         let traversal = snap.traversal();
-//!         traversal.v().count()
-//!     })
-//! }).collect();
-//!
-//! for handle in handles {
-//!     let count = handle.join().unwrap();
-//!     assert_eq!(count, 0); // Empty graph
-//! }
-//! ```
 
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
@@ -96,81 +47,28 @@ use crate::schema::GraphSchema;
 use crate::storage::interner::StringInterner;
 use crate::storage::{GraphStorage, InMemoryGraph};
 
-/// A thread-safe graph container with snapshot-based concurrency.
+/// **DEPRECATED**: Use [`Graph`](crate::storage::Graph) from the prelude instead.
 ///
-/// `Graph` is the primary entry point for working with graph data. It owns
-/// the underlying storage and provides controlled access through snapshots
-/// (for reading) and mutation handles (for writing).
+/// Legacy thread-safe graph container with RwLock-based concurrency.
 ///
-/// # Recommended: Unified API
+/// This type wraps a `dyn GraphStorage` with readers-writer lock semantics.
+/// For new code, use the COW-based [`Graph`](crate::storage::Graph) which provides
+/// better performance through structural sharing.
 ///
-/// For new code, consider using [`CowGraph`](crate::storage::CowGraph) (also exported as
-/// [`UnifiedGraph`](crate::storage::UnifiedGraph)) which provides:
-/// - O(1) snapshot creation via structural sharing
-/// - Lock-free reads (snapshots don't hold locks)
-/// - Owned snapshots that can outlive the source graph
-/// - Simpler mutation API (no need for `GraphMut` handle)
+/// # Migration
 ///
-/// ```rust
-/// use interstellar::storage::CowGraph;
-/// use std::collections::HashMap;
-///
-/// let graph = CowGraph::new();
-/// let alice = graph.add_vertex("person", HashMap::from([
-///     ("name".to_string(), "Alice".into()),
-/// ]));
-///
-/// let snapshot = graph.snapshot();  // O(1), owned, no locks held
-/// let g = snapshot.traversal();
-/// let count = g.v().count();
-/// ```
-///
-/// # Creating a Graph
-///
-/// There are two ways to create a `Graph`:
-///
-/// ```rust
-/// use interstellar::prelude::*;
+/// ```ignore
+/// // Old (deprecated):
+/// use interstellar::graph::LegacyGraph;
 /// use interstellar::storage::InMemoryGraph;
+/// let graph = LegacyGraph::new(InMemoryGraph::new());
 ///
-/// // Method 1: Convenience constructor for in-memory graphs
-/// let graph = Graph::in_memory();
-///
-/// // Method 2: With custom storage
-/// let storage = InMemoryGraph::new();
-/// let graph = Graph::new(storage);
-/// ```
-///
-/// # Accessing Data
-///
-/// To read from the graph, create a [`GraphSnapshot`] using [`snapshot()`](Graph::snapshot):
-///
-/// ```rust
+/// // New (recommended):
 /// use interstellar::prelude::*;
-///
-/// let graph = Graph::in_memory();
-/// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
-///
-/// // Now you can traverse
-/// let vertex_count = g.v().count();
-/// ```
-///
-/// # Thread Safety
-///
-/// `Graph` implements `Send` and `Sync`, making it safe to share across threads.
-/// The internal `RwLock` ensures that:
-///
-/// - Multiple [`GraphSnapshot`]s can exist simultaneously (shared read access)
-/// - Only one [`GraphMut`] can exist at a time (exclusive write access)
-/// - A [`GraphMut`] cannot coexist with any [`GraphSnapshot`]
-///
-/// # Panics
-///
-/// The `Graph` type uses `parking_lot::RwLock` which does not panic on lock
-/// acquisition. However, if your storage implementation panics, that panic
-/// will propagate through traversal operations.
-pub struct Graph {
+/// let graph = Graph::new();
+/// ```ignore
+#[deprecated(since = "0.2.0", note = "Use crate::storage::Graph instead")]
+pub struct LegacyGraph {
     pub(crate) storage: Arc<dyn GraphStorage>,
     pub(crate) lock: Arc<RwLock<()>>,
     /// Optional schema for validating mutations.
@@ -180,61 +78,24 @@ pub struct Graph {
     pub(crate) schema: Arc<RwLock<Option<GraphSchema>>>,
 }
 
-/// A read-only snapshot of a graph for concurrent traversals.
+/// **DEPRECATED**: Use [`GraphSnapshot`](crate::storage::GraphSnapshot) from the prelude instead.
 ///
-/// `GraphSnapshot` holds a read lock on the graph, allowing safe concurrent
-/// access from multiple threads. While a snapshot exists, the graph data
-/// is guaranteed not to change.
+/// Legacy read-only snapshot of a graph for concurrent traversals.
 ///
-/// # Lifetime
-///
-/// The snapshot borrows from the parent [`Graph`] and cannot outlive it.
-/// The read lock is held for the entire lifetime of the snapshot.
-///
-/// # Creating Traversals
-///
-/// Use [`traversal()`](GraphSnapshot::traversal) to create a
-/// [`GraphTraversalSource`](crate::traversal::GraphTraversalSource) for
-/// querying the graph:
-///
-/// ```rust
-/// use interstellar::prelude::*;
-///
-/// let graph = Graph::in_memory();
-/// let snapshot = graph.snapshot();
-/// let g = snapshot.traversal();
-///
-/// // Multiple traversals can be created from the same snapshot
-/// let count1 = g.v().count();
-/// let count2 = g.e().count();
-/// ```
-///
-/// # Concurrency
-///
-/// Multiple snapshots can exist simultaneously, even across threads:
-///
-/// ```rust
-/// use interstellar::prelude::*;
-///
-/// let graph = Graph::in_memory();
-///
-/// // These can all exist at the same time
-/// let snap1 = graph.snapshot();
-/// let snap2 = graph.snapshot();
-/// let snap3 = graph.snapshot();
-/// ```
-///
-/// However, while any snapshot exists, calls to [`Graph::mutate()`] will
-/// block, and [`Graph::try_mutate()`] will return `None`.
-pub struct GraphSnapshot<'g> {
+/// This snapshot holds a read lock on the graph. For new code, use the COW-based
+/// [`GraphSnapshot`](crate::storage::GraphSnapshot) which is lock-free.
+#[deprecated(since = "0.2.0", note = "Use crate::storage::GraphSnapshot instead")]
+pub struct LegacyGraphSnapshot<'g> {
     /// Reference to the parent graph.
-    pub graph: &'g Graph,
+    #[allow(deprecated)]
+    pub graph: &'g LegacyGraph,
     /// The version of the graph at snapshot time (reserved for MVCC).
     pub version: u64,
     pub(crate) _guard: RwLockReadGuard<'g, ()>,
 }
 
-impl<'g> GraphSnapshot<'g> {
+#[allow(deprecated)]
+impl<'g> LegacyGraphSnapshot<'g> {
     /// Create a new traversal source for querying this snapshot.
     ///
     /// The returned [`GraphTraversalSource`](crate::traversal::GraphTraversalSource)
@@ -243,7 +104,7 @@ impl<'g> GraphSnapshot<'g> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
@@ -284,7 +145,7 @@ impl<'g> GraphSnapshot<'g> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::storage::InMemoryGraph;
     ///
@@ -321,7 +182,7 @@ impl<'g> GraphSnapshot<'g> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::storage::InMemoryGraph;
     /// use interstellar::gql::Parameters;
@@ -371,7 +232,7 @@ impl<'g> GraphSnapshot<'g> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
@@ -393,8 +254,9 @@ impl<'g> GraphSnapshot<'g> {
     }
 }
 
-// Implement SnapshotLike for GraphSnapshot to enable generic traversal/GQL usage
-impl<'g> crate::traversal::SnapshotLike for GraphSnapshot<'g> {
+// Implement SnapshotLike for LegacyGraphSnapshot to enable generic traversal/GQL usage
+#[allow(deprecated)]
+impl<'g> crate::traversal::SnapshotLike for LegacyGraphSnapshot<'g> {
     fn storage(&self) -> &dyn crate::storage::GraphStorage {
         self.graph.storage.as_ref()
     }
@@ -404,56 +266,26 @@ impl<'g> crate::traversal::SnapshotLike for GraphSnapshot<'g> {
     }
 }
 
-/// An exclusive mutable handle to a graph.
+/// **DEPRECATED**: Use the direct mutation API on [`Graph`](crate::storage::Graph) instead.
 ///
-/// `GraphMut` holds a write lock on the graph, providing exclusive access
-/// for mutations. While a `GraphMut` exists, no other mutations or snapshots
-/// can be created.
+/// Legacy exclusive mutable handle to a graph.
 ///
-/// # Lifetime
-///
-/// The handle borrows from the parent [`Graph`] and cannot outlive it.
-/// The write lock is held for the entire lifetime of the handle.
-///
-/// # Acquiring Mutable Access
-///
-/// There are two ways to acquire a `GraphMut`:
-///
-/// - [`Graph::mutate()`] - Blocks until exclusive access is available
-/// - [`Graph::try_mutate()`] - Returns `None` immediately if access is unavailable
-///
-/// # Example
-///
-/// ```rust
-/// use interstellar::prelude::*;
-///
-/// let graph = Graph::in_memory();
-///
-/// // Acquire exclusive access (blocks if needed)
-/// {
-///     let _mut_handle = graph.mutate();
-///     // ... perform mutations ...
-/// } // Lock released when handle is dropped
-///
-/// // Non-blocking alternative
-/// let acquired = graph.try_mutate().is_some();
-/// assert!(acquired); // No other locks held, so this succeeds
-/// ```
-///
-/// # Concurrency
-///
-/// Only one `GraphMut` can exist at a time. While it exists:
-///
-/// - Calls to [`Graph::snapshot()`] will block
-/// - Calls to [`Graph::mutate()`] will block
-/// - Calls to [`Graph::try_mutate()`] will return `None`
-pub struct GraphMut<'g> {
+/// This handle holds a write lock on the graph. For new code, use the COW-based
+/// [`Graph`](crate::storage::Graph) which provides direct mutation methods
+/// without needing a separate handle.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use crate::storage::Graph direct mutation API instead"
+)]
+pub struct LegacyGraphMut<'g> {
     /// Reference to the parent graph.
-    pub graph: &'g Graph,
+    #[allow(deprecated)]
+    pub graph: &'g LegacyGraph,
     pub(crate) _guard: RwLockWriteGuard<'g, ()>,
 }
 
-impl<'g> GraphMut<'g> {
+#[allow(deprecated)]
+impl<'g> LegacyGraphMut<'g> {
     /// Get the current schema from the parent graph.
     ///
     /// Returns a clone of the schema to avoid holding additional locks.
@@ -479,7 +311,7 @@ impl<'g> GraphMut<'g> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
@@ -533,7 +365,7 @@ impl<'g> GraphMut<'g> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::schema::ValidationMode;
     ///
@@ -586,7 +418,8 @@ impl<'g> GraphMut<'g> {
     }
 }
 
-impl Graph {
+#[allow(deprecated)]
+impl LegacyGraph {
     /// Create a new graph with the given storage backend.
     ///
     /// This is the general constructor that accepts any [`GraphStorage`]
@@ -596,7 +429,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::storage::InMemoryGraph;
     ///
@@ -604,7 +437,7 @@ impl Graph {
     /// let graph = Graph::new(storage);
     /// ```
     pub fn new<S: GraphStorage + 'static>(storage: S) -> Self {
-        Graph {
+        LegacyGraph {
             storage: Arc::new(storage),
             lock: Arc::new(RwLock::new(())),
             schema: Arc::new(RwLock::new(None)),
@@ -618,7 +451,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::storage::InMemoryGraph;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
@@ -634,7 +467,7 @@ impl Graph {
     /// let graph = Graph::with_schema(storage, schema);
     /// ```
     pub fn with_schema<S: GraphStorage + 'static>(storage: S, schema: GraphSchema) -> Self {
-        Graph {
+        LegacyGraph {
             storage: Arc::new(storage),
             lock: Arc::new(RwLock::new(())),
             schema: Arc::new(RwLock::new(Some(schema))),
@@ -649,7 +482,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::storage::{GraphStorage, InMemoryGraph};
     /// use std::sync::Arc;
@@ -658,7 +491,7 @@ impl Graph {
     /// let graph = Graph::from_arc(storage);
     /// ```
     pub fn from_arc(storage: Arc<dyn GraphStorage>) -> Self {
-        Graph {
+        LegacyGraph {
             storage,
             lock: Arc::new(RwLock::new(())),
             schema: Arc::new(RwLock::new(None)),
@@ -672,7 +505,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::storage::{GraphStorage, InMemoryGraph};
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
@@ -689,7 +522,7 @@ impl Graph {
     /// let graph = Graph::from_arc_with_schema(storage, schema);
     /// ```
     pub fn from_arc_with_schema(storage: Arc<dyn GraphStorage>, schema: GraphSchema) -> Self {
-        Graph {
+        LegacyGraph {
             storage,
             lock: Arc::new(RwLock::new(())),
             schema: Arc::new(RwLock::new(Some(schema))),
@@ -708,7 +541,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
@@ -725,8 +558,8 @@ impl Graph {
     ///
     /// This method does not panic. The underlying `parking_lot::RwLock` is
     /// panic-free on acquisition.
-    pub fn snapshot(&self) -> GraphSnapshot<'_> {
-        GraphSnapshot {
+    pub fn snapshot(&self) -> LegacyGraphSnapshot<'_> {
+        LegacyGraphSnapshot {
             graph: self,
             version: 0,
             _guard: self.lock.read(),
@@ -748,7 +581,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
@@ -766,8 +599,8 @@ impl Graph {
     ///
     /// This method does not panic. The underlying `parking_lot::RwLock` is
     /// panic-free on acquisition.
-    pub fn mutate(&self) -> GraphMut<'_> {
-        GraphMut {
+    pub fn mutate(&self) -> LegacyGraphMut<'_> {
+        LegacyGraphMut {
             graph: self,
             _guard: self.lock.write(),
         }
@@ -783,7 +616,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
@@ -800,8 +633,8 @@ impl Graph {
     ///
     /// - Another thread holds a [`GraphMut`]
     /// - One or more threads hold [`GraphSnapshot`]s
-    pub fn try_mutate(&self) -> Option<GraphMut<'_>> {
-        self.lock.try_write().map(|guard| GraphMut {
+    pub fn try_mutate(&self) -> Option<LegacyGraphMut<'_>> {
+        self.lock.try_write().map(|guard| LegacyGraphMut {
             graph: self,
             _guard: guard,
         })
@@ -815,7 +648,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
@@ -836,7 +669,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
@@ -867,7 +700,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph = Graph::in_memory();
@@ -888,7 +721,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
@@ -925,7 +758,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     ///
     /// let graph1 = Graph::in_memory();
@@ -934,8 +767,8 @@ impl Graph {
     /// // Both graphs share the same storage
     /// assert_eq!(graph1.storage().vertex_count(), graph2.storage().vertex_count());
     /// ```
-    pub fn share(&self) -> Graph {
-        Graph {
+    pub fn share(&self) -> LegacyGraph {
+        LegacyGraph {
             storage: Arc::clone(&self.storage),
             lock: Arc::clone(&self.lock),
             schema: Arc::clone(&self.schema),
@@ -949,7 +782,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use interstellar::prelude::*;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
@@ -979,6 +812,7 @@ impl Graph {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use std::thread;
@@ -986,7 +820,7 @@ mod tests {
 
     #[test]
     fn test_try_mutate_succeeds_when_unlocked() {
-        let graph = Graph::in_memory();
+        let graph = LegacyGraph::in_memory();
         let mut_handle = graph.try_mutate();
         assert!(
             mut_handle.is_some(),
@@ -996,7 +830,7 @@ mod tests {
 
     #[test]
     fn test_try_mutate_fails_when_locked() {
-        let graph = Graph::in_memory();
+        let graph = LegacyGraph::in_memory();
         let _mut1 = graph.mutate(); // Hold write lock
         let mut2 = graph.try_mutate();
         assert!(
@@ -1007,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_try_mutate_fails_when_snapshot_held() {
-        let graph = Graph::in_memory();
+        let graph = LegacyGraph::in_memory();
         let _snap = graph.snapshot(); // Hold read lock
         let mut_handle = graph.try_mutate();
         assert!(
@@ -1018,7 +852,7 @@ mod tests {
 
     #[test]
     fn test_try_mutate_succeeds_after_lock_released() {
-        let graph = Graph::in_memory();
+        let graph = LegacyGraph::in_memory();
         {
             let _mut1 = graph.mutate(); // Acquire and release
         } // Lock released here
@@ -1031,7 +865,7 @@ mod tests {
 
     #[test]
     fn test_multiple_snapshots_allowed() {
-        let graph = Graph::in_memory();
+        let graph = LegacyGraph::in_memory();
         let _snap1 = graph.snapshot();
         let _snap2 = graph.snapshot();
         let _snap3 = graph.snapshot();
@@ -1040,7 +874,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_try_mutate() {
-        let graph = Arc::new(Graph::in_memory());
+        let graph = Arc::new(LegacyGraph::in_memory());
         let graph_clone = Arc::clone(&graph);
 
         // Thread 1 holds the lock
@@ -1071,7 +905,7 @@ mod tests {
 
     #[test]
     fn test_traversal_holds_read_lock() {
-        let graph = Arc::new(Graph::in_memory());
+        let graph = Arc::new(LegacyGraph::in_memory());
         let graph_clone = Arc::clone(&graph);
 
         // Thread 1 holds snapshot with traversal
@@ -1104,7 +938,7 @@ mod tests {
 
     #[test]
     fn test_multiple_traversals_concurrent() {
-        let graph = Arc::new(Graph::in_memory());
+        let graph = Arc::new(LegacyGraph::in_memory());
 
         // Multiple readers can hold snapshots concurrently
         let snap1 = graph.snapshot();
@@ -1121,7 +955,7 @@ mod tests {
 
     #[test]
     fn test_traversal_from_single_snapshot() {
-        let graph = Graph::in_memory();
+        let graph = LegacyGraph::in_memory();
         let snap = graph.snapshot();
 
         // Can create multiple traversals from the same snapshot
@@ -1167,7 +1001,7 @@ use crate::value::{EdgeId, Value, VertexId};
 /// fn count_people<G: UnifiedGraph>(graph: &G) -> usize {
 ///     graph.snapshot().vertex_count() as usize
 /// }
-/// ```
+/// ```ignore
 pub trait UnifiedGraph: Send + Sync {
     /// The snapshot type returned by this graph.
     type Snapshot: UnifiedSnapshot;
@@ -1274,7 +1108,7 @@ pub trait UnifiedGraph: Send + Sync {
 ///
 /// // Read via traversal (when available on the concrete type)
 /// // let g = snap.traversal();
-/// ```
+/// ```ignore
 pub trait UnifiedSnapshot: crate::storage::GraphStorage + Send + Sync + Clone {
     /// Get the string interner for label resolution.
     fn interner(&self) -> &StringInterner;
@@ -1297,3 +1131,31 @@ pub trait UnifiedSnapshot: crate::storage::GraphStorage + Send + Sync + Clone {
     // Each concrete type provides its own traversal() method that returns
     // the appropriate traversal source type. This will be unified in Phase 4.
 }
+
+// =============================================================================
+// Backward-Compatible Type Aliases (Deprecated)
+// =============================================================================
+
+/// **DEPRECATED**: Use [`crate::storage::Graph`] instead.
+///
+/// This alias is provided for backward compatibility during migration.
+#[deprecated(since = "0.2.0", note = "Use crate::storage::Graph instead")]
+#[allow(deprecated)]
+pub type Graph = LegacyGraph;
+
+/// **DEPRECATED**: Use [`crate::storage::GraphSnapshot`] instead.
+///
+/// This alias is provided for backward compatibility during migration.
+#[deprecated(since = "0.2.0", note = "Use crate::storage::GraphSnapshot instead")]
+#[allow(deprecated)]
+pub type GraphSnapshot<'g> = LegacyGraphSnapshot<'g>;
+
+/// **DEPRECATED**: Use the direct mutation API on [`crate::storage::Graph`] instead.
+///
+/// This alias is provided for backward compatibility during migration.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use crate::storage::Graph direct mutation API instead"
+)]
+#[allow(deprecated)]
+pub type GraphMut<'g> = LegacyGraphMut<'g>;

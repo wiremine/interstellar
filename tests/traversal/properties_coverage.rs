@@ -8,7 +8,7 @@
 //! - Empty properties handling
 //! - Non-element inputs
 
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::value::{EdgeId, Value, VertexId};
 use std::collections::HashMap;
 
@@ -16,8 +16,8 @@ use std::collections::HashMap;
 // Helper Functions
 // =============================================================================
 
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Vertex 0: person with multiple properties
     let mut props = HashMap::new();

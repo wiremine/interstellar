@@ -22,14 +22,12 @@
 //!
 //! Run with: `cargo run --example marvel`
 
-use interstellar::graph::Graph;
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphSnapshot, GraphStorage};
 use interstellar::traversal::{p, __};
 use interstellar::value::{Value, VertexId};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::Arc;
 
 // =============================================================================
 // Data Loading
@@ -43,12 +41,12 @@ struct IdMappings {
 }
 
 /// Load the Marvel Universe JSON fixture and build the graph.
-fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
+fn load_marvel_graph() -> (Graph, IdMappings) {
     let json_str =
         fs::read_to_string("examples/fixtures/marvel.json").expect("Failed to read marvel.json");
     let data: JsonValue = serde_json::from_str(&json_str).expect("Failed to parse JSON");
 
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     let mut mappings = IdMappings {
         characters: HashMap::new(),
         teams: HashMap::new(),
@@ -108,7 +106,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
             // Store original JSON ID for lookups
             props.insert("json_id".to_string(), Value::String(json_id.to_string()));
 
-            let vid = storage.add_vertex("character", props);
+            let vid = graph.add_vertex("character", props);
             mappings.characters.insert(json_id.to_string(), vid);
         }
     }
@@ -140,7 +138,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
 
             props.insert("json_id".to_string(), Value::String(json_id.to_string()));
 
-            let vid = storage.add_vertex("team", props);
+            let vid = graph.add_vertex("team", props);
             mappings.teams.insert(json_id.to_string(), vid);
         }
     }
@@ -174,7 +172,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
 
             props.insert("json_id".to_string(), Value::String(json_id.to_string()));
 
-            let vid = storage.add_vertex("location", props);
+            let vid = graph.add_vertex("location", props);
             mappings.locations.insert(json_id.to_string(), vid);
         }
     }
@@ -197,7 +195,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
                 if let Some(joined) = edge["joined"].as_i64() {
                     props.insert("joined".to_string(), Value::Int(joined));
                 }
-                let _ = storage.add_edge(src_vid, dst_vid, "member_of", props);
+                let _ = graph.add_edge(src_vid, dst_vid, "member_of", props);
             }
         }
     }
@@ -229,7 +227,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
                 if let Some(since) = edge["since"].as_i64() {
                     props.insert("since".to_string(), Value::Int(since));
                 }
-                let _ = storage.add_edge(src, dst, "rivals_with", props);
+                let _ = graph.add_edge(src, dst, "rivals_with", props);
             }
         }
     }
@@ -256,7 +254,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
                 if let Some(strength) = edge["strength"].as_str() {
                     props.insert("strength".to_string(), Value::String(strength.to_string()));
                 }
-                let _ = storage.add_edge(src_vid, dst_vid, "allies_with", props);
+                let _ = graph.add_edge(src_vid, dst_vid, "allies_with", props);
             }
         }
     }
@@ -283,7 +281,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
                 if let Some(period) = edge["period"].as_str() {
                     props.insert("period".to_string(), Value::String(period.to_string()));
                 }
-                let _ = storage.add_edge(src_vid, dst_vid, "mentors", props);
+                let _ = graph.add_edge(src_vid, dst_vid, "mentors", props);
             }
         }
     }
@@ -310,7 +308,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
                 if let Some(note) = edge["note"].as_str() {
                     props.insert("note".to_string(), Value::String(note.to_string()));
                 }
-                let _ = storage.add_edge(src_vid, dst_vid, "related_to", props);
+                let _ = graph.add_edge(src_vid, dst_vid, "related_to", props);
             }
         }
     }
@@ -339,7 +337,7 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
                 if let Some(period) = edge["period"].as_str() {
                     props.insert("period".to_string(), Value::String(period.to_string()));
                 }
-                let _ = storage.add_edge(src, dst, "works_for", props);
+                let _ = graph.add_edge(src, dst, "works_for", props);
             }
         }
     }
@@ -361,15 +359,12 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
             let dst_vid = mappings.locations.get(target).copied();
 
             if let (Some(src), Some(dst)) = (src_vid, dst_vid) {
-                let _ = storage.add_edge(src, dst, "located_in", HashMap::new());
+                let _ = graph.add_edge(src, dst, "located_in", HashMap::new());
             }
         }
     }
 
-    let storage = Arc::new(storage);
-    let graph = Graph::from_arc(storage.clone());
-
-    (graph, storage, mappings)
+    (graph, mappings)
 }
 
 // =============================================================================
@@ -377,9 +372,9 @@ fn load_marvel_graph() -> (Graph, Arc<InMemoryGraph>, IdMappings) {
 // =============================================================================
 
 /// Get a property value from a vertex
-fn get_property(storage: &Arc<InMemoryGraph>, value: &Value, prop: &str) -> Option<String> {
+fn get_property(snapshot: &GraphSnapshot, value: &Value, prop: &str) -> Option<String> {
     if let Some(vid) = value.as_vertex_id() {
-        if let Some(vertex) = storage.get_vertex(vid) {
+        if let Some(vertex) = snapshot.get_vertex(vid) {
             if let Some(val) = vertex.properties.get(prop) {
                 return Some(format_value(val));
             }
@@ -413,57 +408,57 @@ fn format_value(value: &Value) -> String {
 }
 
 /// Get the alias (superhero name) from a character vertex
-fn get_alias(storage: &Arc<InMemoryGraph>, value: &Value) -> String {
-    get_property(storage, value, "alias").unwrap_or_else(|| format!("{:?}", value))
+fn get_alias(snapshot: &GraphSnapshot, value: &Value) -> String {
+    get_property(snapshot, value, "alias").unwrap_or_else(|| format!("{:?}", value))
 }
 
 /// Get the name from a vertex
-fn get_name(storage: &Arc<InMemoryGraph>, value: &Value) -> String {
-    get_property(storage, value, "name").unwrap_or_else(|| format!("{:?}", value))
+fn get_name(snapshot: &GraphSnapshot, value: &Value) -> String {
+    get_property(snapshot, value, "name").unwrap_or_else(|| format!("{:?}", value))
 }
 
 /// Display a list of character results as aliases
-fn display_aliases(storage: &Arc<InMemoryGraph>, results: &[Value]) -> String {
+fn display_aliases(snapshot: &GraphSnapshot, results: &[Value]) -> String {
     if results.is_empty() {
         return "(none)".to_string();
     }
     results
         .iter()
-        .map(|v| get_alias(storage, v))
+        .map(|v| get_alias(snapshot, v))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 /// Display a list of vertex results as names
-fn display_names(storage: &Arc<InMemoryGraph>, results: &[Value]) -> String {
+fn display_names(snapshot: &GraphSnapshot, results: &[Value]) -> String {
     if results.is_empty() {
         return "(none)".to_string();
     }
     results
         .iter()
-        .map(|v| get_name(storage, v))
+        .map(|v| get_name(snapshot, v))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 /// Get the best display name for a vertex (alias if character, otherwise name)
-fn get_display_name(storage: &Arc<InMemoryGraph>, value: &Value) -> String {
+fn get_display_name(snapshot: &GraphSnapshot, value: &Value) -> String {
     // Try alias first (for characters), then fall back to name (for teams/locations)
-    get_property(storage, value, "alias")
-        .or_else(|| get_property(storage, value, "name"))
+    get_property(snapshot, value, "alias")
+        .or_else(|| get_property(snapshot, value, "name"))
         .unwrap_or_else(|| format!("{:?}", value))
 }
 
 /// Display vertices with a specific property
-fn display_with_prop(storage: &Arc<InMemoryGraph>, results: &[Value], prop: &str) -> String {
+fn display_with_prop(snapshot: &GraphSnapshot, results: &[Value], prop: &str) -> String {
     if results.is_empty() {
         return "(none)".to_string();
     }
     results
         .iter()
         .map(|v| {
-            let name = get_display_name(storage, v);
-            let prop_val = get_property(storage, v, prop).unwrap_or_else(|| "N/A".to_string());
+            let name = get_display_name(snapshot, v);
+            let prop_val = get_property(snapshot, v, prop).unwrap_or_else(|| "N/A".to_string());
             format!("{} ({})", name, prop_val)
         })
         .collect::<Vec<_>>()
@@ -488,7 +483,7 @@ fn main() {
     println!("=== Marvel Universe Graph Database Example ===");
     println!("Loading data from examples/fixtures/marvel.json...\n");
 
-    let (graph, storage, _mappings) = load_marvel_graph();
+    let (graph, _mappings) = load_marvel_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -519,7 +514,7 @@ fn main() {
     println!(
         "Heroes ({}): {}",
         heroes.len(),
-        display_aliases(&storage, &heroes)
+        display_aliases(&snapshot, &heroes)
     );
 
     // Query 2: Find all villains
@@ -532,7 +527,7 @@ fn main() {
     println!(
         "Villains ({}): {}",
         villains.len(),
-        display_aliases(&storage, &villains)
+        display_aliases(&snapshot, &villains)
     );
 
     // Query 3: Find all antiheroes
@@ -545,7 +540,7 @@ fn main() {
     println!(
         "Antiheroes ({}): {}",
         antiheroes.len(),
-        display_aliases(&storage, &antiheroes)
+        display_aliases(&snapshot, &antiheroes)
     );
 
     // Query 4: Count characters by type
@@ -579,7 +574,7 @@ fn main() {
     println!(
         "Hero teams ({}): {}",
         hero_teams.len(),
-        display_names(&storage, &hero_teams)
+        display_names(&snapshot, &hero_teams)
     );
 
     // =========================================================================
@@ -596,7 +591,7 @@ fn main() {
         .to_list();
     println!(
         "Spider-Man's teams: {}",
-        display_names(&storage, &spidey_teams)
+        display_names(&snapshot, &spidey_teams)
     );
 
     // Query 7: Find all Avengers members
@@ -609,7 +604,7 @@ fn main() {
     println!(
         "Avengers ({}): {}",
         avengers_members.len(),
-        display_aliases(&storage, &avengers_members)
+        display_aliases(&snapshot, &avengers_members)
     );
 
     // Query 8: Find Spider-Man's rivals
@@ -621,7 +616,7 @@ fn main() {
         .to_list();
     println!(
         "Spider-Man's rivals: {}",
-        display_aliases(&storage, &spidey_rivals)
+        display_aliases(&snapshot, &spidey_rivals)
     );
 
     // Query 9: Find characters who mentor others
@@ -633,7 +628,7 @@ fn main() {
         .in_labels(&["mentors"])
         .dedup()
         .to_list();
-    println!("Mentors: {}", display_aliases(&storage, &mentors));
+    println!("Mentors: {}", display_aliases(&snapshot, &mentors));
 
     // Query 10: Find Spider-Man's mentors
     print_query("Find who mentors Spider-Man");
@@ -644,7 +639,7 @@ fn main() {
         .to_list();
     println!(
         "Spider-Man's mentors: {}",
-        display_aliases(&storage, &spidey_mentors)
+        display_aliases(&snapshot, &spidey_mentors)
     );
 
     // Query 11: Find Thanos's rivals
@@ -656,7 +651,7 @@ fn main() {
         .to_list();
     println!(
         "Thanos's rivals: {}",
-        display_names(&storage, &thanos_rivals)
+        display_names(&snapshot, &thanos_rivals)
     );
 
     // Query 12: Find members of the Sinister Six
@@ -669,7 +664,7 @@ fn main() {
     println!(
         "Sinister Six ({}): {}",
         sinister_six.len(),
-        display_aliases(&storage, &sinister_six)
+        display_aliases(&snapshot, &sinister_six)
     );
 
     // Query 13: Find X-Men members
@@ -682,7 +677,7 @@ fn main() {
     println!(
         "X-Men ({}): {}",
         xmen.len(),
-        display_aliases(&storage, &xmen)
+        display_aliases(&snapshot, &xmen)
     );
 
     // =========================================================================
@@ -700,7 +695,7 @@ fn main() {
     println!(
         "Golden Age characters ({}): {}",
         golden_age.len(),
-        display_with_prop(&storage, &golden_age, "first_appearance")
+        display_with_prop(&snapshot, &golden_age, "first_appearance")
     );
 
     // Query 15: Find Silver Age characters (1960-1970)
@@ -713,7 +708,7 @@ fn main() {
     println!(
         "Silver Age characters ({}): {}",
         silver_age.len(),
-        display_aliases(&storage, &silver_age)
+        display_aliases(&snapshot, &silver_age)
     );
 
     // Query 16: Find characters appearing after 1990
@@ -726,7 +721,7 @@ fn main() {
     println!(
         "Modern characters ({}): {}",
         modern.len(),
-        display_with_prop(&storage, &modern, "first_appearance")
+        display_with_prop(&snapshot, &modern, "first_appearance")
     );
 
     // Query 17: Find teams founded before 1965
@@ -738,7 +733,7 @@ fn main() {
         .to_list();
     println!(
         "Old teams: {}",
-        display_with_prop(&storage, &old_teams, "founded")
+        display_with_prop(&snapshot, &old_teams, "founded")
     );
 
     // Query 18: Find characters based in specific locations
@@ -751,7 +746,7 @@ fn main() {
     println!(
         "NYC-based characters ({}): {}",
         nyc_chars.len(),
-        display_aliases(&storage, &nyc_chars)
+        display_aliases(&snapshot, &nyc_chars)
     );
 
     // Query 19: Find space-based characters
@@ -763,7 +758,7 @@ fn main() {
         .to_list();
     println!(
         "Space-based characters: {}",
-        display_aliases(&storage, &space_chars)
+        display_aliases(&snapshot, &space_chars)
     );
 
     // Query 20: Find characters NOT based in NYC
@@ -776,7 +771,7 @@ fn main() {
         .to_list();
     println!(
         "Non-NYC characters (first 15): {}",
-        display_with_prop(&storage, &not_nyc, "base")
+        display_with_prop(&snapshot, &not_nyc, "base")
     );
 
     // =========================================================================
@@ -795,7 +790,7 @@ fn main() {
         "Characters in teams ({}): {}",
         team_members.len(),
         display_aliases(
-            &storage,
+            &snapshot,
             &team_members.iter().take(20).cloned().collect::<Vec<_>>()
         )
     );
@@ -813,7 +808,7 @@ fn main() {
     println!(
         "Lone wolves ({}): {}",
         lone_wolves.len(),
-        display_aliases(&storage, &lone_wolves)
+        display_aliases(&snapshot, &lone_wolves)
     );
 
     // Query 23: Find characters with both rivals AND allies
@@ -829,7 +824,7 @@ fn main() {
     println!(
         "Characters with both rivals and allies ({}): {}",
         complex_relations.len(),
-        display_aliases(&storage, &complex_relations)
+        display_aliases(&snapshot, &complex_relations)
     );
 
     // Query 24: Find characters who have rivals OR work_for someone
@@ -846,7 +841,7 @@ fn main() {
         "Characters with rivals or employers ({}): {}",
         rival_or_worker.len(),
         display_aliases(
-            &storage,
+            &snapshot,
             &rival_or_worker.iter().take(15).cloned().collect::<Vec<_>>()
         )
     );
@@ -862,7 +857,7 @@ fn main() {
     println!(
         "Villains in teams ({}): {}",
         villain_teams.len(),
-        display_aliases(&storage, &villain_teams)
+        display_aliases(&snapshot, &villain_teams)
     );
 
     // Query 26: Find heroes who mentor other characters
@@ -873,7 +868,10 @@ fn main() {
         .has_value("type", "hero")
         .where_(__::out_labels(&["mentors"]))
         .to_list();
-    println!("Hero mentors: {}", display_aliases(&storage, &hero_mentors));
+    println!(
+        "Hero mentors: {}",
+        display_aliases(&snapshot, &hero_mentors)
+    );
 
     // =========================================================================
     // SECTION 5: Branch Step Queries
@@ -893,7 +891,7 @@ fn main() {
         .to_list();
     println!(
         "Spider-Man's rivals and allies: {}",
-        display_aliases(&storage, &spidey_relationships)
+        display_aliases(&snapshot, &spidey_relationships)
     );
 
     // Query 28: Union - Get both incoming and outgoing mentorship
@@ -909,7 +907,7 @@ fn main() {
         .to_list();
     println!(
         "Iron Man's mentorship network: {}",
-        display_aliases(&storage, &ironman_mentorship)
+        display_aliases(&snapshot, &ironman_mentorship)
     );
 
     // Query 29: Coalesce - Get alias, or name if no alias
@@ -936,7 +934,7 @@ fn main() {
         .to_list();
     println!(
         "Wolverine's connections (hero path -> allies): {}",
-        display_aliases(&storage, &wolverine_connections)
+        display_aliases(&snapshot, &wolverine_connections)
     );
 
     let magneto_connections = g
@@ -950,7 +948,7 @@ fn main() {
         .to_list();
     println!(
         "Magneto's connections (villain path -> rivals): {}",
-        display_names(&storage, &magneto_connections)
+        display_names(&snapshot, &magneto_connections)
     );
 
     // Query 31: Optional - Try to get mentor, keep self if none
@@ -962,7 +960,7 @@ fn main() {
         .to_list();
     println!(
         "Deadpool with optional mentor: {}",
-        display_aliases(&storage, &optional_mentor)
+        display_aliases(&snapshot, &optional_mentor)
     );
 
     let optional_mentor2 = g
@@ -972,7 +970,7 @@ fn main() {
         .to_list();
     println!(
         "Spider-Man with optional mentor: {}",
-        display_aliases(&storage, &optional_mentor2)
+        display_aliases(&snapshot, &optional_mentor2)
     );
 
     // =========================================================================
@@ -993,7 +991,7 @@ fn main() {
     println!(
         "Cap's alliance network ({}): {}",
         cap_fof.len(),
-        display_aliases(&storage, &cap_fof)
+        display_aliases(&snapshot, &cap_fof)
     );
 
     // Query 33: Find all team members reachable from a character
@@ -1009,7 +1007,7 @@ fn main() {
         "Spider-Man's extended team ({}): {}",
         spidey_extended_team.len(),
         display_aliases(
-            &storage,
+            &snapshot,
             &spidey_extended_team
                 .iter()
                 .take(15)
@@ -1035,7 +1033,7 @@ fn main() {
         .to_list();
     println!(
         "Spider-Man's mentorship chain: {}",
-        display_aliases(&storage, &mentor_chain)
+        display_aliases(&snapshot, &mentor_chain)
     );
 
     // Query 35: Find rivalry chains
@@ -1051,7 +1049,7 @@ fn main() {
     println!(
         "Spider-Man's rivalry network ({}): {}",
         rivalry_network.len(),
-        display_aliases(&storage, &rivalry_network)
+        display_aliases(&snapshot, &rivalry_network)
     );
 
     // Query 36: Explore Avengers membership depth
@@ -1068,7 +1066,7 @@ fn main() {
         "Avengers network ({}): {}",
         avengers_network.len(),
         display_names(
-            &storage,
+            &snapshot,
             &avengers_network
                 .iter()
                 .take(10)
@@ -1097,11 +1095,11 @@ fn main() {
         if let Value::Map(map) = result {
             let hero = map
                 .get("hero")
-                .map(|v| get_alias(&storage, v))
+                .map(|v| get_alias(&snapshot, v))
                 .unwrap_or_default();
             let team = map
                 .get("team")
-                .map(|v| get_name(&storage, v))
+                .map(|v| get_name(&snapshot, v))
                 .unwrap_or_default();
             println!("  {} -> {}", hero, team);
         }
@@ -1122,11 +1120,11 @@ fn main() {
         if let Value::Map(map) = result {
             let hero = map
                 .get("hero")
-                .map(|v| get_alias(&storage, v))
+                .map(|v| get_alias(&snapshot, v))
                 .unwrap_or_default();
             let rival = map
                 .get("rival")
-                .map(|v| get_alias(&storage, v))
+                .map(|v| get_alias(&snapshot, v))
                 .unwrap_or_default();
             println!("  {} vs {}", hero, rival);
         }
@@ -1150,8 +1148,8 @@ fn main() {
                 .map(|v| {
                     if v.as_vertex_id().is_some() {
                         // Try alias first, then name
-                        get_property(&storage, v, "alias")
-                            .or_else(|| get_property(&storage, v, "name"))
+                        get_property(&snapshot, v, "alias")
+                            .or_else(|| get_property(&snapshot, v, "name"))
                             .unwrap_or_else(|| format!("{:?}", v))
                     } else {
                         format!("{:?}", v)
@@ -1174,7 +1172,7 @@ fn main() {
     println!("Professor X mentorship paths:");
     for (i, path_value) in mentor_path.iter().enumerate() {
         if let Value::List(path) = path_value {
-            let names: Vec<String> = path.iter().map(|v| get_alias(&storage, v)).collect();
+            let names: Vec<String> = path.iter().map(|v| get_alias(&snapshot, v)).collect();
             println!("  Path {}: {}", i + 1, names.join(" -> mentors -> "));
         }
     }
@@ -1198,7 +1196,7 @@ fn main() {
         .to_list();
     println!(
         "Avengers vs Sinister Six: {}",
-        display_aliases(&storage, &avengers_vs_sinister)
+        display_aliases(&snapshot, &avengers_vs_sinister)
     );
 
     // Query 42: Find heroes who are both Avengers and X-Men members
@@ -1218,7 +1216,7 @@ fn main() {
     println!(
         "Dual Avengers/X-Men members ({}): {}",
         dual_members.len(),
-        display_aliases(&storage, &dual_members)
+        display_aliases(&snapshot, &dual_members)
     );
     println!("  (Note: fixture edges only show primary team membership)");
 
@@ -1235,7 +1233,7 @@ fn main() {
         .to_list();
     println!(
         "Villains in villain teams: {}",
-        display_aliases(&storage, &villain_team_members)
+        display_aliases(&snapshot, &villain_team_members)
     );
 
     // Query 44: Find characters with family relationships who are on opposing sides
@@ -1248,7 +1246,7 @@ fn main() {
         .to_list();
     println!(
         "Characters with family relations: {}",
-        display_aliases(&storage, &family_relations)
+        display_aliases(&snapshot, &family_relations)
     );
 
     // Query 45: Find the most connected characters (have many relationship types)
@@ -1265,7 +1263,7 @@ fn main() {
     println!(
         "Well-connected characters (team + allies + rivals) ({}): {}",
         well_connected.len(),
-        display_aliases(&storage, &well_connected)
+        display_aliases(&snapshot, &well_connected)
     );
 
     // Query 46: Find Guardians of the Galaxy members
@@ -1278,7 +1276,7 @@ fn main() {
     println!(
         "Guardians ({}): {}",
         guardians.len(),
-        display_aliases(&storage, &guardians)
+        display_aliases(&snapshot, &guardians)
     );
 
     // Query 47: Find characters who work for villains
@@ -1290,7 +1288,7 @@ fn main() {
         .to_list();
     println!(
         "Characters working for others: {}",
-        display_aliases(&storage, &workers)
+        display_aliases(&snapshot, &workers)
     );
 
     // Query 48: Find Wakanda-based characters
@@ -1302,7 +1300,7 @@ fn main() {
         .to_list();
     println!(
         "Wakanda-based: {}",
-        display_aliases(&storage, &wakanda_chars)
+        display_aliases(&snapshot, &wakanda_chars)
     );
 
     // Query 49: Find sibling relationships
@@ -1313,7 +1311,7 @@ fn main() {
         .has_value("alias", "Thor")
         .out_labels(&["related_to"])
         .to_list();
-    println!("Thor's family: {}", display_aliases(&storage, &siblings));
+    println!("Thor's family: {}", display_aliases(&snapshot, &siblings));
 
     // Query 50: Complex: Find heroes who could mentor villains' rivals
     print_query("Find hero mentors whose students rival villains");
@@ -1330,7 +1328,7 @@ fn main() {
         .to_list();
     println!(
         "Hero mentors with students who rival villains: {}",
-        display_aliases(&storage, &hero_mentor_network)
+        display_aliases(&snapshot, &hero_mentor_network)
     );
 
     // =========================================================================

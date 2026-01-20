@@ -7,7 +7,7 @@
 //! - GroupValue::Traversal returning multiple results
 //! - Empty traversal results
 
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 use std::collections::HashMap;
@@ -16,8 +16,8 @@ use std::collections::HashMap;
 // Helper Functions
 // =============================================================================
 
-fn create_basic_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_basic_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::String("Alice".to_string()));
@@ -32,8 +32,8 @@ fn create_basic_graph() -> CowGraph {
     graph
 }
 
-fn create_graph_with_edges() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_graph_with_edges() -> Graph {
+    let graph = Graph::new();
 
     // Vertices
     let mut props = HashMap::new();
@@ -134,7 +134,7 @@ mod group_step_key_types {
 
     #[test]
     fn group_by_bool_property() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(true));
@@ -169,7 +169,7 @@ mod group_step_key_types {
 
     #[test]
     fn group_by_float_property() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         let mut props = HashMap::new();
         props.insert("score".to_string(), Value::Float(0.5));
@@ -200,7 +200,7 @@ mod group_step_key_types {
 
     #[test]
     fn group_by_null_property() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         let mut props = HashMap::new();
         props.insert("value".to_string(), Value::Null);
@@ -235,7 +235,7 @@ mod group_count_key_types {
 
     #[test]
     fn group_count_by_bool_property() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         let mut props = HashMap::new();
         props.insert("active".to_string(), Value::Bool(true));
@@ -340,7 +340,7 @@ mod group_value_traversal_tests {
 
     #[test]
     fn group_value_traversal_empty_results() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         // Vertex with no outgoing edges
         let mut props = HashMap::new();
@@ -371,7 +371,7 @@ mod group_value_traversal_tests {
 
     #[test]
     fn group_value_traversal_single_result() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
@@ -418,7 +418,7 @@ mod non_element_input_tests {
 
     #[test]
     fn group_non_vertex_non_edge_by_label() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -440,7 +440,7 @@ mod non_element_input_tests {
 
     #[test]
     fn group_count_non_vertex_non_edge_by_property() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 

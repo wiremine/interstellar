@@ -9,7 +9,7 @@
 //! - Math functions (abs, round, floor, ceil)
 
 use interstellar::prelude::*;
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 // =============================================================================
 
 /// Helper to create a graph with relationships for EXISTS testing
-fn create_exists_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_exists_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create players
     let mut mj_props = HashMap::new();
@@ -564,7 +564,7 @@ fn test_gql_exists_return_multiple_properties() {
 
 #[test]
 fn test_gql_exists_empty_graph() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     // EXISTS on empty graph should return no results
@@ -584,7 +584,7 @@ fn test_gql_exists_empty_graph() {
 #[test]
 fn test_gql_exists_no_edges() {
     // Create a graph with vertices but no edges
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Lonely Player"));
@@ -623,7 +623,7 @@ fn test_gql_exists_no_edges() {
 #[test]
 fn test_gql_exists_self_loop() {
     // Create a graph with a self-loop
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Narcissist"));
@@ -687,8 +687,8 @@ fn test_gql_exists_aggregate_over_filtered() {
 // =============================================================================
 
 /// Helper to create a graph with null values for COALESCE tests
-fn create_coalesce_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_coalesce_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Person with both name and nickname
     let mut alice_props = HashMap::new();
@@ -789,8 +789,8 @@ fn test_gql_coalesce_case_insensitive() {
 // =============================================================================
 
 /// Helper to create a graph for CASE expression tests
-fn create_case_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_case_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let people = vec![
         ("Alice", 32i64, 92i64),
@@ -970,8 +970,8 @@ fn test_gql_case_multiple_results() {
 // =============================================================================
 
 /// Helper to create a graph for type conversion tests
-fn create_type_conversion_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_type_conversion_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -1142,7 +1142,7 @@ fn test_gql_toboolean_integer() {
 /// Test toBoolean() with "false" string
 #[test]
 fn test_gql_toboolean_string_false() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let mut props = HashMap::new();
     props.insert("status".to_string(), Value::from("false"));
     graph.add_vertex("Test", props);
@@ -1206,7 +1206,7 @@ fn test_gql_length_string() {
 /// Test ABS function
 #[test]
 fn test_gql_abs_function() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let mut props = HashMap::new();
     props.insert("balance".to_string(), Value::from(-100i64));
     graph.add_vertex("Account", props);
@@ -1224,7 +1224,7 @@ fn test_gql_abs_function() {
 /// Test TRIM function
 #[test]
 fn test_gql_trim_function() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let mut props = HashMap::new();
     props.insert("text".to_string(), Value::from("  hello world  "));
     graph.add_vertex("Test", props);
@@ -1308,7 +1308,7 @@ fn test_gql_substring_function() {
 /// Test REPLACE function
 #[test]
 fn test_gql_replace_function() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let mut props = HashMap::new();
     props.insert("text".to_string(), Value::from("hello world"));
     graph.add_vertex("Test", props);

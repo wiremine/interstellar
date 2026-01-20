@@ -19,7 +19,7 @@ use interstellar::gql::{
     compile, compile_statement, compile_statement_with_params, compile_with_params, parse,
     parse_statement, CompileError, Parameters,
 };
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::value::Value;
 
 // =============================================================================
@@ -27,8 +27,8 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with Person and Software vertices plus edges.
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Add Person vertices
     let alice = graph.add_vertex(
@@ -688,7 +688,7 @@ fn test_unwind_inline_list() {
 #[test]
 fn test_unwind_property_list() {
     // Create a graph with a list property for UNWIND testing
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     graph.add_vertex(
         "Person",
         HashMap::from([

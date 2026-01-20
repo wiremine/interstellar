@@ -19,21 +19,19 @@
 //!
 //! ## Quick Start - Read Queries
 //!
-//! The simplest way to execute a GQL query is through [`GraphSnapshot::gql()`](crate::graph::GraphSnapshot::gql):
+//! The simplest way to execute a GQL query is through [`GraphSnapshot::gql()`](crate::storage::GraphSnapshot::gql):
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
-//! use std::sync::Arc;
+//! use std::collections::HashMap;
 //!
 //! // Create a graph with data
-//! let mut storage = InMemoryGraph::new();
-//! let mut props = std::collections::HashMap::new();
-//! props.insert("name".to_string(), Value::from("Alice"));
-//! props.insert("age".to_string(), Value::from(30i64));
-//! storage.add_vertex("Person", props);
+//! let graph = Graph::new();
+//! graph.add_vertex("Person", HashMap::from([
+//!     ("name".to_string(), Value::from("Alice")),
+//!     ("age".to_string(), Value::from(30i64)),
+//! ]));
 //!
-//! let graph = Graph::new(storage);
 //! let snapshot = graph.snapshot();
 //!
 //! // Execute GQL query

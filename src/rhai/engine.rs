@@ -8,14 +8,14 @@
 //! ```rust,ignore
 //! use interstellar::prelude::*;
 //! use interstellar::rhai::RhaiEngine;
+//! use std::sync::Arc;
 //!
 //! // Create an engine
 //! let engine = RhaiEngine::new();
 //!
-//! // Create and populate a graph
-//! let mut storage = InMemoryGraph::new();
-//! storage.add_vertex("person", [("name", "Alice")].into());
-//! let graph = Graph::new(storage);
+//! // Create and populate a graph (wrapped in Arc for sharing)
+//! let graph = Arc::new(Graph::new());
+//! graph.add_vertex("person", [("name", "Alice".into())].into());
 //!
 //! // Execute a script
 //! let script = r#"
@@ -23,7 +23,7 @@
 //!     g.v().has_label("person").values("name").to_list()
 //! "#;
 //!
-//! let result = engine.eval_with_graph(&graph, script)?;
+//! let result = engine.eval_with_graph(graph.clone(), script)?;
 //! ```
 
 use rhai::{Dynamic, Engine, Scope, AST};
@@ -34,7 +34,7 @@ use super::error::{RhaiError, RhaiResult};
 use super::predicates::register_predicates;
 use super::traversal::{register_traversal, RhaiGraph};
 use super::types::register_types;
-use crate::graph::Graph;
+use crate::storage::Graph;
 
 /// The main Rhai engine for executing scripts with Interstellar graph support.
 ///
@@ -44,14 +44,17 @@ use crate::graph::Graph;
 /// # Example
 ///
 /// ```rust,ignore
+/// use std::sync::Arc;
+///
 /// let engine = RhaiEngine::new();
 ///
 /// // Execute a simple expression
 /// let result: i64 = engine.eval("1 + 2").unwrap();
 /// assert_eq!(result, 3);
 ///
-/// // Execute with a graph
-/// let result = engine.eval_with_graph(&graph, r#"
+/// // Execute with a graph (wrapped in Arc)
+/// let graph = Arc::new(Graph::new());
+/// let result = engine.eval_with_graph(graph, r#"
 ///     let g = graph.traversal();
 ///     g.v().count()
 /// "#).unwrap();
@@ -118,8 +121,8 @@ impl RhaiEngine {
     /// "#)?;
     ///
     /// // Execute multiple times with different graphs
-    /// let count1 = engine.eval_ast_with_graph(&graph1, &ast)?;
-    /// let count2 = engine.eval_ast_with_graph(&graph2, &ast)?;
+    /// let count1 = engine.eval_ast_with_graph(graph1, &ast)?;
+    /// let count2 = engine.eval_ast_with_graph(graph2, &ast)?;
     /// ```
     pub fn compile(&self, script: &str) -> RhaiResult<AST> {
         self.engine.compile(script).map_err(RhaiError::from)
@@ -145,6 +148,8 @@ impl RhaiEngine {
 
     /// Evaluate a script with a graph bound to the `graph` variable.
     ///
+    /// The graph must be wrapped in an `Arc` for sharing with the script scope.
+    ///
     /// The script has access to:
     /// - `graph` - A `RhaiGraph` wrapper around the provided graph
     /// - `A` - The anonymous traversal factory (similar to Gremlin's `__`)
@@ -152,13 +157,18 @@ impl RhaiEngine {
     /// # Example
     ///
     /// ```rust,ignore
+    /// use std::sync::Arc;
+    ///
     /// let engine = RhaiEngine::new();
-    /// let result: i64 = engine.eval_with_graph(&graph, r#"
+    /// let graph = Arc::new(Graph::new());
+    /// // ... populate graph ...
+    ///
+    /// let result: i64 = engine.eval_with_graph(graph, r#"
     ///     let g = graph.traversal();
     ///     g.v().count()
     /// "#)?;
     /// ```
-    pub fn eval_with_graph<T>(&self, graph: &Graph, script: &str) -> RhaiResult<T>
+    pub fn eval_with_graph<T>(&self, graph: Arc<Graph>, script: &str) -> RhaiResult<T>
     where
         T: Clone + Send + Sync + 'static,
     {
@@ -171,7 +181,7 @@ impl RhaiEngine {
     /// Evaluate a script with a graph and return a Dynamic result.
     ///
     /// This is useful when the result type is not known at compile time.
-    pub fn eval_with_graph_dynamic(&self, graph: &Graph, script: &str) -> RhaiResult<Dynamic> {
+    pub fn eval_with_graph_dynamic(&self, graph: Arc<Graph>, script: &str) -> RhaiResult<Dynamic> {
         let mut scope = self.create_graph_scope(graph);
         self.engine
             .eval_with_scope(&mut scope, script)
@@ -183,12 +193,15 @@ impl RhaiEngine {
     /// # Example
     ///
     /// ```rust,ignore
+    /// use std::sync::Arc;
+    ///
     /// let engine = RhaiEngine::new();
     /// let ast = engine.compile("graph.traversal().v().count()")?;
+    /// let graph = Arc::new(Graph::new());
     ///
-    /// let count: i64 = engine.eval_ast_with_graph(&graph, &ast)?;
+    /// let count: i64 = engine.eval_ast_with_graph(graph, &ast)?;
     /// ```
-    pub fn eval_ast_with_graph<T>(&self, graph: &Graph, ast: &AST) -> RhaiResult<T>
+    pub fn eval_ast_with_graph<T>(&self, graph: Arc<Graph>, ast: &AST) -> RhaiResult<T>
     where
         T: Clone + Send + Sync + 'static,
     {
@@ -199,27 +212,10 @@ impl RhaiEngine {
     }
 
     /// Evaluate a pre-compiled AST with a graph and return a Dynamic result.
-    pub fn eval_ast_with_graph_dynamic(&self, graph: &Graph, ast: &AST) -> RhaiResult<Dynamic> {
+    pub fn eval_ast_with_graph_dynamic(&self, graph: Arc<Graph>, ast: &AST) -> RhaiResult<Dynamic> {
         let mut scope = self.create_graph_scope(graph);
         self.engine
             .eval_ast_with_scope(&mut scope, ast)
-            .map_err(RhaiError::from)
-    }
-
-    /// Evaluate a script with a shared Arc<Graph>.
-    ///
-    /// This is more efficient when the graph is already wrapped in an Arc,
-    /// as it avoids an extra clone.
-    pub fn eval_with_arc_graph<T>(&self, graph: Arc<Graph>, script: &str) -> RhaiResult<T>
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        let mut scope = Scope::new();
-        scope.push("graph", RhaiGraph::from_arc(graph));
-        scope.push("A", create_anonymous_factory());
-
-        self.engine
-            .eval_with_scope(&mut scope, script)
             .map_err(RhaiError::from)
     }
 
@@ -227,7 +223,7 @@ impl RhaiEngine {
     ///
     /// This is useful for scripts that perform side effects without
     /// returning a meaningful value.
-    pub fn run_with_graph(&self, graph: &Graph, script: &str) -> RhaiResult<()> {
+    pub fn run_with_graph(&self, graph: Arc<Graph>, script: &str) -> RhaiResult<()> {
         let mut scope = self.create_graph_scope(graph);
         self.engine
             .run_with_scope(&mut scope, script)
@@ -235,14 +231,11 @@ impl RhaiEngine {
     }
 
     /// Create a scope with the graph and anonymous factory pre-bound.
-    fn create_graph_scope(&self, graph: &Graph) -> Scope<'static> {
+    fn create_graph_scope(&self, graph: Arc<Graph>) -> Scope<'static> {
         let mut scope = Scope::new();
 
-        // Create a RhaiGraph from the graph reference.
-        // RhaiGraph stores an Arc<Graph> internally, but Graph doesn't implement Clone.
-        // We need to create a new Graph that shares the same storage.
-        // The simplest approach is to create a new Graph with the same Arc<storage>.
-        let rhai_graph = RhaiGraph::new(graph.share());
+        // Create a RhaiGraph from the Arc<Graph>
+        let rhai_graph = RhaiGraph::from_arc(graph);
         scope.push("graph", rhai_graph);
 
         // Add the anonymous traversal factory
@@ -255,54 +248,43 @@ impl RhaiEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::InMemoryGraph;
     use crate::value::Value;
     use std::collections::HashMap;
 
-    fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+    fn create_test_graph() -> Arc<Graph> {
+        let graph = Graph::new();
 
-        let alice = storage.add_vertex(
+        let alice = graph.add_vertex(
             "person",
-            [
+            HashMap::from([
                 ("name".to_string(), Value::String("Alice".to_string())),
                 ("age".to_string(), Value::Int(30)),
-            ]
-            .into_iter()
-            .collect(),
+            ]),
         );
 
-        let bob = storage.add_vertex(
+        let bob = graph.add_vertex(
             "person",
-            [
+            HashMap::from([
                 ("name".to_string(), Value::String("Bob".to_string())),
                 ("age".to_string(), Value::Int(25)),
-            ]
-            .into_iter()
-            .collect(),
+            ]),
         );
 
-        let carol = storage.add_vertex(
+        let carol = graph.add_vertex(
             "person",
-            [
+            HashMap::from([
                 ("name".to_string(), Value::String("Carol".to_string())),
                 ("age".to_string(), Value::Int(35)),
-            ]
-            .into_iter()
-            .collect(),
+            ]),
         );
 
-        storage
-            .add_edge(alice, bob, "knows", HashMap::new())
-            .unwrap();
-        storage
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+        graph
             .add_edge(alice, carol, "knows", HashMap::new())
             .unwrap();
-        storage
-            .add_edge(bob, carol, "knows", HashMap::new())
-            .unwrap();
+        graph.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
 
-        Graph::new(storage)
+        Arc::new(graph)
     }
 
     #[test]
@@ -325,7 +307,7 @@ mod tests {
 
         let count: i64 = engine
             .eval_with_graph(
-                &graph,
+                graph,
                 r#"
                 let g = graph.traversal();
                 g.v().count()
@@ -343,7 +325,7 @@ mod tests {
 
         let count: i64 = engine
             .eval_with_graph(
-                &graph,
+                graph,
                 r#"
                 let g = graph.traversal();
                 g.v().has_label("person").count()
@@ -361,7 +343,7 @@ mod tests {
 
         let count: i64 = engine
             .eval_with_graph(
-                &graph,
+                graph,
                 r#"
                 let g = graph.traversal();
                 g.v().has_where("age", gte(30)).count()
@@ -379,7 +361,7 @@ mod tests {
 
         let count: i64 = engine
             .eval_with_graph(
-                &graph,
+                graph,
                 r#"
                 let g = graph.traversal();
                 g.v().has_value("name", "Alice").out().count()
@@ -404,7 +386,7 @@ mod tests {
             )
             .unwrap();
 
-        let count: i64 = engine.eval_ast_with_graph(&graph, &ast).unwrap();
+        let count: i64 = engine.eval_ast_with_graph(graph, &ast).unwrap();
         assert_eq!(count, 3);
     }
 
@@ -416,7 +398,7 @@ mod tests {
         // Test that the A factory is available
         let result: rhai::Array = engine
             .eval_with_graph(
-                &graph,
+                graph,
                 r#"
                 let anon = A.out().has_label("person");
                 []  // Return empty array for now - just testing factory creation
@@ -435,7 +417,7 @@ mod tests {
         // Should not error
         engine
             .run_with_graph(
-                &graph,
+                graph,
                 r#"
                 let g = graph.traversal();
                 let count = g.v().count();
@@ -451,7 +433,7 @@ mod tests {
 
         let result = engine
             .eval_with_graph_dynamic(
-                &graph,
+                graph,
                 r#"
                 let g = graph.traversal();
                 g.v().count()

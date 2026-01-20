@@ -9,14 +9,13 @@
 //!
 //! ## Unified API (Spec 33)
 //!
-//! New tests should prefer the unified API types:
-//! - `create_small_cow_graph()` - COW-based graph with O(1) snapshots
-//! - `CowTestGraph` - Test helper using COW semantics
+//! All graphs now use the unified COW-based API:
+//! - `Graph` - In-memory graph with COW semantics and O(1) snapshots
+//! - `GraphSnapshot` - Immutable snapshot for read operations
 
 use std::collections::HashMap;
 
-use interstellar::graph::Graph;
-use interstellar::storage::{CowGraph, CowSnapshot, GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphSnapshot, GraphStorage};
 use interstellar::value::{EdgeId, Value, VertexId};
 
 /// Standard test graph with vertices and their IDs for assertions.
@@ -55,7 +54,7 @@ impl TestGraph {
     /// let snapshot = tg.graph.snapshot();
     /// let results = snapshot.traversal().v().has_label("person").to_list();
     /// ```
-    pub fn snapshot(&self) -> interstellar::graph::GraphSnapshot<'_> {
+    pub fn snapshot(&self) -> GraphSnapshot {
         self.graph.snapshot()
     }
 }
@@ -73,7 +72,7 @@ impl TestGraph {
 ///     .build();
 /// ```
 pub struct TestGraphBuilder {
-    storage: InMemoryGraph,
+    graph: Graph,
     vertices: Vec<VertexId>,
 }
 
@@ -81,7 +80,7 @@ pub struct TestGraphBuilder {
 impl TestGraphBuilder {
     pub fn new() -> Self {
         TestGraphBuilder {
-            storage: InMemoryGraph::new(),
+            graph: Graph::new(),
             vertices: Vec::new(),
         }
     }
@@ -91,7 +90,7 @@ impl TestGraphBuilder {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String(name.to_string()));
         props.insert("age".to_string(), Value::Int(age));
-        let id = self.storage.add_vertex("person", props);
+        let id = self.graph.add_vertex("person", props);
         self.vertices.push(id);
         self
     }
@@ -102,7 +101,7 @@ impl TestGraphBuilder {
         props.insert("name".to_string(), Value::String(name.to_string()));
         props.insert("age".to_string(), Value::Int(age));
         props.insert("status".to_string(), Value::String(status.to_string()));
-        let id = self.storage.add_vertex("person", props);
+        let id = self.graph.add_vertex("person", props);
         self.vertices.push(id);
         self
     }
@@ -112,7 +111,7 @@ impl TestGraphBuilder {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String(name.to_string()));
         props.insert("lang".to_string(), Value::String(lang.to_string()));
-        let id = self.storage.add_vertex("software", props);
+        let id = self.graph.add_vertex("software", props);
         self.vertices.push(id);
         self
     }
@@ -123,7 +122,7 @@ impl TestGraphBuilder {
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String(name.to_string()));
         props.insert("version".to_string(), Value::Float(version));
-        let id = self.storage.add_vertex("software", props);
+        let id = self.graph.add_vertex("software", props);
         self.vertices.push(id);
         self
     }
@@ -132,7 +131,7 @@ impl TestGraphBuilder {
     pub fn add_edge(mut self, from_idx: usize, to_idx: usize, label: &str) -> Self {
         let from = self.vertices[from_idx];
         let to = self.vertices[to_idx];
-        self.storage
+        self.graph
             .add_edge(from, to, label, HashMap::new())
             .unwrap();
         self
@@ -149,13 +148,13 @@ impl TestGraphBuilder {
     ) -> Self {
         let from = self.vertices[from_idx];
         let to = self.vertices[to_idx];
-        self.storage.add_edge(from, to, label, props).unwrap();
+        self.graph.add_edge(from, to, label, props).unwrap();
         self
     }
 
-    /// Build the graph and return it wrapped in a Graph.
+    /// Build the graph and return it.
     pub fn build(self) -> Graph {
-        Graph::new(self.storage)
+        self.graph
     }
 
     /// Get the vertex ID at a specific index (for assertions).
@@ -179,7 +178,7 @@ impl Default for TestGraphBuilder {
 
 /// Creates an empty graph for testing edge cases.
 pub fn create_empty_graph() -> Graph {
-    Graph::in_memory()
+    Graph::new()
 }
 
 /// Creates a small test graph with 4 vertices and 5 edges.
@@ -212,402 +211,7 @@ pub fn create_empty_graph() -> Graph {
 /// - Bob -[uses]-> GraphDB (skill="beginner")
 /// - Charlie -[knows]-> Alice (since=2019) - creates cycle
 pub fn create_small_graph() -> TestGraph {
-    let mut storage = InMemoryGraph::new();
-
-    // Add vertices with properties
-    let alice = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Alice".to_string()));
-        props.insert("age".to_string(), Value::Int(30));
-        props
-    });
-
-    let bob = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Bob".to_string()));
-        props.insert("age".to_string(), Value::Int(25));
-        props
-    });
-
-    let charlie = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Charlie".to_string()));
-        props.insert("age".to_string(), Value::Int(35));
-        props
-    });
-
-    let graphdb = storage.add_vertex("software", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("GraphDB".to_string()));
-        props.insert("version".to_string(), Value::Float(1.0));
-        props
-    });
-
-    // Add edges with properties
-    let alice_knows_bob = storage
-        .add_edge(alice, bob, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2020));
-            props
-        })
-        .unwrap();
-
-    let bob_knows_charlie = storage
-        .add_edge(bob, charlie, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2021));
-            props
-        })
-        .unwrap();
-
-    let alice_uses_graphdb = storage
-        .add_edge(alice, graphdb, "uses", {
-            let mut props = HashMap::new();
-            props.insert("skill".to_string(), Value::String("expert".to_string()));
-            props
-        })
-        .unwrap();
-
-    let bob_uses_graphdb = storage
-        .add_edge(bob, graphdb, "uses", {
-            let mut props = HashMap::new();
-            props.insert("skill".to_string(), Value::String("beginner".to_string()));
-            props
-        })
-        .unwrap();
-
-    let charlie_knows_alice = storage
-        .add_edge(charlie, alice, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2019));
-            props
-        })
-        .unwrap();
-
-    TestGraph {
-        graph: Graph::new(storage),
-        alice,
-        bob,
-        charlie,
-        graphdb,
-        redis: None,
-        eve: None,
-        alice_knows_bob,
-        bob_knows_charlie,
-        alice_uses_graphdb: Some(alice_uses_graphdb),
-        bob_uses_graphdb: Some(bob_uses_graphdb),
-        charlie_knows_alice: Some(charlie_knows_alice),
-    }
-}
-
-/// Creates a medium test graph with 5 vertices (adds Redis software).
-///
-/// Extends `create_small_graph()` with:
-/// - Redis (software): name="Redis", version=7.0
-/// - Charlie -[created]-> Redis edge
-pub fn create_medium_graph() -> TestGraph {
-    let mut storage = InMemoryGraph::new();
-
-    // Add person vertices with status property (used by branch tests)
-    let alice = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Alice".to_string()));
-        props.insert("age".to_string(), Value::Int(30));
-        props.insert("status".to_string(), Value::String("active".to_string()));
-        props.insert("priority".to_string(), Value::Int(1));
-        props
-    });
-
-    let bob = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Bob".to_string()));
-        props.insert("age".to_string(), Value::Int(25));
-        props.insert("status".to_string(), Value::String("inactive".to_string()));
-        props.insert("priority".to_string(), Value::Int(2));
-        props
-    });
-
-    let charlie = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Charlie".to_string()));
-        props.insert("age".to_string(), Value::Int(35));
-        props.insert("status".to_string(), Value::String("active".to_string()));
-        props.insert("priority".to_string(), Value::Int(1));
-        props
-    });
-
-    // Add software vertices
-    let graphdb = storage.add_vertex("software", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("GraphDB".to_string()));
-        props.insert("version".to_string(), Value::Float(2.0));
-        props.insert("priority".to_string(), Value::Int(3));
-        props
-    });
-
-    let redis = storage.add_vertex("software", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Redis".to_string()));
-        props.insert("version".to_string(), Value::Float(7.0));
-        props.insert("priority".to_string(), Value::Int(2));
-        props
-    });
-
-    // Add edges
-    let alice_knows_bob = storage
-        .add_edge(alice, bob, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2020));
-            props
-        })
-        .unwrap();
-
-    let bob_knows_charlie = storage
-        .add_edge(bob, charlie, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2021));
-            props
-        })
-        .unwrap();
-
-    // Alice created GraphDB
-    storage
-        .add_edge(alice, graphdb, "created", HashMap::new())
-        .unwrap();
-
-    // Bob created Redis
-    storage
-        .add_edge(bob, redis, "created", HashMap::new())
-        .unwrap();
-
-    TestGraph {
-        graph: Graph::new(storage),
-        alice,
-        bob,
-        charlie,
-        graphdb,
-        redis: Some(redis),
-        eve: None,
-        alice_knows_bob,
-        bob_knows_charlie,
-        alice_uses_graphdb: None,
-        bob_uses_graphdb: None,
-        charlie_knows_alice: None,
-    }
-}
-
-/// Creates a social network graph with more vertices for complex path tests.
-///
-/// Graph structure includes:
-/// - 5 people: Alice, Bob, Charlie, Diana, Eve
-/// - 2 software: GraphDB, Redis
-/// - Multiple relationship types: knows, created, uses
-pub fn create_social_graph() -> TestGraph {
-    let mut storage = InMemoryGraph::new();
-
-    // People
-    let alice = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Alice".to_string()));
-        props.insert("age".to_string(), Value::Int(30));
-        props.insert("city".to_string(), Value::String("NYC".to_string()));
-        props
-    });
-
-    let bob = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Bob".to_string()));
-        props.insert("age".to_string(), Value::Int(25));
-        props.insert("city".to_string(), Value::String("SF".to_string()));
-        props
-    });
-
-    let charlie = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Charlie".to_string()));
-        props.insert("age".to_string(), Value::Int(35));
-        props.insert("city".to_string(), Value::String("NYC".to_string()));
-        props
-    });
-
-    let _diana = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Diana".to_string()));
-        props.insert("age".to_string(), Value::Int(28));
-        props.insert("city".to_string(), Value::String("LA".to_string()));
-        props
-    });
-
-    let eve = storage.add_vertex("person", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Eve".to_string()));
-        props.insert("age".to_string(), Value::Int(32));
-        props.insert("city".to_string(), Value::String("SF".to_string()));
-        props
-    });
-
-    // Software
-    let graphdb = storage.add_vertex("software", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("GraphDB".to_string()));
-        props.insert("version".to_string(), Value::Float(2.0));
-        props.insert("lang".to_string(), Value::String("rust".to_string()));
-        props
-    });
-
-    let redis = storage.add_vertex("software", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Redis".to_string()));
-        props.insert("version".to_string(), Value::Float(7.0));
-        props.insert("lang".to_string(), Value::String("c".to_string()));
-        props
-    });
-
-    // Edges - knows relationships
-    let alice_knows_bob = storage
-        .add_edge(alice, bob, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2020));
-            props
-        })
-        .unwrap();
-
-    let bob_knows_charlie = storage
-        .add_edge(bob, charlie, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2021));
-            props
-        })
-        .unwrap();
-
-    storage
-        .add_edge(charlie, alice, "knows", {
-            let mut props = HashMap::new();
-            props.insert("since".to_string(), Value::Int(2019));
-            props
-        })
-        .unwrap();
-
-    // Edges - created relationships
-    storage
-        .add_edge(alice, graphdb, "created", HashMap::new())
-        .unwrap();
-
-    storage
-        .add_edge(bob, redis, "created", HashMap::new())
-        .unwrap();
-
-    // Edges - uses relationships
-    storage
-        .add_edge(charlie, graphdb, "uses", HashMap::new())
-        .unwrap();
-
-    storage
-        .add_edge(eve, redis, "uses", HashMap::new())
-        .unwrap();
-
-    TestGraph {
-        graph: Graph::new(storage),
-        alice,
-        bob,
-        charlie,
-        graphdb,
-        redis: Some(redis),
-        eve: Some(eve),
-        alice_knows_bob,
-        bob_knows_charlie,
-        alice_uses_graphdb: None,
-        bob_uses_graphdb: None,
-        charlie_knows_alice: None,
-    }
-}
-
-/// Creates a test graph optimized for GQL tests.
-///
-/// Uses PascalCase labels (Person, Company) matching GQL conventions.
-/// Includes Person and Company vertices for label filtering tests.
-pub fn create_gql_test_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
-
-    // Create Person vertices
-    let mut alice_props = HashMap::new();
-    alice_props.insert("name".to_string(), Value::from("Alice"));
-    alice_props.insert("age".to_string(), Value::from(30i64));
-    storage.add_vertex("Person", alice_props);
-
-    let mut bob_props = HashMap::new();
-    bob_props.insert("name".to_string(), Value::from("Bob"));
-    bob_props.insert("age".to_string(), Value::from(25i64));
-    storage.add_vertex("Person", bob_props);
-
-    let mut charlie_props = HashMap::new();
-    charlie_props.insert("name".to_string(), Value::from("Charlie"));
-    charlie_props.insert("age".to_string(), Value::from(35i64));
-    storage.add_vertex("Person", charlie_props);
-
-    // Create Company vertices
-    let mut acme_props = HashMap::new();
-    acme_props.insert("name".to_string(), Value::from("Acme Corp"));
-    storage.add_vertex("Company", acme_props);
-
-    let mut globex_props = HashMap::new();
-    globex_props.insert("name".to_string(), Value::from("Globex"));
-    storage.add_vertex("Company", globex_props);
-
-    Graph::new(storage)
-}
-
-// =============================================================================
-// Unified API Types (Spec 33) - COW-based graph fixtures
-// =============================================================================
-
-/// COW-based test graph with vertices and their IDs for assertions.
-///
-/// Uses `CowGraph` for O(1) snapshot creation and lock-free reads.
-/// This is the preferred graph type for new tests.
-#[allow(dead_code)]
-pub struct CowTestGraph {
-    pub graph: CowGraph,
-    // Person vertices
-    pub alice: VertexId,
-    pub bob: VertexId,
-    pub charlie: VertexId,
-    // Software vertices
-    pub graphdb: VertexId,
-    // Optional vertices for extended graphs
-    pub redis: Option<VertexId>,
-    pub eve: Option<VertexId>,
-    // Edge IDs (commonly used in tests)
-    pub alice_knows_bob: EdgeId,
-    pub bob_knows_charlie: EdgeId,
-    pub alice_uses_graphdb: Option<EdgeId>,
-    pub bob_uses_graphdb: Option<EdgeId>,
-    pub charlie_knows_alice: Option<EdgeId>,
-}
-
-impl CowTestGraph {
-    /// Get a snapshot of the graph for traversal.
-    ///
-    /// Unlike `TestGraph::snapshot()`, this returns an owned `CowSnapshot`
-    /// that doesn't borrow from the graph and can be sent across threads.
-    pub fn snapshot(&self) -> CowSnapshot {
-        self.graph.snapshot()
-    }
-}
-
-/// Creates an empty COW graph for testing edge cases.
-#[allow(dead_code)]
-pub fn create_empty_cow_graph() -> CowGraph {
-    CowGraph::new()
-}
-
-/// Creates a small COW test graph with 4 vertices and 5 edges.
-///
-/// This is the COW-based equivalent of `create_small_graph()`.
-/// Use this for new tests that need O(1) snapshots.
-#[allow(dead_code)]
-pub fn create_small_cow_graph() -> CowTestGraph {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with properties
     let alice = graph.add_vertex("person", {
@@ -679,7 +283,7 @@ pub fn create_small_cow_graph() -> CowTestGraph {
         })
         .unwrap();
 
-    CowTestGraph {
+    TestGraph {
         graph,
         alice,
         bob,
@@ -695,12 +299,232 @@ pub fn create_small_cow_graph() -> CowTestGraph {
     }
 }
 
-/// Creates a COW test graph optimized for GQL tests.
+/// Creates a medium test graph with 5 vertices (adds Redis software).
+///
+/// Extends `create_small_graph()` with:
+/// - Redis (software): name="Redis", version=7.0
+/// - Charlie -[created]-> Redis edge
+pub fn create_medium_graph() -> TestGraph {
+    let graph = Graph::new();
+
+    // Add person vertices with status property (used by branch tests)
+    let alice = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Alice".to_string()));
+        props.insert("age".to_string(), Value::Int(30));
+        props.insert("status".to_string(), Value::String("active".to_string()));
+        props.insert("priority".to_string(), Value::Int(1));
+        props
+    });
+
+    let bob = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Bob".to_string()));
+        props.insert("age".to_string(), Value::Int(25));
+        props.insert("status".to_string(), Value::String("inactive".to_string()));
+        props.insert("priority".to_string(), Value::Int(2));
+        props
+    });
+
+    let charlie = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Charlie".to_string()));
+        props.insert("age".to_string(), Value::Int(35));
+        props.insert("status".to_string(), Value::String("active".to_string()));
+        props.insert("priority".to_string(), Value::Int(1));
+        props
+    });
+
+    // Add software vertices
+    let graphdb = graph.add_vertex("software", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("GraphDB".to_string()));
+        props.insert("version".to_string(), Value::Float(2.0));
+        props.insert("priority".to_string(), Value::Int(3));
+        props
+    });
+
+    let redis = graph.add_vertex("software", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Redis".to_string()));
+        props.insert("version".to_string(), Value::Float(7.0));
+        props.insert("priority".to_string(), Value::Int(2));
+        props
+    });
+
+    // Add edges
+    let alice_knows_bob = graph
+        .add_edge(alice, bob, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2020));
+            props
+        })
+        .unwrap();
+
+    let bob_knows_charlie = graph
+        .add_edge(bob, charlie, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2021));
+            props
+        })
+        .unwrap();
+
+    // Alice created GraphDB
+    graph
+        .add_edge(alice, graphdb, "created", HashMap::new())
+        .unwrap();
+
+    // Bob created Redis
+    graph
+        .add_edge(bob, redis, "created", HashMap::new())
+        .unwrap();
+
+    TestGraph {
+        graph,
+        alice,
+        bob,
+        charlie,
+        graphdb,
+        redis: Some(redis),
+        eve: None,
+        alice_knows_bob,
+        bob_knows_charlie,
+        alice_uses_graphdb: None,
+        bob_uses_graphdb: None,
+        charlie_knows_alice: None,
+    }
+}
+
+/// Creates a social network graph with more vertices for complex path tests.
+///
+/// Graph structure includes:
+/// - 5 people: Alice, Bob, Charlie, Diana, Eve
+/// - 2 software: GraphDB, Redis
+/// - Multiple relationship types: knows, created, uses
+pub fn create_social_graph() -> TestGraph {
+    let graph = Graph::new();
+
+    // People
+    let alice = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Alice".to_string()));
+        props.insert("age".to_string(), Value::Int(30));
+        props.insert("city".to_string(), Value::String("NYC".to_string()));
+        props
+    });
+
+    let bob = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Bob".to_string()));
+        props.insert("age".to_string(), Value::Int(25));
+        props.insert("city".to_string(), Value::String("SF".to_string()));
+        props
+    });
+
+    let charlie = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Charlie".to_string()));
+        props.insert("age".to_string(), Value::Int(35));
+        props.insert("city".to_string(), Value::String("NYC".to_string()));
+        props
+    });
+
+    let _diana = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Diana".to_string()));
+        props.insert("age".to_string(), Value::Int(28));
+        props.insert("city".to_string(), Value::String("LA".to_string()));
+        props
+    });
+
+    let eve = graph.add_vertex("person", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Eve".to_string()));
+        props.insert("age".to_string(), Value::Int(32));
+        props.insert("city".to_string(), Value::String("SF".to_string()));
+        props
+    });
+
+    // Software
+    let graphdb = graph.add_vertex("software", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("GraphDB".to_string()));
+        props.insert("version".to_string(), Value::Float(2.0));
+        props.insert("lang".to_string(), Value::String("rust".to_string()));
+        props
+    });
+
+    let redis = graph.add_vertex("software", {
+        let mut props = HashMap::new();
+        props.insert("name".to_string(), Value::String("Redis".to_string()));
+        props.insert("version".to_string(), Value::Float(7.0));
+        props.insert("lang".to_string(), Value::String("c".to_string()));
+        props
+    });
+
+    // Edges - knows relationships
+    let alice_knows_bob = graph
+        .add_edge(alice, bob, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2020));
+            props
+        })
+        .unwrap();
+
+    let bob_knows_charlie = graph
+        .add_edge(bob, charlie, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2021));
+            props
+        })
+        .unwrap();
+
+    graph
+        .add_edge(charlie, alice, "knows", {
+            let mut props = HashMap::new();
+            props.insert("since".to_string(), Value::Int(2019));
+            props
+        })
+        .unwrap();
+
+    // Edges - created relationships
+    graph
+        .add_edge(alice, graphdb, "created", HashMap::new())
+        .unwrap();
+
+    graph
+        .add_edge(bob, redis, "created", HashMap::new())
+        .unwrap();
+
+    // Edges - uses relationships
+    graph
+        .add_edge(charlie, graphdb, "uses", HashMap::new())
+        .unwrap();
+
+    graph.add_edge(eve, redis, "uses", HashMap::new()).unwrap();
+
+    TestGraph {
+        graph,
+        alice,
+        bob,
+        charlie,
+        graphdb,
+        redis: Some(redis),
+        eve: Some(eve),
+        alice_knows_bob,
+        bob_knows_charlie,
+        alice_uses_graphdb: None,
+        bob_uses_graphdb: None,
+        charlie_knows_alice: None,
+    }
+}
+
+/// Creates a test graph optimized for GQL tests.
 ///
 /// Uses PascalCase labels (Person, Company) matching GQL conventions.
-#[allow(dead_code)]
-pub fn create_gql_cow_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+/// Includes Person and Company vertices for label filtering tests.
+pub fn create_gql_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create Person vertices
     let mut alice_props = HashMap::new();
@@ -728,6 +552,50 @@ pub fn create_gql_cow_test_graph() -> CowGraph {
     graph.add_vertex("Company", globex_props);
 
     graph
+}
+
+// =============================================================================
+// Deprecated: Legacy COW Type Aliases
+// =============================================================================
+//
+// These types are now deprecated. Use the unified types instead:
+// - `Graph` instead of `CowGraph`
+// - `GraphSnapshot` instead of `CowSnapshot`
+// - `TestGraph` instead of `CowTestGraph`
+
+/// Deprecated: Use `TestGraph` instead.
+///
+/// COW-based test graph with vertices and their IDs for assertions.
+/// Now that `Graph` uses COW semantics by default, this is an alias for `TestGraph`.
+#[deprecated(note = "Use TestGraph instead - Graph now uses COW semantics by default")]
+#[allow(dead_code)]
+pub type CowTestGraph = TestGraph;
+
+/// Creates an empty COW graph for testing edge cases.
+///
+/// Deprecated: Use `create_empty_graph()` instead - now uses COW semantics.
+#[deprecated(note = "Use create_empty_graph() instead")]
+#[allow(dead_code)]
+pub fn create_empty_cow_graph() -> Graph {
+    Graph::new()
+}
+
+/// Creates a small COW test graph with 4 vertices and 5 edges.
+///
+/// Deprecated: Use `create_small_graph()` instead - now uses COW semantics.
+#[deprecated(note = "Use create_small_graph() instead")]
+#[allow(dead_code)]
+pub fn create_small_cow_graph() -> TestGraph {
+    create_small_graph()
+}
+
+/// Creates a COW test graph optimized for GQL tests.
+///
+/// Deprecated: Use `create_gql_test_graph()` instead - now uses COW semantics.
+#[deprecated(note = "Use create_gql_test_graph() instead")]
+#[allow(dead_code)]
+pub fn create_gql_cow_test_graph() -> Graph {
+    create_gql_test_graph()
 }
 
 #[cfg(test)]
@@ -798,37 +666,9 @@ mod tests {
         assert_eq!(g.e().to_list().len(), 2);
     }
 
-    // =============================================================================
-    // COW Graph Tests (Spec 33)
-    // =============================================================================
-
     #[test]
-    fn small_cow_graph_has_expected_structure() {
-        let tg = create_small_cow_graph();
-        let snapshot = tg.snapshot();
-        let g = snapshot.traversal();
-
-        assert_eq!(g.v().to_list().len(), 4);
-        assert_eq!(g.e().to_list().len(), 5);
-        assert_eq!(g.v().has_label("person").to_list().len(), 3);
-        assert_eq!(g.v().has_label("software").to_list().len(), 1);
-    }
-
-    #[test]
-    fn cow_gql_test_graph_has_expected_structure() {
-        let graph = create_gql_cow_test_graph();
-        let snapshot = graph.snapshot();
-
-        let results = snapshot.gql("MATCH (n:Person) RETURN n").unwrap();
-        assert_eq!(results.len(), 3);
-
-        let results = snapshot.gql("MATCH (c:Company) RETURN c").unwrap();
-        assert_eq!(results.len(), 2);
-    }
-
-    #[test]
-    fn cow_snapshot_is_owned_and_independent() {
-        let graph = CowGraph::new();
+    fn snapshot_is_owned_and_independent() {
+        let graph = Graph::new();
         let alice = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));

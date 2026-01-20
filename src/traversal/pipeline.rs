@@ -214,9 +214,8 @@ impl<In, Out> Traversal<In, Out> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
-    use crate::traversal::context::ExecutionContext;
+    use crate::storage::Graph;
+    use crate::traversal::context::{ExecutionContext, SnapshotLike};
     use crate::traversal::step::IdentityStep;
     use crate::traversal::traverser::{TraversalSource, Traverser};
     use crate::value::{Value, VertexId};
@@ -380,8 +379,7 @@ mod tests {
 
     #[test]
     fn steps_can_be_executed_from_into_steps() {
-        let storage = InMemoryGraph::new();
-        let graph = Graph::new(storage);
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 

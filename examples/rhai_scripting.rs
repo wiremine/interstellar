@@ -8,43 +8,44 @@
 
 use interstellar::prelude::*;
 use interstellar::rhai::RhaiEngine;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 fn main() {
     println!("=== Interstellar Rhai Scripting Example ===\n");
 
-    // Create a sample social graph
+    // Create a sample social graph (wrapped in Arc for sharing with Rhai)
     let graph = create_social_graph();
     let engine = RhaiEngine::new();
 
     // Example 1: Basic traversal
-    example_basic_traversal(&engine, &graph);
+    example_basic_traversal(&engine, graph.clone());
 
     // Example 2: Filtering with predicates
-    example_predicates(&engine, &graph);
+    example_predicates(&engine, graph.clone());
 
     // Example 3: Navigation patterns
-    example_navigation(&engine, &graph);
+    example_navigation(&engine, graph.clone());
 
     // Example 4: Anonymous traversals
-    example_anonymous(&engine, &graph);
+    example_anonymous(&engine, graph.clone());
 
     // Example 5: Pre-compiled scripts
-    example_precompiled(&engine, &graph);
+    example_precompiled(&engine, graph.clone());
 
     // Example 6: Complex query
-    example_complex_query(&engine, &graph);
+    example_complex_query(&engine, graph);
 
     println!("\n=== All examples completed! ===");
 }
 
 /// Create a sample social network graph.
-fn create_social_graph() -> Graph {
-    let mut storage = InMemoryGraph::new();
+fn create_social_graph() -> Arc<Graph> {
+    let graph = Graph::new();
 
     // Create people
-    let alice = storage.add_vertex(
+    let alice = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -53,7 +54,7 @@ fn create_social_graph() -> Graph {
         ]),
     );
 
-    let bob = storage.add_vertex(
+    let bob = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -62,7 +63,7 @@ fn create_social_graph() -> Graph {
         ]),
     );
 
-    let carol = storage.add_vertex(
+    let carol = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Carol".to_string())),
@@ -71,7 +72,7 @@ fn create_social_graph() -> Graph {
         ]),
     );
 
-    let dave = storage.add_vertex(
+    let dave = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Dave".to_string())),
@@ -81,7 +82,7 @@ fn create_social_graph() -> Graph {
     );
 
     // Create companies
-    let acme = storage.add_vertex(
+    let acme = graph.add_vertex(
         "company",
         HashMap::from([
             ("name".to_string(), Value::String("Acme Corp".to_string())),
@@ -92,7 +93,7 @@ fn create_social_graph() -> Graph {
         ]),
     );
 
-    let globex = storage.add_vertex(
+    let globex = graph.add_vertex(
         "company",
         HashMap::from([
             ("name".to_string(), Value::String("Globex Inc".to_string())),
@@ -101,7 +102,7 @@ fn create_social_graph() -> Graph {
     );
 
     // Create relationships
-    storage
+    graph
         .add_edge(
             alice,
             bob,
@@ -109,33 +110,29 @@ fn create_social_graph() -> Graph {
             HashMap::from([("since".to_string(), Value::Int(2020))]),
         )
         .unwrap();
-    storage
+    graph
         .add_edge(alice, carol, "knows", HashMap::new())
         .unwrap();
-    storage
-        .add_edge(bob, carol, "knows", HashMap::new())
-        .unwrap();
-    storage
-        .add_edge(bob, dave, "knows", HashMap::new())
-        .unwrap();
-    storage
+    graph.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
+    graph.add_edge(bob, dave, "knows", HashMap::new()).unwrap();
+    graph
         .add_edge(carol, dave, "knows", HashMap::new())
         .unwrap();
 
-    storage
+    graph
         .add_edge(alice, acme, "works_at", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(bob, acme, "works_at", HashMap::new())
         .unwrap();
-    storage
+    graph
         .add_edge(carol, globex, "works_at", HashMap::new())
         .unwrap();
 
-    Graph::new(storage)
+    Arc::new(graph)
 }
 
-fn example_basic_traversal(engine: &RhaiEngine, graph: &Graph) {
+fn example_basic_traversal(engine: &RhaiEngine, graph: Arc<Graph>) {
     println!("--- Example 1: Basic Traversal ---");
 
     // Count vertices
@@ -144,7 +141,7 @@ fn example_basic_traversal(engine: &RhaiEngine, graph: &Graph) {
         g.v().count()
     "#;
 
-    let count: i64 = engine.eval_with_graph(graph, script).unwrap();
+    let count: i64 = engine.eval_with_graph(graph.clone(), script).unwrap();
     println!("Total vertices: {}", count);
 
     // Get all person names
@@ -164,7 +161,7 @@ fn example_basic_traversal(engine: &RhaiEngine, graph: &Graph) {
     println!("\n");
 }
 
-fn example_predicates(engine: &RhaiEngine, graph: &Graph) {
+fn example_predicates(engine: &RhaiEngine, graph: Arc<Graph>) {
     println!("--- Example 2: Filtering with Predicates ---");
 
     // Find people over 30
@@ -173,7 +170,7 @@ fn example_predicates(engine: &RhaiEngine, graph: &Graph) {
         g.v().has_label("person").has_where("age", gt(30)).values("name").to_list()
     "#;
 
-    let names: rhai::Array = engine.eval_with_graph(graph, script).unwrap();
+    let names: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     print!("People over 30: ");
     for (i, name) in names.iter().enumerate() {
         if i > 0 {
@@ -192,7 +189,7 @@ fn example_predicates(engine: &RhaiEngine, graph: &Graph) {
             .to_list()
     "#;
 
-    let names: rhai::Array = engine.eval_with_graph(graph, script).unwrap();
+    let names: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     print!("People aged 25-35: ");
     for (i, name) in names.iter().enumerate() {
         if i > 0 {
@@ -222,7 +219,7 @@ fn example_predicates(engine: &RhaiEngine, graph: &Graph) {
     println!("\n");
 }
 
-fn example_navigation(engine: &RhaiEngine, graph: &Graph) {
+fn example_navigation(engine: &RhaiEngine, graph: Arc<Graph>) {
     println!("--- Example 3: Navigation Patterns ---");
 
     // Find who Alice knows
@@ -231,7 +228,7 @@ fn example_navigation(engine: &RhaiEngine, graph: &Graph) {
         g.v().has_value("name", "Alice").out("knows").values("name").to_list()
     "#;
 
-    let friends: rhai::Array = engine.eval_with_graph(graph, script).unwrap();
+    let friends: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     print!("Alice knows: ");
     for (i, name) in friends.iter().enumerate() {
         if i > 0 {
@@ -247,7 +244,7 @@ fn example_navigation(engine: &RhaiEngine, graph: &Graph) {
         g.v().has_value("name", "Carol").in_("knows").values("name").to_list()
     "#;
 
-    let knowers: rhai::Array = engine.eval_with_graph(graph, script).unwrap();
+    let knowers: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     print!("People who know Carol: ");
     for (i, name) in knowers.iter().enumerate() {
         if i > 0 {
@@ -280,7 +277,7 @@ fn example_navigation(engine: &RhaiEngine, graph: &Graph) {
     println!("\n");
 }
 
-fn example_anonymous(engine: &RhaiEngine, graph: &Graph) {
+fn example_anonymous(engine: &RhaiEngine, graph: Arc<Graph>) {
     println!("--- Example 4: Anonymous Traversals ---");
 
     // Union: find both friends and workplace
@@ -294,7 +291,7 @@ fn example_anonymous(engine: &RhaiEngine, graph: &Graph) {
             .to_list()
     "#;
 
-    let results: rhai::Array = engine.eval_with_graph(graph, script).unwrap();
+    let results: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     print!("Alice's connections (friends + workplace): ");
     for (i, name) in results.iter().enumerate() {
         if i > 0 {
@@ -327,7 +324,7 @@ fn example_anonymous(engine: &RhaiEngine, graph: &Graph) {
     println!("\n");
 }
 
-fn example_precompiled(engine: &RhaiEngine, graph: &Graph) {
+fn example_precompiled(engine: &RhaiEngine, graph: Arc<Graph>) {
     println!("--- Example 5: Pre-compiled Scripts ---");
 
     // Compile once, run multiple times
@@ -344,13 +341,13 @@ fn example_precompiled(engine: &RhaiEngine, graph: &Graph) {
 
     // Execute multiple times
     for i in 1..=3 {
-        let names: rhai::Array = engine.eval_ast_with_graph(graph, &ast).unwrap();
+        let names: rhai::Array = engine.eval_ast_with_graph(graph.clone(), &ast).unwrap();
         println!("  Execution {}: found {} people", i, names.len());
     }
     println!();
 }
 
-fn example_complex_query(engine: &RhaiEngine, graph: &Graph) {
+fn example_complex_query(engine: &RhaiEngine, graph: Arc<Graph>) {
     println!("--- Example 6: Complex Query ---");
 
     // Find friends of friends who work at a different company

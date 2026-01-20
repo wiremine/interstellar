@@ -184,16 +184,15 @@ impl crate::traversal::step::AnyStep for MeanStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::step::AnyStep;
+    use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let storage = InMemoryGraph::new();
         // Add minimal dummy data if needed by tests, though many here use Traverser::new() directly
-        Graph::new(storage)
+        Graph::new()
     }
 
     mod unfold_step_list {

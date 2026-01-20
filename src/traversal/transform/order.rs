@@ -440,36 +440,35 @@ impl<'g, In> BoundOrderBuilder<'g, In> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
+    use crate::traversal::SnapshotLike;
     use crate::value::VertexId;
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let storage = InMemoryGraph::new();
-        Graph::new(storage)
+        Graph::new()
     }
 
     fn create_sorted_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Add vertices with ages and names
         let mut props1 = HashMap::new();
         props1.insert("name".to_string(), Value::String("Alice".to_string()));
         props1.insert("age".to_string(), Value::Int(30));
-        storage.add_vertex("person", props1);
+        graph.add_vertex("person", props1);
 
         let mut props2 = HashMap::new();
         props2.insert("name".to_string(), Value::String("Bob".to_string()));
         props2.insert("age".to_string(), Value::Int(25));
-        storage.add_vertex("person", props2);
+        graph.add_vertex("person", props2);
 
         let mut props3 = HashMap::new();
         props3.insert("name".to_string(), Value::String("Charlie".to_string()));
         props3.insert("age".to_string(), Value::Int(35));
-        storage.add_vertex("person", props3);
+        graph.add_vertex("person", props3);
 
-        Graph::new(storage)
+        graph
     }
 
     mod order_step_construction {
@@ -792,7 +791,8 @@ mod tests {
                 .iter()
                 .filter_map(|v| {
                     if let Value::Vertex(id) = v {
-                        snapshot.graph.storage.get_vertex(*id).and_then(|vertex| {
+                        use crate::storage::GraphStorage;
+                        snapshot.get_vertex(*id).and_then(|vertex| {
                             vertex.properties.get("age").and_then(|age| {
                                 if let Value::Int(n) = age {
                                     Some(*n)
@@ -832,7 +832,8 @@ mod tests {
                 .iter()
                 .filter_map(|v| {
                     if let Value::Vertex(id) = v {
-                        snapshot.graph.storage.get_vertex(*id).and_then(|vertex| {
+                        use crate::storage::GraphStorage;
+                        snapshot.get_vertex(*id).and_then(|vertex| {
                             vertex.properties.get("age").and_then(|age| {
                                 if let Value::Int(n) = age {
                                     Some(*n)
@@ -855,25 +856,24 @@ mod tests {
 
         #[test]
         fn bound_order_multi_level() {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add vertices with same age but different names
             let mut props1 = HashMap::new();
             props1.insert("name".to_string(), Value::String("Zara".to_string()));
             props1.insert("age".to_string(), Value::Int(30));
-            storage.add_vertex("person", props1);
+            graph.add_vertex("person", props1);
 
             let mut props2 = HashMap::new();
             props2.insert("name".to_string(), Value::String("Alice".to_string()));
             props2.insert("age".to_string(), Value::Int(30));
-            storage.add_vertex("person", props2);
+            graph.add_vertex("person", props2);
 
             let mut props3 = HashMap::new();
             props3.insert("name".to_string(), Value::String("Bob".to_string()));
             props3.insert("age".to_string(), Value::Int(25));
-            storage.add_vertex("person", props3);
+            graph.add_vertex("person", props3);
 
-            let graph = Graph::new(storage);
             let snapshot = graph.snapshot();
             let g = snapshot.traversal();
 
@@ -891,7 +891,8 @@ mod tests {
                 .iter()
                 .filter_map(|v| {
                     if let Value::Vertex(id) = v {
-                        snapshot.graph.storage.get_vertex(*id).and_then(|vertex| {
+                        use crate::storage::GraphStorage;
+                        snapshot.get_vertex(*id).and_then(|vertex| {
                             vertex.properties.get("name").and_then(|name| {
                                 if let Value::String(s) = name {
                                     Some(s.clone())

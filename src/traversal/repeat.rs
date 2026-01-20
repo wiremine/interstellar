@@ -1047,40 +1047,38 @@ impl<'g, In> std::fmt::Debug for RepeatTraversal<'g, In> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::filter::HasLabelStep;
     use crate::traversal::step::IdentityStep;
+    use crate::traversal::SnapshotLike;
     use crate::value::VertexId;
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Add vertices
-        let v1 = storage.add_vertex("person", {
+        let v1 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props
         });
-        let v2 = storage.add_vertex("person", {
+        let v2 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Bob".to_string()));
             props
         });
-        let v3 = storage.add_vertex("company", {
+        let v3 = graph.add_vertex("company", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("TechCorp".to_string()));
             props
         });
 
         // Add edges
-        storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
-        storage
-            .add_edge(v2, v3, "works_at", HashMap::new())
-            .unwrap();
+        graph.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
+        graph.add_edge(v2, v3, "works_at", HashMap::new()).unwrap();
 
-        Graph::new(storage)
+        graph
     }
 
     // -------------------------------------------------------------------------
@@ -1580,32 +1578,30 @@ mod tests {
 
         /// Create a test graph with a chain: Alice -> Bob -> TechCorp
         fn create_chain_graph() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add vertices
-            let v0 = storage.add_vertex("person", {
+            let v0 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props
             });
-            let v1 = storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props
             });
-            let v2 = storage.add_vertex("company", {
+            let v2 = graph.add_vertex("company", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("TechCorp".to_string()));
                 props
             });
 
             // Create chain: Alice -> Bob -> TechCorp
-            storage.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
-            storage
-                .add_edge(v1, v2, "works_at", HashMap::new())
-                .unwrap();
+            graph.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
+            graph.add_edge(v1, v2, "works_at", HashMap::new()).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -1826,30 +1822,28 @@ mod tests {
 
         /// Create a chain graph: Alice -> Bob -> TechCorp
         fn create_chain_graph() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
-            let v0 = storage.add_vertex("person", {
+            let v0 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props
             });
-            let v1 = storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props
             });
-            let v2 = storage.add_vertex("company", {
+            let v2 = graph.add_vertex("company", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("TechCorp".to_string()));
                 props
             });
 
-            storage.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
-            storage
-                .add_edge(v1, v2, "works_at", HashMap::new())
-                .unwrap();
+            graph.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
+            graph.add_edge(v1, v2, "works_at", HashMap::new()).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]

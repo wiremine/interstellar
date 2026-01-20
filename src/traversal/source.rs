@@ -27,7 +27,8 @@
 
 use std::marker::PhantomData;
 
-use crate::graph::GraphSnapshot;
+#[allow(deprecated)]
+use crate::graph::GraphSnapshot as LegacyGraphSnapshot;
 use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
 use crate::traversal::context::SnapshotLike;
@@ -63,10 +64,15 @@ pub struct GraphTraversalSource<'g> {
 }
 
 impl<'g> GraphTraversalSource<'g> {
-    /// Create a new traversal source from a snapshot.
+    /// Create a new traversal source from a legacy snapshot.
+    ///
+    /// **DEPRECATED**: Use `from_snapshot()` instead, which works with any
+    /// snapshot type including the new COW-based snapshots.
     ///
     /// This is typically called via `snapshot.traversal()`.
-    pub fn new(snapshot: &'g GraphSnapshot<'g>, interner: &'g StringInterner) -> Self {
+    #[deprecated(since = "0.2.0", note = "Use from_snapshot() instead")]
+    #[allow(deprecated)]
+    pub fn new(snapshot: &'g LegacyGraphSnapshot<'g>, interner: &'g StringInterner) -> Self {
         Self {
             storage: snapshot.storage(),
             interner,
@@ -3817,6 +3823,7 @@ impl<'g, In> BoundAddEdgeBuilder<'g, In> {
 // -----------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::graph::Graph;

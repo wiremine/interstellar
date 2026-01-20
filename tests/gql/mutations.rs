@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use interstellar::gql::{parse_statement, MutationError};
-use interstellar::storage::{CowGraph, GraphStorage};
+use interstellar::storage::{Graph, GraphStorage};
 use interstellar::value::Value;
 
 // =============================================================================
@@ -13,8 +13,8 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with some initial data.
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let alice_id = graph.add_vertex(
         "Person",
@@ -50,7 +50,7 @@ fn create_test_graph() -> CowGraph {
 }
 
 /// Execute a GQL mutation query against the graph.
-fn execute_gql(graph: &CowGraph, query: &str) -> Result<Vec<Value>, MutationError> {
+fn execute_gql(graph: &Graph, query: &str) -> Result<Vec<Value>, MutationError> {
     graph.gql(query).map_err(|e| {
         MutationError::Compile(interstellar::gql::CompileError::UnsupportedFeature(
             format!("GQL error: {}", e),
@@ -64,7 +64,7 @@ fn execute_gql(graph: &CowGraph, query: &str) -> Result<Vec<Value>, MutationErro
 
 #[test]
 fn test_create_single_vertex() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     execute_gql(&graph, "CREATE (n:Person {name: 'Charlie', age: 35})").unwrap();
 
@@ -81,7 +81,7 @@ fn test_create_single_vertex() {
 
 #[test]
 fn test_create_multiple_vertices() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     execute_gql(
         &graph,
@@ -94,7 +94,7 @@ fn test_create_multiple_vertices() {
 
 #[test]
 fn test_create_vertex_and_edge() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     execute_gql(
         &graph,
@@ -112,7 +112,7 @@ fn test_create_vertex_and_edge() {
 
 #[test]
 fn test_create_with_return() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let results = execute_gql(&graph, "CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
 
@@ -122,7 +122,7 @@ fn test_create_with_return() {
 
 #[test]
 fn test_create_with_return_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let results = execute_gql(&graph, "CREATE (n:Person {name: 'Alice'}) RETURN n.name").unwrap();
 
@@ -243,7 +243,7 @@ fn test_delete_edge() {
 
 #[test]
 fn test_delete_vertex_without_edges() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Solo".to_string()))]),
@@ -291,7 +291,7 @@ fn test_detach_delete_vertex() {
 
 #[test]
 fn test_merge_creates_when_not_exists() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     execute_gql(
         &graph,
@@ -333,7 +333,7 @@ fn test_merge_matches_when_exists() {
 
 #[test]
 fn test_merge_with_both_actions() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // First MERGE creates
     execute_gql(
@@ -417,7 +417,7 @@ fn test_match_where_no_matches() {
 
 #[test]
 fn test_create_multiple_edges_chain() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     execute_gql(
         &graph,
@@ -840,7 +840,7 @@ fn test_merge_match_set_wrong_type() {
 
 #[test]
 fn test_mutation_without_schema() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Using gql() without schema should work without validation
     let result = execute_gql(&graph, "CREATE (n:Person {name: 42})"); // name as Int instead of String
@@ -865,11 +865,15 @@ fn test_mutation_with_none_schema() {
 // Graph API DDL Integration Tests
 // =============================================================================
 
-use interstellar::prelude::Graph;
+// These tests use the legacy Graph API with mutate().ddl() for DDL operations.
+// The new COW-based Graph uses a different API pattern.
+#[allow(deprecated)]
+use interstellar::graph::Graph as LegacyGraph;
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_create_node_type() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -891,8 +895,9 @@ fn test_graph_ddl_create_node_type() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_create_edge_type() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -918,8 +923,9 @@ fn test_graph_ddl_create_edge_type() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_set_validation_mode() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -938,8 +944,9 @@ fn test_graph_ddl_set_validation_mode() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_alter_node_type() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -971,8 +978,9 @@ fn test_graph_ddl_alter_node_type() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_drop_node_type() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -996,8 +1004,9 @@ fn test_graph_ddl_drop_node_type() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_full_workflow() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -1033,8 +1042,9 @@ fn test_graph_ddl_full_workflow() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_error_handling() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -1059,8 +1069,9 @@ fn test_graph_ddl_error_handling() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_graph_ddl_parse_error() {
-    let graph = Graph::in_memory();
+    let graph = LegacyGraph::in_memory();
 
     {
         let mut_handle = graph.mutate();
@@ -1080,8 +1091,8 @@ fn test_graph_ddl_parse_error() {
 // =============================================================================
 
 /// Helper to create a graph for FOREACH tests with relationships.
-fn create_foreach_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_foreach_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Create several people
     let alice_id = graph.add_vertex(
@@ -1152,7 +1163,7 @@ fn test_foreach_set_property() {
 
 #[test]
 fn test_foreach_remove_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create a vertex with properties we'll remove
     graph.add_vertex(
@@ -1187,7 +1198,7 @@ fn test_foreach_remove_property() {
 
 #[test]
 fn test_foreach_multiple_mutations() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create vertices
     graph.add_vertex(
@@ -1223,7 +1234,7 @@ fn test_foreach_multiple_mutations() {
 
 #[test]
 fn test_foreach_empty_list() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Person",
@@ -1256,7 +1267,7 @@ fn test_foreach_empty_list() {
 
 #[test]
 fn test_foreach_null_list() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Person",
@@ -1292,7 +1303,7 @@ fn test_foreach_null_list() {
 
 #[test]
 fn test_foreach_non_list_error() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Person",
@@ -1318,7 +1329,7 @@ fn test_foreach_non_list_error() {
 
 #[test]
 fn test_foreach_variable_scope() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Person",
@@ -1409,7 +1420,7 @@ fn test_foreach_mark_friends_visited() {
 
 #[test]
 fn test_foreach_nested_iteration() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Counter",

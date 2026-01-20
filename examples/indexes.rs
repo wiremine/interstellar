@@ -22,10 +22,9 @@
 //!
 //! Run: `cargo run --features mmap --example indexes`
 
-use interstellar::graph::Graph;
 use interstellar::index::IndexBuilder;
 use interstellar::storage::mmap::MmapGraph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::{Graph, InMemoryGraph};
 use interstellar::value::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -235,7 +234,7 @@ fn demo_unique_indexes() {
 fn demo_traversal_with_indexes() {
     section("PART 3: INDEX-ACCELERATED TRAVERSALS");
 
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create a graph with products
     subsection("Creating product catalog");
@@ -247,7 +246,7 @@ fn demo_traversal_with_indexes() {
             2 => "books",
             _ => "home",
         };
-        storage.add_vertex(
+        graph.add_vertex(
             "product",
             HashMap::from([
                 ("name".to_string(), Value::String(format!("product_{}", i))),
@@ -260,7 +259,7 @@ fn demo_traversal_with_indexes() {
 
     // Create indexes
     subsection("Creating indexes");
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("product")
@@ -272,7 +271,7 @@ fn demo_traversal_with_indexes() {
         .unwrap();
     println!("  Created BTree index on product.price");
 
-    storage
+    graph
         .create_index(
             IndexBuilder::vertex()
                 .label("product")
@@ -284,8 +283,7 @@ fn demo_traversal_with_indexes() {
         .unwrap();
     println!("  Created BTree index on product.category");
 
-    // Wrap in Graph for traversal API
-    let graph = Graph::new(storage);
+    // Get snapshot for traversal API
     let snapshot = graph.snapshot();
 
     // Query using traversal API

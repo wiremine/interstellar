@@ -11,7 +11,7 @@ use rhai::{Dynamic, Engine, ImmutableString};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::graph::Graph;
+use crate::storage::Graph;
 use crate::traversal::step::IdentityStep;
 use crate::traversal::{Traversal, TraversalSource, __};
 use crate::value::{EdgeId, Value, VertexId};
@@ -3245,13 +3245,13 @@ fn register_anonymous_factory(engine: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::InMemoryGraph;
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     fn create_test_graph() -> RhaiGraph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
-        let alice = storage.add_vertex(
+        let alice = graph.add_vertex(
             "person",
             [
                 ("name".to_string(), Value::String("Alice".to_string())),
@@ -3261,7 +3261,7 @@ mod tests {
             .collect(),
         );
 
-        let bob = storage.add_vertex(
+        let bob = graph.add_vertex(
             "person",
             [
                 ("name".to_string(), Value::String("Bob".to_string())),
@@ -3271,7 +3271,7 @@ mod tests {
             .collect(),
         );
 
-        let carol = storage.add_vertex(
+        let carol = graph.add_vertex(
             "person",
             [
                 ("name".to_string(), Value::String("Carol".to_string())),
@@ -3281,18 +3281,11 @@ mod tests {
             .collect(),
         );
 
-        storage
-            .add_edge(alice, bob, "knows", HashMap::new())
-            .unwrap();
-        storage
-            .add_edge(alice, carol, "knows", HashMap::new())
-            .unwrap();
-        storage
-            .add_edge(bob, carol, "knows", HashMap::new())
-            .unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new());
+        graph.add_edge(alice, carol, "knows", HashMap::new());
+        graph.add_edge(bob, carol, "knows", HashMap::new());
 
-        let graph = Graph::new(storage);
-        RhaiGraph::new(graph)
+        RhaiGraph::from_arc(Arc::new(graph))
     }
 
     #[test]

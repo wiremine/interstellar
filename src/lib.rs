@@ -18,27 +18,24 @@
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
+//! use std::collections::HashMap;
 //!
-//! // Create an in-memory graph
-//! let mut storage = InMemoryGraph::new();
+//! // Create a new graph
+//! let graph = Graph::new();
 //!
 //! // Add vertices with properties
-//! let alice = storage.add_vertex("person", props! {
-//!     "name" => "Alice",
-//!     "age" => 30i64,
-//! });
+//! let alice = graph.add_vertex("person", HashMap::from([
+//!     ("name".to_string(), Value::from("Alice")),
+//!     ("age".to_string(), Value::from(30i64)),
+//! ]));
 //!
-//! let bob = storage.add_vertex("person", props! {
-//!     "name" => "Bob",
-//!     "age" => 25i64,
-//! });
+//! let bob = graph.add_vertex("person", HashMap::from([
+//!     ("name".to_string(), Value::from("Bob")),
+//!     ("age".to_string(), Value::from(25i64)),
+//! ]));
 //!
 //! // Add an edge
-//! storage.add_edge(alice, bob, "knows", props! {}).unwrap();
-//!
-//! // Wrap storage in a Graph for traversal
-//! let graph = Graph::new(storage);
+//! graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
 //!
 //! // Create a snapshot for read access
 //! let snapshot = graph.snapshot();
@@ -182,14 +179,13 @@
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
+//! use std::collections::HashMap;
 //!
-//! let mut storage = InMemoryGraph::new();
-//! storage.add_vertex("Person", props! {
-//!     "name" => "Alice",
-//! });
+//! let graph = Graph::new();
+//! graph.add_vertex("Person", HashMap::from([
+//!     ("name".to_string(), Value::from("Alice")),
+//! ]));
 //!
-//! let graph = Graph::new(storage);
 //! let snapshot = graph.snapshot();
 //!
 //! // Execute a GQL query
@@ -389,15 +385,15 @@ pub mod rhai;
 /// ```rust
 /// use interstellar::prelude::*;
 ///
-/// let graph = Graph::in_memory();
+/// let graph = Graph::new();
 /// let snapshot = graph.snapshot();
 /// let g = snapshot.traversal();
 /// ```
 ///
 /// This imports:
 ///
-/// - Graph types: [`Graph`], [`GraphSnapshot`], [`GraphMut`]
-/// - Unified API types: [`UnifiedGraph`], [`UnifiedSnapshot`], [`PersistentGraph`] (mmap), [`PersistentSnapshot`] (mmap)
+/// - Graph types: [`Graph`], [`GraphSnapshot`]
+/// - Persistent graph types (mmap feature): [`PersistentGraph`], [`PersistentSnapshot`]
 /// - Traversal: [`Traversal`], [`BoundTraversal`], [`GraphTraversalSource`]
 /// - Anonymous traversals: [`__`]
 /// - Predicates: [`p`]
@@ -407,11 +403,14 @@ pub mod rhai;
 /// - Macros: [`props!`]
 pub mod prelude {
     pub use crate::error::{StorageError, TraversalError};
-    pub use crate::graph::{Graph, GraphMut, GraphSnapshot};
+    // Primary graph types (from storage::cow)
     pub use crate::props;
-    // Unified API types (Spec 33)
+    pub use crate::storage::{Graph, GraphSnapshot};
+    // Persistent graph types (mmap feature)
     #[cfg(feature = "mmap")]
     pub use crate::storage::{PersistentGraph, PersistentSnapshot};
+    // Deprecated aliases for backward compatibility
+    #[allow(deprecated)]
     pub use crate::storage::{UnifiedGraph, UnifiedSnapshot};
     pub use crate::traversal::{
         p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,

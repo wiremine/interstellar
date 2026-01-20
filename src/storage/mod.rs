@@ -74,7 +74,13 @@ pub mod mmap;
 #[cfg(feature = "mmap")]
 pub mod cow_mmap;
 
-pub use cow::{BatchContext, BatchError, CowGraph, CowGraphState, CowSnapshot};
+// Re-export primary types (new names)
+pub use cow::{BatchContext, BatchError, Graph, GraphSnapshot, GraphState};
+
+// Re-export deprecated aliases for backward compatibility
+#[allow(deprecated)]
+pub use cow::{CowGraph, CowGraphState, CowSnapshot};
+
 pub use inmemory::InMemoryGraph;
 pub use interner::StringInterner;
 
@@ -102,22 +108,21 @@ pub use cow_mmap::{
 
 /// In-memory graph with Copy-on-Write semantics.
 ///
-/// This is the recommended graph type for in-memory use cases. It provides:
+/// This is an alias for [`Graph`], the recommended graph type for in-memory use cases.
+/// It provides:
 /// - O(1) snapshot creation via structural sharing
 /// - Lock-free read access on snapshots
 /// - Full traversal and GQL API support
-///
-/// This is an alias for [`CowGraph`].
-pub type UnifiedGraph = CowGraph;
+#[deprecated(since = "0.2.0", note = "Use Graph instead")]
+pub type UnifiedGraph = Graph;
 
 /// Immutable snapshot of an in-memory graph.
 ///
-/// Snapshots are created via [`UnifiedGraph::snapshot()`](CowGraph::snapshot) and
-/// provide a consistent, point-in-time view of the graph. They support the full
-/// traversal and GQL API.
-///
-/// This is an alias for [`CowSnapshot`].
-pub type UnifiedSnapshot = CowSnapshot;
+/// This is an alias for [`GraphSnapshot`].
+/// Snapshots are created via [`Graph::snapshot()`](Graph::snapshot) and
+/// provide a consistent, point-in-time view of the graph.
+#[deprecated(since = "0.2.0", note = "Use GraphSnapshot instead")]
+pub type UnifiedSnapshot = GraphSnapshot;
 
 /// Persistent graph with Copy-on-Write semantics and mmap storage.
 ///

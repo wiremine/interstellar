@@ -28,7 +28,7 @@
 use interstellar::gql::{
     execute_mutation_with_schema, parse_statement, CompileError, MutationError,
 };
-use interstellar::graph::Graph;
+use interstellar::graph::LegacyGraph;
 use interstellar::schema::{GraphSchema, PropertyType, SchemaBuilder, ValidationMode};
 use interstellar::storage::mmap::MmapGraph;
 use interstellar::value::Value;
@@ -302,8 +302,8 @@ fn demo_read_graph() {
         schema.edge_labels().collect::<Vec<_>>()
     );
 
-    // Create Graph wrapper for querying
-    let graph = Graph::from_arc(storage.clone());
+    // Create LegacyGraph wrapper for querying
+    let graph = LegacyGraph::from_arc(storage.clone());
     let snapshot = graph.snapshot();
 
     // Query with Fluent API

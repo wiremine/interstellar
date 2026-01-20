@@ -9,12 +9,12 @@
 
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
 
 /// Helper to create a graph for WHERE clause tests
-fn create_where_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_where_test_graph() -> Graph {
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -197,7 +197,7 @@ fn test_gql_where_greater_equal_less_equal() {
 
 #[test]
 fn test_gql_where_contains() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("Alice Anderson"));
@@ -222,7 +222,7 @@ fn test_gql_where_contains() {
 
 #[test]
 fn test_gql_where_starts_with() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("name".to_string(), Value::from("Alice"));
@@ -247,7 +247,7 @@ fn test_gql_where_starts_with() {
 
 #[test]
 fn test_gql_where_ends_with() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut props1 = HashMap::new();
     props1.insert("email".to_string(), Value::from("alice@example.com"));
@@ -382,7 +382,7 @@ fn test_gql_where_age_range() {
 
 #[test]
 fn test_gql_where_with_traversal() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -415,7 +415,7 @@ fn test_gql_where_with_traversal() {
 
 #[test]
 fn test_gql_where_undefined_variable() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
 
     let result = snapshot.gql("MATCH (n:Person) WHERE x.age > 30 RETURN n");

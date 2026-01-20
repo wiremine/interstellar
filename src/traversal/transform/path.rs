@@ -278,24 +278,24 @@ impl crate::traversal::step::AnyStep for SelectStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::step::AnyStep;
+    use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Vertex 0: person with name and age
-        storage.add_vertex("person", {
+        graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
             props
         });
 
-        Graph::new(storage)
+        graph
     }
 
     mod path_step_construction {

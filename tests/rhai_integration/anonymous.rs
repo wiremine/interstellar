@@ -17,7 +17,7 @@ fn test_anonymous_factory_available() {
     // Just test that A is available in scope
     let result: rhai::Dynamic = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let anon = A.out();
             true
@@ -36,7 +36,7 @@ fn test_anonymous_identity() {
     // A.identity() should create a pass-through traversal
     let result: rhai::Dynamic = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let anon = A.identity();
             true
@@ -55,7 +55,7 @@ fn test_anonymous_chained() {
     // Test chained anonymous traversal creation
     let result: rhai::Dynamic = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let anon = A.out("knows").has_label("person").values("name");
             true
@@ -78,7 +78,7 @@ fn test_union_with_anonymous() {
     // Union of out("knows") and out("works_at")
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -99,7 +99,7 @@ fn test_union_multiple_branches() {
     // Union of multiple navigation paths
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -127,7 +127,7 @@ fn test_coalesce_with_anonymous() {
     // Coalesce: try out("manages") first, fall back to out("knows")
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -149,7 +149,7 @@ fn test_coalesce_first_match_wins() {
     // Coalesce: out("knows") succeeds, so out("works_at") is not tried
     let names: rhai::Array = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -176,7 +176,7 @@ fn test_optional_with_anonymous() {
     // Optional: try to navigate, keep original if not possible
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_label("person")
@@ -203,7 +203,7 @@ fn test_repeat_with_anonymous() {
     // Repeat out() twice
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -229,7 +229,7 @@ fn test_anonymous_with_filter() {
     // Anonymous traversal with has_label filter
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -250,7 +250,7 @@ fn test_anonymous_with_has_value() {
     // Anonymous traversal with has_value filter
     let names: rhai::Array = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -278,7 +278,7 @@ fn test_anonymous_with_values() {
     // Anonymous traversal that extracts values
     let names: rhai::Array = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -299,7 +299,7 @@ fn test_anonymous_with_constant() {
     // Anonymous traversal with constant
     let results: rhai::Array = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -327,7 +327,7 @@ fn test_nested_union() {
     // Nested unions (if supported)
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -354,7 +354,7 @@ fn test_anonymous_dedup() {
     // Anonymous with dedup
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_where("name", within(["Alice", "Bob"]))
@@ -377,7 +377,7 @@ fn test_anonymous_limit() {
     // Anonymous with limit
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let g = graph.traversal();
             g.v().has_value("name", "Alice")
@@ -402,7 +402,7 @@ fn test_anonymous_in_variable() {
     // Store anonymous traversal in variable and reuse
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let friends = A.out("knows");
             let g = graph.traversal();
@@ -424,7 +424,7 @@ fn test_multiple_anonymous_variables() {
     // Multiple anonymous traversals in variables
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             let friends = A.out("knows");
             let work = A.out("works_at");
@@ -447,7 +447,7 @@ fn test_anonymous_as_function_parameter() {
     // Pass anonymous traversal to function
     let count: i64 = engine
         .eval_with_graph(
-            &graph,
+            graph.clone(),
             r#"
             fn apply_union(g, traversal) {
                 g.v().has_value("name", "Alice").union([traversal]).count()

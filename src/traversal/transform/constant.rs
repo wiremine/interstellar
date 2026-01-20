@@ -78,17 +78,17 @@ impl crate::traversal::step::AnyStep for ConstantStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
     use crate::traversal::step::AnyStep;
+    use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Vertex 0: person with name and age
-        storage.add_vertex("person", {
+        let v0 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
@@ -96,23 +96,23 @@ mod tests {
         });
 
         // Vertex 1: software with name and lang
-        storage.add_vertex("software", {
+        let v1 = graph.add_vertex("software", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Ripple".to_string()));
             props.insert("lang".to_string(), Value::String("Java".to_string()));
             props
         });
 
-        // Edge 0: 0 -> 1 (created)
-        storage
-            .add_edge(VertexId(0), VertexId(1), "created", {
+        // Edge 0: v0 -> v1 (created)
+        graph
+            .add_edge(v0, v1, "created", {
                 let mut props = HashMap::new();
                 props.insert("weight".to_string(), Value::Float(1.0));
                 props
             })
             .unwrap();
 
-        Graph::new(storage)
+        graph
     }
 
     mod constant_step_transform_tests {

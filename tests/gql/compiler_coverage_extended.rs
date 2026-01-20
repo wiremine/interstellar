@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use interstellar::gql::{compile, parse};
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::value::Value;
 
 // =============================================================================
@@ -19,8 +19,8 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with Person and Software vertices plus edges.
-fn create_test_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
     // Add Person vertices with various properties
     let alice = graph.add_vertex(
@@ -155,8 +155,8 @@ fn create_test_graph() -> CowGraph {
 }
 
 /// Creates a simple graph for basic tests.
-fn create_simple_graph() -> CowGraph {
-    let graph = CowGraph::new();
+fn create_simple_graph() -> Graph {
+    let graph = Graph::new();
     graph.add_vertex("Dummy", HashMap::new());
     graph
 }
@@ -1465,7 +1465,7 @@ fn test_multi_var_pattern_size() {
 
 #[test]
 fn test_multi_var_pattern_trim() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1543,7 +1543,7 @@ fn test_multi_var_pattern_replace() {
 
 #[test]
 fn test_multi_var_pattern_abs() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1581,7 +1581,7 @@ fn test_multi_var_pattern_abs() {
 
 #[test]
 fn test_multi_var_pattern_ceil_floor_round() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1666,7 +1666,7 @@ fn test_multi_var_tostring() {
 
 #[test]
 fn test_multi_var_tointeger() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1721,7 +1721,7 @@ fn test_multi_var_tofloat() {
 
 #[test]
 fn test_multi_var_toboolean() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1760,7 +1760,7 @@ fn test_multi_var_toboolean() {
 
 #[test]
 fn test_multi_var_radians() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1799,7 +1799,7 @@ fn test_multi_var_radians() {
 
 #[test]
 fn test_multi_var_degrees() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -2476,7 +2476,7 @@ fn test_with_clause_distinct() {
 
 #[test]
 fn test_edge_property_access() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -2864,7 +2864,7 @@ fn test_row_based_tolower() {
 
 #[test]
 fn test_row_based_abs() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Account",
@@ -3044,7 +3044,7 @@ fn test_single_var_size_list() {
 
 #[test]
 fn test_single_var_trim() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Person",
@@ -3129,7 +3129,7 @@ fn test_single_var_replace() {
 
 #[test]
 fn test_single_var_abs() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Account",
@@ -3157,7 +3157,7 @@ fn test_single_var_abs() {
 
 #[test]
 fn test_single_var_ceil() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3182,7 +3182,7 @@ fn test_single_var_ceil() {
 
 #[test]
 fn test_single_var_floor() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3207,7 +3207,7 @@ fn test_single_var_floor() {
 
 #[test]
 fn test_single_var_round() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3252,7 +3252,7 @@ fn test_single_var_sign() {
 
 #[test]
 fn test_single_var_sqrt() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3277,7 +3277,7 @@ fn test_single_var_sqrt() {
 
 #[test]
 fn test_single_var_log() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3306,7 +3306,7 @@ fn test_single_var_log() {
 
 #[test]
 fn test_single_var_exp() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3335,7 +3335,7 @@ fn test_single_var_exp() {
 
 #[test]
 fn test_single_var_sin() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3364,7 +3364,7 @@ fn test_single_var_sin() {
 
 #[test]
 fn test_single_var_cos() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3393,7 +3393,7 @@ fn test_single_var_cos() {
 
 #[test]
 fn test_single_var_tan() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3442,7 +3442,7 @@ fn test_single_var_tostring() {
 
 #[test]
 fn test_single_var_tointeger() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",
@@ -3487,7 +3487,7 @@ fn test_single_var_tofloat() {
 
 #[test]
 fn test_single_var_toboolean() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Data",

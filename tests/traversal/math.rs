@@ -12,19 +12,19 @@
 
 use std::collections::HashMap;
 
-use interstellar::storage::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 
-use crate::common::graphs::{create_small_cow_graph, TestGraphBuilder};
+use crate::common::graphs::{create_small_graph, TestGraphBuilder};
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
 /// Create a graph with numeric properties for math testing.
-fn create_math_test_graph() -> (CowGraph, VertexId, VertexId, VertexId) {
-    let graph = CowGraph::new();
+fn create_math_test_graph() -> (Graph, VertexId, VertexId, VertexId) {
+    let graph = Graph::new();
 
     // Vertex with positive values
     let v1 = graph.add_vertex("point", {
@@ -85,7 +85,7 @@ fn extract_f64(v: &Value) -> Option<f64> {
 
 #[test]
 fn math_multiply_current_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -98,7 +98,7 @@ fn math_multiply_current_value() {
 
 #[test]
 fn math_add_to_current_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -116,7 +116,7 @@ fn math_add_to_current_value() {
 
 #[test]
 fn math_subtract_from_current_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -128,7 +128,7 @@ fn math_subtract_from_current_value() {
 
 #[test]
 fn math_divide_current_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -141,7 +141,7 @@ fn math_divide_current_value() {
 
 #[test]
 fn math_modulo_current_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -154,7 +154,7 @@ fn math_modulo_current_value() {
 
 #[test]
 fn math_power_current_value() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -167,7 +167,7 @@ fn math_power_current_value() {
 
 #[test]
 fn math_with_float_input() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -184,7 +184,7 @@ fn math_with_float_input() {
 
 #[test]
 fn math_complex_expression() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -197,7 +197,7 @@ fn math_complex_expression() {
 
 #[test]
 fn math_operator_precedence() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -215,7 +215,7 @@ fn math_operator_precedence() {
 
 #[test]
 fn math_sqrt_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -233,7 +233,7 @@ fn math_sqrt_function() {
 
 #[test]
 fn math_abs_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -251,7 +251,7 @@ fn math_abs_function() {
 
 #[test]
 fn math_pow_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -263,7 +263,7 @@ fn math_pow_function() {
 
 #[test]
 fn math_min_max_functions() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -276,7 +276,7 @@ fn math_min_max_functions() {
 
 #[test]
 fn math_floor_ceil_round() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -304,7 +304,7 @@ fn math_floor_ceil_round() {
 
 #[test]
 fn math_trigonometric_functions() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -323,7 +323,7 @@ fn math_trigonometric_functions() {
 
 #[test]
 fn math_log_exp_functions() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -342,7 +342,7 @@ fn math_log_exp_functions() {
 
 #[test]
 fn math_nested_functions() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -359,7 +359,7 @@ fn math_nested_functions() {
 
 #[test]
 fn math_pi_constant() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -374,7 +374,7 @@ fn math_pi_constant() {
 
 #[test]
 fn math_e_constant() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -389,7 +389,7 @@ fn math_e_constant() {
 
 #[test]
 fn math_pi_in_expression() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -406,7 +406,7 @@ fn math_pi_in_expression() {
 
 #[test]
 fn math_on_vertex_property_values() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -453,7 +453,7 @@ fn math_pythagorean_on_properties() {
 
 #[test]
 fn anonymous_math_basic() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -467,7 +467,7 @@ fn anonymous_math_basic() {
 
 #[test]
 fn anonymous_math_with_sqrt() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -482,7 +482,7 @@ fn anonymous_math_with_sqrt() {
 
 #[test]
 fn anonymous_math_chained_with_filter() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -501,7 +501,7 @@ fn anonymous_math_chained_with_filter() {
 
 #[test]
 fn anonymous_math_in_complex_traversal() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -530,7 +530,7 @@ fn anonymous_math_in_complex_traversal() {
 
 #[test]
 fn math_with_labeled_path_values() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -618,7 +618,7 @@ fn math_age_difference_chain() {
 
 #[test]
 fn math_empty_input_stream() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -636,7 +636,7 @@ fn math_empty_input_stream() {
 
 #[test]
 fn math_non_numeric_values_filtered() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -659,7 +659,7 @@ fn math_non_numeric_values_filtered() {
 
 #[test]
 fn math_division_by_zero_filtered() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -671,7 +671,7 @@ fn math_division_by_zero_filtered() {
 
 #[test]
 fn math_sqrt_negative_filtered() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -689,7 +689,7 @@ fn math_sqrt_negative_filtered() {
 
 #[test]
 fn math_log_zero_filtered() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -702,7 +702,7 @@ fn math_log_zero_filtered() {
 
 #[test]
 fn math_log_negative_filtered() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -718,7 +718,7 @@ fn math_log_negative_filtered() {
 
 #[test]
 fn math_very_large_numbers() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -731,7 +731,7 @@ fn math_very_large_numbers() {
 
 #[test]
 fn math_overflow_filtered() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -751,7 +751,7 @@ fn math_overflow_filtered() {
 
 #[test]
 fn math_preserves_path() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -780,7 +780,7 @@ fn math_preserves_path() {
 
 #[test]
 fn math_constant_expression() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -796,7 +796,7 @@ fn math_constant_expression() {
 
 #[test]
 fn math_pi_times_two() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -816,7 +816,7 @@ fn math_pi_times_two() {
 
 #[test]
 fn math_percentage_calculation() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -835,7 +835,7 @@ fn math_percentage_calculation() {
 
 #[test]
 fn math_temperature_conversion() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -854,7 +854,7 @@ fn math_temperature_conversion() {
 
 #[test]
 fn math_distance_formula() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -876,7 +876,7 @@ fn math_distance_formula() {
 
 #[test]
 fn math_compound_interest() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -893,7 +893,7 @@ fn math_compound_interest() {
 
 #[test]
 fn math_clamp_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -916,7 +916,7 @@ fn math_clamp_function() {
 
 #[test]
 fn math_hyperbolic_functions() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -939,7 +939,7 @@ fn math_hyperbolic_functions() {
 
 #[test]
 fn math_cbrt_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -952,7 +952,7 @@ fn math_cbrt_function() {
 
 #[test]
 fn math_log2_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -965,7 +965,7 @@ fn math_log2_function() {
 
 #[test]
 fn math_signum_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -983,7 +983,7 @@ fn math_signum_function() {
 
 #[test]
 fn math_trunc_function() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -1004,7 +1004,7 @@ fn math_trunc_function() {
 
 #[test]
 fn math_inverse_trig_functions() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 
@@ -1023,7 +1023,7 @@ fn math_inverse_trig_functions() {
 
 #[test]
 fn math_inverse_trig_domain_errors() {
-    let tg = create_small_cow_graph();
+    let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();
     let g = snapshot.traversal();
 

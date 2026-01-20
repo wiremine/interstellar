@@ -1,6 +1,6 @@
-//! Integration tests for CowGraph (in-memory copy-on-write storage).
+//! Integration tests for Graph (in-memory copy-on-write storage).
 //!
-//! These tests verify the CowGraph implementation including:
+//! These tests verify the unified Graph implementation including:
 //! - Basic CRUD operations
 //! - Snapshot isolation and semantics
 //! - Batch operations with atomicity
@@ -11,8 +11,7 @@
 //! - Large-scale data handling
 
 use interstellar::prelude::*;
-use interstellar::storage::cow::{BatchError, CowGraph};
-use interstellar::storage::GraphStorage;
+use interstellar::storage::{BatchError, Graph, GraphStorage};
 use interstellar::StorageError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +23,7 @@ use std::thread;
 
 #[test]
 fn cow_graph_basic_vertex_operations() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with various property types
     let alice = graph.add_vertex(
@@ -69,7 +68,7 @@ fn cow_graph_basic_vertex_operations() {
 
 #[test]
 fn cow_graph_basic_edge_operations() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
@@ -115,7 +114,7 @@ fn cow_graph_basic_edge_operations() {
 
 #[test]
 fn cow_graph_property_updates() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -152,7 +151,7 @@ fn cow_graph_property_updates() {
 
 #[test]
 fn cow_graph_remove_operations() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
@@ -191,7 +190,7 @@ fn cow_graph_remove_operations() {
 
 #[test]
 fn cow_snapshot_isolation_basic() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -228,7 +227,7 @@ fn cow_snapshot_isolation_basic() {
 
 #[test]
 fn cow_snapshot_survives_heavy_modification() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create initial state with 1000 vertices
     for i in 0..1000 {
@@ -262,7 +261,7 @@ fn cow_snapshot_survives_heavy_modification() {
 #[test]
 fn cow_snapshot_can_outlive_graph() {
     let snap = {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         graph.add_vertex(
             "Person",
             HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
@@ -286,7 +285,7 @@ fn cow_snapshot_can_outlive_graph() {
 
 #[test]
 fn cow_multiple_snapshots_independent() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex("A", HashMap::new());
     let snap1 = graph.snapshot();
@@ -319,7 +318,7 @@ fn cow_multiple_snapshots_independent() {
 
 #[test]
 fn cow_batch_atomic_success() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let result = graph.batch(|ctx| {
         let alice = ctx.add_vertex(
@@ -360,7 +359,7 @@ fn cow_batch_atomic_success() {
 
 #[test]
 fn cow_batch_atomic_rollback() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add initial vertex
     graph.add_vertex(
@@ -395,7 +394,7 @@ fn cow_batch_atomic_rollback() {
 
 #[test]
 fn cow_batch_with_property_updates() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -442,7 +441,7 @@ fn cow_batch_with_property_updates() {
 
 #[test]
 fn cow_gql_create_vertex() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph
         .gql("CREATE (:Person {name: 'Alice', age: 30})")
@@ -464,7 +463,7 @@ fn cow_gql_create_vertex() {
 
 #[test]
 fn cow_gql_create_edges() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create vertices first
     let alice = graph.add_vertex(
@@ -497,7 +496,7 @@ fn cow_gql_create_edges() {
 
 #[test]
 fn cow_gql_query_on_snapshot() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Build graph
     let alice = graph.add_vertex(
@@ -534,7 +533,7 @@ fn cow_gql_query_on_snapshot() {
 
 #[test]
 fn cow_gql_set_property() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -558,7 +557,7 @@ fn cow_gql_set_property() {
 
 #[test]
 fn cow_traversal_basic() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -599,7 +598,7 @@ fn cow_traversal_basic() {
 
 #[test]
 fn cow_traversal_multi_hop() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create a chain: A -> B -> C -> D
     let a = graph.add_vertex(
@@ -647,7 +646,7 @@ fn cow_traversal_multi_hop() {
 
 #[test]
 fn cow_concurrent_readers() {
-    let graph = Arc::new(CowGraph::new());
+    let graph = Arc::new(Graph::new());
 
     // Build initial graph
     for i in 0..100 {
@@ -685,7 +684,7 @@ fn cow_concurrent_readers() {
 
 #[test]
 fn cow_concurrent_readers_with_writer() {
-    let graph = Arc::new(CowGraph::new());
+    let graph = Arc::new(Graph::new());
 
     // Add initial vertices
     for i in 0..50 {
@@ -729,7 +728,7 @@ fn cow_concurrent_readers_with_writer() {
 
 #[test]
 fn cow_snapshot_sent_across_threads() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex(
         "Person",
@@ -755,7 +754,7 @@ fn cow_snapshot_sent_across_threads() {
 
 #[test]
 fn cow_label_index_vertices() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     for _ in 0..100 {
         graph.add_vertex("Person", HashMap::new());
@@ -782,7 +781,7 @@ fn cow_label_index_vertices() {
 
 #[test]
 fn cow_label_index_edges() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let vertices: Vec<_> = (0..10)
         .map(|_| graph.add_vertex("Node", HashMap::new()))
@@ -817,7 +816,7 @@ fn cow_label_index_edges() {
 
 #[test]
 fn cow_scale_10k_vertices() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add 10,000 vertices
     let vertices: Vec<_> = (0..10_000)
@@ -849,7 +848,7 @@ fn cow_scale_10k_vertices() {
 
 #[test]
 fn cow_many_snapshots() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let mut snapshots = Vec::new();
 
@@ -871,7 +870,7 @@ fn cow_many_snapshots() {
 
 #[test]
 fn cow_version_increments() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     assert_eq!(graph.version(), 0);
 
@@ -893,7 +892,7 @@ fn cow_version_increments() {
 
 #[test]
 fn cow_snapshot_captures_version() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph.add_vertex("A", HashMap::new());
     let snap1 = graph.snapshot();
@@ -915,7 +914,7 @@ fn cow_snapshot_captures_version() {
 
 #[test]
 fn cow_error_vertex_not_found() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let result = graph.set_vertex_property(VertexId(999), "prop", Value::Int(1));
     assert!(matches!(result, Err(StorageError::VertexNotFound(_))));
@@ -926,7 +925,7 @@ fn cow_error_vertex_not_found() {
 
 #[test]
 fn cow_error_edge_not_found() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let result = graph.set_edge_property(EdgeId(999), "prop", Value::Int(1));
     assert!(matches!(result, Err(StorageError::EdgeNotFound(_))));
@@ -937,7 +936,7 @@ fn cow_error_edge_not_found() {
 
 #[test]
 fn cow_error_edge_missing_vertices() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let v1 = graph.add_vertex("Node", HashMap::new());
 
@@ -958,7 +957,7 @@ fn cow_error_edge_missing_vertices() {
 fn cow_schema_set_and_get() {
     use interstellar::schema::{PropertyType, SchemaBuilder, ValidationMode};
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create schema using SchemaBuilder
     let schema = SchemaBuilder::new()
@@ -986,7 +985,7 @@ fn cow_schema_set_and_get() {
 fn cow_index_create_and_drop() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create a B+ tree index
     graph
@@ -1036,7 +1035,7 @@ fn cow_index_create_and_drop() {
 fn cow_index_duplicate_name_error() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     graph
         .create_index(
@@ -1064,7 +1063,7 @@ fn cow_index_duplicate_name_error() {
 fn cow_index_populated_on_creation() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add some vertices first
     graph.add_vertex(
@@ -1118,7 +1117,7 @@ fn cow_index_populated_on_creation() {
 fn cow_index_maintained_on_insert() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create index first
     graph
@@ -1156,7 +1155,7 @@ fn cow_index_maintained_on_insert() {
 fn cow_index_maintained_on_remove() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add vertices
     let alice = graph.add_vertex(
@@ -1200,7 +1199,7 @@ fn cow_index_maintained_on_remove() {
 fn cow_index_maintained_on_property_update() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1246,7 +1245,7 @@ fn cow_index_maintained_on_property_update() {
 fn cow_index_edge_property() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
@@ -1299,7 +1298,7 @@ fn cow_index_edge_property() {
 fn cow_index_unique_constraint() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create unique index first
     graph
@@ -1338,7 +1337,7 @@ fn cow_index_range_query() {
     use interstellar::index::IndexBuilder;
     use std::ops::Bound;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with ages
     for age in [18, 21, 25, 30, 35, 40, 50, 60] {
@@ -1375,7 +1374,7 @@ fn cow_index_range_query() {
 fn cow_index_no_label_filter() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create index without label filter (indexes all vertices with that property)
     graph
@@ -1412,7 +1411,7 @@ fn cow_index_no_label_filter() {
 fn cow_index_with_batch_operations() {
     use interstellar::index::IndexBuilder;
 
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Create index
     graph
@@ -1445,7 +1444,7 @@ fn cow_index_with_batch_operations() {
         .unwrap();
 
     // Note: Batch operations don't currently update indexes since they work
-    // directly on CowGraphState. This is a known limitation.
+    // directly on GraphState. This is a known limitation.
     // For now, verify the vertices were added (they may not be indexed).
     assert_eq!(graph.vertex_count(), 3);
 }
@@ -1456,7 +1455,7 @@ fn cow_index_with_batch_operations() {
 
 #[test]
 fn cow_unified_traversal_add_v_basic() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Add a vertex through the unified traversal API
@@ -1477,7 +1476,7 @@ fn cow_unified_traversal_add_v_basic() {
 
 #[test]
 fn cow_unified_traversal_add_v_with_properties() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Add a vertex with properties
@@ -1506,7 +1505,7 @@ fn cow_unified_traversal_add_v_with_properties() {
 
 #[test]
 fn cow_unified_traversal_add_v_multiple() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Add multiple vertices
@@ -1530,7 +1529,7 @@ fn cow_unified_traversal_add_v_multiple() {
 
 #[test]
 fn cow_unified_traversal_add_v_to_list() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Use to_list() to add multiple vertices via inject + add_v pattern
@@ -1544,7 +1543,7 @@ fn cow_unified_traversal_add_v_to_list() {
 
 #[test]
 fn cow_unified_traversal_query_after_mutation() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Add vertices
@@ -1560,7 +1559,7 @@ fn cow_unified_traversal_query_after_mutation() {
 
 #[test]
 fn cow_unified_traversal_add_e_from_source() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // First add some vertices directly
     let alice = graph.add_vertex(
@@ -1590,7 +1589,7 @@ fn cow_unified_traversal_add_e_from_source() {
 
 #[test]
 fn cow_unified_traversal_add_e_with_properties() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
@@ -1618,7 +1617,7 @@ fn cow_unified_traversal_add_e_with_properties() {
 #[test]
 fn cow_unified_traversal_full_workflow() {
     // Test the complete workflow: add vertices with traversal, add edges, then query
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Add vertices through traversal API
@@ -1671,7 +1670,7 @@ fn cow_unified_traversal_full_workflow() {
 
 #[test]
 fn cow_unified_traversal_drop_vertex() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Add a vertex
@@ -1692,7 +1691,7 @@ fn cow_unified_traversal_drop_vertex() {
 
 #[test]
 fn cow_unified_traversal_drop_edge() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
@@ -1714,7 +1713,7 @@ fn cow_unified_traversal_drop_edge() {
 
 #[test]
 fn cow_unified_traversal_v_returns_all_vertices() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // Add vertices directly
     graph.add_vertex("Person", HashMap::new());
@@ -1730,7 +1729,7 @@ fn cow_unified_traversal_v_returns_all_vertices() {
 
 #[test]
 fn cow_unified_traversal_v_id_returns_specific_vertex() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1750,7 +1749,7 @@ fn cow_unified_traversal_v_id_returns_specific_vertex() {
 
 #[test]
 fn cow_unified_traversal_chained_steps() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     let alice = graph.add_vertex(
         "Person",
@@ -1784,7 +1783,7 @@ fn cow_unified_traversal_chained_steps() {
 
 #[test]
 fn cow_unified_traversal_count() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     g.add_v("Person").iterate();
@@ -1802,7 +1801,7 @@ fn cow_unified_traversal_count() {
 
 #[test]
 fn cow_unified_traversal_has_next() {
-    let graph = CowGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
 
     // Empty graph should not have vertices

@@ -1,6 +1,6 @@
-//! Unified API Example for CowGraph (In-Memory Copy-on-Write)
+//! Unified API Example for Graph (In-Memory Copy-on-Write)
 //!
-//! This example demonstrates how `CowGraph` provides a unified API where both
+//! This example demonstrates how `Graph` provides a unified API where both
 //! reads and mutations use the same traversal interface. There's no need to
 //! explicitly switch between "read mode" and "mutation mode".
 //!
@@ -13,14 +13,14 @@
 //!
 //! Run: `cargo run --example cow_unified_api`
 
-use interstellar::storage::cow::CowGraph;
+use interstellar::storage::Graph;
 use interstellar::value::{Value, VertexId};
 
 fn main() {
-    println!("=== CowGraph Unified API Demo ===\n");
+    println!("=== Graph Unified API Demo ===\n");
 
     // Create a new in-memory COW graph
-    let graph = CowGraph::new();
+    let graph = Graph::new();
 
     // =========================================================================
     // Part 1: Gremlin-style Mutations

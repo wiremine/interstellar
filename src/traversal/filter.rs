@@ -1980,48 +1980,42 @@ impl_filter_step!(WherePStep, "where");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
+    use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
 
         // Add vertices with different labels
-        storage.add_vertex("person", {
+        let v0 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props
         });
-        storage.add_vertex("person", {
+        let v1 = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Bob".to_string()));
             props
         });
-        storage.add_vertex("software", {
+        let v2 = graph.add_vertex("software", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Graph DB".to_string()));
             props
         });
-        storage.add_vertex("company", {
+        let v3 = graph.add_vertex("company", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("TechCorp".to_string()));
             props
         });
 
         // Add edges with different labels
-        storage
-            .add_edge(VertexId(0), VertexId(1), "knows", HashMap::new())
-            .unwrap();
-        storage
-            .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
-            .unwrap();
-        storage
-            .add_edge(VertexId(0), VertexId(3), "works_at", HashMap::new())
-            .unwrap();
+        graph.add_edge(v0, v1, "knows", HashMap::new()).unwrap();
+        graph.add_edge(v1, v2, "uses", HashMap::new()).unwrap();
+        graph.add_edge(v0, v3, "works_at", HashMap::new()).unwrap();
 
-        Graph::new(storage)
+        graph
     }
 
     mod has_label_step_tests {
@@ -2300,10 +2294,10 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_graph_with_properties() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Vertex 0: person with name and age
-            storage.add_vertex("person", {
+            let v0 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
@@ -2311,14 +2305,14 @@ mod tests {
             });
 
             // Vertex 1: person with only name
-            storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props
             });
 
             // Vertex 2: software with name and version
-            storage.add_vertex("software", {
+            let v2 = graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props.insert("version".to_string(), Value::Float(1.0));
@@ -2326,11 +2320,11 @@ mod tests {
             });
 
             // Vertex 3: company with no properties
-            storage.add_vertex("company", HashMap::new());
+            graph.add_vertex("company", HashMap::new());
 
             // Edge 0: knows with since property
-            storage
-                .add_edge(VertexId(0), VertexId(1), "knows", {
+            graph
+                .add_edge(v0, v1, "knows", {
                     let mut props = HashMap::new();
                     props.insert("since".to_string(), Value::Int(2020));
                     props
@@ -2338,11 +2332,9 @@ mod tests {
                 .unwrap();
 
             // Edge 1: uses with no properties
-            storage
-                .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
-                .unwrap();
+            graph.add_edge(v1, v2, "uses", HashMap::new()).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -2535,10 +2527,10 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_graph_with_properties() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Vertex 0: person with name and age
-            storage.add_vertex("person", {
+            let v0 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
@@ -2546,14 +2538,14 @@ mod tests {
             });
 
             // Vertex 1: person with only name (no age)
-            storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props
             });
 
             // Vertex 2: software with name and version
-            storage.add_vertex("software", {
+            let v2 = graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props.insert("version".to_string(), Value::Float(1.0));
@@ -2561,11 +2553,11 @@ mod tests {
             });
 
             // Vertex 3: company with no properties
-            storage.add_vertex("company", HashMap::new());
+            graph.add_vertex("company", HashMap::new());
 
             // Edge 0: knows with since property
-            storage
-                .add_edge(VertexId(0), VertexId(1), "knows", {
+            graph
+                .add_edge(v0, v1, "knows", {
                     let mut props = HashMap::new();
                     props.insert("since".to_string(), Value::Int(2020));
                     props
@@ -2573,11 +2565,9 @@ mod tests {
                 .unwrap();
 
             // Edge 1: uses with no properties
-            storage
-                .add_edge(VertexId(1), VertexId(2), "uses", HashMap::new())
-                .unwrap();
+            graph.add_edge(v1, v2, "uses", HashMap::new()).unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -2873,10 +2863,10 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_graph_with_properties() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Vertex 0: person Alice, age 30
-            storage.add_vertex("person", {
+            let v0 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
@@ -2884,7 +2874,7 @@ mod tests {
             });
 
             // Vertex 1: person Bob, age 25
-            storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props.insert("age".to_string(), Value::Int(25));
@@ -2892,7 +2882,7 @@ mod tests {
             });
 
             // Vertex 2: person Charlie, age 30
-            storage.add_vertex("person", {
+            let v2 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Charlie".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
@@ -2900,7 +2890,7 @@ mod tests {
             });
 
             // Vertex 3: software with version 1.0
-            storage.add_vertex("software", {
+            graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props.insert("version".to_string(), Value::Float(1.0));
@@ -2908,8 +2898,8 @@ mod tests {
             });
 
             // Edge 0: knows since 2020
-            storage
-                .add_edge(VertexId(0), VertexId(1), "knows", {
+            graph
+                .add_edge(v0, v1, "knows", {
                     let mut props = HashMap::new();
                     props.insert("since".to_string(), Value::Int(2020));
                     props
@@ -2917,15 +2907,15 @@ mod tests {
                 .unwrap();
 
             // Edge 1: knows since 2019
-            storage
-                .add_edge(VertexId(1), VertexId(2), "knows", {
+            graph
+                .add_edge(v1, v2, "knows", {
                     let mut props = HashMap::new();
                     props.insert("since".to_string(), Value::Int(2019));
                     props
                 })
                 .unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -3153,23 +3143,23 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_test_graph() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
                 props
             });
 
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props.insert("age".to_string(), Value::Int(25));
                 props
             });
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -3803,35 +3793,35 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_test_graph_with_ages() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add vertices with age property
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
                 props
             });
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props.insert("age".to_string(), Value::Int(25));
                 props
             });
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Charlie".to_string()));
                 props.insert("age".to_string(), Value::Int(30)); // Same age as Alice
                 props
             });
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Diana".to_string()));
                 // No age property
                 props
             });
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]
@@ -6577,10 +6567,10 @@ mod tests {
         use crate::traversal::step::AnyStep;
 
         fn create_graph_with_ages() -> Graph {
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Vertex 0: Alice, age 30
-            storage.add_vertex("person", {
+            let v0 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props.insert("age".to_string(), Value::Int(30));
@@ -6588,7 +6578,7 @@ mod tests {
             });
 
             // Vertex 1: Bob, age 25
-            storage.add_vertex("person", {
+            let v1 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props.insert("age".to_string(), Value::Int(25));
@@ -6596,7 +6586,7 @@ mod tests {
             });
 
             // Vertex 2: Charlie, age 35
-            storage.add_vertex("person", {
+            let v2 = graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Charlie".to_string()));
                 props.insert("age".to_string(), Value::Int(35));
@@ -6604,14 +6594,14 @@ mod tests {
             });
 
             // Vertex 3: Dave, no age
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Dave".to_string()));
                 props
             });
 
             // Vertex 4: Software with version 1.5
-            storage.add_vertex("software", {
+            graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props.insert("version".to_string(), Value::Float(1.5));
@@ -6619,8 +6609,8 @@ mod tests {
             });
 
             // Edge 0: knows with weight
-            storage
-                .add_edge(VertexId(0), VertexId(1), "knows", {
+            graph
+                .add_edge(v0, v1, "knows", {
                     let mut props = HashMap::new();
                     props.insert("weight".to_string(), Value::Float(0.8));
                     props
@@ -6628,15 +6618,15 @@ mod tests {
                 .unwrap();
 
             // Edge 1: knows with weight
-            storage
-                .add_edge(VertexId(1), VertexId(2), "knows", {
+            graph
+                .add_edge(v1, v2, "knows", {
                     let mut props = HashMap::new();
                     props.insert("weight".to_string(), Value::Float(0.3));
                     props
                 })
                 .unwrap();
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]

@@ -426,32 +426,30 @@ mod tests {
     // Tests for ExecutionContext require integration with Graph
     mod execution_context_tests {
         use super::*;
-        use crate::graph::Graph;
+        use crate::storage::Graph;
         use std::collections::HashMap;
 
         fn create_test_graph() -> Graph {
-            use crate::storage::InMemoryGraph;
-
-            let mut storage = InMemoryGraph::new();
+            let graph = Graph::new();
 
             // Add vertices with different labels
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Alice".to_string()));
                 props
             });
-            storage.add_vertex("person", {
+            graph.add_vertex("person", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Bob".to_string()));
                 props
             });
-            storage.add_vertex("software", {
+            graph.add_vertex("software", {
                 let mut props = HashMap::new();
                 props.insert("name".to_string(), Value::String("Graph DB".to_string()));
                 props
             });
 
-            Graph::new(storage)
+            graph
         }
 
         #[test]

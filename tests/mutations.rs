@@ -4,8 +4,7 @@
 
 use std::collections::HashMap;
 
-use interstellar::graph::Graph;
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
 use interstellar::traversal::{MutationExecutor, MutationResult, PendingMutation};
 use interstellar::value::{EdgeId, Value, VertexId};
 
@@ -13,8 +12,9 @@ use interstellar::value::{EdgeId, Value, VertexId};
 // Helper functions
 // =============================================================================
 
-/// Creates a test graph with some initial data.
-fn create_test_graph() -> InMemoryGraph {
+/// Creates a mutable test storage with some initial data.
+/// Used for tests that need direct mutation access.
+fn create_mutable_test_storage() -> InMemoryGraph {
     let mut storage = InMemoryGraph::new();
 
     // Add vertices
@@ -52,6 +52,45 @@ fn create_test_graph() -> InMemoryGraph {
     storage
 }
 
+/// Creates a test graph with some initial data using the unified API.
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
+
+    // Add vertices
+    let alice_id = graph.add_vertex(
+        "person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(30)),
+        ]),
+    );
+
+    let bob_id = graph.add_vertex(
+        "person",
+        HashMap::from([
+            ("name".to_string(), Value::String("Bob".to_string())),
+            ("age".to_string(), Value::Int(25)),
+        ]),
+    );
+
+    let _software_id = graph.add_vertex(
+        "software",
+        HashMap::from([("name".to_string(), Value::String("Gremlin".to_string()))]),
+    );
+
+    // Add edges
+    graph
+        .add_edge(
+            alice_id,
+            bob_id,
+            "knows",
+            HashMap::from([("since".to_string(), Value::Int(2020))]),
+        )
+        .unwrap();
+
+    graph
+}
+
 /// Executes pending mutations from traversal results.
 fn execute_mutations(
     storage: &mut InMemoryGraph,
@@ -67,8 +106,7 @@ fn execute_mutations(
 
 #[test]
 fn add_v_creates_pending_vertex() {
-    let storage = InMemoryGraph::new();
-    let graph = Graph::new(storage);
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -88,8 +126,7 @@ fn add_v_creates_pending_vertex() {
 
 #[test]
 fn add_v_with_properties_creates_pending_vertex() {
-    let storage = InMemoryGraph::new();
-    let graph = Graph::new(storage);
+    let graph = Graph::new();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -158,7 +195,7 @@ fn mutation_executor_from_traversal() {
 
     // First run the traversal to get pending mutations
     {
-        let graph = Graph::in_memory();
+        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.traversal();
 
@@ -194,8 +231,7 @@ fn mutation_executor_from_traversal() {
 
 #[test]
 fn add_e_creates_pending_edge() {
-    let storage = create_test_graph();
-    let graph = Graph::new(storage);
+    let graph = create_test_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -222,8 +258,7 @@ fn add_e_creates_pending_edge() {
 
 #[test]
 fn add_e_from_bound_traversal() {
-    let storage = create_test_graph();
-    let graph = Graph::new(storage);
+    let graph = create_test_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -270,7 +305,7 @@ fn add_e_from_bound_traversal() {
 
 #[test]
 fn mutation_executor_creates_edge() {
-    let mut storage = create_test_graph();
+    let mut storage = create_mutable_test_storage();
     let initial_edge_count = storage.edge_count();
 
     // Get two vertex IDs
@@ -311,8 +346,7 @@ fn mutation_executor_creates_edge() {
 
 #[test]
 fn property_on_vertex_creates_pending_update() {
-    let storage = create_test_graph();
-    let graph = Graph::new(storage);
+    let graph = create_test_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -335,7 +369,7 @@ fn property_on_vertex_creates_pending_update() {
 
 #[test]
 fn mutation_executor_sets_vertex_property() {
-    let mut storage = create_test_graph();
+    let mut storage = create_mutable_test_storage();
 
     // Find Alice's vertex ID
     let alice_id = storage
@@ -364,7 +398,7 @@ fn mutation_executor_sets_vertex_property() {
 
 #[test]
 fn mutation_executor_sets_edge_property() {
-    let mut storage = create_test_graph();
+    let mut storage = create_mutable_test_storage();
 
     // Get Alice's vertex (she has the outgoing edge)
     let alice = storage
@@ -398,8 +432,7 @@ fn mutation_executor_sets_edge_property() {
 
 #[test]
 fn drop_vertex_creates_pending_deletion() {
-    let storage = create_test_graph();
-    let graph = Graph::new(storage);
+    let graph = create_test_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -416,7 +449,7 @@ fn drop_vertex_creates_pending_deletion() {
 
 #[test]
 fn mutation_executor_removes_vertex() {
-    let mut storage = create_test_graph();
+    let mut storage = create_mutable_test_storage();
     let initial_count = storage.vertex_count();
 
     // Find a vertex to remove
@@ -438,7 +471,7 @@ fn mutation_executor_removes_vertex() {
 
 #[test]
 fn mutation_executor_removes_edge() {
-    let mut storage = create_test_graph();
+    let mut storage = create_mutable_test_storage();
     let initial_count = storage.edge_count();
 
     // Find an edge to remove - Alice has the outgoing edge

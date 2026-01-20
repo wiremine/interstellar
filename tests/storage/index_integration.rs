@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::ops::Bound;
 
-use interstellar::graph::Graph;
+#[allow(deprecated)]
+use interstellar::graph::Graph as LegacyGraph;
 use interstellar::index::IndexBuilder;
 use interstellar::storage::{GraphStorage, InMemoryGraph};
 use interstellar::value::{Value, VertexId};
@@ -203,7 +204,7 @@ fn traversal_can_access_indexed_storage_methods() {
         .unwrap();
 
     // Wrap in Graph for traversal
-    let graph = Graph::new(storage);
+    let graph = LegacyGraph::new(storage);
 
     // Access via snapshot/traversal
     let snapshot = graph.snapshot();
@@ -253,7 +254,7 @@ fn index_maintained_after_wrapping_in_graph() {
     storage.add_vertex("user", props);
 
     // Wrap in Graph
-    let graph = Graph::new(storage);
+    let graph = LegacyGraph::new(storage);
 
     // Verify index lookup works through Graph snapshot
     let snapshot = graph.snapshot();
@@ -584,7 +585,8 @@ fn range_query_on_large_graph() {
 
 #[test]
 fn traversal_v_by_property_uses_index() {
-    use interstellar::Graph;
+    #[allow(deprecated)]
+    use interstellar::graph::Graph as LegacyGraph;
 
     let mut storage = InMemoryGraph::new();
 
@@ -611,7 +613,7 @@ fn traversal_v_by_property_uses_index() {
     props.insert("age".to_string(), Value::Int(25));
     storage.add_vertex("person", props);
 
-    let graph = Graph::new(storage);
+    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -627,7 +629,8 @@ fn traversal_v_by_property_uses_index() {
 
 #[test]
 fn traversal_v_by_property_range_uses_index() {
-    use interstellar::Graph;
+    #[allow(deprecated)]
+    use interstellar::graph::Graph as LegacyGraph;
 
     let mut storage = InMemoryGraph::new();
 
@@ -650,7 +653,7 @@ fn traversal_v_by_property_range_uses_index() {
         storage.add_vertex("person", props);
     }
 
-    let graph = Graph::new(storage);
+    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -674,7 +677,8 @@ fn traversal_v_by_property_range_uses_index() {
 
 #[test]
 fn traversal_e_by_property_uses_index() {
-    use interstellar::Graph;
+    #[allow(deprecated)]
+    use interstellar::graph::Graph as LegacyGraph;
 
     let mut storage = InMemoryGraph::new();
 
@@ -711,7 +715,7 @@ fn traversal_e_by_property_uses_index() {
     edge_props.insert("since".to_string(), Value::Int(2022));
     storage.add_edge(bob, charlie, "knows", edge_props).unwrap();
 
-    let graph = Graph::new(storage);
+    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -728,7 +732,8 @@ fn traversal_e_by_property_uses_index() {
 
 #[test]
 fn traversal_with_index_chains_complex_queries() {
-    use interstellar::Graph;
+    #[allow(deprecated)]
+    use interstellar::graph::Graph as LegacyGraph;
 
     let mut storage = InMemoryGraph::new();
 
@@ -776,7 +781,7 @@ fn traversal_with_index_chains_complex_queries() {
         }
     }
 
-    let graph = Graph::new(storage);
+    let graph = LegacyGraph::new(storage);
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 

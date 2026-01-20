@@ -1,6 +1,6 @@
 //! Copy-on-Write graph storage with snapshot isolation.
 //!
-//! This module provides [`CowGraph`], a graph storage implementation using
+//! This module provides [`Graph`], a graph storage implementation using
 //! persistent data structures from the `im` crate. This enables:
 //!
 //! - **Lock-free reads**: Snapshots don't hold locks
@@ -11,11 +11,11 @@
 //! # Architecture
 //!
 //! ```text
-//! CowGraph
-//! ├── state: RwLock<CowGraphState>  # Mutable state container
+//! Graph
+//! ├── state: RwLock<GraphState>  # Mutable state container
 //! └── schema: RwLock<Option<GraphSchema>>  # Optional schema
 //!
-//! CowGraphState (immutable, shareable via Clone)
+//! GraphState (immutable, shareable via Clone)
 //! ├── vertices: im::HashMap<VertexId, Arc<NodeData>>
 //! ├── edges: im::HashMap<EdgeId, Arc<EdgeData>>
 //! ├── vertex_labels: im::HashMap<u32, Arc<RoaringBitmap>>
@@ -25,19 +25,19 @@
 //! ├── next_vertex_id: u64
 //! └── next_edge_id: u64
 //!
-//! CowSnapshot (owned, immutable)
-//! └── state: Arc<CowGraphState>
+//! GraphSnapshot (owned, immutable)
+//! └── state: Arc<GraphState>
 //! ```
 //!
 //! # Example
 //!
 //! ```
-//! use interstellar::storage::cow::{CowGraph, CowSnapshot};
+//! use interstellar::storage::Graph;
 //! use interstellar::storage::GraphStorage;
 //! use std::collections::HashMap;
 //!
-//! // Create a COW graph
-//! let graph = CowGraph::new();
+//! // Create a graph
+//! let graph = Graph::new();
 //!
 //! // Add vertices
 //! let alice = graph.add_vertex("person", HashMap::from([
@@ -62,7 +62,7 @@
 //!
 //! # Thread Safety
 //!
-//! Both [`CowGraph`] and [`CowSnapshot`] are `Send + Sync`:
+//! Both [`Graph`] and [`GraphSnapshot`] are `Send + Sync`:
 //!
 //! - Multiple threads can take snapshots concurrently
 //! - Snapshots can be sent to other threads
@@ -136,7 +136,7 @@ pub(crate) struct EdgeData {
 /// All fields use persistent data structures from the `im` crate,
 /// enabling O(1) cloning via structural sharing.
 #[derive(Clone)]
-pub struct CowGraphState {
+pub struct GraphState {
     /// Vertex data: VertexId -> NodeData
     pub(crate) vertices: ImHashMap<VertexId, Arc<NodeData>>,
 
@@ -162,7 +162,7 @@ pub struct CowGraphState {
     pub(crate) next_edge_id: u64,
 }
 
-impl CowGraphState {
+impl GraphState {
     /// Create a new empty graph state.
     pub fn new() -> Self {
         Self {
@@ -178,28 +178,28 @@ impl CowGraphState {
     }
 }
 
-impl Default for CowGraphState {
+impl Default for GraphState {
     fn default() -> Self {
         Self::new()
     }
 }
 
 // =============================================================================
-// CowGraph - Main Graph Container
+// Graph - Main Graph Container
 // =============================================================================
 
 /// Copy-on-Write graph with snapshot support.
 ///
-/// `CowGraph` uses persistent data structures to enable O(1) snapshot creation
+/// `Graph` uses persistent data structures to enable O(1) snapshot creation
 /// and lock-free reads. Mutations are serialized via RwLock but don't block
 /// existing snapshots.
 ///
-/// # Creating a CowGraph
+/// # Creating a Graph
 ///
 /// ```
-/// use interstellar::storage::cow::CowGraph;
+/// use interstellar::storage::cow::Graph;
 ///
-/// let graph = CowGraph::new();
+/// let graph = Graph::new();
 /// ```
 ///
 /// # Snapshots
@@ -207,16 +207,16 @@ impl Default for CowGraphState {
 /// Snapshots are O(1) and don't hold locks:
 ///
 /// ```
-/// use interstellar::storage::cow::CowGraph;
+/// use interstellar::storage::cow::Graph;
 ///
-/// let graph = CowGraph::new();
+/// let graph = Graph::new();
 /// let snap = graph.snapshot();
 ///
 /// // snap can be sent to another thread, outlive the graph, etc.
 /// ```
-pub struct CowGraph {
+pub struct Graph {
     /// Current mutable state (protected by RwLock for thread safety)
-    state: RwLock<CowGraphState>,
+    state: RwLock<GraphState>,
 
     /// Schema for validation (optional)
     schema: RwLock<Option<GraphSchema>>,
@@ -227,31 +227,53 @@ pub struct CowGraph {
     indexes: RwLock<HashMap<String, Box<dyn PropertyIndex>>>,
 }
 
-impl CowGraph {
+impl Graph {
     /// Create a new empty COW graph.
     ///
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// assert_eq!(graph.vertex_count(), 0);
     /// ```
     pub fn new() -> Self {
         Self {
-            state: RwLock::new(CowGraphState::new()),
+            state: RwLock::new(GraphState::new()),
             schema: RwLock::new(None),
             indexes: RwLock::new(HashMap::new()),
         }
     }
 
-    /// Create a new COW graph with a schema.
+    /// Convenience alias for [`Graph::new()`].
+    ///
+    /// This method exists for API compatibility with code that expects
+    /// a `.in_memory()` constructor. Since `Graph` is always in-memory
+    /// (for persistent storage use [`PersistentGraph`](crate::storage::PersistentGraph)),
+    /// this is equivalent to `Graph::new()`.
     ///
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
+    ///
+    /// let graph = Graph::in_memory();
+    /// assert_eq!(graph.vertex_count(), 0);
+    /// ```
+    #[inline]
+    pub fn in_memory() -> Self {
+        Self::new()
+    }
+
+    /// Create a new in-memory graph with a schema for validation.
+    ///
+    /// Convenience alias for [`Graph::with_schema()`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
     ///
     /// let schema = SchemaBuilder::new()
@@ -261,11 +283,33 @@ impl CowGraph {
     ///         .done()
     ///     .build();
     ///
-    /// let graph = CowGraph::with_schema(schema);
+    /// let graph = Graph::in_memory_with_schema(schema);
+    /// ```
+    #[inline]
+    pub fn in_memory_with_schema(schema: GraphSchema) -> Self {
+        Self::with_schema(schema)
+    }
+
+    /// Create a new COW graph with a schema.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::cow::Graph;
+    /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
+    ///
+    /// let schema = SchemaBuilder::new()
+    ///     .mode(ValidationMode::Strict)
+    ///     .vertex("Person")
+    ///         .property("name", PropertyType::String)
+    ///         .done()
+    ///     .build();
+    ///
+    /// let graph = Graph::with_schema(schema);
     /// ```
     pub fn with_schema(schema: GraphSchema) -> Self {
         Self {
-            state: RwLock::new(CowGraphState::new()),
+            state: RwLock::new(GraphState::new()),
             schema: RwLock::new(Some(schema)),
             indexes: RwLock::new(HashMap::new()),
         }
@@ -288,11 +332,11 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::storage::GraphStorage;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// let v1 = graph.add_vertex("person", HashMap::new());
     ///
     /// let snap = graph.snapshot();
@@ -302,11 +346,11 @@ impl CowGraph {
     /// graph.add_vertex("person", HashMap::new());
     /// assert_eq!(snap.vertex_count(), 1); // Still 1
     /// ```
-    pub fn snapshot(&self) -> CowSnapshot {
+    pub fn snapshot(&self) -> GraphSnapshot {
         let state = self.state.read();
         // Clone the interner to avoid shared lock issues
         let interner_snapshot = Arc::new(state.interner.read().clone());
-        CowSnapshot {
+        GraphSnapshot {
             state: Arc::new((*state).clone()),
             interner_snapshot,
         }
@@ -321,9 +365,9 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// let g = graph.traversal();
     ///
     /// // Create vertices
@@ -388,11 +432,11 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::index::IndexBuilder;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     ///
     /// // Add some data first
     /// graph.add_vertex("person", HashMap::from([
@@ -741,7 +785,7 @@ impl CowGraph {
 
     /// Populate an index with existing graph data.
     fn populate_index_internal(
-        state: &CowGraphState,
+        state: &GraphState,
         index: &mut dyn PropertyIndex,
     ) -> Result<(), IndexError> {
         let spec = index.spec().clone();
@@ -951,11 +995,11 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::storage::GraphStorage;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// let id = graph.add_vertex("person", HashMap::from([
     ///     ("name".to_string(), "Alice".into()),
     /// ]));
@@ -1017,11 +1061,11 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::storage::GraphStorage;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// let alice = graph.add_vertex("person", HashMap::new());
     /// let bob = graph.add_vertex("person", HashMap::new());
     ///
@@ -1298,7 +1342,7 @@ impl CowGraph {
     }
 
     /// Internal edge removal, optionally skipping a vertex being deleted.
-    fn remove_edge_internal(state: &mut CowGraphState, id: EdgeId, skip_vertex: Option<VertexId>) {
+    fn remove_edge_internal(state: &mut GraphState, id: EdgeId, skip_vertex: Option<VertexId>) {
         let Some(edge) = state.edges.get(&id).cloned() else {
             return;
         };
@@ -1353,10 +1397,10 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::storage::GraphStorage;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     ///
     /// // Mutations via gql()
     /// graph.gql("CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
@@ -1377,10 +1421,64 @@ impl CowGraph {
         }
 
         // Execute mutation atomically
-        let mut wrapper = CowGraphMutWrapper { graph: self };
+        let mut wrapper = GraphMutWrapper { graph: self };
         let schema = self.schema();
         gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
             .map_err(|e| GqlError::Mutation(e.to_string()))
+    }
+
+    /// Execute a DDL (Data Definition Language) statement.
+    ///
+    /// DDL statements modify the graph's schema. Supported statements:
+    /// - `CREATE NODE TYPE <name> (<properties>)` - Create a vertex type
+    /// - `CREATE EDGE TYPE <name> (<properties>) FROM <labels> TO <labels>` - Create an edge type
+    /// - `ALTER NODE TYPE <name> ADD <property>` - Add a property to a vertex type
+    /// - `ALTER NODE TYPE <name> ALLOW ADDITIONAL PROPERTIES` - Allow extra properties
+    /// - `SET SCHEMA VALIDATION STRICT|CLOSED|WARN|NONE` - Set validation mode
+    /// - `DROP NODE TYPE <name>` - Drop a vertex type
+    /// - `DROP EDGE TYPE <name>` - Drop an edge type
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::Graph;
+    /// use interstellar::schema::ValidationMode;
+    ///
+    /// let graph = Graph::new();
+    ///
+    /// graph.ddl("CREATE NODE TYPE Person (name STRING NOT NULL, age INT)").unwrap();
+    /// graph.ddl("CREATE EDGE TYPE KNOWS (since INT) FROM Person TO Person").unwrap();
+    /// graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
+    ///
+    /// let schema = graph.schema().expect("Schema should be set");
+    /// assert!(schema.vertex_schema("Person").is_some());
+    /// assert!(schema.edge_schema("KNOWS").is_some());
+    /// assert_eq!(schema.mode, ValidationMode::Strict);
+    /// ```
+    pub fn ddl(&self, query: &str) -> Result<GraphSchema, GqlError> {
+        let stmt = gql::parse_statement(query)?;
+
+        // Extract DDL statement from parsed statement
+        let ddl = match stmt {
+            gql::Statement::Ddl(ddl) => ddl,
+            _ => {
+                return Err(GqlError::Compile(gql::CompileError::UnsupportedFeature(
+                    "Expected DDL statement (CREATE TYPE, ALTER TYPE, DROP TYPE, SET SCHEMA VALIDATION)".into(),
+                )))
+            }
+        };
+
+        // Get current schema or create empty one
+        let mut schema = self.schema.read().clone().unwrap_or_default();
+
+        // Execute DDL
+        gql::execute_ddl(&mut schema, &ddl)
+            .map_err(|e| GqlError::Compile(gql::CompileError::UnsupportedFeature(e.to_string())))?;
+
+        // Update the graph's schema
+        *self.schema.write() = Some(schema.clone());
+
+        Ok(schema)
     }
 
     // =========================================================================
@@ -1396,10 +1494,10 @@ impl CowGraph {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::{CowGraph, BatchContext};
+    /// use interstellar::storage::cow::{Graph, BatchContext};
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     ///
     /// graph.batch(|ctx| {
     ///     let alice = ctx.add_vertex("Person", HashMap::from([
@@ -1437,7 +1535,7 @@ impl CowGraph {
     }
 }
 
-impl Default for CowGraph {
+impl Default for Graph {
     fn default() -> Self {
         Self::new()
     }
@@ -1447,10 +1545,10 @@ impl Default for CowGraph {
 // CowTraversalSource - Unified Traversal API with Auto-Mutation
 // =============================================================================
 
-/// Entry point for traversals on a [`CowGraph`] with automatic mutation execution.
+/// Entry point for traversals on a [`Graph`] with automatic mutation execution.
 ///
 /// Unlike the read-only [`GraphTraversalSource`](crate::traversal::GraphTraversalSource),
-/// this traversal source has access to the underlying `CowGraph` and will automatically
+/// this traversal source has access to the underlying `Graph` and will automatically
 /// execute any mutations when terminal steps are called.
 ///
 /// # Unified API
@@ -1458,10 +1556,10 @@ impl Default for CowGraph {
 /// Both reads and writes use the same API - no separate "mutation mode":
 ///
 /// ```
-/// use interstellar::storage::cow::CowGraph;
+/// use interstellar::storage::cow::Graph;
 /// use std::collections::HashMap;
 ///
-/// let graph = CowGraph::new();
+/// let graph = Graph::new();
 /// let g = graph.traversal();
 ///
 /// // Mutations are executed automatically
@@ -1472,12 +1570,12 @@ impl Default for CowGraph {
 /// let count = g.v().count();  // 2
 /// ```
 pub struct CowTraversalSource<'g> {
-    graph: &'g CowGraph,
+    graph: &'g Graph,
 }
 
 impl<'g> CowTraversalSource<'g> {
     /// Create a new traversal source for the given graph.
-    pub fn new(graph: &'g CowGraph) -> Self {
+    pub fn new(graph: &'g Graph) -> Self {
         Self { graph }
     }
 
@@ -1531,9 +1629,9 @@ impl<'g> CowTraversalSource<'g> {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// let g = graph.traversal();
     ///
     /// let vertex = g.add_v("Person").property("name", "Alice").next();
@@ -1555,10 +1653,10 @@ impl<'g> CowTraversalSource<'g> {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// let alice = graph.add_vertex("Person", HashMap::new());
     /// let bob = graph.add_vertex("Person", HashMap::new());
     ///
@@ -1587,20 +1685,20 @@ impl<'g> CowTraversalSource<'g> {
 // CowBoundTraversal - Traversal with Auto-Mutation Execution
 // =============================================================================
 
-/// A traversal bound to a [`CowGraph`] with automatic mutation execution.
+/// A traversal bound to a [`Graph`] with automatic mutation execution.
 ///
 /// When terminal steps (`to_list()`, `next()`, `iterate()`, etc.) are called,
 /// any pending mutations in the traversal results are automatically executed
 /// against the graph.
 pub struct CowBoundTraversal<'g, In, Out> {
-    graph: &'g CowGraph,
+    graph: &'g Graph,
     traversal: Traversal<In, Out>,
     track_paths: bool,
 }
 
 impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
     /// Create a new bound traversal.
-    pub(crate) fn new(graph: &'g CowGraph, traversal: Traversal<In, Out>) -> Self {
+    pub(crate) fn new(graph: &'g Graph, traversal: Traversal<In, Out>) -> Self {
         Self {
             graph,
             traversal,
@@ -1646,7 +1744,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
         // we can execute without a full ExecutionContext since these steps
         // don't need graph access - they just produce pending mutation markers.
         //
-        // This avoids the deadlock issue where CowSnapshot::interner() leaks
+        // This avoids the deadlock issue where GraphSnapshot::interner() leaks
         // a read guard that blocks later write operations.
 
         // Decompose traversal into source and steps
@@ -1694,7 +1792,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
             let interner = snapshot.interner();
             let storage_ref: &dyn GraphStorage = &snapshot;
 
-            // Create execution context - CowSnapshot implements GraphStorage
+            // Create execution context - GraphSnapshot implements GraphStorage
             let ctx = if self.track_paths {
                 ExecutionContext::with_path_tracking(storage_ref, interner)
             } else {
@@ -1723,7 +1821,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
         };
 
         // Process results, executing any pending mutations
-        let mut wrapper = CowGraphMutWrapper { graph: self.graph };
+        let mut wrapper = GraphMutWrapper { graph: self.graph };
         let mut final_results = Vec::with_capacity(results.len());
 
         for traverser in results {
@@ -1743,7 +1841,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
 
     /// Execute a single pending mutation.
     fn execute_mutation(
-        wrapper: &mut CowGraphMutWrapper<'_>,
+        wrapper: &mut GraphMutWrapper<'_>,
         mutation: PendingMutation,
     ) -> Option<Value> {
         use crate::storage::GraphStorageMut;
@@ -1933,7 +2031,7 @@ impl<'g, In> CowBoundTraversal<'g, In, Value> {
 
 /// Builder for creating edges from the traversal source.
 pub struct CowAddEdgeBuilder<'g> {
-    graph: &'g CowGraph,
+    graph: &'g Graph,
     label: String,
     from: Option<VertexId>,
     to: Option<VertexId>,
@@ -1941,7 +2039,7 @@ pub struct CowAddEdgeBuilder<'g> {
 }
 
 impl<'g> CowAddEdgeBuilder<'g> {
-    fn new(graph: &'g CowGraph, label: String) -> Self {
+    fn new(graph: &'g Graph, label: String) -> Self {
         Self {
             graph,
             label,
@@ -1997,7 +2095,7 @@ impl<'g> CowAddEdgeBuilder<'g> {
 
 /// Builder for creating edges from an existing traversal.
 pub struct CowBoundAddEdgeBuilder<'g, In> {
-    graph: &'g CowGraph,
+    graph: &'g Graph,
     traversal: Traversal<In, Value>,
     label: String,
     to: Option<VertexId>,
@@ -2007,7 +2105,7 @@ pub struct CowBoundAddEdgeBuilder<'g, In> {
 
 impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
     fn new(
-        graph: &'g CowGraph,
+        graph: &'g Graph,
         traversal: Traversal<In, Value>,
         label: String,
         track_paths: bool,
@@ -2071,7 +2169,7 @@ impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
 }
 
 // =============================================================================
-// CowSnapshot - Immutable Owned Snapshot
+// GraphSnapshot - Immutable Owned Snapshot
 // =============================================================================
 
 /// An owned snapshot of the graph at a point in time.
@@ -2079,18 +2177,18 @@ impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
 /// Unlike the current `GraphSnapshot<'g>`, this snapshot:
 /// - Does not hold any locks
 /// - Can be sent across threads (`Send + Sync`)
-/// - Can outlive the source `CowGraph`
+/// - Can outlive the source `Graph`
 /// - Is immutable and will never change
 ///
 /// # Example
 ///
 /// ```
-/// use interstellar::storage::cow::CowGraph;
+/// use interstellar::storage::cow::Graph;
 /// use interstellar::storage::GraphStorage;
 /// use std::collections::HashMap;
 /// use std::thread;
 ///
-/// let graph = CowGraph::new();
+/// let graph = Graph::new();
 /// graph.add_vertex("person", HashMap::new());
 ///
 /// let snap = graph.snapshot();
@@ -2103,14 +2201,14 @@ impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
 /// assert_eq!(handle.join().unwrap(), 1);
 /// ```
 #[derive(Clone)]
-pub struct CowSnapshot {
+pub struct GraphSnapshot {
     /// Shared reference to frozen state
-    state: Arc<CowGraphState>,
+    state: Arc<GraphState>,
     /// Cloned interner - snapshot-local, no shared lock
     interner_snapshot: Arc<StringInterner>,
 }
 
-impl CowSnapshot {
+impl GraphSnapshot {
     /// Get the snapshot version.
     pub fn version(&self) -> u64 {
         self.state.version
@@ -2126,16 +2224,16 @@ impl CowSnapshot {
     /// Create a traversal source for this snapshot.
     ///
     /// This provides the full Gremlin-style fluent API for querying the graph.
-    /// Since `CowSnapshot` is immutable, only read operations are available.
+    /// Since `GraphSnapshot` is immutable, only read operations are available.
     ///
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::value::Value;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// graph.add_vertex("Person", HashMap::from([
     ///     ("name".to_string(), Value::String("Alice".to_string())),
     /// ]));
@@ -2153,17 +2251,17 @@ impl CowSnapshot {
     /// Execute a GQL query against this snapshot.
     ///
     /// This provides the full GQL query language for pattern matching
-    /// and data retrieval. Since `CowSnapshot` is immutable, only read
+    /// and data retrieval. Since `GraphSnapshot` is immutable, only read
     /// queries (MATCH/RETURN) are supported.
     ///
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::value::Value;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// graph.add_vertex("Person", HashMap::from([
     ///     ("name".to_string(), Value::String("Alice".to_string())),
     /// ]));
@@ -2186,12 +2284,12 @@ impl CowSnapshot {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::cow::CowGraph;
+    /// use interstellar::storage::cow::Graph;
     /// use interstellar::value::Value;
     /// use interstellar::gql::Parameters;
     /// use std::collections::HashMap;
     ///
-    /// let graph = CowGraph::new();
+    /// let graph = Graph::new();
     /// graph.add_vertex("Person", HashMap::from([
     ///     ("name".to_string(), Value::String("Alice".to_string())),
     ///     ("age".to_string(), Value::Int(30)),
@@ -2219,9 +2317,9 @@ impl CowSnapshot {
     }
 }
 
-// Implement SnapshotLike for CowSnapshot to enable generic traversal/GQL usage.
-// Since CowSnapshot implements GraphStorage directly, storage() returns self.
-impl crate::traversal::SnapshotLike for CowSnapshot {
+// Implement SnapshotLike for GraphSnapshot to enable generic traversal/GQL usage.
+// Since GraphSnapshot implements GraphStorage directly, storage() returns self.
+impl crate::traversal::SnapshotLike for GraphSnapshot {
     fn storage(&self) -> &dyn GraphStorage {
         self
     }
@@ -2231,7 +2329,7 @@ impl crate::traversal::SnapshotLike for CowSnapshot {
     }
 }
 
-impl GraphStorage for CowSnapshot {
+impl GraphStorage for GraphSnapshot {
     fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
         let node = self.state.vertices.get(&id)?;
         let label = self.interner_snapshot.resolve(node.label_id)?.to_string();
@@ -2460,10 +2558,10 @@ impl GraphStorage for CowSnapshot {
     }
 }
 
-// CowSnapshot is Send + Sync because it only contains Arc<CowGraphState>
-// and CowGraphState only contains Send + Sync types
-unsafe impl Send for CowSnapshot {}
-unsafe impl Sync for CowSnapshot {}
+// GraphSnapshot is Send + Sync because it only contains Arc<GraphState>
+// and GraphState only contains Send + Sync types
+unsafe impl Send for GraphSnapshot {}
+unsafe impl Sync for GraphSnapshot {}
 
 // =============================================================================
 // BatchContext - For Atomic Multi-Operation Batches
@@ -2486,7 +2584,7 @@ pub enum BatchError {
 /// All mutations made through this context are buffered and only applied
 /// when the batch closure returns successfully.
 pub struct BatchContext<'a> {
-    state: &'a mut CowGraphState,
+    state: &'a mut GraphState,
 }
 
 impl<'a> BatchContext<'a> {
@@ -2607,17 +2705,17 @@ impl<'a> BatchContext<'a> {
 }
 
 // =============================================================================
-// CowGraphMutWrapper - Implements GraphStorageMut for CowGraph
+// GraphMutWrapper - Implements GraphStorageMut for Graph
 // =============================================================================
 
-/// Wrapper that provides GraphStorageMut implementation for CowGraph.
+/// Wrapper that provides GraphStorageMut implementation for Graph.
 ///
 /// This is used internally by the GQL execution engine.
-struct CowGraphMutWrapper<'a> {
-    graph: &'a CowGraph,
+struct GraphMutWrapper<'a> {
+    graph: &'a Graph,
 }
 
-impl<'a> GraphStorage for CowGraphMutWrapper<'a> {
+impl<'a> GraphStorage for GraphMutWrapper<'a> {
     fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
         let state = self.graph.state.read();
         let node = state.vertices.get(&id)?;
@@ -2759,7 +2857,7 @@ impl<'a> GraphStorage for CowGraphMutWrapper<'a> {
     }
 
     fn interner(&self) -> &StringInterner {
-        // Similar approach to CowSnapshot::interner()
+        // Similar approach to GraphSnapshot::interner()
         unsafe {
             let state = self.graph.state.read();
             let guard = state.interner.read();
@@ -2770,7 +2868,7 @@ impl<'a> GraphStorage for CowGraphMutWrapper<'a> {
     }
 }
 
-impl<'a> crate::storage::GraphStorageMut for CowGraphMutWrapper<'a> {
+impl<'a> crate::storage::GraphStorageMut for GraphMutWrapper<'a> {
     fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId {
         self.graph.add_vertex(label, properties)
     }
@@ -2813,6 +2911,31 @@ impl<'a> crate::storage::GraphStorageMut for CowGraphMutWrapper<'a> {
 }
 
 // =============================================================================
+// Backward Compatibility Type Aliases
+// =============================================================================
+
+/// Backward-compatible alias for [`Graph`].
+///
+/// This alias is provided for backward compatibility. New code should use
+/// [`Graph`] directly.
+#[deprecated(since = "0.2.0", note = "Use Graph instead")]
+pub type CowGraph = Graph;
+
+/// Backward-compatible alias for [`GraphSnapshot`].
+///
+/// This alias is provided for backward compatibility. New code should use
+/// [`GraphSnapshot`] directly.
+#[deprecated(since = "0.2.0", note = "Use GraphSnapshot instead")]
+pub type CowSnapshot = GraphSnapshot;
+
+/// Backward-compatible alias for [`GraphState`].
+///
+/// This alias is provided for backward compatibility. New code should use
+/// [`GraphState`] directly.
+#[deprecated(since = "0.2.0", note = "Use GraphState instead")]
+pub type CowGraphState = GraphState;
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -2822,7 +2945,7 @@ mod tests {
 
     #[test]
     fn test_new_graph_is_empty() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         assert_eq!(graph.vertex_count(), 0);
         assert_eq!(graph.edge_count(), 0);
         assert_eq!(graph.version(), 0);
@@ -2830,7 +2953,7 @@ mod tests {
 
     #[test]
     fn test_add_vertex() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let id = graph.add_vertex("person", HashMap::new());
         assert_eq!(id.0, 0);
         assert_eq!(graph.vertex_count(), 1);
@@ -2839,7 +2962,7 @@ mod tests {
 
     #[test]
     fn test_add_vertex_with_properties() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let props = HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
             ("age".to_string(), Value::Int(30)),
@@ -2858,7 +2981,7 @@ mod tests {
 
     #[test]
     fn test_add_edge() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
 
@@ -2873,7 +2996,7 @@ mod tests {
 
     #[test]
     fn test_add_edge_missing_source() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
 
         let result = graph.add_edge(VertexId(999), v1, "knows", HashMap::new());
@@ -2882,7 +3005,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_isolation() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex(
             "person",
             HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
@@ -2914,7 +3037,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_survives_modification() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         for i in 0..1000 {
             graph.add_vertex("node", HashMap::from([("id".to_string(), Value::Int(i))]));
         }
@@ -2936,7 +3059,7 @@ mod tests {
 
     #[test]
     fn test_remove_vertex() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         graph.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
@@ -2949,7 +3072,7 @@ mod tests {
 
     #[test]
     fn test_remove_edge() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let edge_id = graph.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
@@ -2962,7 +3085,7 @@ mod tests {
 
     #[test]
     fn test_vertices_with_label() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         graph.add_vertex("person", HashMap::new());
         graph.add_vertex("person", HashMap::new());
         graph.add_vertex("software", HashMap::new());
@@ -2977,7 +3100,7 @@ mod tests {
 
     #[test]
     fn test_out_edges() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("person", HashMap::new());
@@ -2994,7 +3117,7 @@ mod tests {
 
     #[test]
     fn test_in_edges() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("person", HashMap::new());
@@ -3011,7 +3134,7 @@ mod tests {
 
     #[test]
     fn test_batch_success() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
 
         graph
             .batch(|ctx| {
@@ -3034,7 +3157,7 @@ mod tests {
 
     #[test]
     fn test_batch_rollback_on_error() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         graph.add_vertex("existing", HashMap::new());
 
         let result: Result<(), BatchError> = graph.batch(|ctx| {
@@ -3052,14 +3175,14 @@ mod tests {
     #[test]
     fn test_snapshot_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<CowSnapshot>();
-        assert_send_sync::<CowGraph>();
+        assert_send_sync::<GraphSnapshot>();
+        assert_send_sync::<Graph>();
     }
 
     #[test]
     fn test_snapshot_can_outlive_scope() {
         let snap = {
-            let graph = CowGraph::new();
+            let graph = Graph::new();
             graph.add_vertex("person", HashMap::new());
             graph.snapshot()
         }; // graph dropped here
@@ -3073,7 +3196,7 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let graph = Arc::new(CowGraph::new());
+        let graph = Arc::new(Graph::new());
         for i in 0..100 {
             graph.add_vertex("node", HashMap::from([("id".to_string(), Value::Int(i))]));
         }
@@ -3095,7 +3218,7 @@ mod tests {
 
     #[test]
     fn test_self_loop_edge() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
 
         let e = graph.add_edge(v1, v1, "self", HashMap::new()).unwrap();
@@ -3112,7 +3235,7 @@ mod tests {
 
     #[test]
     fn test_remove_vertex_with_self_loop() {
-        let graph = CowGraph::new();
+        let graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         graph.add_edge(v1, v1, "self", HashMap::new()).unwrap();
 
