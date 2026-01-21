@@ -1,9 +1,0 @@
-[
-  {
-    "name": "idx_user_email",
-    "element_type": "Vertex",
-    "label": "user",
-    "property": "email",
-    "index_type": "Unique"
-  }
-]

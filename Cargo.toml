@@ -58,25 +58,26 @@ name = "mmap_writes"
 harness = false
 required-features = ["mmap"]
 
-# Consolidated examples that require mmap feature
+# Examples - consolidated per spec-35
 [[example]]
-name = "nba"
-required-features = ["mmap"]
+name = "quickstart_gremlin"
 
 [[example]]
-name = "persistence"
-required-features = ["mmap"]
+name = "quickstart_gql"
 
 [[example]]
-name = "indexes"
-required-features = ["mmap"]
-
-[[example]]
-name = "rhai_scripting"
+name = "scripting"
 required-features = ["rhai"]
 
 [[example]]
-name = "cow_mmap_unified_api"
+name = "storage"
+required-features = ["mmap"]
+
+[[example]]
+name = "marvel"
+
+[[example]]
+name = "nba"
 required-features = ["mmap"]
 
 [package.metadata.kani]
