@@ -27,12 +27,11 @@ use std::fs;
 // Data Loading
 // =============================================================================
 
-fn load_nba_graph() -> Graph {
+fn load_nba_data(graph: &Graph) {
     let json_str =
         fs::read_to_string("examples/fixtures/nba.json").expect("Failed to read nba.json");
     let data: JsonValue = serde_json::from_str(&json_str).expect("Failed to parse JSON");
 
-    let graph = Graph::new();
     let mut player_ids = HashMap::new();
     let mut team_ids = HashMap::new();
 
@@ -146,8 +145,6 @@ fn load_nba_graph() -> Graph {
             }
         }
     }
-
-    graph
 }
 
 // =============================================================================
@@ -202,7 +199,80 @@ fn main() {
     println!("=== NBA Graph Database Example ===");
     println!("Comprehensive GQL (Graph Query Language) Demonstration\n");
 
-    let graph = load_nba_graph();
+    let graph = Graph::new();
+
+    // =========================================================================
+    // Part 1: Schema and DDL
+    // =========================================================================
+    section("PART 1: SCHEMA AND DDL");
+
+    println!("\n--- CREATE NODE TYPE ---");
+    graph
+        .ddl("CREATE NODE TYPE player (name STRING NOT NULL, position STRING, height_inches INT, all_star_selections INT, points_per_game FLOAT, rebounds_per_game FLOAT, assists_per_game FLOAT, mvp_count INT, finals_mvp_count INT)")
+        .unwrap();
+    println!("Created: player (name STRING NOT NULL, position STRING, ...)");
+
+    graph
+        .ddl("CREATE NODE TYPE team (name STRING NOT NULL, city STRING, state STRING, arena STRING, conference STRING, division STRING, founded INT, defunct BOOL, championship_count INT, championships LIST)")
+        .unwrap();
+    println!("Created: team (name STRING NOT NULL, city STRING, ...)");
+
+    println!("\n--- CREATE EDGE TYPE ---");
+    graph
+        .ddl("CREATE EDGE TYPE played_for (start_year INT, end_year INT) FROM player TO team")
+        .unwrap();
+    println!("Created: played_for (start_year INT, end_year INT) FROM player TO team");
+
+    graph
+        .ddl("CREATE EDGE TYPE won_championship_with (ring_count INT) FROM player TO team")
+        .unwrap();
+    println!("Created: won_championship_with (ring_count INT) FROM player TO team");
+
+    println!("\n--- SET SCHEMA VALIDATION ---");
+    graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
+    println!("Set: STRICT mode - schema violations will be rejected");
+
+    // Show schema info
+    if let Some(schema) = graph.schema() {
+        println!("\nSchema summary:");
+        println!(
+            "  Vertex types: {:?}",
+            schema.vertex_labels().collect::<Vec<_>>()
+        );
+        println!(
+            "  Edge types: {:?}",
+            schema.edge_labels().collect::<Vec<_>>()
+        );
+        println!("  Validation mode: {:?}", schema.mode);
+    }
+
+    println!("\n--- Schema Validation Demo ---");
+    // Try to create a vertex with wrong type for a property
+    let invalid_result = graph.gql("CREATE (:player {name: 123})"); // name should be STRING
+    match invalid_result {
+        Err(e) => println!("Caught schema violation (wrong type): {}", e),
+        Ok(_) => println!("  (validation not enforced for this case)"),
+    }
+
+    // Try to create a vertex missing a NOT NULL property
+    let missing_required = graph.gql("CREATE (:player {position: 'Guard'})"); // missing name
+    match missing_required {
+        Err(e) => println!("Caught schema violation (missing required): {}", e),
+        Ok(_) => println!("  (validation not enforced for this case)"),
+    }
+
+    // Try to create an edge with invalid endpoints
+    let invalid_edge = graph.gql("CREATE (:team {name: 'T1'})-[:played_for]->(:team {name: 'T2'})");
+    match invalid_edge {
+        Err(e) => println!("Caught schema violation (invalid edge): {}", e),
+        Ok(_) => println!("  (validation not enforced for this case)"),
+    }
+
+    // =========================================================================
+    // Load Data (validated against schema)
+    // =========================================================================
+    println!("\n--- Loading NBA Data ---");
+    load_nba_data(&graph);
 
     // Graph statistics using GQL
     let players: i64 = match &graph.gql("MATCH (p:player) RETURN count(*)").unwrap()[0] {
@@ -218,9 +288,9 @@ fn main() {
     println!("Graph loaded: {} players, {} teams", players, teams);
 
     // =========================================================================
-    // Part 1: Basic GQL Queries
+    // Part 2: Basic GQL Queries
     // =========================================================================
-    section("PART 1: BASIC GQL QUERIES");
+    section("PART 2: BASIC GQL QUERIES");
 
     println!("\n--- MATCH and RETURN ---");
     let results = graph.gql("MATCH (p:player) RETURN p.name LIMIT 5").unwrap();
@@ -267,9 +337,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 2: Pattern Matching
+    // Part 3: Pattern Matching
     // =========================================================================
-    section("PART 2: PATTERN MATCHING");
+    section("PART 3: PATTERN MATCHING");
 
     println!("\n--- Single-hop patterns ---");
     let results = graph
@@ -315,9 +385,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 3: Aggregations
+    // Part 4: Aggregations
     // =========================================================================
-    section("PART 3: AGGREGATIONS");
+    section("PART 4: AGGREGATIONS");
 
     println!("\n--- count(*) ---");
     let results = graph
@@ -365,9 +435,9 @@ fn main() {
     println!("Warriors champions: {}", format_value(&results[0]));
 
     // =========================================================================
-    // Part 4: Subqueries and EXISTS
+    // Part 5: Subqueries and EXISTS
     // =========================================================================
-    section("PART 4: SUBQUERIES AND EXISTS");
+    section("PART 5: SUBQUERIES AND EXISTS");
 
     println!("\n--- EXISTS subquery ---");
     let results = graph
@@ -396,9 +466,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 5: CASE Expressions
+    // Part 6: CASE Expressions
     // =========================================================================
-    section("PART 5: CASE EXPRESSIONS");
+    section("PART 6: CASE EXPRESSIONS");
 
     println!("\n--- CASE WHEN for classification ---");
     let results = graph
@@ -421,9 +491,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 6: Introspection Functions
+    // Part 7: Introspection Functions
     // =========================================================================
-    section("PART 6: INTROSPECTION");
+    section("PART 7: INTROSPECTION");
 
     println!("\n--- id() and labels() ---");
     let results = graph
@@ -443,9 +513,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 7: Query Parameters
+    // Part 8: Query Parameters
     // =========================================================================
-    section("PART 7: QUERY PARAMETERS");
+    section("PART 8: QUERY PARAMETERS");
 
     println!("\n--- Using $paramName syntax ---");
     let mut params = HashMap::new();
@@ -489,9 +559,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 8: Advanced Features
+    // Part 9: Advanced Features
     // =========================================================================
-    section("PART 8: ADVANCED FEATURES");
+    section("PART 9: ADVANCED FEATURES");
 
     println!("\n--- Inline WHERE in patterns ---");
     let results = graph
@@ -574,9 +644,9 @@ fn main() {
     }
 
     // =========================================================================
-    // Part 9: GQL Mutations
+    // Part 10: GQL Mutations
     // =========================================================================
-    section("PART 9: GQL MUTATIONS");
+    section("PART 10: GQL MUTATIONS");
 
     // Create a separate graph for mutation demos
     let mut_graph = Graph::new();
@@ -664,51 +734,14 @@ fn main() {
     );
 
     // =========================================================================
-    // Part 10: Schema and DDL (Brief)
-    // =========================================================================
-    section("PART 10: SCHEMA AND DDL");
-
-    let schema_graph = Graph::new();
-
-    println!("\n--- CREATE NODE TYPE ---");
-    schema_graph
-        .ddl("CREATE NODE TYPE Player (name STRING NOT NULL, position STRING, ppg FLOAT)")
-        .unwrap();
-    println!("Created: CREATE NODE TYPE Player (name STRING NOT NULL, ...)");
-
-    schema_graph
-        .ddl("CREATE NODE TYPE Team (name STRING NOT NULL, city STRING)")
-        .unwrap();
-    println!("Created: CREATE NODE TYPE Team (name STRING NOT NULL, ...)");
-
-    println!("\n--- CREATE EDGE TYPE ---");
-    schema_graph
-        .ddl("CREATE EDGE TYPE PLAYS_FOR (since INT) FROM Player TO Team")
-        .unwrap();
-    println!("Created: CREATE EDGE TYPE PLAYS_FOR FROM Player TO Team");
-
-    println!("\n--- SET SCHEMA VALIDATION ---");
-    schema_graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
-    println!("Set: SET SCHEMA VALIDATION STRICT");
-
-    // Show schema info
-    if let Some(schema) = schema_graph.schema() {
-        println!("\nSchema summary:");
-        println!(
-            "  Vertex types: {:?}",
-            schema.vertex_labels().collect::<Vec<_>>()
-        );
-        println!(
-            "  Edge types: {:?}",
-            schema.edge_labels().collect::<Vec<_>>()
-        );
-        println!("  Validation mode: {:?}", schema.mode);
-    }
-
-    // =========================================================================
     // Summary
     // =========================================================================
     section("SUMMARY: GQL FEATURES DEMONSTRATED");
+
+    println!("\nSchema/DDL:");
+    println!("  CREATE NODE TYPE / CREATE EDGE TYPE");
+    println!("  SET SCHEMA VALIDATION STRICT");
+    println!("  Schema validation catches type errors and missing required fields");
 
     println!("\nBasic Queries:");
     println!("  MATCH (p:player) RETURN p.name");
@@ -750,10 +783,6 @@ fn main() {
     println!("  SET p.prop = value");
     println!("  MERGE ... ON CREATE SET ... ON MATCH SET ...");
     println!("  DELETE / DETACH DELETE");
-
-    println!("\nSchema/DDL:");
-    println!("  CREATE NODE TYPE / CREATE EDGE TYPE");
-    println!("  SET SCHEMA VALIDATION STRICT");
 
     println!("\n=== Example Complete ===");
 }
