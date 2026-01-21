@@ -10,7 +10,7 @@
 //! - Schema integration
 //! - Large-scale data handling
 
-use interstellar::graph_elements::{GraphEdge, GraphVertex};
+use interstellar::graph_elements::{InMemoryEdge, InMemoryVertex};
 use interstellar::prelude::*;
 use interstellar::storage::{BatchError, Graph, GraphStorage};
 use interstellar::StorageError;
@@ -1461,7 +1461,7 @@ fn cow_unified_traversal_add_v_basic() {
     let g = graph.gremlin(Arc::clone(&graph));
 
     // Add a vertex through the unified traversal API
-    // With the new typed API, add_v().next() returns Option<GraphVertex>
+    // With the new typed API, add_v().next() returns Option<InMemoryVertex>
     let result = g.add_v("Person").next();
 
     // Should return a GraphVertex
@@ -1480,7 +1480,7 @@ fn cow_unified_traversal_add_v_with_properties() {
     let g = graph.gremlin(Arc::clone(&graph));
 
     // Add a vertex with properties
-    // With the new typed API, add_v().next() returns Option<GraphVertex>
+    // With the new typed API, add_v().next() returns Option<InMemoryVertex>
     let result = g
         .add_v("Person")
         .property("name", "Alice")
@@ -1533,7 +1533,7 @@ fn cow_unified_traversal_add_v_to_list() {
 
     // Use to_list() to add multiple vertices via inject + add_v pattern
     // (Here we just add one, but to_list collects all results)
-    // With typed API, to_list() returns Vec<GraphVertex>
+    // With typed API, to_list() returns Vec<InMemoryVertex>
     let results = g.add_v("Person").to_list();
 
     assert_eq!(results.len(), 1);
@@ -1573,7 +1573,7 @@ fn cow_unified_traversal_add_e_from_source() {
     );
 
     // Now use traversal API to add an edge
-    // With typed API, add_e().next() returns Option<GraphEdge>
+    // With typed API, add_e().next() returns Option<InMemoryEdge>
     let g = graph.gremlin(Arc::clone(&graph));
     let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
 
@@ -1593,7 +1593,7 @@ fn cow_unified_traversal_add_e_with_properties() {
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
 
-    // With typed API, add_e().next() returns Option<GraphEdge>
+    // With typed API, add_e().next() returns Option<InMemoryEdge>
     let g = graph.gremlin(Arc::clone(&graph));
     let result = g
         .add_e("KNOWS")
@@ -1619,7 +1619,7 @@ fn cow_unified_traversal_full_workflow() {
     let g = graph.gremlin(Arc::clone(&graph));
 
     // Add vertices through traversal API
-    // With typed API, add_v().next() returns Option<GraphVertex>
+    // With typed API, add_v().next() returns Option<InMemoryVertex>
     let alice_vertex = g
         .add_v("Person")
         .property("name", "Alice")
@@ -1963,8 +1963,8 @@ fn cow_typed_vertex_next_returns_graph_vertex() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: next() must return Option<GraphVertex>
-    let vertex: Option<GraphVertex> = g.v().next();
+    // COMPILE-TIME CHECK: next() must return Option<InMemoryVertex>
+    let vertex: Option<InMemoryVertex> = g.v().next();
 
     assert!(vertex.is_some());
     let v = vertex.unwrap();
@@ -1978,8 +1978,8 @@ fn cow_typed_vertex_to_list_returns_vec_graph_vertex() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: to_list() must return Vec<GraphVertex>
-    let vertices: Vec<GraphVertex> = g.v().to_list();
+    // COMPILE-TIME CHECK: to_list() must return Vec<InMemoryVertex>
+    let vertices: Vec<InMemoryVertex> = g.v().to_list();
 
     assert_eq!(vertices.len(), 3);
     for v in &vertices {
@@ -1992,8 +1992,8 @@ fn cow_typed_vertex_one_returns_result_graph_vertex() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: one() must return Result<GraphVertex, TraversalError>
-    let result: Result<GraphVertex, interstellar::error::TraversalError> =
+    // COMPILE-TIME CHECK: one() must return Result<InMemoryVertex, TraversalError>
+    let result: Result<InMemoryVertex, interstellar::error::TraversalError> =
         g.v().has_value("name", Value::String("Alice".into())).one();
 
     assert!(result.is_ok());
@@ -2006,8 +2006,8 @@ fn cow_typed_vertex_to_set_returns_hashset_graph_vertex() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: to_set() must return HashSet<GraphVertex>
-    let vertices: HashSet<GraphVertex> = g.v().to_set();
+    // COMPILE-TIME CHECK: to_set() must return HashSet<InMemoryVertex>
+    let vertices: HashSet<InMemoryVertex> = g.v().to_set();
 
     assert_eq!(vertices.len(), 3);
 }
@@ -2032,8 +2032,8 @@ fn cow_typed_edge_next_returns_graph_edge() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: next() must return Option<GraphEdge>
-    let edge: Option<GraphEdge> = g.e().next();
+    // COMPILE-TIME CHECK: next() must return Option<InMemoryEdge>
+    let edge: Option<InMemoryEdge> = g.e().next();
 
     assert!(edge.is_some());
     let e = edge.unwrap();
@@ -2048,8 +2048,8 @@ fn cow_typed_edge_to_list_returns_vec_graph_edge() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: to_list() must return Vec<GraphEdge>
-    let edges: Vec<GraphEdge> = g.e().to_list();
+    // COMPILE-TIME CHECK: to_list() must return Vec<InMemoryEdge>
+    let edges: Vec<InMemoryEdge> = g.e().to_list();
 
     assert_eq!(edges.len(), 2);
     for e in &edges {
@@ -2066,8 +2066,8 @@ fn cow_typed_edge_one_returns_result_graph_edge() {
 
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: one() must return Result<GraphEdge, TraversalError>
-    let result: Result<GraphEdge, interstellar::error::TraversalError> = g.e().one();
+    // COMPILE-TIME CHECK: one() must return Result<InMemoryEdge, TraversalError>
+    let result: Result<InMemoryEdge, interstellar::error::TraversalError> = g.e().one();
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap().label(), Some("knows".to_string()));
@@ -2078,8 +2078,8 @@ fn cow_typed_edge_to_set_returns_hashset_graph_edge() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: to_set() must return HashSet<GraphEdge>
-    let edges: HashSet<GraphEdge> = g.e().to_set();
+    // COMPILE-TIME CHECK: to_set() must return HashSet<InMemoryEdge>
+    let edges: HashSet<InMemoryEdge> = g.e().to_set();
 
     assert_eq!(edges.len(), 2);
 }
@@ -2145,8 +2145,8 @@ fn cow_typed_add_v_next_returns_graph_vertex() {
     let graph = Arc::new(Graph::new());
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: add_v().next() must return Option<GraphVertex>
-    let vertex: Option<GraphVertex> = g.add_v("person").property("name", "Test").next();
+    // COMPILE-TIME CHECK: add_v().next() must return Option<InMemoryVertex>
+    let vertex: Option<InMemoryVertex> = g.add_v("person").property("name", "Test").next();
 
     assert!(vertex.is_some());
     let v = vertex.unwrap();
@@ -2159,8 +2159,8 @@ fn cow_typed_add_v_to_list_returns_vec_graph_vertex() {
     let graph = Arc::new(Graph::new());
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: add_v().to_list() must return Vec<GraphVertex>
-    let vertices: Vec<GraphVertex> = g.add_v("person").to_list();
+    // COMPILE-TIME CHECK: add_v().to_list() must return Vec<InMemoryVertex>
+    let vertices: Vec<InMemoryVertex> = g.add_v("person").to_list();
 
     assert_eq!(vertices.len(), 1);
     assert_eq!(vertices[0].label(), Some("person".to_string()));
@@ -2174,8 +2174,8 @@ fn cow_typed_add_e_next_returns_graph_edge() {
 
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: add_e().next() must return Option<GraphEdge>
-    let edge: Option<GraphEdge> = g.add_e("knows").from_id(a).to_id(b).next();
+    // COMPILE-TIME CHECK: add_e().next() must return Option<InMemoryEdge>
+    let edge: Option<InMemoryEdge> = g.add_e("knows").from_id(a).to_id(b).next();
 
     assert!(edge.is_some());
     let e = edge.unwrap();
@@ -2190,8 +2190,8 @@ fn cow_typed_add_e_to_list_returns_vec_graph_edge() {
 
     let g = graph.gremlin(Arc::clone(&graph));
 
-    // COMPILE-TIME CHECK: add_e().to_list() must return Vec<GraphEdge>
-    let edges: Vec<GraphEdge> = g.add_e("knows").from_id(a).to_id(b).to_list();
+    // COMPILE-TIME CHECK: add_e().to_list() must return Vec<InMemoryEdge>
+    let edges: Vec<InMemoryEdge> = g.add_e("knows").from_id(a).to_id(b).to_list();
 
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0].label(), Some("knows".to_string()));
@@ -2207,8 +2207,8 @@ fn cow_typed_vertex_to_edge_transformation() {
     let g = graph.gremlin(Arc::clone(&graph));
 
     // Start with vertices, transform to edges via out_e()
-    // COMPILE-TIME CHECK: out_e().to_list() must return Vec<GraphEdge>
-    let edges: Vec<GraphEdge> = g.v().out_e().to_list();
+    // COMPILE-TIME CHECK: out_e().to_list() must return Vec<InMemoryEdge>
+    let edges: Vec<InMemoryEdge> = g.v().out_e().to_list();
 
     assert_eq!(edges.len(), 2);
 }
@@ -2219,8 +2219,8 @@ fn cow_typed_edge_to_vertex_transformation() {
     let g = graph.gremlin(Arc::clone(&graph));
 
     // Start with edges, transform to vertices via out_v()
-    // COMPILE-TIME CHECK: out_v().to_list() must return Vec<GraphVertex>
-    let vertices: Vec<GraphVertex> = g.e().out_v().to_list();
+    // COMPILE-TIME CHECK: out_v().to_list() must return Vec<InMemoryVertex>
+    let vertices: Vec<InMemoryVertex> = g.e().out_v().to_list();
 
     assert_eq!(vertices.len(), 2);
 }
@@ -2246,7 +2246,7 @@ fn cow_typed_graph_vertex_methods() {
     let graph = create_typed_test_graph();
     let g = graph.gremlin(Arc::clone(&graph));
 
-    let alice: GraphVertex = g
+    let alice: InMemoryVertex = g
         .v()
         .has_value("name", Value::String("Alice".into()))
         .one()
@@ -2260,7 +2260,7 @@ fn cow_typed_graph_vertex_methods() {
     let _exists: bool = alice.exists();
 
     // Can traverse from GraphVertex
-    let friends: Vec<GraphVertex> = alice.out("knows").to_list();
+    let friends: Vec<InMemoryVertex> = alice.out("knows").to_list();
     assert_eq!(friends.len(), 1);
 }
 
@@ -2274,14 +2274,14 @@ fn cow_typed_graph_edge_methods() {
     let g = graph.gremlin(Arc::clone(&graph));
 
     // Use one() since there's exactly one edge
-    let edge: GraphEdge = g.e().one().unwrap();
+    let edge: InMemoryEdge = g.e().one().unwrap();
 
     // Verify all GraphEdge methods work
     let _id: EdgeId = edge.id();
     let _label: Option<String> = edge.label();
-    let _out_v: Option<GraphVertex> = edge.out_v();
-    let _in_v: Option<GraphVertex> = edge.in_v();
-    let _both: Option<(GraphVertex, GraphVertex)> = edge.both_v();
+    let _out_v: Option<InMemoryVertex> = edge.out_v();
+    let _in_v: Option<InMemoryVertex> = edge.in_v();
+    let _both: Option<(InMemoryVertex, InMemoryVertex)> = edge.both_v();
     let _props: HashMap<String, Value> = edge.properties();
     let _exists: bool = edge.exists();
 }

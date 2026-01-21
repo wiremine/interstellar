@@ -11,7 +11,9 @@ use rhai::{Dynamic, Engine, ImmutableString};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
+#[cfg(feature = "mmap")]
+use crate::graph_elements::{PersistentEdge, PersistentVertex};
 use crate::storage::cow::CowBoundTraversal;
 #[cfg(feature = "mmap")]
 use crate::storage::CowMmapGraph;
@@ -413,8 +415,8 @@ impl RhaiTraversal {
 
     /// Convert a Value to a Dynamic, upgrading vertices and edges to rich types.
     ///
-    /// - `Value::Vertex(id)` → `GraphVertex` (for in-memory) or `Value` (for mmap)
-    /// - `Value::Edge(id)` → `GraphEdge` (for in-memory) or `Value` (for mmap)
+    /// - `Value::Vertex(id)` → `GraphVertex<G>` (rich type for both backends)
+    /// - `Value::Edge(id)` → `GraphEdge<G>` (rich type for both backends)
     /// - Other values → converted via `value_to_dynamic`
     fn value_to_rich_dynamic(&self, value: Value) -> Dynamic {
         match &self.storage {
@@ -424,10 +426,11 @@ impl RhaiTraversal {
                 other => value_to_dynamic(other),
             },
             #[cfg(feature = "mmap")]
-            StorageAdapter::Mmap(_) => {
-                // Mmap doesn't support rich types yet, return Value
-                value_to_dynamic(value)
-            }
+            StorageAdapter::Mmap(graph) => match value {
+                Value::Vertex(id) => Dynamic::from(GraphVertex::new(id, Arc::clone(graph))),
+                Value::Edge(id) => Dynamic::from(GraphEdge::new(id, Arc::clone(graph))),
+                other => value_to_dynamic(other),
+            },
         }
     }
 
@@ -1818,7 +1821,7 @@ fn execute_with_mmap_graph(
     steps: &[RhaiStep],
     track_paths: bool,
 ) -> Vec<Value> {
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(graph));
 
     let mut bound = match source {
         TraversalSource::AllVertices => g.v(),
@@ -3047,7 +3050,11 @@ fn register_traversal_methods(engine: &mut Engine) {
     engine.register_fn("from_v", |t: &mut RhaiTraversal, id: VertexId| {
         t.clone().from_v(id)
     });
-    engine.register_fn("from_v", |t: &mut RhaiTraversal, v: GraphVertex| {
+    engine.register_fn("from_v", |t: &mut RhaiTraversal, v: InMemoryVertex| {
+        t.clone().from_v(v.id())
+    });
+    #[cfg(feature = "mmap")]
+    engine.register_fn("from_v", |t: &mut RhaiTraversal, v: PersistentVertex| {
         t.clone().from_v(v.id())
     });
     engine.register_fn(
@@ -3060,7 +3067,11 @@ fn register_traversal_methods(engine: &mut Engine) {
     engine.register_fn("to_v", |t: &mut RhaiTraversal, id: VertexId| {
         t.clone().to_v(id)
     });
-    engine.register_fn("to_v", |t: &mut RhaiTraversal, v: GraphVertex| {
+    engine.register_fn("to_v", |t: &mut RhaiTraversal, v: InMemoryVertex| {
+        t.clone().to_v(v.id())
+    });
+    #[cfg(feature = "mmap")]
+    engine.register_fn("to_v", |t: &mut RhaiTraversal, v: PersistentVertex| {
         t.clone().to_v(v.id())
     });
     engine.register_fn(
@@ -3453,7 +3464,12 @@ fn register_anonymous_factory(engine: &mut Engine) {
     });
     engine.register_fn(
         "from_v",
-        |a: &mut RhaiAnonymousTraversal, v: GraphVertex| a.clone().from_v(v.id()),
+        |a: &mut RhaiAnonymousTraversal, v: InMemoryVertex| a.clone().from_v(v.id()),
+    );
+    #[cfg(feature = "mmap")]
+    engine.register_fn(
+        "from_v",
+        |a: &mut RhaiAnonymousTraversal, v: PersistentVertex| a.clone().from_v(v.id()),
     );
     engine.register_fn(
         "from_label",
@@ -3467,9 +3483,15 @@ fn register_anonymous_factory(engine: &mut Engine) {
     engine.register_fn("to_v", |a: &mut RhaiAnonymousTraversal, id: VertexId| {
         a.clone().to_v(id)
     });
-    engine.register_fn("to_v", |a: &mut RhaiAnonymousTraversal, v: GraphVertex| {
-        a.clone().to_v(v.id())
-    });
+    engine.register_fn(
+        "to_v",
+        |a: &mut RhaiAnonymousTraversal, v: InMemoryVertex| a.clone().to_v(v.id()),
+    );
+    #[cfg(feature = "mmap")]
+    engine.register_fn(
+        "to_v",
+        |a: &mut RhaiAnonymousTraversal, v: PersistentVertex| a.clone().to_v(v.id()),
+    );
     engine.register_fn(
         "to_label",
         |a: &mut RhaiAnonymousTraversal, label: ImmutableString| {

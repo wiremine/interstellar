@@ -55,7 +55,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::error::TraversalError;
-use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
 use crate::storage::cow::Graph;
 use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
@@ -430,7 +430,7 @@ impl<'g> TypedTraversal<'g, Vertex> {
     /// let v = g.v().next().unwrap();
     /// assert_eq!(v.property("name"), Some(Value::String("Alice".to_string())));
     /// ```
-    pub fn next(self) -> Option<GraphVertex> {
+    pub fn next(self) -> Option<InMemoryVertex> {
         let graph = Arc::clone(&self.graph);
         self.execute().find_map(|t| match t.value {
             Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
@@ -458,7 +458,7 @@ impl<'g> TypedTraversal<'g, Vertex> {
     /// let vertices = g.v().to_list();
     /// assert_eq!(vertices.len(), 2);
     /// ```
-    pub fn to_list(self) -> Vec<GraphVertex> {
+    pub fn to_list(self) -> Vec<InMemoryVertex> {
         let graph = Arc::clone(&self.graph);
         self.execute()
             .filter_map(|t| match t.value {
@@ -471,7 +471,7 @@ impl<'g> TypedTraversal<'g, Vertex> {
     /// Execute and return exactly one vertex, or error.
     ///
     /// Returns an error if there are zero or more than one vertices.
-    pub fn one(self) -> Result<GraphVertex, TraversalError> {
+    pub fn one(self) -> Result<InMemoryVertex, TraversalError> {
         let graph = Arc::clone(&self.graph);
         let ids: Vec<_> = self
             .execute()
@@ -492,7 +492,7 @@ impl<'g> TypedTraversal<'g, Vertex> {
     /// Note: `GraphVertex` contains interior mutability (via `Arc<Graph>`),
     /// but hashing is based only on the vertex ID, which is immutable.
     #[allow(clippy::mutable_key_type)]
-    pub fn to_set(self) -> HashSet<GraphVertex> {
+    pub fn to_set(self) -> HashSet<InMemoryVertex> {
         self.to_list().into_iter().collect()
     }
 
@@ -509,7 +509,7 @@ impl<'g> TypedTraversal<'g, Vertex> {
     }
 
     /// Execute and return the first n vertices.
-    pub fn take(self, n: usize) -> Vec<GraphVertex> {
+    pub fn take(self, n: usize) -> Vec<InMemoryVertex> {
         let graph = Arc::clone(&self.graph);
         self.execute()
             .filter_map(|t| match t.value {
@@ -521,7 +521,7 @@ impl<'g> TypedTraversal<'g, Vertex> {
     }
 
     /// Execute and return an iterator over vertices.
-    pub fn iter(self) -> impl Iterator<Item = GraphVertex> {
+    pub fn iter(self) -> impl Iterator<Item = InMemoryVertex> {
         let graph = Arc::clone(&self.graph);
         self.execute().filter_map(move |t| match t.value {
             Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
@@ -538,7 +538,7 @@ impl<'g> TypedTraversal<'g, Edge> {
     /// Execute and return the first edge.
     ///
     /// Returns `None` if the traversal produces no edges.
-    pub fn next(self) -> Option<GraphEdge> {
+    pub fn next(self) -> Option<InMemoryEdge> {
         let graph = Arc::clone(&self.graph);
         self.execute().find_map(|t| match t.value {
             Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
@@ -547,7 +547,7 @@ impl<'g> TypedTraversal<'g, Edge> {
     }
 
     /// Execute and return all edges.
-    pub fn to_list(self) -> Vec<GraphEdge> {
+    pub fn to_list(self) -> Vec<InMemoryEdge> {
         let graph = Arc::clone(&self.graph);
         self.execute()
             .filter_map(|t| match t.value {
@@ -560,7 +560,7 @@ impl<'g> TypedTraversal<'g, Edge> {
     /// Execute and return exactly one edge, or error.
     ///
     /// Returns an error if there are zero or more than one edges.
-    pub fn one(self) -> Result<GraphEdge, TraversalError> {
+    pub fn one(self) -> Result<InMemoryEdge, TraversalError> {
         let graph = Arc::clone(&self.graph);
         let ids: Vec<_> = self
             .execute()
@@ -581,7 +581,7 @@ impl<'g> TypedTraversal<'g, Edge> {
     /// Note: `GraphEdge` contains interior mutability (via `Arc<Graph>`),
     /// but hashing is based only on the edge ID, which is immutable.
     #[allow(clippy::mutable_key_type)]
-    pub fn to_set(self) -> HashSet<GraphEdge> {
+    pub fn to_set(self) -> HashSet<InMemoryEdge> {
         self.to_list().into_iter().collect()
     }
 
@@ -598,7 +598,7 @@ impl<'g> TypedTraversal<'g, Edge> {
     }
 
     /// Execute and return the first n edges.
-    pub fn take(self, n: usize) -> Vec<GraphEdge> {
+    pub fn take(self, n: usize) -> Vec<InMemoryEdge> {
         let graph = Arc::clone(&self.graph);
         self.execute()
             .filter_map(|t| match t.value {
@@ -610,7 +610,7 @@ impl<'g> TypedTraversal<'g, Edge> {
     }
 
     /// Execute and return an iterator over edges.
-    pub fn iter(self) -> impl Iterator<Item = GraphEdge> {
+    pub fn iter(self) -> impl Iterator<Item = InMemoryEdge> {
         let graph = Arc::clone(&self.graph);
         self.execute().filter_map(move |t| match t.value {
             Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
@@ -1264,7 +1264,7 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let v: Option<GraphVertex> = g.v().next();
+        let v: Option<InMemoryVertex> = g.v().next();
         assert!(v.is_some());
         assert!(v.unwrap().label().is_some());
     }
@@ -1275,7 +1275,7 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let vertices: Vec<GraphVertex> = g.v().to_list();
+        let vertices: Vec<InMemoryVertex> = g.v().to_list();
         assert_eq!(vertices.len(), 3);
     }
 
@@ -1332,7 +1332,7 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let e: Option<GraphEdge> = g.e().next();
+        let e: Option<InMemoryEdge> = g.e().next();
         assert!(e.is_some());
         assert_eq!(e.unwrap().label(), Some("knows".to_string()));
     }
@@ -1343,7 +1343,7 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let edges: Vec<GraphEdge> = g.e().to_list();
+        let edges: Vec<InMemoryEdge> = g.e().to_list();
         assert_eq!(edges.len(), 2);
     }
 
@@ -1402,7 +1402,7 @@ mod tests {
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
         // Alice -> Bob -> Charlie
-        let friends: Vec<GraphVertex> = g.v().out().to_list();
+        let friends: Vec<InMemoryVertex> = g.v().out().to_list();
         // Alice knows Bob, Bob knows Charlie = 2 results
         assert_eq!(friends.len(), 2);
     }
@@ -1414,7 +1414,7 @@ mod tests {
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
         // Who is known by someone?
-        let known: Vec<GraphVertex> = g.v().in_().to_list();
+        let known: Vec<InMemoryVertex> = g.v().in_().to_list();
         // Bob is known by Alice, Charlie is known by Bob = 2 results
         assert_eq!(known.len(), 2);
     }
@@ -1426,7 +1426,7 @@ mod tests {
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
         // out_e() transforms Vertex -> Edge
-        let edges: Vec<GraphEdge> = g.v().out_e().to_list();
+        let edges: Vec<InMemoryEdge> = g.v().out_e().to_list();
         assert_eq!(edges.len(), 2);
         assert!(edges.iter().all(|e| e.label() == Some("knows".to_string())));
     }
@@ -1438,11 +1438,11 @@ mod tests {
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
         // out_v() transforms Edge -> Vertex
-        let sources: Vec<GraphVertex> = g.e().out_v().to_list();
+        let sources: Vec<InMemoryVertex> = g.e().out_v().to_list();
         assert_eq!(sources.len(), 2);
 
         // in_v() transforms Edge -> Vertex
-        let targets: Vec<GraphVertex> = g.e().in_v().to_list();
+        let targets: Vec<InMemoryVertex> = g.e().in_v().to_list();
         assert_eq!(targets.len(), 2);
     }
 
@@ -1478,10 +1478,10 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let people: Vec<GraphVertex> = g.v().has_label("person").to_list();
+        let people: Vec<InMemoryVertex> = g.v().has_label("person").to_list();
         assert_eq!(people.len(), 3);
 
-        let software: Vec<GraphVertex> = g.v().has_label("software").to_list();
+        let software: Vec<InMemoryVertex> = g.v().has_label("software").to_list();
         assert_eq!(software.len(), 0);
     }
 
@@ -1491,7 +1491,7 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let alice: Vec<GraphVertex> = g.v().has_value("name", "Alice").to_list();
+        let alice: Vec<InMemoryVertex> = g.v().has_value("name", "Alice").to_list();
         assert_eq!(alice.len(), 1);
         assert_eq!(
             alice[0].property("name"),
@@ -1505,7 +1505,7 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
-        let limited: Vec<GraphVertex> = g.v().limit(2).to_list();
+        let limited: Vec<InMemoryVertex> = g.v().limit(2).to_list();
         assert_eq!(limited.len(), 2);
     }
 
@@ -1517,7 +1517,7 @@ mod tests {
 
         // out() from all vertices may produce duplicates if graph has cycles
         // dedup() removes them
-        let unique: Vec<GraphVertex> = g.v().out().dedup().to_list();
+        let unique: Vec<InMemoryVertex> = g.v().out().dedup().to_list();
         // Bob and Charlie are the only out neighbors (no duplicates)
         assert_eq!(unique.len(), 2);
     }
@@ -1533,7 +1533,7 @@ mod tests {
         let g = TypedTraversalSource::new(&snapshot, graph.clone());
 
         // Alice -> Bob -> Charlie (2 hops)
-        let fof: Vec<GraphVertex> = g.v().out().out().to_list();
+        let fof: Vec<InMemoryVertex> = g.v().out().out().to_list();
         // Only Alice->Bob->Charlie path
         assert_eq!(fof.len(), 1);
         assert_eq!(

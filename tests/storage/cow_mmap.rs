@@ -1622,21 +1622,22 @@ fn cow_mmap_index_with_batch_operations() {
 #[test]
 fn cow_mmap_unified_traversal_add_v_basic() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     let result = g.add_v("Person").next();
 
     assert!(result.is_some());
-    assert!(matches!(result.unwrap(), Value::Vertex(_)));
+    // Now returns PersistentVertex directly
+    assert_eq!(result.unwrap().label(), Some("Person".to_string()));
     assert_eq!(graph.vertex_count(), 1);
 }
 
 #[test]
 fn cow_mmap_unified_traversal_add_v_with_properties() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     let result = g
         .add_v("Person")
@@ -1645,26 +1646,24 @@ fn cow_mmap_unified_traversal_add_v_with_properties() {
         .next();
 
     assert!(result.is_some());
-    let id = match result.unwrap() {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
+    let vertex = result.unwrap();
+    let id = vertex.id();
 
     let snap = graph.snapshot();
-    let vertex = snap.get_vertex(id).unwrap();
-    assert_eq!(vertex.label, "Person");
+    let raw_vertex = snap.get_vertex(id).unwrap();
+    assert_eq!(raw_vertex.label, "Person");
     assert_eq!(
-        vertex.properties.get("name"),
+        raw_vertex.properties.get("name"),
         Some(&Value::String("Alice".into()))
     );
-    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+    assert_eq!(raw_vertex.properties.get("age"), Some(&Value::Int(30)));
 }
 
 #[test]
 fn cow_mmap_unified_traversal_add_v_multiple() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();
@@ -1682,28 +1681,30 @@ fn cow_mmap_unified_traversal_add_v_multiple() {
 #[test]
 fn cow_mmap_unified_traversal_add_v_to_list() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     let results = g.add_v("Person").property("name", "Alice").to_list();
 
     assert_eq!(results.len(), 1);
-    assert!(matches!(results[0], Value::Vertex(_)));
+    // Now returns Vec<PersistentVertex>
+    assert_eq!(results[0].label(), Some("Person".to_string()));
 }
 
 #[test]
 fn cow_mmap_unified_traversal_add_e_from_source() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
 
     let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
 
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
     let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
 
     assert!(result.is_some());
-    assert!(matches!(result.unwrap(), Value::Edge(_)));
+    // Now returns PersistentEdge directly
+    assert_eq!(result.unwrap().label(), Some("KNOWS".to_string()));
     assert_eq!(graph.edge_count(), 1);
 
     let snap = graph.snapshot();
@@ -1716,12 +1717,12 @@ fn cow_mmap_unified_traversal_add_e_from_source() {
 #[test]
 fn cow_mmap_unified_traversal_add_e_with_properties() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
 
     let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
 
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
     let result = g
         .add_e("KNOWS")
         .from_id(alice)
@@ -1731,29 +1732,27 @@ fn cow_mmap_unified_traversal_add_e_with_properties() {
         .next();
 
     assert!(result.is_some());
-    let edge_id = match result.unwrap() {
-        Value::Edge(id) => id,
-        _ => panic!("Expected edge ID"),
-    };
+    let edge = result.unwrap();
+    let edge_id = edge.id();
 
     let snap = graph.snapshot();
-    let edge = snap.get_edge(edge_id).unwrap();
-    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
-    assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.5)));
+    let raw_edge = snap.get_edge(edge_id).unwrap();
+    assert_eq!(raw_edge.properties.get("since"), Some(&Value::Int(2020)));
+    assert_eq!(raw_edge.properties.get("weight"), Some(&Value::Float(0.5)));
 }
 
 #[test]
 fn cow_mmap_unified_traversal_query_after_mutation() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add vertices via traversal
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();
     g.add_v("Software").property("name", "GraphDB").iterate();
 
-    // Query via traversal
+    // Query via traversal - now returns Vec<PersistentVertex>
     let all = g.v().to_list();
     assert_eq!(all.len(), 3);
 
@@ -1764,21 +1763,15 @@ fn cow_mmap_unified_traversal_query_after_mutation() {
 #[test]
 fn cow_mmap_unified_traversal_full_workflow() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    // Create vertices
-    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
-    let bob_result = g.add_v("Person").property("name", "Bob").next().unwrap();
+    // Create vertices - now returns PersistentVertex directly
+    let alice_vertex = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let bob_vertex = g.add_v("Person").property("name", "Bob").next().unwrap();
 
-    let alice = match alice_result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
-    let bob = match bob_result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
+    let alice = alice_vertex.id();
+    let bob = bob_vertex.id();
 
     // Create edge
     g.add_e("KNOWS")
@@ -1791,7 +1784,7 @@ fn cow_mmap_unified_traversal_full_workflow() {
     assert_eq!(graph.vertex_count(), 2);
     assert_eq!(graph.edge_count(), 1);
 
-    // Query outgoing neighbors
+    // Query outgoing neighbors - now returns Vec<PersistentVertex>
     let neighbors = g.v_id(alice).out_label("KNOWS").to_list();
     assert_eq!(neighbors.len(), 1);
 }
@@ -1799,17 +1792,14 @@ fn cow_mmap_unified_traversal_full_workflow() {
 #[test]
 fn cow_mmap_unified_traversal_drop_vertex() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add vertices
-    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let alice_vertex = g.add_v("Person").property("name", "Alice").next().unwrap();
     g.add_v("Person").property("name", "Bob").iterate();
 
-    let alice = match alice_result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
+    let alice = alice_vertex.id();
 
     assert_eq!(graph.vertex_count(), 2);
 
@@ -1826,7 +1816,7 @@ fn cow_mmap_unified_traversal_drop_vertex() {
 #[test]
 fn cow_mmap_unified_traversal_drop_edge() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
 
     let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
@@ -1834,7 +1824,7 @@ fn cow_mmap_unified_traversal_drop_edge() {
 
     assert_eq!(graph.edge_count(), 1);
 
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
     g.e_ids([edge]).drop().iterate();
 
     assert_eq!(graph.edge_count(), 0);
@@ -1844,8 +1834,8 @@ fn cow_mmap_unified_traversal_drop_edge() {
 #[test]
 fn cow_mmap_unified_traversal_v_returns_all_vertices() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     g.add_v("A").iterate();
     g.add_v("B").iterate();
@@ -1858,16 +1848,13 @@ fn cow_mmap_unified_traversal_v_returns_all_vertices() {
 #[test]
 fn cow_mmap_unified_traversal_v_id_returns_specific_vertex() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let alice_vertex = g.add_v("Person").property("name", "Alice").next().unwrap();
     g.add_v("Person").property("name", "Bob").iterate();
 
-    let alice = match alice_result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
+    let alice = alice_vertex.id();
 
     let result = g.v_id(alice).to_list();
     assert_eq!(result.len(), 1);
@@ -1876,22 +1863,16 @@ fn cow_mmap_unified_traversal_v_id_returns_specific_vertex() {
 #[test]
 fn cow_mmap_unified_traversal_chained_steps() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Create a mini social graph
-    let alice_result = g.add_v("Person").property("name", "Alice").next().unwrap();
-    let bob_result = g.add_v("Person").property("name", "Bob").next().unwrap();
+    let alice_vertex = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let bob_vertex = g.add_v("Person").property("name", "Bob").next().unwrap();
     g.add_v("Software").property("name", "GraphDB").iterate();
 
-    let alice = match alice_result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
-    let bob = match bob_result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex ID"),
-    };
+    let alice = alice_vertex.id();
+    let bob = bob_vertex.id();
 
     g.add_e("KNOWS").from_id(alice).to_id(bob).iterate();
 
@@ -1903,8 +1884,8 @@ fn cow_mmap_unified_traversal_chained_steps() {
 #[test]
 fn cow_mmap_unified_traversal_count() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     g.add_v("Person").iterate();
     g.add_v("Person").iterate();
@@ -1921,8 +1902,8 @@ fn cow_mmap_unified_traversal_count() {
 #[test]
 fn cow_mmap_unified_traversal_has_next() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     assert!(!g.v().has_next());
 
@@ -1939,25 +1920,19 @@ fn cow_mmap_unified_traversal_persists_after_checkpoint() {
 
     // Create graph and add data via traversal
     {
-        let graph = CowMmapGraph::open(&path).unwrap();
-        let g = graph.gremlin();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+        let g = graph.gremlin(Arc::clone(&graph));
 
-        let alice_result = g
+        let alice_vertex = g
             .add_v("Person")
             .property("name", "Alice")
             .property("age", 30i64)
             .next()
             .unwrap();
-        let bob_result = g.add_v("Person").property("name", "Bob").next().unwrap();
+        let bob_vertex = g.add_v("Person").property("name", "Bob").next().unwrap();
 
-        let alice = match alice_result {
-            Value::Vertex(id) => id,
-            _ => panic!("Expected vertex ID"),
-        };
-        let bob = match bob_result {
-            Value::Vertex(id) => id,
-            _ => panic!("Expected vertex ID"),
-        };
+        let alice = alice_vertex.id();
+        let bob = bob_vertex.id();
 
         g.add_e("KNOWS")
             .from_id(alice)
@@ -1970,8 +1945,8 @@ fn cow_mmap_unified_traversal_persists_after_checkpoint() {
 
     // Reopen and verify
     {
-        let graph = CowMmapGraph::open(&path).unwrap();
-        let g = graph.gremlin();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+        let g = graph.gremlin(Arc::clone(&graph));
 
         assert_eq!(g.v().count(), 2);
         assert_eq!(g.e().count(), 1);
@@ -1984,8 +1959,8 @@ fn cow_mmap_unified_traversal_persists_after_checkpoint() {
 #[test]
 fn cow_mmap_unified_traversal_limit_and_skip() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     for i in 0..10 {
         g.add_v("Node").property("id", i as i64).iterate();
@@ -2004,8 +1979,8 @@ fn cow_mmap_unified_traversal_limit_and_skip() {
 #[test]
 fn cow_mmap_unified_traversal_values() {
     let (_dir, path) = temp_db();
-    let graph = CowMmapGraph::open(&path).unwrap();
-    let g = graph.gremlin();
+    let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();

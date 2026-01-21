@@ -46,7 +46,7 @@
 //! scalar_traversal(Scalar);
 //! ```
 
-use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::graph_elements::{InMemoryEdge, InMemoryVertex};
 use crate::value::Value;
 
 // =============================================================================
@@ -147,13 +147,13 @@ pub trait OutputMarker: Clone + Send + Sync + 'static + private::Sealed {
 }
 
 impl OutputMarker for Vertex {
-    type Output = GraphVertex;
-    type OutputList = Vec<GraphVertex>;
+    type Output = InMemoryVertex;
+    type OutputList = Vec<InMemoryVertex>;
 }
 
 impl OutputMarker for Edge {
-    type Output = GraphEdge;
-    type OutputList = Vec<GraphEdge>;
+    type Output = InMemoryEdge;
+    type OutputList = Vec<InMemoryEdge>;
 }
 
 impl OutputMarker for Scalar {
@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn output_marker_associated_types() {
         // Compile-time check that associated types are correct
-        fn assert_vertex_output<M: OutputMarker<Output = GraphVertex>>() {}
-        fn assert_edge_output<M: OutputMarker<Output = GraphEdge>>() {}
+        fn assert_vertex_output<M: OutputMarker<Output = InMemoryVertex>>() {}
+        fn assert_edge_output<M: OutputMarker<Output = InMemoryEdge>>() {}
         fn assert_scalar_output<M: OutputMarker<Output = Value>>() {}
 
         assert_vertex_output::<Vertex>();

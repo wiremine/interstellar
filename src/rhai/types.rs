@@ -6,7 +6,9 @@
 use rhai::{Dynamic, Engine, ImmutableString, Map as RhaiMap};
 use std::collections::HashMap;
 
-use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::graph_elements::{InMemoryEdge, InMemoryVertex};
+#[cfg(feature = "mmap")]
+use crate::graph_elements::{PersistentEdge, PersistentVertex};
 use crate::value::{EdgeId, Value, VertexId};
 
 /// Converts a Rhai `Dynamic` value to an Interstellar `Value`.
@@ -137,12 +139,20 @@ pub fn value_to_dynamic(v: Value) -> Dynamic {
 /// - `Value` with constructors, type checks, and extractors
 /// - `GraphVertex` with property access and traversal methods
 /// - `GraphEdge` with property access and endpoint methods
+/// - `MmapGraphVertex` and `MmapGraphEdge` (with mmap feature)
 pub fn register_types(engine: &mut Engine) {
     register_vertex_id(engine);
     register_edge_id(engine);
     register_value(engine);
     register_graph_vertex(engine);
     register_graph_edge(engine);
+
+    // Register mmap types if feature is enabled
+    #[cfg(feature = "mmap")]
+    {
+        register_mmap_graph_vertex(engine);
+        register_mmap_graph_edge(engine);
+    }
 }
 
 /// Registers `VertexId` with the Rhai engine.
@@ -334,10 +344,10 @@ fn register_value(engine: &mut Engine) {
     engine.register_fn("to_debug", |v: &mut Value| format!("{:?}", v));
 }
 
-/// Registers `GraphVertex` with the Rhai engine.
+/// Registers `InMemoryVertex` (GraphVertex<Arc<Graph>>) with the Rhai engine.
 ///
 /// This enables Rhai scripts to work with `GraphVertex` objects returned
-/// from typed traversals.
+/// from typed traversals on in-memory graphs.
 ///
 /// # Registered Methods
 ///
@@ -350,13 +360,13 @@ fn register_value(engine: &mut Engine) {
 /// | `.to_value()` | Convert to Value |
 fn register_graph_vertex(engine: &mut Engine) {
     // Register the type
-    engine.register_type_with_name::<GraphVertex>("GraphVertex");
+    engine.register_type_with_name::<InMemoryVertex>("GraphVertex");
 
     // Getter: .id -> VertexId
-    engine.register_get("id", |v: &mut GraphVertex| v.id());
+    engine.register_get("id", |v: &mut InMemoryVertex| v.id());
 
     // label() -> String or ()
-    engine.register_fn("label", |v: &mut GraphVertex| -> Dynamic {
+    engine.register_fn("label", |v: &mut InMemoryVertex| -> Dynamic {
         match v.label() {
             Some(label) => Dynamic::from(label),
             None => Dynamic::UNIT,
@@ -366,7 +376,7 @@ fn register_graph_vertex(engine: &mut Engine) {
     // property(key) -> Value or ()
     engine.register_fn(
         "property",
-        |v: &mut GraphVertex, key: ImmutableString| -> Dynamic {
+        |v: &mut InMemoryVertex, key: ImmutableString| -> Dynamic {
             match v.property(key.as_str()) {
                 Some(val) => value_to_dynamic(val),
                 None => Dynamic::UNIT,
@@ -375,22 +385,22 @@ fn register_graph_vertex(engine: &mut Engine) {
     );
 
     // exists() -> bool
-    engine.register_fn("exists", |v: &mut GraphVertex| v.exists());
+    engine.register_fn("exists", |v: &mut InMemoryVertex| v.exists());
 
     // to_value() -> Value
-    engine.register_fn("to_value", |v: &mut GraphVertex| v.to_value());
+    engine.register_fn("to_value", |v: &mut InMemoryVertex| v.to_value());
 
     // Display: to_string()
-    engine.register_fn("to_string", |v: &mut GraphVertex| format!("{:?}", v));
+    engine.register_fn("to_string", |v: &mut InMemoryVertex| format!("{:?}", v));
 
     // Debug representation
-    engine.register_fn("to_debug", |v: &mut GraphVertex| format!("{:?}", v));
+    engine.register_fn("to_debug", |v: &mut InMemoryVertex| format!("{:?}", v));
 }
 
-/// Registers `GraphEdge` with the Rhai engine.
+/// Registers `InMemoryEdge` (GraphEdge<Arc<Graph>>) with the Rhai engine.
 ///
 /// This enables Rhai scripts to work with `GraphEdge` objects returned
-/// from typed traversals.
+/// from typed traversals on in-memory graphs.
 ///
 /// # Registered Methods
 ///
@@ -405,13 +415,13 @@ fn register_graph_vertex(engine: &mut Engine) {
 /// | `.in_v()` | Get destination vertex |
 fn register_graph_edge(engine: &mut Engine) {
     // Register the type
-    engine.register_type_with_name::<GraphEdge>("GraphEdge");
+    engine.register_type_with_name::<InMemoryEdge>("GraphEdge");
 
     // Getter: .id -> EdgeId
-    engine.register_get("id", |e: &mut GraphEdge| e.id());
+    engine.register_get("id", |e: &mut InMemoryEdge| e.id());
 
     // label() -> String or ()
-    engine.register_fn("label", |e: &mut GraphEdge| -> Dynamic {
+    engine.register_fn("label", |e: &mut InMemoryEdge| -> Dynamic {
         match e.label() {
             Some(label) => Dynamic::from(label),
             None => Dynamic::UNIT,
@@ -421,7 +431,7 @@ fn register_graph_edge(engine: &mut Engine) {
     // property(key) -> Value or ()
     engine.register_fn(
         "property",
-        |e: &mut GraphEdge, key: ImmutableString| -> Dynamic {
+        |e: &mut InMemoryEdge, key: ImmutableString| -> Dynamic {
             match e.property(key.as_str()) {
                 Some(val) => value_to_dynamic(val),
                 None => Dynamic::UNIT,
@@ -430,21 +440,21 @@ fn register_graph_edge(engine: &mut Engine) {
     );
 
     // exists() -> bool
-    engine.register_fn("exists", |e: &mut GraphEdge| e.exists());
+    engine.register_fn("exists", |e: &mut InMemoryEdge| e.exists());
 
     // to_value() -> Value
-    engine.register_fn("to_value", |e: &mut GraphEdge| e.to_value());
+    engine.register_fn("to_value", |e: &mut InMemoryEdge| e.to_value());
 
-    // out_v() -> GraphVertex or ()
-    engine.register_fn("out_v", |e: &mut GraphEdge| -> Dynamic {
+    // out_v() -> InMemoryVertex or ()
+    engine.register_fn("out_v", |e: &mut InMemoryEdge| -> Dynamic {
         match e.out_v() {
             Some(v) => Dynamic::from(v),
             None => Dynamic::UNIT,
         }
     });
 
-    // in_v() -> GraphVertex or ()
-    engine.register_fn("in_v", |e: &mut GraphEdge| -> Dynamic {
+    // in_v() -> InMemoryVertex or ()
+    engine.register_fn("in_v", |e: &mut InMemoryEdge| -> Dynamic {
         match e.in_v() {
             Some(v) => Dynamic::from(v),
             None => Dynamic::UNIT,
@@ -452,10 +462,121 @@ fn register_graph_edge(engine: &mut Engine) {
     });
 
     // Display: to_string()
-    engine.register_fn("to_string", |e: &mut GraphEdge| format!("{:?}", e));
+    engine.register_fn("to_string", |e: &mut InMemoryEdge| format!("{:?}", e));
 
     // Debug representation
-    engine.register_fn("to_debug", |e: &mut GraphEdge| format!("{:?}", e));
+    engine.register_fn("to_debug", |e: &mut InMemoryEdge| format!("{:?}", e));
+}
+
+// =============================================================================
+// Mmap Graph Element Registration (feature-gated)
+// =============================================================================
+
+/// Registers `PersistentVertex` (GraphVertex<Arc<CowMmapGraph>>) with the Rhai engine.
+///
+/// This enables Rhai scripts to work with `GraphVertex` objects returned
+/// from typed traversals on memory-mapped graphs.
+///
+/// Note: These are registered with the same method names as in-memory types,
+/// so Rhai scripts work identically regardless of storage backend.
+#[cfg(feature = "mmap")]
+fn register_mmap_graph_vertex(engine: &mut Engine) {
+    // Register with a different internal name but same API
+    engine.register_type_with_name::<PersistentVertex>("MmapGraphVertex");
+
+    // Getter: .id -> VertexId
+    engine.register_get("id", |v: &mut PersistentVertex| v.id());
+
+    // label() -> String or ()
+    engine.register_fn("label", |v: &mut PersistentVertex| -> Dynamic {
+        match v.label() {
+            Some(label) => Dynamic::from(label),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // property(key) -> Value or ()
+    engine.register_fn(
+        "property",
+        |v: &mut PersistentVertex, key: ImmutableString| -> Dynamic {
+            match v.property(key.as_str()) {
+                Some(val) => value_to_dynamic(val),
+                None => Dynamic::UNIT,
+            }
+        },
+    );
+
+    // exists() -> bool
+    engine.register_fn("exists", |v: &mut PersistentVertex| v.exists());
+
+    // to_value() -> Value
+    engine.register_fn("to_value", |v: &mut PersistentVertex| v.to_value());
+
+    // Display: to_string()
+    engine.register_fn("to_string", |v: &mut PersistentVertex| format!("{:?}", v));
+
+    // Debug representation
+    engine.register_fn("to_debug", |v: &mut PersistentVertex| format!("{:?}", v));
+}
+
+/// Registers `PersistentEdge` (GraphEdge<Arc<CowMmapGraph>>) with the Rhai engine.
+///
+/// This enables Rhai scripts to work with `GraphEdge` objects returned
+/// from typed traversals on memory-mapped graphs.
+#[cfg(feature = "mmap")]
+fn register_mmap_graph_edge(engine: &mut Engine) {
+    // Register with a different internal name but same API
+    engine.register_type_with_name::<PersistentEdge>("MmapGraphEdge");
+
+    // Getter: .id -> EdgeId
+    engine.register_get("id", |e: &mut PersistentEdge| e.id());
+
+    // label() -> String or ()
+    engine.register_fn("label", |e: &mut PersistentEdge| -> Dynamic {
+        match e.label() {
+            Some(label) => Dynamic::from(label),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // property(key) -> Value or ()
+    engine.register_fn(
+        "property",
+        |e: &mut PersistentEdge, key: ImmutableString| -> Dynamic {
+            match e.property(key.as_str()) {
+                Some(val) => value_to_dynamic(val),
+                None => Dynamic::UNIT,
+            }
+        },
+    );
+
+    // exists() -> bool
+    engine.register_fn("exists", |e: &mut PersistentEdge| e.exists());
+
+    // to_value() -> Value
+    engine.register_fn("to_value", |e: &mut PersistentEdge| e.to_value());
+
+    // out_v() -> PersistentVertex or ()
+    engine.register_fn("out_v", |e: &mut PersistentEdge| -> Dynamic {
+        match e.out_v() {
+            Some(v) => Dynamic::from(v),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // in_v() -> PersistentVertex or ()
+    engine.register_fn("in_v", |e: &mut PersistentEdge| -> Dynamic {
+        match e.in_v() {
+            Some(v) => Dynamic::from(v),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // Display: to_string()
+    engine.register_fn("to_string", |e: &mut PersistentEdge| format!("{:?}", e));
+
+    // Debug representation
+    engine.register_fn("to_debug", |e: &mut PersistentEdge| format!("{:?}", e));
 }
 
 #[cfg(test)]
@@ -646,8 +767,8 @@ mod tests {
             ]),
         );
 
-        // Create GraphVertex
-        let v = GraphVertex::new(id, Arc::clone(&graph));
+        // Create InMemoryVertex
+        let v = InMemoryVertex::new(id, Arc::clone(&graph));
 
         // Set the vertex as a variable in the scope
         let mut scope = rhai::Scope::new();

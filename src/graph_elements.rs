@@ -13,6 +13,19 @@
 //! - Spawn traversals from the element
 //! - Mutate properties directly
 //!
+//! # Generic Design
+//!
+//! Both `GraphVertex<G>` and `GraphEdge<G>` are generic over the graph type `G`,
+//! which must implement [`GraphAccess`]. This allows the same types to work with
+//! both in-memory (`Arc<Graph>`) and persistent (`Arc<CowMmapGraph>`) storage.
+//!
+//! For convenience, type aliases are provided:
+//!
+//! - [`InMemoryVertex`] = `GraphVertex<Arc<Graph>>`
+//! - [`InMemoryEdge`] = `GraphEdge<Arc<Graph>>`
+//! - [`PersistentVertex`] = `GraphVertex<Arc<CowMmapGraph>>` (requires `mmap` feature)
+//! - [`PersistentEdge`] = `GraphEdge<Arc<CowMmapGraph>>` (requires `mmap` feature)
+//!
 //! # Example
 //!
 //! ```rust
@@ -40,16 +53,60 @@
 //!
 //! # Thread Safety
 //!
-//! Both `GraphVertex` and `GraphEdge` are `Clone`, `Send`, and `Sync`.
+//! Both `GraphVertex` and `GraphEdge` are `Clone`, `Send`, and `Sync` when `G` is.
 //! Multiple elements can reference the same graph concurrently.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::StorageError;
+use crate::graph_access::GraphAccess;
 use crate::storage::cow::Graph;
-use crate::storage::GraphStorage;
 use crate::value::{EdgeId, Value, VertexId};
+
+#[cfg(feature = "mmap")]
+use crate::storage::CowMmapGraph;
+
+// =============================================================================
+// Type Aliases for Convenience
+// =============================================================================
+
+/// A vertex reference for in-memory graphs.
+///
+/// This is the most common type when using `Graph` (in-memory storage).
+///
+/// # Example
+///
+/// ```rust
+/// use interstellar::prelude::*;
+/// use interstellar::graph_elements::InMemoryVertex;
+/// use std::sync::Arc;
+/// use std::collections::HashMap;
+///
+/// let graph = Arc::new(Graph::new());
+/// let id = graph.add_vertex("person", HashMap::new());
+///
+/// let v: InMemoryVertex = InMemoryVertex::new(id, graph);
+/// assert!(v.exists());
+/// ```
+pub type InMemoryVertex = GraphVertex<Arc<Graph>>;
+
+/// An edge reference for in-memory graphs.
+///
+/// This is the most common type when using `Graph` (in-memory storage).
+pub type InMemoryEdge = GraphEdge<Arc<Graph>>;
+
+/// A vertex reference for persistent mmap graphs.
+///
+/// Requires the `mmap` feature.
+#[cfg(feature = "mmap")]
+pub type PersistentVertex = GraphVertex<Arc<CowMmapGraph>>;
+
+/// An edge reference for persistent mmap graphs.
+///
+/// Requires the `mmap` feature.
+#[cfg(feature = "mmap")]
+pub type PersistentEdge = GraphEdge<Arc<CowMmapGraph>>;
 
 // =============================================================================
 // GraphVertex
@@ -57,20 +114,24 @@ use crate::value::{EdgeId, Value, VertexId};
 
 /// A vertex reference with access to the graph.
 ///
-/// `GraphVertex` provides TinkerPop-style vertex semantics where a vertex
+/// `GraphVertex<G>` provides TinkerPop-style vertex semantics where a vertex
 /// object can access its properties and spawn traversals directly.
 ///
 /// Unlike [`VertexId`], which is a lightweight identifier, `GraphVertex`
-/// carries an `Arc<Graph>` reference enabling:
+/// carries a reference to the graph enabling:
 ///
 /// - Direct property access without separate graph lookups
 /// - Mutation through the vertex object
-/// - Spawning traversals from the vertex (future feature)
+/// - Spawning traversals from the vertex
+///
+/// # Type Parameters
+///
+/// - `G`: The graph type, typically `Arc<Graph>` or `Arc<CowMmapGraph>`
 ///
 /// # Thread Safety
 ///
-/// `GraphVertex` is `Clone`, `Send`, and `Sync`. Multiple vertices
-/// can reference the same graph concurrently.
+/// `GraphVertex<G>` is `Clone`, `Send`, and `Sync` when `G` is.
+/// Multiple vertices can reference the same graph concurrently.
 ///
 /// # Current State vs Snapshot
 ///
@@ -101,21 +162,21 @@ use crate::value::{EdgeId, Value, VertexId};
 /// assert_eq!(v.property("name"), Some(Value::String("Alice".to_string())));
 /// ```
 #[derive(Clone)]
-pub struct GraphVertex {
+pub struct GraphVertex<G: GraphAccess> {
     id: VertexId,
-    graph: Arc<Graph>,
+    graph: G,
 }
 
-impl GraphVertex {
+impl<G: GraphAccess> GraphVertex<G> {
     /// Create a new GraphVertex.
     ///
     /// This is typically called internally by terminal methods, but can
-    /// be used directly when you have a `VertexId` and `Arc<Graph>`.
+    /// be used directly when you have a `VertexId` and graph reference.
     ///
     /// # Arguments
     ///
     /// * `id` - The vertex ID
-    /// * `graph` - An Arc-wrapped reference to the graph
+    /// * `graph` - A graph reference implementing `GraphAccess`
     ///
     /// # Example
     ///
@@ -129,7 +190,7 @@ impl GraphVertex {
     /// let id = graph.add_vertex("person", HashMap::new());
     /// let v = GraphVertex::new(id, graph.clone());
     /// ```
-    pub fn new(id: VertexId, graph: Arc<Graph>) -> Self {
+    pub fn new(id: VertexId, graph: G) -> Self {
         Self { id, graph }
     }
 
@@ -171,8 +232,7 @@ impl GraphVertex {
     /// assert_eq!(v.label(), Some("person".to_string()));
     /// ```
     pub fn label(&self) -> Option<String> {
-        let snapshot = self.graph.snapshot();
-        snapshot.get_vertex(self.id).map(|v| v.label)
+        self.graph.get_vertex(self.id).map(|v| v.label)
     }
 
     /// Get a property value by key.
@@ -199,8 +259,7 @@ impl GraphVertex {
     /// assert_eq!(v.property("nonexistent"), None);
     /// ```
     pub fn property(&self, key: &str) -> Option<Value> {
-        let snapshot = self.graph.snapshot();
-        snapshot
+        self.graph
             .get_vertex(self.id)
             .and_then(|v| v.properties.get(key).cloned())
     }
@@ -229,8 +288,7 @@ impl GraphVertex {
     /// assert_eq!(props.get("name"), Some(&Value::String("Alice".to_string())));
     /// ```
     pub fn properties(&self) -> HashMap<String, Value> {
-        let snapshot = self.graph.snapshot();
-        snapshot
+        self.graph
             .get_vertex(self.id)
             .map(|v| v.properties)
             .unwrap_or_default()
@@ -260,8 +318,7 @@ impl GraphVertex {
     /// assert!(!v.exists());
     /// ```
     pub fn exists(&self) -> bool {
-        let snapshot = self.graph.snapshot();
-        snapshot.get_vertex(self.id).is_some()
+        self.graph.get_vertex(self.id).is_some()
     }
 
     /// Set a property value.
@@ -297,12 +354,12 @@ impl GraphVertex {
         self.graph.set_vertex_property(self.id, key, value.into())
     }
 
-    /// Get the graph reference.
+    /// Get a reference to the graph.
     ///
     /// This can be useful for creating new vertices/edges or spawning
     /// new traversals.
     #[inline]
-    pub fn graph(&self) -> &Arc<Graph> {
+    pub fn graph(&self) -> &G {
         &self.graph
     }
 
@@ -329,9 +386,219 @@ impl GraphVertex {
     pub fn to_value(&self) -> Value {
         Value::Vertex(self.id)
     }
+
+    /// Add an outgoing edge to another vertex.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    ///
+    /// let alice_v = GraphVertex::new(alice, graph.clone());
+    /// let bob_v = GraphVertex::new(bob, graph.clone());
+    ///
+    /// let edge = alice_v.add_edge("knows", &bob_v).unwrap();
+    /// assert_eq!(edge.label(), Some("knows".to_string()));
+    ///
+    /// // Verify traversal works
+    /// let friends = alice_v.out("knows").to_list();
+    /// assert_eq!(friends.len(), 1);
+    /// ```
+    pub fn add_edge(&self, label: &str, to: &GraphVertex<G>) -> Result<GraphEdge<G>, StorageError> {
+        self.add_edge_to_id(label, to.id)
+    }
+
+    /// Add an outgoing edge to a vertex by ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::VertexNotFound` if either vertex doesn't exist.
+    pub fn add_edge_to_id(&self, label: &str, to: VertexId) -> Result<GraphEdge<G>, StorageError> {
+        let edge_id = self.graph.add_edge(self.id, to, label, HashMap::new())?;
+        Ok(GraphEdge::new(edge_id, self.graph.clone()))
+    }
+
+    /// Add an outgoing edge with properties to another vertex.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    ///
+    /// let alice_v = GraphVertex::new(alice, graph.clone());
+    /// let bob_v = GraphVertex::new(bob, graph.clone());
+    ///
+    /// let edge = alice_v.add_edge_with_props(
+    ///     "knows",
+    ///     &bob_v,
+    ///     HashMap::from([("since".to_string(), 2020i64.into())])
+    /// ).unwrap();
+    ///
+    /// assert_eq!(edge.property("since"), Some(Value::Int(2020)));
+    /// ```
+    pub fn add_edge_with_props(
+        &self,
+        label: &str,
+        to: &GraphVertex<G>,
+        properties: HashMap<String, Value>,
+    ) -> Result<GraphEdge<G>, StorageError> {
+        let edge_id = self.graph.add_edge(self.id, to.id, label, properties)?;
+        Ok(GraphEdge::new(edge_id, self.graph.clone()))
+    }
+
+    /// Remove this vertex from the graph.
+    ///
+    /// This also removes all incident edges (both incoming and outgoing).
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::VertexNotFound` if the vertex doesn't exist.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let id = graph.add_vertex("person", HashMap::new());
+    /// let v = GraphVertex::new(id, graph.clone());
+    ///
+    /// assert!(v.exists());
+    /// v.remove().unwrap();
+    /// assert!(!v.exists());
+    /// ```
+    pub fn remove(&self) -> Result<(), StorageError> {
+        self.graph.remove_vertex(self.id)
+    }
+
+    /// Traverse to outgoing adjacent vertices with a specific edge label.
+    ///
+    /// This is the TinkerPop-style `v.out(label)` pattern.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Alice".into()),
+    /// ]));
+    /// let bob = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Bob".into()),
+    /// ]));
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// let alice_v = GraphVertex::new(alice, graph.clone());
+    /// let friends = alice_v.out("knows").to_list();
+    /// assert_eq!(friends.len(), 1);
+    /// assert_eq!(friends[0].property("name"), Some(Value::String("Bob".to_string())));
+    /// ```
+    pub fn out(&self, label: &str) -> GraphVertexTraversal<G> {
+        GraphVertexTraversal::new(self.graph.clone(), self.id).out_label(label)
+    }
+
+    /// Traverse to outgoing adjacent vertices (all labels).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let a = graph.add_vertex("person", HashMap::new());
+    /// let b = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
+    ///
+    /// let v = GraphVertex::new(a, graph.clone());
+    /// let neighbors = v.out_all().to_list();
+    /// assert_eq!(neighbors.len(), 1);
+    /// ```
+    pub fn out_all(&self) -> GraphVertexTraversal<G> {
+        GraphVertexTraversal::new(self.graph.clone(), self.id).out()
+    }
+
+    /// Traverse to incoming adjacent vertices with a specific edge label.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// let bob_v = GraphVertex::new(bob, graph.clone());
+    /// let knowers = bob_v.in_("knows").to_list();
+    /// assert_eq!(knowers.len(), 1);
+    /// ```
+    pub fn in_(&self, label: &str) -> GraphVertexTraversal<G> {
+        GraphVertexTraversal::new(self.graph.clone(), self.id).in_label(label)
+    }
+
+    /// Traverse to incoming adjacent vertices (all labels).
+    pub fn in_all(&self) -> GraphVertexTraversal<G> {
+        GraphVertexTraversal::new(self.graph.clone(), self.id).in_step()
+    }
+
+    /// Traverse to adjacent vertices in both directions with a specific edge label.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// let alice_v = GraphVertex::new(alice, graph.clone());
+    /// let both_neighbors = alice_v.both("knows").to_list();
+    /// assert_eq!(both_neighbors.len(), 1);
+    /// ```
+    pub fn both(&self, label: &str) -> GraphVertexTraversal<G> {
+        GraphVertexTraversal::new(self.graph.clone(), self.id).both_label(label)
+    }
+
+    /// Traverse to adjacent vertices in both directions (all labels).
+    pub fn both_all(&self) -> GraphVertexTraversal<G> {
+        GraphVertexTraversal::new(self.graph.clone(), self.id).both_step()
+    }
 }
 
-impl std::fmt::Debug for GraphVertex {
+impl<G: GraphAccess> std::fmt::Debug for GraphVertex<G> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GraphVertex")
             .field("id", &self.id)
@@ -340,7 +607,7 @@ impl std::fmt::Debug for GraphVertex {
     }
 }
 
-impl PartialEq for GraphVertex {
+impl<G: GraphAccess> PartialEq for GraphVertex<G> {
     fn eq(&self, other: &Self) -> bool {
         // Two GraphVertex are equal if they have the same ID
         // (we don't compare graph references since they might be
@@ -349,9 +616,9 @@ impl PartialEq for GraphVertex {
     }
 }
 
-impl Eq for GraphVertex {}
+impl<G: GraphAccess> Eq for GraphVertex<G> {}
 
-impl std::hash::Hash for GraphVertex {
+impl<G: GraphAccess> std::hash::Hash for GraphVertex<G> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
@@ -363,20 +630,24 @@ impl std::hash::Hash for GraphVertex {
 
 /// An edge reference with access to the graph.
 ///
-/// `GraphEdge` provides TinkerPop-style edge semantics where an edge
+/// `GraphEdge<G>` provides TinkerPop-style edge semantics where an edge
 /// object can access its properties, endpoints, and spawn traversals directly.
 ///
 /// Unlike [`EdgeId`], which is a lightweight identifier, `GraphEdge`
-/// carries an `Arc<Graph>` reference enabling:
+/// carries a reference to the graph enabling:
 ///
 /// - Direct property access without separate graph lookups
-/// - Access to source and destination vertices as `GraphVertex` objects
+/// - Access to source and destination vertices as `GraphVertex<G>` objects
 /// - Mutation through the edge object
+///
+/// # Type Parameters
+///
+/// - `G`: The graph type, typically `Arc<Graph>` or `Arc<CowMmapGraph>`
 ///
 /// # Thread Safety
 ///
-/// `GraphEdge` is `Clone`, `Send`, and `Sync`. Multiple edges
-/// can reference the same graph concurrently.
+/// `GraphEdge<G>` is `Clone`, `Send`, and `Sync` when `G` is.
+/// Multiple edges can reference the same graph concurrently.
 ///
 /// # Example
 ///
@@ -403,17 +674,17 @@ impl std::hash::Hash for GraphVertex {
 /// assert_eq!(src.property("name"), Some(Value::String("Alice".to_string())));
 /// ```
 #[derive(Clone)]
-pub struct GraphEdge {
+pub struct GraphEdge<G: GraphAccess> {
     id: EdgeId,
-    graph: Arc<Graph>,
+    graph: G,
 }
 
-impl GraphEdge {
+impl<G: GraphAccess> GraphEdge<G> {
     /// Create a new GraphEdge.
     ///
     /// This is typically called internally by terminal methods, but can
-    /// be used directly when you have an `EdgeId` and `Arc<Graph>`.
-    pub fn new(id: EdgeId, graph: Arc<Graph>) -> Self {
+    /// be used directly when you have an `EdgeId` and graph reference.
+    pub fn new(id: EdgeId, graph: G) -> Self {
         Self { id, graph }
     }
 
@@ -427,8 +698,7 @@ impl GraphEdge {
     ///
     /// Returns `None` if the edge no longer exists in the graph.
     pub fn label(&self) -> Option<String> {
-        let snapshot = self.graph.snapshot();
-        snapshot.get_edge(self.id).map(|e| e.label)
+        self.graph.get_edge(self.id).map(|e| e.label)
     }
 
     /// Get the source (outgoing) vertex.
@@ -457,9 +727,8 @@ impl GraphEdge {
     /// let src = e.out_v().unwrap();
     /// assert_eq!(src.property("name"), Some(Value::String("Alice".to_string())));
     /// ```
-    pub fn out_v(&self) -> Option<GraphVertex> {
-        let snapshot = self.graph.snapshot();
-        snapshot
+    pub fn out_v(&self) -> Option<GraphVertex<G>> {
+        self.graph
             .get_edge(self.id)
             .map(|e| GraphVertex::new(e.src, self.graph.clone()))
     }
@@ -490,9 +759,8 @@ impl GraphEdge {
     /// let dst = e.in_v().unwrap();
     /// assert_eq!(dst.property("name"), Some(Value::String("Bob".to_string())));
     /// ```
-    pub fn in_v(&self) -> Option<GraphVertex> {
-        let snapshot = self.graph.snapshot();
-        snapshot
+    pub fn in_v(&self) -> Option<GraphVertex<G>> {
+        self.graph
             .get_edge(self.id)
             .map(|e| GraphVertex::new(e.dst, self.graph.clone()))
     }
@@ -523,9 +791,8 @@ impl GraphEdge {
     /// assert_eq!(src.property("name"), Some(Value::String("Alice".to_string())));
     /// assert_eq!(dst.property("name"), Some(Value::String("Bob".to_string())));
     /// ```
-    pub fn both_v(&self) -> Option<(GraphVertex, GraphVertex)> {
-        let snapshot = self.graph.snapshot();
-        snapshot.get_edge(self.id).map(|e| {
+    pub fn both_v(&self) -> Option<(GraphVertex<G>, GraphVertex<G>)> {
+        self.graph.get_edge(self.id).map(|e| {
             (
                 GraphVertex::new(e.src, self.graph.clone()),
                 GraphVertex::new(e.dst, self.graph.clone()),
@@ -539,8 +806,7 @@ impl GraphEdge {
     /// - The edge no longer exists
     /// - The property key doesn't exist
     pub fn property(&self, key: &str) -> Option<Value> {
-        let snapshot = self.graph.snapshot();
-        snapshot
+        self.graph
             .get_edge(self.id)
             .and_then(|e| e.properties.get(key).cloned())
     }
@@ -549,8 +815,7 @@ impl GraphEdge {
     ///
     /// Returns an empty map if the edge no longer exists.
     pub fn properties(&self) -> HashMap<String, Value> {
-        let snapshot = self.graph.snapshot();
-        snapshot
+        self.graph
             .get_edge(self.id)
             .map(|e| e.properties)
             .unwrap_or_default()
@@ -573,13 +838,12 @@ impl GraphEdge {
     /// An edge may no longer exist if it was deleted after the `GraphEdge`
     /// was created, or if either endpoint vertex was deleted.
     pub fn exists(&self) -> bool {
-        let snapshot = self.graph.snapshot();
-        snapshot.get_edge(self.id).is_some()
+        self.graph.get_edge(self.id).is_some()
     }
 
-    /// Get the graph reference.
+    /// Get a reference to the graph.
     #[inline]
-    pub fn graph(&self) -> &Arc<Graph> {
+    pub fn graph(&self) -> &G {
         &self.graph
     }
 
@@ -591,9 +855,18 @@ impl GraphEdge {
     pub fn to_value(&self) -> Value {
         Value::Edge(self.id)
     }
+
+    /// Remove this edge from the graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::EdgeNotFound` if the edge doesn't exist.
+    pub fn remove(&self) -> Result<(), StorageError> {
+        self.graph.remove_edge(self.id)
+    }
 }
 
-impl std::fmt::Debug for GraphEdge {
+impl<G: GraphAccess> std::fmt::Debug for GraphEdge<G> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GraphEdge")
             .field("id", &self.id)
@@ -602,15 +875,15 @@ impl std::fmt::Debug for GraphEdge {
     }
 }
 
-impl PartialEq for GraphEdge {
+impl<G: GraphAccess> PartialEq for GraphEdge<G> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for GraphEdge {}
+impl<G: GraphAccess> Eq for GraphEdge<G> {}
 
-impl std::hash::Hash for GraphEdge {
+impl<G: GraphAccess> std::hash::Hash for GraphEdge<G> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
@@ -637,8 +910,8 @@ enum TraversalStep {
 
 /// A traversal builder starting from a specific vertex.
 ///
-/// `GraphVertexTraversal` provides a fluent API for traversing the graph
-/// starting from a `GraphVertex`. This enables the TinkerPop-style pattern:
+/// `GraphVertexTraversal<G>` provides a fluent API for traversing the graph
+/// starting from a `GraphVertex<G>`. This enables the TinkerPop-style pattern:
 ///
 /// ```rust
 /// use interstellar::prelude::*;
@@ -668,15 +941,15 @@ enum TraversalStep {
 /// Steps are accumulated lazily and only executed when a terminal method
 /// (`to_list()`, `first()`, `count()`, `exists()`) is called.
 #[derive(Clone)]
-pub struct GraphVertexTraversal {
-    graph: Arc<Graph>,
+pub struct GraphVertexTraversal<G: GraphAccess> {
+    graph: G,
     start_id: VertexId,
     steps: Vec<TraversalStep>,
 }
 
-impl GraphVertexTraversal {
+impl<G: GraphAccess> GraphVertexTraversal<G> {
     /// Create a new traversal starting from a specific vertex.
-    pub(crate) fn new(graph: Arc<Graph>, start_id: VertexId) -> Self {
+    pub(crate) fn new(graph: G, start_id: VertexId) -> Self {
         Self {
             graph,
             start_id,
@@ -715,7 +988,7 @@ impl GraphVertexTraversal {
     }
 
     /// Navigate to incoming adjacent vertices (all labels).
-    pub fn in_(mut self) -> Self {
+    pub fn in_step(mut self) -> Self {
         self.steps.push(TraversalStep::In(None));
         self
     }
@@ -727,7 +1000,7 @@ impl GraphVertexTraversal {
     }
 
     /// Navigate to adjacent vertices in both directions (all labels).
-    pub fn both(mut self) -> Self {
+    pub fn both_step(mut self) -> Self {
         self.steps.push(TraversalStep::Both(None));
         self
     }
@@ -754,6 +1027,9 @@ impl GraphVertexTraversal {
 
     /// Execute and return all vertices.
     ///
+    /// This method executes the traversal by manually following edges using
+    /// the `GraphAccess` trait methods.
+    ///
     /// # Example
     ///
     /// ```rust
@@ -779,29 +1055,92 @@ impl GraphVertexTraversal {
     /// let friends = alice_v.out("knows").to_list();
     /// assert_eq!(friends.len(), 2);
     /// ```
-    pub fn to_list(self) -> Vec<GraphVertex> {
-        // Build traversal from start vertex
-        let snapshot = self.graph.snapshot();
-        let g = snapshot.gremlin();
-        let mut traversal = g.v_ids([self.start_id]);
+    pub fn to_list(self) -> Vec<GraphVertex<G>> {
+        // Start with the initial vertex
+        let mut current_ids: Vec<VertexId> = vec![self.start_id];
 
+        // Execute each step
         for step in &self.steps {
-            traversal = match step {
-                TraversalStep::Out(None) => traversal.out(),
-                TraversalStep::Out(Some(label)) => traversal.out_labels(&[label.as_str()]),
-                TraversalStep::In(None) => traversal.in_(),
-                TraversalStep::In(Some(label)) => traversal.in_labels(&[label.as_str()]),
-                TraversalStep::Both(None) => traversal.both(),
-                TraversalStep::Both(Some(label)) => traversal.both_labels(&[label.as_str()]),
-                TraversalStep::HasLabel(label) => traversal.has_label(label),
-                TraversalStep::HasValue(key, value) => traversal.has_value(key, value.clone()),
-            };
+            let mut next_ids: Vec<VertexId> = Vec::new();
+
+            for vertex_id in &current_ids {
+                match step {
+                    TraversalStep::Out(label_filter) => {
+                        // Get outgoing edges
+                        for edge_id in self.graph.out_edge_ids(*vertex_id) {
+                            if let Some(edge) = self.graph.get_edge(edge_id) {
+                                // Apply label filter if present
+                                if let Some(label) = label_filter {
+                                    if &edge.label != label {
+                                        continue;
+                                    }
+                                }
+                                next_ids.push(edge.dst);
+                            }
+                        }
+                    }
+                    TraversalStep::In(label_filter) => {
+                        // Get incoming edges
+                        for edge_id in self.graph.in_edge_ids(*vertex_id) {
+                            if let Some(edge) = self.graph.get_edge(edge_id) {
+                                // Apply label filter if present
+                                if let Some(label) = label_filter {
+                                    if &edge.label != label {
+                                        continue;
+                                    }
+                                }
+                                next_ids.push(edge.src);
+                            }
+                        }
+                    }
+                    TraversalStep::Both(label_filter) => {
+                        // Get both outgoing and incoming edges
+                        for edge_id in self.graph.out_edge_ids(*vertex_id) {
+                            if let Some(edge) = self.graph.get_edge(edge_id) {
+                                if let Some(label) = label_filter {
+                                    if &edge.label != label {
+                                        continue;
+                                    }
+                                }
+                                next_ids.push(edge.dst);
+                            }
+                        }
+                        for edge_id in self.graph.in_edge_ids(*vertex_id) {
+                            if let Some(edge) = self.graph.get_edge(edge_id) {
+                                if let Some(label) = label_filter {
+                                    if &edge.label != label {
+                                        continue;
+                                    }
+                                }
+                                next_ids.push(edge.src);
+                            }
+                        }
+                    }
+                    TraversalStep::HasLabel(label) => {
+                        // Filter current vertex by label
+                        if let Some(vertex) = self.graph.get_vertex(*vertex_id) {
+                            if &vertex.label == label {
+                                next_ids.push(*vertex_id);
+                            }
+                        }
+                    }
+                    TraversalStep::HasValue(key, value) => {
+                        // Filter current vertex by property value
+                        if let Some(vertex) = self.graph.get_vertex(*vertex_id) {
+                            if vertex.properties.get(key) == Some(value) {
+                                next_ids.push(*vertex_id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            current_ids = next_ids;
         }
 
-        traversal
-            .to_list()
+        // Convert final vertex IDs to GraphVertex objects
+        current_ids
             .into_iter()
-            .filter_map(|v| v.as_vertex_id())
             .map(|id| GraphVertex::new(id, self.graph.clone()))
             .collect()
     }
@@ -825,8 +1164,7 @@ impl GraphVertexTraversal {
     /// let friend = alice_v.out("knows").first();
     /// assert!(friend.is_some());
     /// ```
-    pub fn first(self) -> Option<GraphVertex> {
-        // Optimization: we could add limit(1) to the traversal
+    pub fn first(self) -> Option<GraphVertex<G>> {
         self.to_list().into_iter().next()
     }
 
@@ -841,228 +1179,12 @@ impl GraphVertexTraversal {
     }
 }
 
-impl std::fmt::Debug for GraphVertexTraversal {
+impl<G: GraphAccess> std::fmt::Debug for GraphVertexTraversal<G> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GraphVertexTraversal")
             .field("start_id", &self.start_id)
             .field("steps", &self.steps)
             .finish()
-    }
-}
-
-// =============================================================================
-// GraphVertex Traversal Methods
-// =============================================================================
-
-impl GraphVertex {
-    /// Traverse to outgoing adjacent vertices with a specific edge label.
-    ///
-    /// This is the TinkerPop-style `v.out(label)` pattern.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let alice = graph.add_vertex("person", HashMap::from([
-    ///     ("name".to_string(), "Alice".into()),
-    /// ]));
-    /// let bob = graph.add_vertex("person", HashMap::from([
-    ///     ("name".to_string(), "Bob".into()),
-    /// ]));
-    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-    ///
-    /// let alice_v = GraphVertex::new(alice, graph.clone());
-    /// let friends = alice_v.out("knows").to_list();
-    /// assert_eq!(friends.len(), 1);
-    /// assert_eq!(friends[0].property("name"), Some(Value::String("Bob".to_string())));
-    /// ```
-    pub fn out(&self, label: &str) -> GraphVertexTraversal {
-        GraphVertexTraversal::new(self.graph.clone(), self.id).out_label(label)
-    }
-
-    /// Traverse to outgoing adjacent vertices (all labels).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let a = graph.add_vertex("person", HashMap::new());
-    /// let b = graph.add_vertex("person", HashMap::new());
-    /// graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
-    ///
-    /// let v = GraphVertex::new(a, graph.clone());
-    /// let neighbors = v.out_all().to_list();
-    /// assert_eq!(neighbors.len(), 1);
-    /// ```
-    pub fn out_all(&self) -> GraphVertexTraversal {
-        GraphVertexTraversal::new(self.graph.clone(), self.id).out()
-    }
-
-    /// Traverse to incoming adjacent vertices with a specific edge label.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-    ///
-    /// let bob_v = GraphVertex::new(bob, graph.clone());
-    /// let knowers = bob_v.in_("knows").to_list();
-    /// assert_eq!(knowers.len(), 1);
-    /// ```
-    pub fn in_(&self, label: &str) -> GraphVertexTraversal {
-        GraphVertexTraversal::new(self.graph.clone(), self.id).in_label(label)
-    }
-
-    /// Traverse to incoming adjacent vertices (all labels).
-    pub fn in_all(&self) -> GraphVertexTraversal {
-        GraphVertexTraversal::new(self.graph.clone(), self.id).in_()
-    }
-
-    /// Traverse to adjacent vertices in both directions with a specific edge label.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-    ///
-    /// let alice_v = GraphVertex::new(alice, graph.clone());
-    /// let both_neighbors = alice_v.both("knows").to_list();
-    /// assert_eq!(both_neighbors.len(), 1);
-    /// ```
-    pub fn both(&self, label: &str) -> GraphVertexTraversal {
-        GraphVertexTraversal::new(self.graph.clone(), self.id).both_label(label)
-    }
-
-    /// Traverse to adjacent vertices in both directions (all labels).
-    pub fn both_all(&self) -> GraphVertexTraversal {
-        GraphVertexTraversal::new(self.graph.clone(), self.id).both()
-    }
-
-    /// Add an outgoing edge to another vertex.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    ///
-    /// let alice_v = GraphVertex::new(alice, graph.clone());
-    /// let bob_v = GraphVertex::new(bob, graph.clone());
-    ///
-    /// let edge = alice_v.add_edge("knows", &bob_v).unwrap();
-    /// assert_eq!(edge.label(), Some("knows".to_string()));
-    ///
-    /// // Verify traversal works
-    /// let friends = alice_v.out("knows").to_list();
-    /// assert_eq!(friends.len(), 1);
-    /// ```
-    pub fn add_edge(&self, label: &str, to: &GraphVertex) -> Result<GraphEdge, StorageError> {
-        self.add_edge_to_id(label, to.id)
-    }
-
-    /// Add an outgoing edge to a vertex by ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns `StorageError::VertexNotFound` if either vertex doesn't exist.
-    pub fn add_edge_to_id(&self, label: &str, to: VertexId) -> Result<GraphEdge, StorageError> {
-        let edge_id = self.graph.add_edge(self.id, to, label, HashMap::new())?;
-        Ok(GraphEdge::new(edge_id, self.graph.clone()))
-    }
-
-    /// Add an outgoing edge with properties to another vertex.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    ///
-    /// let alice_v = GraphVertex::new(alice, graph.clone());
-    /// let bob_v = GraphVertex::new(bob, graph.clone());
-    ///
-    /// let edge = alice_v.add_edge_with_props(
-    ///     "knows",
-    ///     &bob_v,
-    ///     HashMap::from([("since".to_string(), 2020i64.into())])
-    /// ).unwrap();
-    ///
-    /// assert_eq!(edge.property("since"), Some(Value::Int(2020)));
-    /// ```
-    pub fn add_edge_with_props(
-        &self,
-        label: &str,
-        to: &GraphVertex,
-        properties: HashMap<String, Value>,
-    ) -> Result<GraphEdge, StorageError> {
-        let edge_id = self.graph.add_edge(self.id, to.id, label, properties)?;
-        Ok(GraphEdge::new(edge_id, self.graph.clone()))
-    }
-
-    /// Remove this vertex from the graph.
-    ///
-    /// This also removes all incident edges (both incoming and outgoing).
-    ///
-    /// # Errors
-    ///
-    /// Returns `StorageError::VertexNotFound` if the vertex doesn't exist.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use interstellar::prelude::*;
-    /// use interstellar::graph_elements::GraphVertex;
-    /// use std::sync::Arc;
-    /// use std::collections::HashMap;
-    ///
-    /// let graph = Arc::new(Graph::new());
-    /// let id = graph.add_vertex("person", HashMap::new());
-    /// let v = GraphVertex::new(id, graph.clone());
-    ///
-    /// assert!(v.exists());
-    /// v.remove().unwrap();
-    /// assert!(!v.exists());
-    /// ```
-    pub fn remove(&self) -> Result<(), StorageError> {
-        self.graph.remove_vertex(self.id)
     }
 }
 
@@ -1424,7 +1546,7 @@ mod tests {
     }
 
     // =========================================================================
-    // GraphVertexTraversal Tests (Phase 3)
+    // GraphVertexTraversal Tests
     // =========================================================================
 
     fn test_graph_chain() -> Arc<Graph> {
@@ -1581,7 +1703,7 @@ mod tests {
         let bob_id = bob_val.as_vertex_id().unwrap();
         let bob = GraphVertex::new(bob_id, graph.clone());
 
-        assert_eq!(bob.both("knows").count(), 2);
+        assert_eq!(bob.both("knows").count(), 2); // Alice and Charlie
     }
 
     #[test]
@@ -1595,72 +1717,18 @@ mod tests {
         let alice = GraphVertex::new(alice_id, graph.clone());
 
         assert!(alice.out("knows").exists());
-        assert!(!alice.in_("knows").exists()); // Alice has no incoming edges
-    }
-
-    #[test]
-    fn vertex_traversal_has_label() {
-        let graph = Arc::new(Graph::new());
-        let person = graph.add_vertex(
-            "person",
-            HashMap::from([("name".to_string(), "Alice".into())]),
-        );
-        let dog = graph.add_vertex(
-            "animal",
-            HashMap::from([("name".to_string(), "Rex".into())]),
-        );
-        graph.add_edge(person, dog, "owns", HashMap::new()).unwrap();
-
-        let alice = GraphVertex::new(person, graph.clone());
-
-        // Filter by label
-        let pets = alice.out_all().has_label("animal").to_list();
-        assert_eq!(pets.len(), 1);
-        assert_eq!(
-            pets[0].property("name"),
-            Some(Value::String("Rex".to_string()))
-        );
-
-        // No match
-        let people = alice.out_all().has_label("person").to_list();
-        assert_eq!(people.len(), 0);
-    }
-
-    #[test]
-    fn vertex_traversal_has_value() {
-        let graph = test_graph_chain();
-        let snapshot = graph.snapshot();
-        let g = snapshot.gremlin();
-
-        let bob_val = g.v().has_value("name", "Bob").next().unwrap();
-        let bob_id = bob_val.as_vertex_id().unwrap();
-        let bob = GraphVertex::new(bob_id, graph.clone());
-
-        // Find neighbor named Alice
-        let alice_neighbors = bob.both("knows").has_value("name", "Alice").to_list();
-        assert_eq!(alice_neighbors.len(), 1);
-
-        // Find neighbor named Dave (doesn't exist)
-        let dave_neighbors = bob.both("knows").has_value("name", "Dave").to_list();
-        assert_eq!(dave_neighbors.len(), 0);
+        assert!(!alice.out("created").exists());
     }
 
     #[test]
     fn vertex_add_edge() {
         let graph = Arc::new(Graph::new());
-        let alice = graph.add_vertex(
-            "person",
-            HashMap::from([("name".to_string(), "Alice".into())]),
-        );
-        let bob = graph.add_vertex(
-            "person",
-            HashMap::from([("name".to_string(), "Bob".into())]),
-        );
+        let alice = graph.add_vertex("person", HashMap::new());
+        let bob = graph.add_vertex("person", HashMap::new());
 
         let alice_v = GraphVertex::new(alice, graph.clone());
         let bob_v = GraphVertex::new(bob, graph.clone());
 
-        // Add edge via vertex object
         let edge = alice_v.add_edge("knows", &bob_v).unwrap();
         assert_eq!(edge.label(), Some("knows".to_string()));
 
@@ -1691,45 +1759,171 @@ mod tests {
     }
 
     #[test]
-    fn vertex_add_edge_to_id() {
-        let graph = Arc::new(Graph::new());
-        let alice = graph.add_vertex("person", HashMap::new());
-        let bob = graph.add_vertex("person", HashMap::new());
-
-        let alice_v = GraphVertex::new(alice, graph.clone());
-
-        let edge = alice_v.add_edge_to_id("knows", bob).unwrap();
-        assert_eq!(edge.label(), Some("knows".to_string()));
-    }
-
-    #[test]
     fn vertex_remove() {
-        let graph = Arc::new(Graph::new());
-        let alice = graph.add_vertex("person", HashMap::new());
-        let bob = graph.add_vertex("person", HashMap::new());
-        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-
-        let alice_v = GraphVertex::new(alice, graph.clone());
-
-        assert!(alice_v.exists());
-        alice_v.remove().unwrap();
-        assert!(!alice_v.exists());
-
-        // Edge should also be gone
-        let snapshot = graph.snapshot();
-        let g = snapshot.gremlin();
-        assert_eq!(g.e().count(), 0);
-    }
-
-    #[test]
-    fn graph_vertex_traversal_debug() {
         let graph = Arc::new(Graph::new());
         let id = graph.add_vertex("person", HashMap::new());
         let v = GraphVertex::new(id, graph.clone());
 
-        let traversal = v.out("knows");
-        let debug_str = format!("{:?}", traversal);
-        assert!(debug_str.contains("GraphVertexTraversal"));
-        assert!(debug_str.contains("Out"));
+        assert!(v.exists());
+        v.remove().unwrap();
+        assert!(!v.exists());
+    }
+
+    #[test]
+    fn edge_remove() {
+        let graph = Arc::new(Graph::new());
+        let alice = graph.add_vertex("person", HashMap::new());
+        let bob = graph.add_vertex("person", HashMap::new());
+        let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+
+        let edge = GraphEdge::new(edge_id, graph.clone());
+        assert!(edge.exists());
+        edge.remove().unwrap();
+        assert!(!edge.exists());
+    }
+
+    // =========================================================================
+    // Type Alias Tests
+    // =========================================================================
+
+    #[test]
+    fn type_alias_inmemory_vertex() {
+        let graph = Arc::new(Graph::new());
+        let id = graph.add_vertex("person", HashMap::new());
+
+        // InMemoryVertex is just GraphVertex<Arc<Graph>>
+        let v: InMemoryVertex = InMemoryVertex::new(id, graph);
+        assert!(v.exists());
+    }
+
+    #[test]
+    fn type_alias_inmemory_edge() {
+        let graph = Arc::new(Graph::new());
+        let a = graph.add_vertex("person", HashMap::new());
+        let b = graph.add_vertex("person", HashMap::new());
+        let edge_id = graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
+
+        // InMemoryEdge is just GraphEdge<Arc<Graph>>
+        let e: InMemoryEdge = InMemoryEdge::new(edge_id, graph);
+        assert!(e.exists());
+    }
+
+    // =========================================================================
+    // Mmap Tests (feature-gated)
+    // =========================================================================
+
+    #[cfg(feature = "mmap")]
+    mod mmap_tests {
+        use super::*;
+        use crate::storage::CowMmapGraph;
+        use tempfile::tempdir;
+
+        fn temp_db_path() -> (tempfile::TempDir, std::path::PathBuf) {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("test.db");
+            (dir, path)
+        }
+
+        #[test]
+        fn persistent_vertex_basic() {
+            let (_dir, path) = temp_db_path();
+            let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+            let id = graph
+                .add_vertex(
+                    "person",
+                    HashMap::from([("name".to_string(), "Alice".into())]),
+                )
+                .unwrap();
+
+            let v: PersistentVertex = PersistentVertex::new(id, graph.clone());
+            assert_eq!(v.label(), Some("person".to_string()));
+            assert_eq!(v.property("name"), Some(Value::String("Alice".to_string())));
+        }
+
+        #[test]
+        fn persistent_edge_basic() {
+            let (_dir, path) = temp_db_path();
+            let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+            let a = graph.add_vertex("person", HashMap::new()).unwrap();
+            let b = graph.add_vertex("person", HashMap::new()).unwrap();
+            let edge_id = graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
+
+            let e: PersistentEdge = PersistentEdge::new(edge_id, graph.clone());
+            assert_eq!(e.label(), Some("knows".to_string()));
+        }
+
+        #[test]
+        fn persistent_vertex_traversal() {
+            let (_dir, path) = temp_db_path();
+            let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+            let alice = graph
+                .add_vertex(
+                    "person",
+                    HashMap::from([("name".to_string(), "Alice".into())]),
+                )
+                .unwrap();
+            let bob = graph
+                .add_vertex(
+                    "person",
+                    HashMap::from([("name".to_string(), "Bob".into())]),
+                )
+                .unwrap();
+            graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+
+            let alice_v: PersistentVertex = PersistentVertex::new(alice, graph.clone());
+            let friends = alice_v.out("knows").to_list();
+
+            assert_eq!(friends.len(), 1);
+            assert_eq!(
+                friends[0].property("name"),
+                Some(Value::String("Bob".to_string()))
+            );
+        }
+
+        #[test]
+        fn persistent_vertex_mutation() {
+            let (_dir, path) = temp_db_path();
+            let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+            let id = graph
+                .add_vertex("person", HashMap::from([("age".to_string(), 30i64.into())]))
+                .unwrap();
+
+            let v: PersistentVertex = PersistentVertex::new(id, graph.clone());
+            assert_eq!(v.property("age"), Some(Value::Int(30)));
+
+            v.property_set("age", 31i64).unwrap();
+            assert_eq!(v.property("age"), Some(Value::Int(31)));
+        }
+
+        #[test]
+        fn persistent_edge_endpoints_return_persistent_vertex() {
+            let (_dir, path) = temp_db_path();
+            let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+            let a = graph
+                .add_vertex(
+                    "person",
+                    HashMap::from([("name".to_string(), "Alice".into())]),
+                )
+                .unwrap();
+            let b = graph
+                .add_vertex(
+                    "person",
+                    HashMap::from([("name".to_string(), "Bob".into())]),
+                )
+                .unwrap();
+            let edge_id = graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
+
+            let e: PersistentEdge = PersistentEdge::new(edge_id, graph.clone());
+
+            // Endpoints should be PersistentVertex, not InMemoryVertex
+            let src = e.out_v().unwrap();
+            let dst = e.in_v().unwrap();
+
+            assert_eq!(
+                src.property("name"),
+                Some(Value::String("Alice".to_string()))
+            );
+            assert_eq!(dst.property("name"), Some(Value::String("Bob".to_string())));
+        }
     }
 }

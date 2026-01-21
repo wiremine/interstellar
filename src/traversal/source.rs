@@ -28,7 +28,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
 use crate::storage::cow::Graph;
 use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
@@ -3233,7 +3233,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// assert_eq!(vertices.len(), 1);
     /// assert_eq!(vertices[0].label(), Some("person".to_string()));
     /// ```
-    pub fn to_vertex_list(self, graph: Arc<Graph>) -> Vec<GraphVertex> {
+    pub fn to_vertex_list(self, graph: Arc<Graph>) -> Vec<InMemoryVertex> {
         self.execute()
             .filter_map(|t| match t.value {
                 Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
@@ -3269,7 +3269,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let v = g.v().next_vertex(graph.clone()).unwrap();
     /// assert_eq!(v.property("name"), Some(Value::String("Alice".to_string())));
     /// ```
-    pub fn next_vertex(self, graph: Arc<Graph>) -> Option<GraphVertex> {
+    pub fn next_vertex(self, graph: Arc<Graph>) -> Option<InMemoryVertex> {
         self.execute().find_map(|t| match t.value {
             Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
             _ => None,
@@ -3306,7 +3306,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     pub fn one_vertex(
         self,
         graph: Arc<Graph>,
-    ) -> Result<GraphVertex, crate::error::TraversalError> {
+    ) -> Result<InMemoryVertex, crate::error::TraversalError> {
         let ids: Vec<_> = self
             .execute()
             .filter_map(|t| match t.value {
@@ -3351,7 +3351,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// assert_eq!(edges.len(), 1);
     /// assert_eq!(edges[0].label(), Some("knows".to_string()));
     /// ```
-    pub fn to_edge_list(self, graph: Arc<Graph>) -> Vec<GraphEdge> {
+    pub fn to_edge_list(self, graph: Arc<Graph>) -> Vec<InMemoryEdge> {
         self.execute()
             .filter_map(|t| match t.value {
                 Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
@@ -3389,7 +3389,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let e = g.e().next_edge(graph.clone()).unwrap();
     /// assert_eq!(e.property("since"), Some(Value::Int(2020)));
     /// ```
-    pub fn next_edge(self, graph: Arc<Graph>) -> Option<GraphEdge> {
+    pub fn next_edge(self, graph: Arc<Graph>) -> Option<InMemoryEdge> {
         self.execute().find_map(|t| match t.value {
             Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
             _ => None,
@@ -3423,7 +3423,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let e = g.e().one_edge(graph.clone()).unwrap();
     /// assert_eq!(e.label(), Some("knows".to_string()));
     /// ```
-    pub fn one_edge(self, graph: Arc<Graph>) -> Result<GraphEdge, crate::error::TraversalError> {
+    pub fn one_edge(self, graph: Arc<Graph>) -> Result<InMemoryEdge, crate::error::TraversalError> {
         let ids: Vec<_> = self
             .execute()
             .filter_map(|t| match t.value {
@@ -3466,7 +3466,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     ///     println!("Vertex: {:?}", v.label());
     /// }
     /// ```
-    pub fn vertex_iter(self, graph: Arc<Graph>) -> impl Iterator<Item = GraphVertex> + 'g {
+    pub fn vertex_iter(self, graph: Arc<Graph>) -> impl Iterator<Item = InMemoryVertex> + 'g {
         self.execute().filter_map(move |t| match t.value {
             Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
             _ => None,
@@ -3501,7 +3501,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     ///     println!("Edge: {:?}", e.label());
     /// }
     /// ```
-    pub fn edge_iter(self, graph: Arc<Graph>) -> impl Iterator<Item = GraphEdge> + 'g {
+    pub fn edge_iter(self, graph: Arc<Graph>) -> impl Iterator<Item = InMemoryEdge> + 'g {
         self.execute().filter_map(move |t| match t.value {
             Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
             _ => None,

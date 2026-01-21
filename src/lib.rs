@@ -366,6 +366,7 @@ pub mod algorithms;
 pub mod error;
 pub mod gql;
 pub mod graph;
+pub mod graph_access;
 pub mod graph_elements;
 pub mod index;
 pub mod schema;
@@ -375,6 +376,9 @@ pub mod value;
 
 // Re-export graph element types for convenience
 pub use graph_elements::{GraphEdge, GraphVertex, GraphVertexTraversal};
+
+// Re-export GraphAccess trait for generic graph element support
+pub use graph_access::GraphAccess;
 
 #[cfg(kani)]
 mod kani_proofs;

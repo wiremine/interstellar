@@ -7,6 +7,7 @@
 use interstellar::storage::PersistentGraph;
 use interstellar::value::Value;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 fn main() {
     println!("=== Interstellar Persistent Storage Demo ===\n");
@@ -23,20 +24,19 @@ fn main() {
     // =========================================================================
     println!("--- 1. Create Database and Add Data ---\n");
     {
-        let graph = PersistentGraph::open(&db_path).expect("Failed to create database");
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to create database"));
         println!("Created database: {:?}", db_path);
 
-        let g = graph.gremlin();
+        let g = graph.gremlin(Arc::clone(&graph));
 
-        // Add vertices
+        // Add vertices - now returns PersistentVertex directly
         let alice_id = g
             .add_v("Person")
             .property("name", "Alice")
             .property("age", 30)
             .next()
             .expect("Failed to create Alice")
-            .as_vertex_id()
-            .expect("Expected vertex ID");
+            .id(); // PersistentVertex has .id() method
 
         let bob_id = g
             .add_v("Person")
@@ -44,8 +44,7 @@ fn main() {
             .property("age", 28)
             .next()
             .expect("Failed to create Bob")
-            .as_vertex_id()
-            .expect("Expected vertex ID");
+            .id();
 
         // Add an edge
         g.add_e("KNOWS")
@@ -70,8 +69,8 @@ fn main() {
     // =========================================================================
     println!("\n--- 2. Reopen and Verify Persistence ---\n");
     {
-        let graph = PersistentGraph::open(&db_path).expect("Failed to reopen database");
-        let g = graph.gremlin();
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to reopen database"));
+        let g = graph.gremlin(Arc::clone(&graph));
 
         // Verify counts
         let vertex_count = g.v().count();

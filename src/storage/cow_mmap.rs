@@ -54,6 +54,7 @@
 //! - Snapshots can be sent to other threads and can outlive the source graph
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
@@ -63,6 +64,7 @@ use roaring::RoaringBitmap;
 
 use crate::error::StorageError;
 use crate::gql::{self, GqlError};
+use crate::graph_elements::{GraphEdge, GraphVertex, PersistentEdge, PersistentVertex};
 use crate::index::{
     BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
 };
@@ -71,6 +73,7 @@ use crate::storage::cow::{EdgeData, GraphState, NodeData};
 use crate::storage::interner::StringInterner;
 use crate::storage::mmap::MmapGraph;
 use crate::storage::{Edge, GraphStorage, Vertex};
+use crate::traversal::markers::{Edge as EdgeMarker, OutputMarker, Scalar, Vertex as VertexMarker};
 use crate::traversal::mutation::{DropStep, PendingMutation, PropertyStep};
 use crate::traversal::{
     ExecutionContext, HasLabelStep, HasStep, HasValueStep, IdStep, InEStep, InStep, InVStep,
@@ -342,23 +345,33 @@ impl CowMmapGraph {
     /// reads and mutations. Any mutations in the traversal are automatically
     /// executed when terminal steps are called.
     ///
+    /// Terminal methods like `next()` and `to_list()` return rich types:
+    /// - `g.v()` returns `PersistentVertex` objects
+    /// - `g.e()` returns `PersistentEdge` objects
+    ///
+    /// # Arguments
+    ///
+    /// * `graph_arc` - An `Arc<CowMmapGraph>` for the returned rich element types
+    ///
     /// # Example
     ///
     /// ```no_run
     /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use std::sync::Arc;
     ///
-    /// let graph = CowMmapGraph::open("test.db").unwrap();
-    /// let g = graph.gremlin();
+    /// let graph = Arc::new(CowMmapGraph::open("test.db").unwrap());
+    /// let g = graph.gremlin(Arc::clone(&graph));
     ///
-    /// // Create vertices
+    /// // Create vertices - returns PersistentVertex
     /// let alice = g.add_v("Person").property("name", "Alice").next();
     /// let bob = g.add_v("Person").property("name", "Bob").next();
     ///
-    /// // Read
-    /// assert_eq!(g.v().count(), 2);
+    /// // Read - returns PersistentVertex objects
+    /// let vertices = g.v().to_list();
+    /// assert_eq!(vertices.len(), 2);
     /// ```
-    pub fn gremlin(&self) -> CowMmapTraversalSource<'_> {
-        CowMmapTraversalSource::new(self)
+    pub fn gremlin(&self, graph_arc: Arc<CowMmapGraph>) -> CowMmapTraversalSource<'_> {
+        CowMmapTraversalSource::new_with_arc(self, graph_arc)
     }
 
     /// Get the current version number.
@@ -2300,66 +2313,85 @@ impl<'a> crate::storage::GraphStorageMut for CowMmapGraphMutWrapper<'a> {
 /// ```no_run
 /// use interstellar::storage::cow_mmap::CowMmapGraph;
 /// use std::collections::HashMap;
+/// use std::sync::Arc;
 ///
-/// let graph = CowMmapGraph::open("test.db").unwrap();
-/// let g = graph.gremlin();
+/// let graph = Arc::new(CowMmapGraph::open("test.db").unwrap());
+/// let g = graph.gremlin(Arc::clone(&graph));
 ///
-/// // Mutations are executed automatically
+/// // Mutations are executed automatically - returns PersistentVertex
 /// let alice = g.add_v("Person").property("name", "Alice").next();
 /// let bob = g.add_v("Person").property("name", "Bob").next();
 ///
-/// // Reads work normally
-/// let count = g.v().count();  // 2
+/// // Reads work normally - returns PersistentVertex objects
+/// let vertices = g.v().to_list();
+/// assert_eq!(vertices.len(), 2);
 /// ```
 pub struct CowMmapTraversalSource<'g> {
     graph: &'g CowMmapGraph,
+    graph_arc: Arc<CowMmapGraph>,
 }
 
 impl<'g> CowMmapTraversalSource<'g> {
-    /// Create a new traversal source for the given graph.
-    pub fn new(graph: &'g CowMmapGraph) -> Self {
-        Self { graph }
+    /// Create a new traversal source with an Arc<CowMmapGraph>.
+    ///
+    /// This is the primary constructor for `CowMmapTraversalSource`.
+    pub fn new_with_arc(graph: &'g CowMmapGraph, graph_arc: Arc<CowMmapGraph>) -> Self {
+        Self { graph, graph_arc }
     }
 
     /// Start traversal from all vertices.
-    pub fn v(&self) -> CowMmapBoundTraversal<'g, (), Value> {
-        CowMmapBoundTraversal::new(
+    ///
+    /// Returns `PersistentVertex` objects from terminal methods like `next()` and `to_list()`.
+    pub fn v(&self) -> CowMmapBoundTraversal<'g, (), Value, VertexMarker> {
+        CowMmapBoundTraversal::new_typed(
             self.graph,
+            Arc::clone(&self.graph_arc),
             Traversal::with_source(TraversalSource::AllVertices),
         )
     }
 
     /// Start traversal from specific vertex IDs.
-    pub fn v_ids<I>(&self, ids: I) -> CowMmapBoundTraversal<'g, (), Value>
+    ///
+    /// Returns `PersistentVertex` objects from terminal methods.
+    pub fn v_ids<I>(&self, ids: I) -> CowMmapBoundTraversal<'g, (), Value, VertexMarker>
     where
         I: IntoIterator<Item = VertexId>,
     {
-        CowMmapBoundTraversal::new(
+        CowMmapBoundTraversal::new_typed(
             self.graph,
+            Arc::clone(&self.graph_arc),
             Traversal::with_source(TraversalSource::Vertices(ids.into_iter().collect())),
         )
     }
 
     /// Start traversal from a single vertex ID.
-    pub fn v_id(&self, id: VertexId) -> CowMmapBoundTraversal<'g, (), Value> {
+    ///
+    /// Returns `PersistentVertex` objects from terminal methods.
+    pub fn v_id(&self, id: VertexId) -> CowMmapBoundTraversal<'g, (), Value, VertexMarker> {
         self.v_ids([id])
     }
 
     /// Start traversal from all edges.
-    pub fn e(&self) -> CowMmapBoundTraversal<'g, (), Value> {
-        CowMmapBoundTraversal::new(
+    ///
+    /// Returns `PersistentEdge` objects from terminal methods like `next()` and `to_list()`.
+    pub fn e(&self) -> CowMmapBoundTraversal<'g, (), Value, EdgeMarker> {
+        CowMmapBoundTraversal::new_typed(
             self.graph,
+            Arc::clone(&self.graph_arc),
             Traversal::with_source(TraversalSource::AllEdges),
         )
     }
 
     /// Start traversal from specific edge IDs.
-    pub fn e_ids<I>(&self, ids: I) -> CowMmapBoundTraversal<'g, (), Value>
+    ///
+    /// Returns `PersistentEdge` objects from terminal methods.
+    pub fn e_ids<I>(&self, ids: I) -> CowMmapBoundTraversal<'g, (), Value, EdgeMarker>
     where
         I: IntoIterator<Item = EdgeId>,
     {
-        CowMmapBoundTraversal::new(
+        CowMmapBoundTraversal::new_typed(
             self.graph,
+            Arc::clone(&self.graph_arc),
             Traversal::with_source(TraversalSource::Edges(ids.into_iter().collect())),
         )
     }
@@ -2367,25 +2399,30 @@ impl<'g> CowMmapTraversalSource<'g> {
     /// Start a traversal that creates a new vertex.
     ///
     /// The vertex is created when a terminal step is called.
+    /// Returns `PersistentVertex` from terminal methods.
     ///
     /// # Example
     ///
     /// ```no_run
     /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use std::sync::Arc;
     ///
-    /// let graph = CowMmapGraph::open("test.db").unwrap();
-    /// let g = graph.gremlin();
+    /// let graph = Arc::new(CowMmapGraph::open("test.db").unwrap());
+    /// let g = graph.gremlin(Arc::clone(&graph));
     ///
     /// let vertex = g.add_v("Person").property("name", "Alice").next();
     /// assert!(vertex.is_some());
     /// assert_eq!(graph.vertex_count(), 1);
     /// ```
-    pub fn add_v(&self, label: impl Into<String>) -> CowMmapBoundTraversal<'g, (), Value> {
+    pub fn add_v(
+        &self,
+        label: impl Into<String>,
+    ) -> CowMmapBoundTraversal<'g, (), Value, VertexMarker> {
         use crate::traversal::mutation::AddVStep;
 
         let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
         traversal = traversal.add_step(AddVStep::new(label));
-        CowMmapBoundTraversal::new(self.graph, traversal)
+        CowMmapBoundTraversal::new_typed(self.graph, Arc::clone(&self.graph_arc), traversal)
     }
 
     /// Start a traversal that creates a new edge.
@@ -2397,27 +2434,29 @@ impl<'g> CowMmapTraversalSource<'g> {
     /// ```no_run
     /// use interstellar::storage::cow_mmap::CowMmapGraph;
     /// use std::collections::HashMap;
+    /// use std::sync::Arc;
     ///
-    /// let graph = CowMmapGraph::open("test.db").unwrap();
+    /// let graph = Arc::new(CowMmapGraph::open("test.db").unwrap());
     /// let alice = graph.add_vertex("Person", HashMap::new()).unwrap();
     /// let bob = graph.add_vertex("Person", HashMap::new()).unwrap();
     ///
-    /// let g = graph.gremlin();
+    /// let g = graph.gremlin(Arc::clone(&graph));
     /// let edge = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
     /// assert!(edge.is_some());
     /// assert_eq!(graph.edge_count(), 1);
     /// ```
     pub fn add_e(&self, label: impl Into<String>) -> CowMmapAddEdgeBuilder<'g> {
-        CowMmapAddEdgeBuilder::new(self.graph, label.into())
+        CowMmapAddEdgeBuilder::new(self.graph, Arc::clone(&self.graph_arc), label.into())
     }
 
     /// Inject arbitrary values into the traversal stream.
-    pub fn inject<I>(&self, values: I) -> CowMmapBoundTraversal<'g, (), Value>
+    pub fn inject<I>(&self, values: I) -> CowMmapBoundTraversal<'g, (), Value, Scalar>
     where
         I: IntoIterator<Item = Value>,
     {
-        CowMmapBoundTraversal::new(
+        CowMmapBoundTraversal::new_typed(
             self.graph,
+            Arc::clone(&self.graph_arc),
             Traversal::with_source(TraversalSource::Inject(values.into_iter().collect())),
         )
     }
@@ -2432,19 +2471,32 @@ impl<'g> CowMmapTraversalSource<'g> {
 /// When terminal steps (`to_list()`, `next()`, `iterate()`, etc.) are called,
 /// any pending mutations in the traversal results are automatically executed
 /// against the graph.
-pub struct CowMmapBoundTraversal<'g, In, Out> {
+///
+/// The `Marker` type determines what terminal methods return:
+/// - `VertexMarker` → `next()` returns `Option<PersistentVertex>`
+/// - `EdgeMarker` → `next()` returns `Option<PersistentEdge>`
+/// - `Scalar` → `next()` returns `Option<Value>`
+pub struct CowMmapBoundTraversal<'g, In, Out, Marker: OutputMarker = Scalar> {
     graph: &'g CowMmapGraph,
+    graph_arc: Arc<CowMmapGraph>,
     traversal: Traversal<In, Out>,
     track_paths: bool,
+    _marker: PhantomData<Marker>,
 }
 
-impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
-    /// Create a new bound traversal.
-    pub(crate) fn new(graph: &'g CowMmapGraph, traversal: Traversal<In, Out>) -> Self {
+impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marker> {
+    /// Create a new typed bound traversal.
+    pub(crate) fn new_typed(
+        graph: &'g CowMmapGraph,
+        graph_arc: Arc<CowMmapGraph>,
+        traversal: Traversal<In, Out>,
+    ) -> Self {
         Self {
             graph,
+            graph_arc,
             traversal,
             track_paths: false,
+            _marker: PhantomData,
         }
     }
 
@@ -2454,36 +2506,70 @@ impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
         self
     }
 
-    /// Add a step to the traversal.
+    /// Add a step to the traversal, preserving the marker type.
+    pub fn add_step_same<NewOut>(
+        self,
+        step: impl crate::traversal::step::AnyStep + 'static,
+    ) -> CowMmapBoundTraversal<'g, In, NewOut, Marker> {
+        CowMmapBoundTraversal {
+            graph: self.graph,
+            graph_arc: self.graph_arc,
+            traversal: self.traversal.add_step(step),
+            track_paths: self.track_paths,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Add a step to the traversal, preserving the marker type.
+    ///
+    /// Alias for `add_step_same` for backward compatibility.
     pub fn add_step<NewOut>(
         self,
         step: impl crate::traversal::step::AnyStep + 'static,
-    ) -> CowMmapBoundTraversal<'g, In, NewOut> {
+    ) -> CowMmapBoundTraversal<'g, In, NewOut, Marker> {
+        self.add_step_same(step)
+    }
+
+    /// Add a step to the traversal with a new marker type.
+    pub fn add_step_with_marker<NewOut, NewMarker: OutputMarker>(
+        self,
+        step: impl crate::traversal::step::AnyStep + 'static,
+    ) -> CowMmapBoundTraversal<'g, In, NewOut, NewMarker> {
         CowMmapBoundTraversal {
             graph: self.graph,
+            graph_arc: self.graph_arc,
             traversal: self.traversal.add_step(step),
             track_paths: self.track_paths,
+            _marker: PhantomData,
         }
     }
 
     /// Append an anonymous traversal's steps.
-    pub fn append<Mid>(self, anon: Traversal<Out, Mid>) -> CowMmapBoundTraversal<'g, In, Mid> {
+    pub fn append<Mid>(
+        self,
+        anon: Traversal<Out, Mid>,
+    ) -> CowMmapBoundTraversal<'g, In, Mid, Marker> {
         CowMmapBoundTraversal {
             graph: self.graph,
+            graph_arc: self.graph_arc,
             traversal: self.traversal.append(anon),
             track_paths: self.track_paths,
+            _marker: PhantomData,
         }
     }
 
     /// Execute the traversal and process any pending mutations.
     ///
     /// Returns an iterator over the results with mutations applied.
-    fn execute_with_mutations(self) -> Vec<Value> {
+    fn execute_with_mutations(&self) -> Vec<Value> {
         use crate::traversal::step::{AnyStep, StartStep};
         use crate::traversal::traverser::TraversalSource;
 
+        // Clone the traversal so we can decompose it
+        let traversal_clone = self.traversal.clone();
+
         // Decompose traversal into source and steps
-        let (source, steps) = self.traversal.into_steps();
+        let (source, steps) = traversal_clone.into_steps();
 
         // Check if this is a mutation-only traversal (source is Inject([]))
         let is_mutation_only =
@@ -2612,14 +2698,165 @@ impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
 }
 
 // Terminal methods on CowMmapBoundTraversal
-impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
-    /// Execute and collect all values into a list.
+impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marker> {
+    /// Execute and consume the traversal, discarding results.
     ///
-    /// Any pending mutations in the results are automatically executed.
-    pub fn to_list(self) -> Vec<Value> {
+    /// Any pending mutations are automatically executed.
+    pub fn iterate(self) {
+        let _ = self.execute_with_mutations();
+    }
+
+    /// Check if the traversal produces any results.
+    pub fn has_next(&self) -> bool {
+        !self.execute_with_mutations().is_empty()
+    }
+}
+
+// =============================================================================
+// Terminal Methods for VertexMarker
+// =============================================================================
+
+/// Terminal methods when traversal produces vertices.
+impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out, VertexMarker> {
+    /// Execute and return the first vertex, if any.
+    pub fn next(self) -> Option<PersistentVertex> {
+        let graph_arc = Arc::clone(&self.graph_arc);
+        self.execute_with_mutations()
+            .into_iter()
+            .find_map(|v| match v {
+                Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph_arc))),
+                _ => None,
+            })
+    }
+
+    /// Execute and collect all vertices into a list.
+    pub fn to_list(self) -> Vec<PersistentVertex> {
+        let graph_arc = Arc::clone(&self.graph_arc);
+        self.execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph_arc))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Execute and return exactly one vertex.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TraversalError::NotOne` if zero or more than one vertex is found.
+    pub fn one(self) -> Result<PersistentVertex, crate::error::TraversalError> {
+        let graph_arc = Arc::clone(&self.graph_arc);
+        let ids: Vec<_> = self
+            .execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Vertex(id) => Some(id),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        match ids.len() {
+            1 => Ok(GraphVertex::new(ids[0], graph_arc)),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
+    }
+
+    /// Execute and count the number of vertices.
+    pub fn count(self) -> u64 {
+        self.execute_with_mutations()
+            .into_iter()
+            .filter(|v| matches!(v, Value::Vertex(_)))
+            .count() as u64
+    }
+
+    /// Execute and collect unique vertices into a set.
+    #[allow(clippy::mutable_key_type)]
+    pub fn to_set(self) -> std::collections::HashSet<PersistentVertex> {
+        self.to_list().into_iter().collect()
+    }
+}
+
+// =============================================================================
+// Terminal Methods for EdgeMarker
+// =============================================================================
+
+/// Terminal methods when traversal produces edges.
+impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out, EdgeMarker> {
+    /// Execute and return the first edge, if any.
+    pub fn next(self) -> Option<PersistentEdge> {
+        let graph_arc = Arc::clone(&self.graph_arc);
+        self.execute_with_mutations()
+            .into_iter()
+            .find_map(|v| match v {
+                Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph_arc))),
+                _ => None,
+            })
+    }
+
+    /// Execute and collect all edges into a list.
+    pub fn to_list(self) -> Vec<PersistentEdge> {
+        let graph_arc = Arc::clone(&self.graph_arc);
+        self.execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph_arc))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Execute and collect all edges into a list of raw Values.
+    ///
+    /// This is an internal helper used by `CowMmapBoundAddEdgeBuilder`.
+    pub(crate) fn into_list_values(self) -> Vec<Value> {
         self.execute_with_mutations()
     }
 
+    /// Execute and return exactly one edge.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TraversalError::NotOne` if zero or more than one edge is found.
+    pub fn one(self) -> Result<PersistentEdge, crate::error::TraversalError> {
+        let graph_arc = Arc::clone(&self.graph_arc);
+        let ids: Vec<_> = self
+            .execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Edge(id) => Some(id),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        match ids.len() {
+            1 => Ok(GraphEdge::new(ids[0], graph_arc)),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
+    }
+
+    /// Execute and count the number of edges.
+    pub fn count(self) -> u64 {
+        self.execute_with_mutations()
+            .into_iter()
+            .filter(|v| matches!(v, Value::Edge(_)))
+            .count() as u64
+    }
+
+    /// Execute and collect unique edges into a set.
+    #[allow(clippy::mutable_key_type)]
+    pub fn to_set(self) -> std::collections::HashSet<PersistentEdge> {
+        self.to_list().into_iter().collect()
+    }
+}
+
+// =============================================================================
+// Terminal Methods for Scalar
+// =============================================================================
+
+/// Terminal methods when traversal produces scalar values.
+impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out, Scalar> {
     /// Execute and return the first value, if any.
     ///
     /// Any pending mutations are automatically executed.
@@ -2627,11 +2864,24 @@ impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
         self.execute_with_mutations().into_iter().next()
     }
 
-    /// Execute and consume the traversal, discarding results.
+    /// Execute and collect all values into a list.
     ///
-    /// Any pending mutations are automatically executed.
-    pub fn iterate(self) {
-        let _ = self.execute_with_mutations();
+    /// Any pending mutations in the results are automatically executed.
+    pub fn to_list(self) -> Vec<Value> {
+        self.execute_with_mutations()
+    }
+
+    /// Execute and return exactly one value.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TraversalError::NotOne` if zero or more than one value is found.
+    pub fn one(self) -> Result<Value, crate::error::TraversalError> {
+        let results: Vec<_> = self.execute_with_mutations().into_iter().take(2).collect();
+        match results.len() {
+            1 => Ok(results.into_iter().next().unwrap()),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
     }
 
     /// Execute and count the number of results.
@@ -2644,9 +2894,169 @@ impl<'g, In, Out> CowMmapBoundTraversal<'g, In, Out> {
         self.execute_with_mutations().into_iter().collect()
     }
 
-    /// Check if the traversal produces any results.
-    pub fn has_next(self) -> bool {
-        !self.execute_with_mutations().is_empty()
+    // =========================================================================
+    // Rich Type Terminal Methods (for backwards compatibility)
+    // =========================================================================
+
+    /// Execute and collect all vertices into a list of `PersistentVertex`.
+    ///
+    /// Returns vertices as rich [`PersistentVertex`] objects with access to
+    /// the graph for property lookups and traversal.
+    ///
+    /// Non-vertex values are silently filtered.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<CowMmapGraph>` to associate with the returned vertices
+    ///
+    /// # Note
+    ///
+    /// For typed traversals (from `v()`, `v_id()`, etc.), prefer using `to_list()`
+    /// directly which returns `Vec<PersistentVertex>` without needing an Arc parameter.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use std::collections::HashMap;
+    /// use std::sync::Arc;
+    ///
+    /// let graph = Arc::new(CowMmapGraph::open("test.db").unwrap());
+    /// graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Alice".into()),
+    /// ])).unwrap();
+    ///
+    /// // Preferred: use typed traversal
+    /// let g = graph.gremlin(Arc::clone(&graph));
+    /// let vertices = g.v().to_list();  // Returns Vec<PersistentVertex> directly
+    /// assert_eq!(vertices.len(), 1);
+    /// ```
+    pub fn to_vertex_list(self, graph: Arc<CowMmapGraph>) -> Vec<PersistentVertex> {
+        self.execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Execute and return the first vertex as a `PersistentVertex`.
+    ///
+    /// Returns `None` if the traversal produces no vertices.
+    /// Non-vertex values are silently filtered.
+    ///
+    /// # Note
+    ///
+    /// For typed traversals (from `v()`, `v_id()`, etc.), prefer using `next()`
+    /// directly which returns `Option<PersistentVertex>` without needing an Arc parameter.
+    #[deprecated(note = "Use typed traversal with `next()` instead")]
+    pub fn next_vertex(self, graph: Arc<CowMmapGraph>) -> Option<PersistentVertex> {
+        self.execute_with_mutations()
+            .into_iter()
+            .find_map(|v| match v {
+                Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
+                _ => None,
+            })
+    }
+
+    /// Execute and return exactly one vertex as a `PersistentVertex`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TraversalError::NotOne` if zero or more than one vertex is found.
+    ///
+    /// # Note
+    ///
+    /// For typed traversals (from `v()`, `v_id()`, etc.), prefer using `one()`
+    /// directly which returns `Result<PersistentVertex, _>` without needing an Arc parameter.
+    #[deprecated(note = "Use typed traversal with `one()` instead")]
+    pub fn one_vertex(
+        self,
+        graph: Arc<CowMmapGraph>,
+    ) -> Result<PersistentVertex, crate::error::TraversalError> {
+        let ids: Vec<_> = self
+            .execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Vertex(id) => Some(id),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        match ids.len() {
+            1 => Ok(GraphVertex::new(ids[0], graph)),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
+    }
+
+    /// Execute and collect all edges into a list of `PersistentEdge`.
+    ///
+    /// Returns edges as rich [`PersistentEdge`] objects with access to
+    /// the graph for property lookups and endpoint access.
+    ///
+    /// Non-edge values are silently filtered.
+    ///
+    /// # Note
+    ///
+    /// For typed traversals (from `e()`, `e_ids()`, etc.), prefer using `to_list()`
+    /// directly which returns `Vec<PersistentEdge>` without needing an Arc parameter.
+    #[deprecated(note = "Use typed traversal with `to_list()` instead")]
+    pub fn to_edge_list(self, graph: Arc<CowMmapGraph>) -> Vec<PersistentEdge> {
+        self.execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Execute and return the first edge as a `PersistentEdge`.
+    ///
+    /// Returns `None` if the traversal produces no edges.
+    /// Non-edge values are silently filtered.
+    ///
+    /// # Note
+    ///
+    /// For typed traversals (from `e()`, `e_ids()`, etc.), prefer using `next()`
+    /// directly which returns `Option<PersistentEdge>` without needing an Arc parameter.
+    #[deprecated(note = "Use typed traversal with `next()` instead")]
+    pub fn next_edge(self, graph: Arc<CowMmapGraph>) -> Option<PersistentEdge> {
+        self.execute_with_mutations()
+            .into_iter()
+            .find_map(|v| match v {
+                Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
+                _ => None,
+            })
+    }
+
+    /// Execute and return exactly one edge as a `PersistentEdge`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TraversalError::NotOne` if zero or more than one edge is found.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<CowMmapGraph>` to associate with the returned edge
+    pub fn one_edge(
+        self,
+        graph: Arc<CowMmapGraph>,
+    ) -> Result<PersistentEdge, crate::error::TraversalError> {
+        let ids: Vec<_> = self
+            .execute_with_mutations()
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Edge(id) => Some(id),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        match ids.len() {
+            1 => Ok(GraphEdge::new(ids[0], graph)),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
     }
 }
 
@@ -2732,7 +3142,13 @@ impl<'g, In> CowMmapBoundTraversal<'g, In, Value> {
 
     /// Add an edge from the current vertex.
     pub fn add_e(self, label: impl Into<String>) -> CowMmapBoundAddEdgeBuilder<'g, In> {
-        CowMmapBoundAddEdgeBuilder::new(self.graph, self.traversal, label.into(), self.track_paths)
+        CowMmapBoundAddEdgeBuilder::new(
+            self.graph,
+            self.graph_arc,
+            self.traversal,
+            label.into(),
+            self.track_paths,
+        )
     }
 
     /// Limit results to first n.
@@ -2757,12 +3173,209 @@ impl<'g, In> CowMmapBoundTraversal<'g, In, Value> {
 }
 
 // =============================================================================
+// Step methods for VertexMarker traversals
+// =============================================================================
+
+impl<'g, In> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+    /// Filter vertices by label (preserves VertexMarker).
+    pub fn has_label(
+        self,
+        label: impl Into<String>,
+    ) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(HasLabelStep::single(label))
+    }
+
+    /// Filter to vertices that have a specific property key (preserves VertexMarker).
+    pub fn has(self, key: impl Into<String>) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(HasStep::new(key.into()))
+    }
+
+    /// Filter to vertices where a property equals a value (preserves VertexMarker).
+    pub fn has_value(
+        self,
+        key: impl Into<String>,
+        value: Value,
+    ) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(HasValueStep::new(key.into(), value))
+    }
+
+    /// Traverse to outgoing adjacent vertices (preserves VertexMarker).
+    pub fn out(self) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(OutStep::new())
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with label (preserves VertexMarker).
+    pub fn out_label(
+        self,
+        label: impl Into<String>,
+    ) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(OutStep::with_labels(vec![label.into()]))
+    }
+
+    /// Traverse to incoming adjacent vertices (preserves VertexMarker).
+    pub fn in_(self) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(InStep::new())
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with label (preserves VertexMarker).
+    pub fn in_label(
+        self,
+        label: impl Into<String>,
+    ) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(InStep::with_labels(vec![label.into()]))
+    }
+
+    /// Traverse to adjacent vertices in both directions (preserves VertexMarker).
+    pub fn both(self) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(crate::traversal::BothStep::new())
+    }
+
+    /// Traverse to outgoing edges (transforms to EdgeMarker).
+    pub fn out_e(self) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_with_marker(OutEStep::new())
+    }
+
+    /// Traverse to incoming edges (transforms to EdgeMarker).
+    pub fn in_e(self) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_with_marker(InEStep::new())
+    }
+
+    /// Add a property to the current vertex (for mutation traversals, preserves VertexMarker).
+    pub fn property(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(PropertyStep::new(key.into(), value.into()))
+    }
+
+    /// Drop (delete) the current vertex (preserves VertexMarker).
+    pub fn drop(self) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(DropStep)
+    }
+
+    /// Get property values by key (transforms to Scalar).
+    pub fn values(self, key: impl Into<String>) -> CowMmapBoundTraversal<'g, In, Value, Scalar> {
+        self.add_step_with_marker(ValuesStep::new(key.into()))
+    }
+
+    /// Get element IDs (transforms to Scalar).
+    pub fn id(self) -> CowMmapBoundTraversal<'g, In, Value, Scalar> {
+        self.add_step_with_marker(IdStep)
+    }
+
+    /// Get element labels (transforms to Scalar).
+    pub fn label(self) -> CowMmapBoundTraversal<'g, In, Value, Scalar> {
+        self.add_step_with_marker(LabelStep)
+    }
+
+    /// Limit results to first n (preserves VertexMarker).
+    pub fn limit(self, n: usize) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(LimitStep::new(n))
+    }
+
+    /// Skip first n results (preserves VertexMarker).
+    pub fn skip(self, n: usize) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_same(SkipStep::new(n))
+    }
+
+    /// Add an edge from the current vertex.
+    pub fn add_e(self, label: impl Into<String>) -> CowMmapBoundAddEdgeBuilder<'g, In> {
+        CowMmapBoundAddEdgeBuilder::new(
+            self.graph,
+            self.graph_arc,
+            self.traversal,
+            label.into(),
+            self.track_paths,
+        )
+    }
+}
+
+// =============================================================================
+// Step methods for EdgeMarker traversals
+// =============================================================================
+
+impl<'g, In> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+    /// Filter edges by label (preserves EdgeMarker).
+    pub fn has_label(
+        self,
+        label: impl Into<String>,
+    ) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(HasLabelStep::single(label))
+    }
+
+    /// Filter to edges that have a specific property key (preserves EdgeMarker).
+    pub fn has(self, key: impl Into<String>) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(HasStep::new(key.into()))
+    }
+
+    /// Filter to edges where a property equals a value (preserves EdgeMarker).
+    pub fn has_value(
+        self,
+        key: impl Into<String>,
+        value: Value,
+    ) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(HasValueStep::new(key.into(), value))
+    }
+
+    /// Traverse to the target vertex of an edge (transforms to VertexMarker).
+    pub fn in_v(self) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_with_marker(InVStep)
+    }
+
+    /// Traverse to the source vertex of an edge (transforms to VertexMarker).
+    pub fn out_v(self) -> CowMmapBoundTraversal<'g, In, Value, VertexMarker> {
+        self.add_step_with_marker(OutVStep)
+    }
+
+    /// Add a property to the current edge (for mutation traversals, preserves EdgeMarker).
+    pub fn property(
+        self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(PropertyStep::new(key.into(), value.into()))
+    }
+
+    /// Drop (delete) the current edge (preserves EdgeMarker).
+    pub fn drop(self) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(DropStep)
+    }
+
+    /// Get property values by key (transforms to Scalar).
+    pub fn values(self, key: impl Into<String>) -> CowMmapBoundTraversal<'g, In, Value, Scalar> {
+        self.add_step_with_marker(ValuesStep::new(key.into()))
+    }
+
+    /// Get element IDs (transforms to Scalar).
+    pub fn id(self) -> CowMmapBoundTraversal<'g, In, Value, Scalar> {
+        self.add_step_with_marker(IdStep)
+    }
+
+    /// Get element labels (transforms to Scalar).
+    pub fn label(self) -> CowMmapBoundTraversal<'g, In, Value, Scalar> {
+        self.add_step_with_marker(LabelStep)
+    }
+
+    /// Limit results to first n (preserves EdgeMarker).
+    pub fn limit(self, n: usize) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(LimitStep::new(n))
+    }
+
+    /// Skip first n results (preserves EdgeMarker).
+    pub fn skip(self, n: usize) -> CowMmapBoundTraversal<'g, In, Value, EdgeMarker> {
+        self.add_step_same(SkipStep::new(n))
+    }
+}
+
+// =============================================================================
 // CowMmapAddEdgeBuilder - Builder for add_e() from traversal source
 // =============================================================================
 
 /// Builder for creating edges from the traversal source.
 pub struct CowMmapAddEdgeBuilder<'g> {
     graph: &'g CowMmapGraph,
+    graph_arc: Arc<CowMmapGraph>,
     label: String,
     from: Option<VertexId>,
     to: Option<VertexId>,
@@ -2770,9 +3383,10 @@ pub struct CowMmapAddEdgeBuilder<'g> {
 }
 
 impl<'g> CowMmapAddEdgeBuilder<'g> {
-    fn new(graph: &'g CowMmapGraph, label: String) -> Self {
+    fn new(graph: &'g CowMmapGraph, graph_arc: Arc<CowMmapGraph>, label: String) -> Self {
         Self {
             graph,
+            graph_arc,
             label,
             from: None,
             to: None,
@@ -2799,12 +3413,12 @@ impl<'g> CowMmapAddEdgeBuilder<'g> {
     }
 
     /// Execute and return the created edge.
-    pub fn next(self) -> Option<Value> {
+    pub fn next(self) -> Option<PersistentEdge> {
         let from = self.from?;
         let to = self.to?;
 
         match self.graph.add_edge(from, to, &self.label, self.properties) {
-            Ok(id) => Some(Value::Edge(id)),
+            Ok(id) => Some(GraphEdge::new(id, self.graph_arc)),
             Err(_) => None,
         }
     }
@@ -2815,7 +3429,7 @@ impl<'g> CowMmapAddEdgeBuilder<'g> {
     }
 
     /// Execute and return results as a list.
-    pub fn to_list(self) -> Vec<Value> {
+    pub fn to_list(self) -> Vec<PersistentEdge> {
         self.next().into_iter().collect()
     }
 }
@@ -2827,6 +3441,7 @@ impl<'g> CowMmapAddEdgeBuilder<'g> {
 /// Builder for creating edges from an existing traversal.
 pub struct CowMmapBoundAddEdgeBuilder<'g, In> {
     graph: &'g CowMmapGraph,
+    graph_arc: Arc<CowMmapGraph>,
     traversal: Traversal<In, Value>,
     label: String,
     to: Option<VertexId>,
@@ -2837,12 +3452,14 @@ pub struct CowMmapBoundAddEdgeBuilder<'g, In> {
 impl<'g, In> CowMmapBoundAddEdgeBuilder<'g, In> {
     fn new(
         graph: &'g CowMmapGraph,
+        graph_arc: Arc<CowMmapGraph>,
         traversal: Traversal<In, Value>,
         label: String,
         track_paths: bool,
     ) -> Self {
         Self {
             graph,
+            graph_arc,
             traversal,
             label,
             to: None,
@@ -2879,13 +3496,15 @@ impl<'g, In> CowMmapBoundAddEdgeBuilder<'g, In> {
         }
 
         let traversal: Traversal<In, Value> = self.traversal.add_step(step);
-        let bound = CowMmapBoundTraversal {
+        let bound: CowMmapBoundTraversal<'_, In, Value, EdgeMarker> = CowMmapBoundTraversal {
             graph: self.graph,
+            graph_arc: self.graph_arc,
             traversal,
             track_paths: self.track_paths,
+            _marker: PhantomData,
         };
 
-        bound.to_list()
+        bound.into_list_values()
     }
 
     /// Execute and return the first edge created.
@@ -2896,6 +3515,59 @@ impl<'g, In> CowMmapBoundAddEdgeBuilder<'g, In> {
     /// Execute, discarding results.
     pub fn iterate(self) {
         let _ = self.to_list();
+    }
+}
+
+// =============================================================================
+// GraphAccess Implementation for Arc<CowMmapGraph>
+// =============================================================================
+
+impl crate::graph_access::GraphAccess for Arc<CowMmapGraph> {
+    fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
+        self.snapshot().get_vertex(id)
+    }
+
+    fn get_edge(&self, id: EdgeId) -> Option<Edge> {
+        self.snapshot().get_edge(id)
+    }
+
+    fn out_edge_ids(&self, vertex: VertexId) -> Vec<EdgeId> {
+        self.snapshot().out_edges(vertex).map(|e| e.id).collect()
+    }
+
+    fn in_edge_ids(&self, vertex: VertexId) -> Vec<EdgeId> {
+        self.snapshot().in_edges(vertex).map(|e| e.id).collect()
+    }
+
+    fn set_vertex_property(
+        &self,
+        id: VertexId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError> {
+        CowMmapGraph::set_vertex_property(self, id, key, value)
+    }
+
+    fn set_edge_property(&self, id: EdgeId, key: &str, value: Value) -> Result<(), StorageError> {
+        CowMmapGraph::set_edge_property(self, id, key, value)
+    }
+
+    fn add_edge(
+        &self,
+        src: VertexId,
+        dst: VertexId,
+        label: &str,
+        properties: HashMap<String, Value>,
+    ) -> Result<EdgeId, StorageError> {
+        CowMmapGraph::add_edge(self, src, dst, label, properties)
+    }
+
+    fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError> {
+        CowMmapGraph::remove_vertex(self, id)
+    }
+
+    fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError> {
+        CowMmapGraph::remove_edge(self, id)
     }
 }
 
@@ -3149,5 +3821,255 @@ mod tests {
         let in_edges: Vec<_> = snapshot.in_edges(bob).collect();
         assert_eq!(in_edges.len(), 1);
         assert_eq!(in_edges[0].src, alice);
+    }
+
+    // =========================================================================
+    // Rich Type Terminal Method Tests
+    // =========================================================================
+
+    #[test]
+    fn test_to_vertex_list_returns_persistent_vertices() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+            )
+            .unwrap();
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Bob".into()))]),
+            )
+            .unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let vertices = g.v().to_list();
+
+        assert_eq!(vertices.len(), 2);
+        // Verify we get PersistentVertex with full functionality
+        for v in &vertices {
+            assert_eq!(v.label(), Some("person".to_string()));
+            assert!(v.property("name").is_some());
+        }
+    }
+
+    #[test]
+    fn test_next_vertex_returns_persistent_vertex() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+            )
+            .unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let v = g.v().next().unwrap();
+
+        assert_eq!(v.label(), Some("person".to_string()));
+        assert_eq!(v.property("name"), Some(Value::String("Alice".into())));
+    }
+
+    #[test]
+    fn test_next_vertex_returns_none_when_empty() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let v = g.v().next();
+
+        assert!(v.is_none());
+    }
+
+    #[test]
+    fn test_one_vertex_success() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+            )
+            .unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let v = g.v().one().unwrap();
+
+        assert_eq!(v.label(), Some("person".to_string()));
+    }
+
+    #[test]
+    fn test_one_vertex_fails_when_multiple() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        graph.add_vertex("person", HashMap::new()).unwrap();
+        graph.add_vertex("person", HashMap::new()).unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let result = g.v().one();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_one_vertex_fails_when_empty() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let result = g.v().one();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_to_edge_list_returns_persistent_edges() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+        let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+        graph
+            .add_edge(bob, alice, "knows_too", HashMap::new())
+            .unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let edges = g.e().to_list();
+
+        assert_eq!(edges.len(), 2);
+        // Verify we get PersistentEdge with full functionality
+        for e in &edges {
+            assert!(e.label().is_some());
+            assert!(e.out_v().is_some());
+            assert!(e.in_v().is_some());
+        }
+    }
+
+    #[test]
+    fn test_next_edge_returns_persistent_edge() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+        let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let e = g.e().next().unwrap();
+
+        assert_eq!(e.label(), Some("knows".to_string()));
+        // Verify edge endpoints work
+        let src = e.out_v().unwrap();
+        let dst = e.in_v().unwrap();
+        assert_eq!(src.id(), alice);
+        assert_eq!(dst.id(), bob);
+    }
+
+    #[test]
+    fn test_next_edge_returns_none_when_empty() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let e = g.e().next();
+
+        assert!(e.is_none());
+    }
+
+    #[test]
+    fn test_one_edge_success() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+        let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let e = g.e().one().unwrap();
+
+        assert_eq!(e.label(), Some("knows".to_string()));
+    }
+
+    #[test]
+    fn test_one_edge_fails_when_multiple() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+        let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+        graph.add_edge(bob, alice, "knows", HashMap::new()).unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let result = g.e().one();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_persistent_vertex_traversal() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+        let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+        graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let v = g.v_id(alice).next().unwrap();
+
+        // Use PersistentVertex to traverse
+        let neighbors: Vec<_> = v.out("knows").to_list();
+        assert_eq!(neighbors.len(), 1);
+        assert_eq!(neighbors[0].id(), bob);
+    }
+
+    #[test]
+    fn test_persistent_vertex_mutation() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph
+            .add_vertex("person", HashMap::from([("name".into(), "Alice".into())]))
+            .unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let v = g.v_id(alice).next().unwrap();
+
+        // Mutate through PersistentVertex
+        v.property_set("age", 30i64).unwrap();
+
+        // Verify mutation persisted
+        let updated = graph.get_vertex(alice).unwrap();
+        assert_eq!(updated.properties.get("age"), Some(&Value::Int(30)));
+    }
+
+    #[test]
+    fn test_persistent_edge_mutation() {
+        let (_dir, path) = temp_db_path();
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        let alice = graph.add_vertex("person", HashMap::new()).unwrap();
+        let bob = graph.add_vertex("person", HashMap::new()).unwrap();
+        let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+
+        let g = graph.gremlin(Arc::clone(&graph));
+        let e = g.e().next().unwrap();
+
+        // Mutate through PersistentEdge
+        e.property_set("since", 2020i64).unwrap();
+
+        // Verify mutation persisted
+        let updated = graph.get_edge(edge_id).unwrap();
+        assert_eq!(updated.properties.get("since"), Some(&Value::Int(2020)));
     }
 }

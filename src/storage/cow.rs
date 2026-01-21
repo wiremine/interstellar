@@ -79,7 +79,7 @@ use roaring::RoaringBitmap;
 
 use crate::error::StorageError;
 use crate::gql::{self, GqlError};
-use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
 use crate::index::{
     BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
 };
@@ -2174,7 +2174,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, VertexMarker> {
     /// let v = graph.gremlin(Arc::clone(&graph)).v().next().unwrap();
     /// assert_eq!(v.label(), Some("person".to_string()));
     /// ```
-    pub fn next(self) -> Option<GraphVertex> {
+    pub fn next(self) -> Option<InMemoryVertex> {
         let graph_arc = Arc::clone(&self.graph_arc);
         self.execute_with_mutations()
             .into_iter()
@@ -2200,7 +2200,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, VertexMarker> {
     /// let vertices = graph.gremlin(Arc::clone(&graph)).v().to_list();
     /// assert_eq!(vertices.len(), 2);
     /// ```
-    pub fn to_list(self) -> Vec<GraphVertex> {
+    pub fn to_list(self) -> Vec<InMemoryVertex> {
         let graph_arc = Arc::clone(&self.graph_arc);
         self.execute_with_mutations()
             .into_iter()
@@ -2216,7 +2216,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, VertexMarker> {
     /// # Errors
     ///
     /// Returns `TraversalError::NotOne` if zero or more than one vertex is found.
-    pub fn one(self) -> Result<GraphVertex, crate::error::TraversalError> {
+    pub fn one(self) -> Result<InMemoryVertex, crate::error::TraversalError> {
         let graph_arc = Arc::clone(&self.graph_arc);
         let ids: Vec<_> = self
             .execute_with_mutations()
@@ -2246,7 +2246,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, VertexMarker> {
     /// Note: GraphVertex contains Arc<Graph> with interior mutability, but
     /// we only hash/compare by VertexId, so this is safe.
     #[allow(clippy::mutable_key_type)]
-    pub fn to_set(self) -> std::collections::HashSet<GraphVertex> {
+    pub fn to_set(self) -> std::collections::HashSet<InMemoryVertex> {
         self.to_list().into_iter().collect()
     }
 }
@@ -2274,7 +2274,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, EdgeMarker> {
     /// let e = graph.gremlin(Arc::clone(&graph)).e().next().unwrap();
     /// assert_eq!(e.label(), Some("knows".to_string()));
     /// ```
-    pub fn next(self) -> Option<GraphEdge> {
+    pub fn next(self) -> Option<InMemoryEdge> {
         let graph_arc = Arc::clone(&self.graph_arc);
         self.execute_with_mutations()
             .into_iter()
@@ -2285,7 +2285,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, EdgeMarker> {
     }
 
     /// Execute and collect all edges into a list.
-    pub fn to_list(self) -> Vec<GraphEdge> {
+    pub fn to_list(self) -> Vec<InMemoryEdge> {
         let graph_arc = Arc::clone(&self.graph_arc);
         self.execute_with_mutations()
             .into_iter()
@@ -2301,7 +2301,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, EdgeMarker> {
     /// # Errors
     ///
     /// Returns `TraversalError::NotOne` if zero or more than one edge is found.
-    pub fn one(self) -> Result<GraphEdge, crate::error::TraversalError> {
+    pub fn one(self) -> Result<InMemoryEdge, crate::error::TraversalError> {
         let graph_arc = Arc::clone(&self.graph_arc);
         let ids: Vec<_> = self
             .execute_with_mutations()
@@ -2331,7 +2331,7 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out, EdgeMarker> {
     /// Note: GraphEdge contains Arc<Graph> with interior mutability, but
     /// we only hash/compare by EdgeId, so this is safe.
     #[allow(clippy::mutable_key_type)]
-    pub fn to_set(self) -> std::collections::HashSet<GraphEdge> {
+    pub fn to_set(self) -> std::collections::HashSet<InMemoryEdge> {
         self.to_list().into_iter().collect()
     }
 }
@@ -2662,7 +2662,7 @@ impl<'g> CowAddEdgeBuilder<'g> {
     }
 
     /// Execute and return the created edge as a GraphEdge.
-    pub fn next(self) -> Option<GraphEdge> {
+    pub fn next(self) -> Option<InMemoryEdge> {
         let from = self.from?;
         let to = self.to?;
 
@@ -2678,7 +2678,7 @@ impl<'g> CowAddEdgeBuilder<'g> {
     }
 
     /// Execute and return results as a list.
-    pub fn to_list(self) -> Vec<GraphEdge> {
+    pub fn to_list(self) -> Vec<InMemoryEdge> {
         self.next().into_iter().collect()
     }
 }
@@ -2730,7 +2730,7 @@ impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
     }
 
     /// Build and execute the traversal, creating edges.
-    pub fn to_list(self) -> Vec<GraphEdge> {
+    pub fn to_list(self) -> Vec<InMemoryEdge> {
         use crate::traversal::mutation::AddEStep;
 
         let to_id = match self.to {
@@ -2757,7 +2757,7 @@ impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
     }
 
     /// Execute and return the first edge created.
-    pub fn next(self) -> Option<GraphEdge> {
+    pub fn next(self) -> Option<InMemoryEdge> {
         self.to_list().into_iter().next()
     }
 
@@ -3438,6 +3438,59 @@ impl<'a> crate::storage::GraphStorageMut for GraphMutWrapper<'a> {
 
     fn remove_edge(&mut self, id: EdgeId) -> Result<(), StorageError> {
         self.graph.remove_edge(id)
+    }
+}
+
+// =============================================================================
+// GraphAccess Implementation for Arc<Graph>
+// =============================================================================
+
+impl crate::graph_access::GraphAccess for Arc<Graph> {
+    fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
+        self.snapshot().get_vertex(id)
+    }
+
+    fn get_edge(&self, id: EdgeId) -> Option<Edge> {
+        self.snapshot().get_edge(id)
+    }
+
+    fn out_edge_ids(&self, vertex: VertexId) -> Vec<EdgeId> {
+        self.snapshot().out_edges(vertex).map(|e| e.id).collect()
+    }
+
+    fn in_edge_ids(&self, vertex: VertexId) -> Vec<EdgeId> {
+        self.snapshot().in_edges(vertex).map(|e| e.id).collect()
+    }
+
+    fn set_vertex_property(
+        &self,
+        id: VertexId,
+        key: &str,
+        value: Value,
+    ) -> Result<(), StorageError> {
+        Graph::set_vertex_property(self, id, key, value)
+    }
+
+    fn set_edge_property(&self, id: EdgeId, key: &str, value: Value) -> Result<(), StorageError> {
+        Graph::set_edge_property(self, id, key, value)
+    }
+
+    fn add_edge(
+        &self,
+        src: VertexId,
+        dst: VertexId,
+        label: &str,
+        properties: HashMap<String, Value>,
+    ) -> Result<EdgeId, StorageError> {
+        Graph::add_edge(self, src, dst, label, properties)
+    }
+
+    fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError> {
+        Graph::remove_vertex(self, id)
+    }
+
+    fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError> {
+        Graph::remove_edge(self, id)
     }
 }
 
