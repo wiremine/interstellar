@@ -8,6 +8,8 @@
 mod anonymous;
 mod errors;
 mod predicates;
+#[cfg(feature = "mmap")]
+mod storage_backends;
 mod traversal;
 mod types;
 

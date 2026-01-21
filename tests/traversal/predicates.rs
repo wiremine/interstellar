@@ -667,10 +667,7 @@ fn has_where_in_where_step() {
     // Bob -> Charlie (35 >= 30): Bob fails
     // Charlie -> Alice (30 >= 30): Charlie fails
     // GraphDB -> (no out): fails
-    let results = g
-        .v()
-        .where_(__.out().has_where("age", p::lt(30)))
-        .to_list();
+    let results = g.v().where_(__.out().has_where("age", p::lt(30))).to_list();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));

@@ -34,6 +34,8 @@ use super::error::{RhaiError, RhaiResult};
 use super::predicates::register_predicates;
 use super::traversal::{register_traversal, RhaiGraph};
 use super::types::register_types;
+#[cfg(feature = "mmap")]
+use crate::storage::CowMmapGraph;
 use crate::storage::Graph;
 
 /// The main Rhai engine for executing scripts with Interstellar graph support.
@@ -236,6 +238,119 @@ impl RhaiEngine {
 
         // Create a RhaiGraph from the Arc<Graph>
         let rhai_graph = RhaiGraph::from_arc(graph);
+        scope.push("graph", rhai_graph);
+
+        // Add the anonymous traversal factory
+        scope.push("A", create_anonymous_factory());
+
+        scope
+    }
+
+    // =========================================================================
+    // Mmap Graph Methods
+    // =========================================================================
+
+    /// Evaluate a script with a persistent mmap-backed graph.
+    ///
+    /// The graph must be wrapped in an `Arc` for sharing with the script scope.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use std::sync::Arc;
+    /// use interstellar::storage::CowMmapGraph;
+    ///
+    /// let engine = RhaiEngine::new();
+    /// let graph = Arc::new(CowMmapGraph::open("data.db")?);
+    ///
+    /// let result: i64 = engine.eval_with_mmap_graph(graph, r#"
+    ///     let g = graph.gremlin();
+    ///     g.v().count()
+    /// "#)?;
+    /// ```
+    #[cfg(feature = "mmap")]
+    pub fn eval_with_mmap_graph<T>(&self, graph: Arc<CowMmapGraph>, script: &str) -> RhaiResult<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let mut scope = self.create_mmap_graph_scope(graph);
+        self.engine
+            .eval_with_scope(&mut scope, script)
+            .map_err(RhaiError::from)
+    }
+
+    /// Evaluate a script with a persistent mmap graph and return a Dynamic result.
+    ///
+    /// This is useful when the result type is not known at compile time.
+    #[cfg(feature = "mmap")]
+    pub fn eval_with_mmap_graph_dynamic(
+        &self,
+        graph: Arc<CowMmapGraph>,
+        script: &str,
+    ) -> RhaiResult<Dynamic> {
+        let mut scope = self.create_mmap_graph_scope(graph);
+        self.engine
+            .eval_with_scope(&mut scope, script)
+            .map_err(RhaiError::from)
+    }
+
+    /// Evaluate a pre-compiled AST with a persistent mmap graph context.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use std::sync::Arc;
+    /// use interstellar::storage::CowMmapGraph;
+    ///
+    /// let engine = RhaiEngine::new();
+    /// let ast = engine.compile("graph.gremlin().v().count()")?;
+    /// let graph = Arc::new(CowMmapGraph::open("data.db")?);
+    ///
+    /// let count: i64 = engine.eval_ast_with_mmap_graph(graph, &ast)?;
+    /// ```
+    #[cfg(feature = "mmap")]
+    pub fn eval_ast_with_mmap_graph<T>(&self, graph: Arc<CowMmapGraph>, ast: &AST) -> RhaiResult<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let mut scope = self.create_mmap_graph_scope(graph);
+        self.engine
+            .eval_ast_with_scope(&mut scope, ast)
+            .map_err(RhaiError::from)
+    }
+
+    /// Evaluate a pre-compiled AST with a persistent mmap graph and return a Dynamic result.
+    #[cfg(feature = "mmap")]
+    pub fn eval_ast_with_mmap_graph_dynamic(
+        &self,
+        graph: Arc<CowMmapGraph>,
+        ast: &AST,
+    ) -> RhaiResult<Dynamic> {
+        let mut scope = self.create_mmap_graph_scope(graph);
+        self.engine
+            .eval_ast_with_scope(&mut scope, ast)
+            .map_err(RhaiError::from)
+    }
+
+    /// Run a script with a persistent mmap graph, ignoring the return value.
+    ///
+    /// This is useful for scripts that perform side effects without
+    /// returning a meaningful value.
+    #[cfg(feature = "mmap")]
+    pub fn run_with_mmap_graph(&self, graph: Arc<CowMmapGraph>, script: &str) -> RhaiResult<()> {
+        let mut scope = self.create_mmap_graph_scope(graph);
+        self.engine
+            .run_with_scope(&mut scope, script)
+            .map_err(RhaiError::from)
+    }
+
+    /// Create a scope with the mmap graph and anonymous factory pre-bound.
+    #[cfg(feature = "mmap")]
+    fn create_mmap_graph_scope(&self, graph: Arc<CowMmapGraph>) -> Scope<'static> {
+        let mut scope = Scope::new();
+
+        // Create a RhaiGraph from the Arc<CowMmapGraph>
+        let rhai_graph = RhaiGraph::from_mmap_graph(graph);
         scope.push("graph", rhai_graph);
 
         // Add the anonymous traversal factory

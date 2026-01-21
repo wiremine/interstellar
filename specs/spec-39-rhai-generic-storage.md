@@ -65,7 +65,6 @@ Users cannot pass `Arc<CowMmapGraph>` to the Rhai engine.
 ├─────────────────────────────────────────────────────────────────┤
 │  eval_with_graph(Arc<Graph>, script)       ◄── In-memory        │
 │  eval_with_mmap_graph(Arc<CowMmapGraph>, script) ◄── Persistent │
-│  eval_with_storage(storage, script)        ◄── Generic          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -90,6 +89,9 @@ Use an **enum-based adapter pattern** instead of generics. This approach:
 - Keeps a single `RhaiGraph` type registered with Rhai
 - Uses dynamic dispatch internally (negligible overhead for scripting)
 - Allows conditional compilation for mmap support
+- Leverages existing `SnapshotLike` trait - both `GraphSnapshot` and `CowMmapSnapshot` implement it, producing the same `GraphTraversalSource` type
+
+Note: A fully generic `eval_with_storage<S>(Arc<S>, script)` method is not provided because Rhai requires all registered types to be `Clone`. The enum adapter pattern allows storing different storage types while satisfying this constraint. New backends can be added by extending the `StorageAdapter` enum.
 
 ---
 
@@ -936,25 +938,7 @@ engine.eval_with_mmap_graph(graph, script)?;  // New method
 
 ## 14. Future Considerations
 
-### 14.1 Generic Storage Trait
-
-A future enhancement could provide a fully generic API:
-
-```rust
-pub trait RhaiCompatibleStorage: Send + Sync + 'static {
-    fn create_rhai_graph(self: Arc<Self>) -> RhaiGraph;
-}
-
-impl RhaiEngine {
-    pub fn eval_with_storage<S: RhaiCompatibleStorage, T>(
-        &self,
-        storage: Arc<S>,
-        script: &str,
-    ) -> RhaiResult<T>;
-}
-```
-
-### 14.2 Additional Backends
+### 14.1 Additional Backends
 
 The adapter pattern makes it easy to add new backends:
 
@@ -968,7 +952,12 @@ enum StorageAdapter {
 }
 ```
 
-### 14.3 Unified Example
+Each new backend requires:
+1. Adding a variant to `StorageAdapter`
+2. Adding a corresponding `eval_with_*` method to `RhaiEngine`
+3. Implementing the dispatch in `execute_traversal()` and mutation methods
+
+### 14.2 Unified Example
 
 Update `examples/scripting.rs` to demonstrate both backends:
 

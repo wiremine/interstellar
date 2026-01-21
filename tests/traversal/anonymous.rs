@@ -133,9 +133,7 @@ fn complex_anonymous_traversal_chain() {
     let g = snapshot.gremlin();
 
     // Find names of people that Alice knows
-    let anon = __.out_labels(&["knows"])
-        .has_label("person")
-        .values("name");
+    let anon = __.out_labels(&["knows"]).has_label("person").values("name");
 
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1);

@@ -427,11 +427,7 @@ fn anonymous_traversal_key_value() {
 
     assert_eq!(keys.len(), 2);
 
-    let values: Vec<Value> = g
-        .v_ids([tg.alice])
-        .properties()
-        .local(__.value())
-        .to_list();
+    let values: Vec<Value> = g.v_ids([tg.alice]).properties().local(__.value()).to_list();
 
     assert_eq!(values.len(), 2);
 }

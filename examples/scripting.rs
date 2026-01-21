@@ -2,14 +2,36 @@
 //!
 //! Demonstrates embedded scripting for dynamic graph queries.
 //!
-//! Run: `cargo run --example scripting --features rhai`
+//! Run with in-memory graph:
+//!   `cargo run --example scripting --features rhai`
+//!
+//! Run with persistent mmap graph (requires mmap feature):
+//!   `cargo run --example scripting --features "rhai,mmap"`
 
 use interstellar::rhai::RhaiEngine;
 use interstellar::storage::Graph;
+#[cfg(feature = "mmap")]
+use interstellar::storage::PersistentGraph;
 use std::sync::Arc;
 
 fn main() {
     println!("=== Interstellar Rhai Scripting ===\n");
+
+    // Run in-memory graph demos
+    inmemory_demos();
+
+    // Run persistent mmap graph demos (if feature enabled)
+    #[cfg(feature = "mmap")]
+    mmap_demos();
+
+    println!("\n=== Done ===");
+}
+
+/// Demos using in-memory Graph
+fn inmemory_demos() {
+    println!("========================================");
+    println!("     IN-MEMORY GRAPH DEMOS");
+    println!("========================================\n");
 
     // 1. Create an empty graph and RhaiEngine
     let graph = Arc::new(Graph::new());
@@ -232,8 +254,210 @@ fn main() {
         updated.get("edges").unwrap()
     );
     println!("All people: {:?}", updated.get("people").unwrap());
+}
 
-    println!("\n=== Done ===");
+/// Demos using persistent mmap-backed CowMmapGraph
+#[cfg(feature = "mmap")]
+fn mmap_demos() {
+    use std::path::PathBuf;
+
+    println!("\n========================================");
+    println!("     PERSISTENT MMAP GRAPH DEMOS");
+    println!("========================================\n");
+
+    // Use a temporary directory for the example
+    let temp_dir = std::env::temp_dir();
+    let db_path: PathBuf = temp_dir.join("interstellar_scripting_demo.db");
+
+    // Clean up any previous run
+    cleanup_mmap_files(&db_path);
+
+    let engine = RhaiEngine::new();
+
+    // 1. Create and populate persistent graph via scripting
+    println!("--- Creating Persistent Graph via Script ---");
+    {
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to create database"));
+
+        let build_script = r#"
+            let g = graph.gremlin();
+            
+            // Create people
+            let alice = g.add_v("person")
+                .property("name", "Alice")
+                .property("age", 30)
+                .property("department", "Engineering")
+                .id().first();
+            
+            let bob = g.add_v("person")
+                .property("name", "Bob")
+                .property("age", 25)
+                .property("department", "Engineering")
+                .id().first();
+            
+            let carol = g.add_v("person")
+                .property("name", "Carol")
+                .property("age", 35)
+                .property("department", "Marketing")
+                .id().first();
+            
+            // Create relationships
+            g.add_e("knows").from_v(alice).to_v(bob).first();
+            g.add_e("knows").from_v(alice).to_v(carol).first();
+            g.add_e("knows").from_v(bob).to_v(carol).first();
+            
+            #{ vertices: g.v().count(), edges: g.e().count() }
+        "#;
+
+        let stats: rhai::Map = engine
+            .eval_with_mmap_graph(graph.clone(), build_script)
+            .unwrap();
+        println!(
+            "Created {} vertices and {} edges",
+            stats.get("vertices").unwrap(),
+            stats.get("edges").unwrap()
+        );
+
+        // Checkpoint for durability
+        graph.checkpoint().expect("Checkpoint failed");
+        println!("Checkpoint complete - data persisted to disk");
+    }
+
+    // 2. Reopen and query with scripting
+    println!("\n--- Reopen and Query via Script ---");
+    {
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to reopen database"));
+
+        // Same scripts work on both backends!
+        let script = r#"
+            let g = graph.gremlin();
+            g.v().has_label("person").values("name").to_list()
+        "#;
+        let names: rhai::Array = engine.eval_with_mmap_graph(graph.clone(), script).unwrap();
+        println!("People (after reopen): {:?}", names);
+
+        // Navigation works identically
+        let script = r#"
+            let g = graph.gremlin();
+            g.v().has_value("name", "Alice").out("knows").values("name").to_list()
+        "#;
+        let friends: rhai::Array = engine.eval_with_mmap_graph(graph.clone(), script).unwrap();
+        println!("Alice knows: {:?}", friends);
+
+        // Predicates work too
+        let script = r#"
+            let g = graph.gremlin();
+            g.v().has_label("person").has_where("age", gte(30)).values("name").to_list()
+        "#;
+        let senior: rhai::Array = engine.eval_with_mmap_graph(graph.clone(), script).unwrap();
+        println!("Age >= 30: {:?}", senior);
+    }
+
+    // 3. Pre-compiled AST with mmap graph
+    println!("\n--- Pre-compiled AST with Persistent Graph ---");
+    {
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to reopen database"));
+
+        // Compile once, execute many times
+        let ast = engine
+            .compile(r#"graph.gremlin().v().has_label("person").count()"#)
+            .expect("Compilation failed");
+
+        for i in 1..=3 {
+            let count: i64 = engine
+                .eval_ast_with_mmap_graph(graph.clone(), &ast)
+                .unwrap();
+            println!("  Run {}: {} people", i, count);
+        }
+    }
+
+    // 4. Dynamic updates and run_with_mmap_graph
+    println!("\n--- Dynamic Updates to Persistent Graph ---");
+    {
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to reopen database"));
+
+        // Use run_with_mmap_graph for side-effect only scripts
+        let update_script = r#"
+            let g = graph.gremlin();
+            
+            // Add a new person
+            let dave = g.add_v("person")
+                .property("name", "Dave")
+                .property("age", 28)
+                .property("department", "Engineering")
+                .id().first();
+            
+            // Connect to existing network
+            let alice = g.v().has_value("name", "Alice").id().first();
+            g.add_e("knows").from_v(alice).to_v(dave).first();
+        "#;
+
+        engine
+            .run_with_mmap_graph(graph.clone(), update_script)
+            .unwrap();
+        println!("Added Dave and connected to Alice");
+
+        // Verify with dynamic result
+        let result = engine
+            .eval_with_mmap_graph_dynamic(
+                graph.clone(),
+                r#"
+                let g = graph.gremlin();
+                #{ 
+                    vertices: g.v().count(),
+                    edges: g.e().count(),
+                    people: g.v().has_label("person").values("name").to_list()
+                }
+            "#,
+            )
+            .unwrap();
+
+        let map = result.cast::<rhai::Map>();
+        println!(
+            "After update: {} vertices, {} edges",
+            map.get("vertices").unwrap(),
+            map.get("edges").unwrap()
+        );
+        println!("All people: {:?}", map.get("people").unwrap());
+
+        // Checkpoint to persist
+        graph.checkpoint().expect("Checkpoint failed");
+    }
+
+    // 5. Anonymous traversals with mmap
+    println!("\n--- Anonymous Traversals with Persistent Graph ---");
+    {
+        let graph = Arc::new(PersistentGraph::open(&db_path).expect("Failed to reopen database"));
+
+        let script = r#"
+            let g = graph.gremlin();
+            g.v().has_value("name", "Alice")
+                .union([
+                    A.out("knows").values("name"),
+                    A.values("department")
+                ])
+                .to_list()
+        "#;
+        let combined: rhai::Array = engine.eval_with_mmap_graph(graph.clone(), script).unwrap();
+        println!("Union (friends + department): {:?}", combined);
+    }
+
+    // Cleanup
+    println!("\n--- Cleanup ---");
+    cleanup_mmap_files(&db_path);
+    println!("Database files removed");
+}
+
+/// Remove mmap database files
+#[cfg(feature = "mmap")]
+fn cleanup_mmap_files(db_path: &std::path::PathBuf) {
+    if db_path.exists() {
+        std::fs::remove_file(db_path).ok();
+    }
+    let idx_path = db_path.with_extension("db.idx");
+    if idx_path.exists() {
+        std::fs::remove_file(&idx_path).ok();
+    }
 }
 
 /// Helper to evaluate count queries

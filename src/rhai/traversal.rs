@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::storage::cow::CowBoundTraversal;
+#[cfg(feature = "mmap")]
+use crate::storage::CowMmapGraph;
 use crate::storage::Graph;
 use crate::traversal::step::IdentityStep;
 use crate::traversal::{Traversal, TraversalSource, __};
@@ -21,31 +23,72 @@ use super::error::RhaiError;
 use super::predicates::RhaiPredicate;
 use super::types::{dynamic_to_value, value_to_dynamic};
 
+// =============================================================================
+// Storage Adapter
+// =============================================================================
+
+/// Adapter enum that wraps different storage backends.
+///
+/// This allows a single `RhaiGraph` type to work with multiple storage
+/// implementations without requiring generic type parameters in Rhai.
+/// Rhai requires all registered types to be `Clone`, which this enum satisfies.
+#[derive(Clone)]
+pub enum StorageAdapter {
+    /// In-memory COW graph.
+    InMemory(Arc<Graph>),
+
+    /// Persistent mmap-backed graph.
+    #[cfg(feature = "mmap")]
+    Mmap(Arc<CowMmapGraph>),
+}
+
 /// A wrapper around a graph that can be passed to Rhai scripts.
 ///
-/// This wrapper owns an `Arc<Graph>` and provides methods to create traversals.
+/// This wrapper supports multiple storage backends via internal dispatch.
+/// The script API is identical regardless of the underlying storage.
 /// It is designed to work with Rhai's requirement that all types be `Clone`.
 #[derive(Clone)]
 pub struct RhaiGraph {
-    inner: Arc<Graph>,
+    storage: StorageAdapter,
 }
 
 impl RhaiGraph {
     /// Create a new RhaiGraph from a Graph.
     pub fn new(graph: Graph) -> Self {
         RhaiGraph {
-            inner: Arc::new(graph),
+            storage: StorageAdapter::InMemory(Arc::new(graph)),
         }
     }
 
     /// Create a new RhaiGraph from an Arc<Graph>.
     pub fn from_arc(graph: Arc<Graph>) -> Self {
-        RhaiGraph { inner: graph }
+        Self::from_graph(graph)
     }
 
-    /// Get a reference to the underlying graph.
-    pub fn graph(&self) -> &Graph {
-        &self.inner
+    /// Create from an in-memory graph.
+    pub fn from_graph(graph: Arc<Graph>) -> Self {
+        RhaiGraph {
+            storage: StorageAdapter::InMemory(graph),
+        }
+    }
+
+    /// Create from a persistent mmap-backed graph.
+    #[cfg(feature = "mmap")]
+    pub fn from_mmap_graph(graph: Arc<CowMmapGraph>) -> Self {
+        RhaiGraph {
+            storage: StorageAdapter::Mmap(graph),
+        }
+    }
+
+    /// Get a reference to the underlying graph (only for in-memory storage).
+    ///
+    /// Returns `None` if the storage is not in-memory.
+    pub fn graph(&self) -> Option<&Graph> {
+        match &self.storage {
+            StorageAdapter::InMemory(g) => Some(g.as_ref()),
+            #[cfg(feature = "mmap")]
+            StorageAdapter::Mmap(_) => None,
+        }
     }
 
     /// Create a Gremlin-style traversal source for this graph.
@@ -53,7 +96,7 @@ impl RhaiGraph {
     /// This is the main entry point for creating traversals in Rhai scripts.
     pub fn gremlin(&self) -> RhaiTraversalSource {
         RhaiTraversalSource {
-            graph: self.inner.clone(),
+            storage: self.storage.clone(),
         }
     }
 }
@@ -63,14 +106,14 @@ impl RhaiGraph {
 /// This provides the source steps (`v()`, `e()`, etc.) that start traversals.
 #[derive(Clone)]
 pub struct RhaiTraversalSource {
-    graph: Arc<Graph>,
+    storage: StorageAdapter,
 }
 
 impl RhaiTraversalSource {
     /// Start traversal from all vertices.
     pub fn v(&self) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::AllVertices,
             steps: Vec::new(),
             track_paths: false,
@@ -80,7 +123,7 @@ impl RhaiTraversalSource {
     /// Start traversal from specific vertex IDs.
     pub fn v_ids(&self, ids: Vec<VertexId>) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::Vertices(ids),
             steps: Vec::new(),
             track_paths: false,
@@ -90,7 +133,7 @@ impl RhaiTraversalSource {
     /// Start traversal from a single vertex ID.
     pub fn v_id(&self, id: VertexId) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::Vertices(vec![id]),
             steps: Vec::new(),
             track_paths: false,
@@ -100,7 +143,7 @@ impl RhaiTraversalSource {
     /// Start traversal from all edges.
     pub fn e(&self) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::AllEdges,
             steps: Vec::new(),
             track_paths: false,
@@ -110,7 +153,7 @@ impl RhaiTraversalSource {
     /// Start traversal from specific edge IDs.
     pub fn e_ids(&self, ids: Vec<EdgeId>) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::Edges(ids),
             steps: Vec::new(),
             track_paths: false,
@@ -120,7 +163,7 @@ impl RhaiTraversalSource {
     /// Inject arbitrary values into the traversal.
     pub fn inject(&self, values: Vec<Value>) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::Inject(values),
             steps: Vec::new(),
             track_paths: false,
@@ -136,7 +179,7 @@ impl RhaiTraversalSource {
     /// via MutationExecutor.
     pub fn add_v(&self, label: String) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::Inject(vec![]), // Empty source - AddV is a spawning step
             steps: vec![RhaiStep::AddV(label)],
             track_paths: false,
@@ -149,7 +192,7 @@ impl RhaiTraversalSource {
     /// Both `from_v` and `to_v` endpoints must be specified.
     pub fn add_e(&self, label: String) -> RhaiTraversal {
         RhaiTraversal {
-            graph: self.graph.clone(),
+            storage: self.storage.clone(),
             source: TraversalSource::Inject(vec![]),
             steps: vec![RhaiStep::AddE {
                 label,
@@ -344,11 +387,11 @@ pub enum RhaiEdgeEndpoint {
 
 /// A cloneable traversal that can be used in Rhai scripts.
 ///
-/// This stores the graph reference, source, and steps, allowing us to
+/// This stores the storage reference, source, and steps, allowing us to
 /// rebuild the actual traversal on demand when terminal steps are called.
 #[derive(Clone)]
 pub struct RhaiTraversal {
-    graph: Arc<Graph>,
+    storage: StorageAdapter,
     source: TraversalSource,
     steps: Vec<RhaiStep>,
     track_paths: bool,
@@ -369,31 +412,19 @@ impl RhaiTraversal {
 
     /// Execute the traversal and return results as a list.
     ///
-    /// Uses `graph.gremlin()` which supports both read and mutation operations.
+    /// Uses the appropriate backend based on the storage type.
     /// Any pending mutations (add_v, add_e, property, drop) are automatically
     /// executed against the graph.
     pub fn to_list(&self) -> Vec<Value> {
-        let g = self.graph.gremlin();
-
-        // Build the traversal from source
-        let mut bound = match &self.source {
-            TraversalSource::AllVertices => g.v(),
-            TraversalSource::Vertices(ids) => g.v_ids(ids.clone()),
-            TraversalSource::AllEdges => g.e(),
-            TraversalSource::Edges(ids) => g.e_ids(ids.clone()),
-            TraversalSource::Inject(values) => g.inject(values.clone()),
-        };
-
-        if self.track_paths {
-            bound = bound.with_path();
+        match &self.storage {
+            StorageAdapter::InMemory(graph) => {
+                execute_with_cow_graph(graph, &self.source, &self.steps, self.track_paths)
+            }
+            #[cfg(feature = "mmap")]
+            StorageAdapter::Mmap(graph) => {
+                execute_with_mmap_graph(graph, &self.source, &self.steps, self.track_paths)
+            }
         }
-
-        // Apply each step
-        for step in &self.steps {
-            bound = apply_step_cow(bound, step);
-        }
-
-        bound.to_list()
     }
 
     /// Execute the traversal and return the count.
@@ -1694,6 +1725,67 @@ impl RhaiAnonymousTraversal {
 }
 
 // =============================================================================
+// Traversal Execution
+// =============================================================================
+
+/// Execute traversal against in-memory COW graph.
+fn execute_with_cow_graph(
+    graph: &Arc<Graph>,
+    source: &TraversalSource,
+    steps: &[RhaiStep],
+    track_paths: bool,
+) -> Vec<Value> {
+    let g = graph.gremlin();
+
+    let mut bound = match source {
+        TraversalSource::AllVertices => g.v(),
+        TraversalSource::Vertices(ids) => g.v_ids(ids.clone()),
+        TraversalSource::AllEdges => g.e(),
+        TraversalSource::Edges(ids) => g.e_ids(ids.clone()),
+        TraversalSource::Inject(values) => g.inject(values.clone()),
+    };
+
+    if track_paths {
+        bound = bound.with_path();
+    }
+
+    for step in steps {
+        bound = apply_step_cow(bound, step);
+    }
+
+    bound.to_list()
+}
+
+/// Execute traversal against persistent mmap graph.
+#[cfg(feature = "mmap")]
+fn execute_with_mmap_graph(
+    graph: &Arc<CowMmapGraph>,
+    source: &TraversalSource,
+    steps: &[RhaiStep],
+    track_paths: bool,
+) -> Vec<Value> {
+    let g = graph.gremlin();
+
+    let mut bound = match source {
+        TraversalSource::AllVertices => g.v(),
+        TraversalSource::Vertices(ids) => g.v_ids(ids.clone()),
+        TraversalSource::AllEdges => g.e(),
+        TraversalSource::Edges(ids) => g.e_ids(ids.clone()),
+        TraversalSource::Inject(values) => g.inject(values.clone()),
+    };
+
+    if track_paths {
+        bound = bound.with_path();
+    }
+
+    for step in steps {
+        bound = apply_step_mmap(bound, step);
+    }
+
+    bound.to_list()
+}
+
+// =============================================================================
 // Step Application
 // =============================================================================
 
@@ -1982,6 +2074,288 @@ fn apply_step_cow<'g, In>(
     }
 }
 
+/// Apply a step to a CowMmapBoundTraversal (supports mutations).
+#[cfg(feature = "mmap")]
+#[allow(unused_imports)]
+fn apply_step_mmap<'g, In>(
+    bound: crate::storage::cow_mmap::CowMmapBoundTraversal<'g, In, Value>,
+    step: &RhaiStep,
+) -> crate::storage::cow_mmap::CowMmapBoundTraversal<'g, In, Value> {
+    use crate::traversal::filter::*;
+    use crate::traversal::navigation::*;
+    use crate::traversal::sideeffect::*;
+    use crate::traversal::transform::*;
+
+    match step {
+        // Navigation
+        RhaiStep::Out(labels) if labels.is_empty() => bound.add_step(OutStep::new()),
+        RhaiStep::Out(labels) => bound.add_step(OutStep::with_labels(labels.clone())),
+        RhaiStep::In(labels) if labels.is_empty() => bound.add_step(InStep::new()),
+        RhaiStep::In(labels) => bound.add_step(InStep::with_labels(labels.clone())),
+        RhaiStep::Both(labels) if labels.is_empty() => bound.add_step(BothStep::new()),
+        RhaiStep::Both(labels) => bound.add_step(BothStep::with_labels(labels.clone())),
+        RhaiStep::OutE(labels) if labels.is_empty() => bound.add_step(OutEStep::new()),
+        RhaiStep::OutE(labels) => bound.add_step(OutEStep::with_labels(labels.clone())),
+        RhaiStep::InE(labels) if labels.is_empty() => bound.add_step(InEStep::new()),
+        RhaiStep::InE(labels) => bound.add_step(InEStep::with_labels(labels.clone())),
+        RhaiStep::BothE(labels) if labels.is_empty() => bound.add_step(BothEStep::new()),
+        RhaiStep::BothE(labels) => bound.add_step(BothEStep::with_labels(labels.clone())),
+        RhaiStep::OutV => bound.add_step(OutVStep),
+        RhaiStep::InV => bound.add_step(InVStep),
+        RhaiStep::OtherV => bound.add_step(OtherVStep),
+        RhaiStep::BothV => bound.add_step(BothVStep),
+
+        // Filter
+        RhaiStep::HasLabel(labels) if labels.len() == 1 => {
+            bound.add_step(HasLabelStep::single(labels[0].clone()))
+        }
+        RhaiStep::HasLabel(labels) => bound.add_step(HasLabelStep::any(labels.clone())),
+        RhaiStep::Has(key) => bound.add_step(HasStep::new(key.clone())),
+        RhaiStep::HasNot(key) => bound.add_step(HasNotStep::new(key.clone())),
+        RhaiStep::HasValue(key, value) => {
+            bound.add_step(HasValueStep::new(key.clone(), value.clone()))
+        }
+        RhaiStep::HasWhere(key, pred) => {
+            bound.add_step(HasWhereStep::new(key.clone(), pred.clone()))
+        }
+        RhaiStep::Dedup => bound.add_step(DedupStep),
+        RhaiStep::Limit(n) => bound.add_step(LimitStep::new(*n)),
+        RhaiStep::Skip(n) => bound.add_step(SkipStep::new(*n)),
+        RhaiStep::Range(start, end) => bound.add_step(RangeStep::new(*start, *end)),
+        RhaiStep::IsEq(value) => bound.add_step(IsStep::eq(value.clone())),
+        RhaiStep::Is(pred) => bound.add_step(IsStep::new(pred.clone())),
+        RhaiStep::SimplePath => bound.add_step(SimplePathStep::new()),
+        RhaiStep::CyclicPath => bound.add_step(CyclicPathStep::new()),
+        RhaiStep::HasId(id) => match id {
+            Value::Vertex(vid) => bound.add_step(HasIdStep::vertex(*vid)),
+            Value::Edge(eid) => bound.add_step(HasIdStep::edge(*eid)),
+            Value::Int(n) => bound.add_step(HasIdStep::vertex(VertexId(*n as u64))),
+            _ => bound,
+        },
+
+        // Advanced filter steps
+        RhaiStep::Tail => bound.add_step(TailStep::last()),
+        RhaiStep::TailN(n) => bound.add_step(TailStep::new(*n)),
+        RhaiStep::Coin(probability) => bound.add_step(CoinStep::new(*probability)),
+        RhaiStep::Sample(n) => bound.add_step(SampleStep::new(*n)),
+        RhaiStep::DedupByKey(key) => bound.add_step(DedupByKeyStep::new(key.clone())),
+        RhaiStep::DedupByLabel => bound.add_step(DedupByLabelStep::new()),
+        RhaiStep::DedupBy(t) => bound.add_step(DedupByTraversalStep::new(t.to_traversal())),
+        RhaiStep::HasIds(ids) => bound.add_step(HasIdStep::from_values(ids.clone())),
+
+        // Transform
+        RhaiStep::Id => bound.add_step(IdStep),
+        RhaiStep::Label => bound.add_step(LabelStep),
+        RhaiStep::Values(key) => bound.add_step(ValuesStep::new(key.clone())),
+        RhaiStep::ValuesMulti(keys) => bound.add_step(ValuesStep::multi(keys.clone())),
+        RhaiStep::ValueMap => bound.add_step(ValueMapStep::new()),
+        RhaiStep::ElementMap => bound.add_step(ElementMapStep::new()),
+        RhaiStep::Path => bound.add_step(PathStep::new()),
+        RhaiStep::Constant(value) => bound.add_step(ConstantStep::new(value.clone())),
+        RhaiStep::Identity => bound.add_step(IdentityStep),
+        RhaiStep::Unfold => bound.add_step(UnfoldStep),
+        RhaiStep::Mean => bound.add_step(MeanStep),
+        RhaiStep::Fold | RhaiStep::Count | RhaiStep::Sum | RhaiStep::Min | RhaiStep::Max => bound,
+
+        // Advanced transform steps
+        RhaiStep::Properties => bound.add_step(PropertiesStep::new()),
+        RhaiStep::PropertiesKeys(keys) => bound.add_step(PropertiesStep::with_keys(keys.clone())),
+        RhaiStep::Key => bound.add_step(KeyStep),
+        RhaiStep::PropValue => bound.add_step(ValueStep),
+        RhaiStep::ValueMapKeys(keys) => bound.add_step(ValueMapStep::with_keys(keys.clone())),
+        RhaiStep::ValueMapWithTokens => bound.add_step(ValueMapStep::new().with_tokens()),
+        RhaiStep::Index => bound.add_step(IndexStep),
+        RhaiStep::Local(sub) => {
+            use crate::traversal::branch::LocalStep;
+            bound.add_step(LocalStep::new(sub.to_traversal()))
+        }
+
+        // Modulator
+        RhaiStep::As(label) => bound.add_step(AsStep::new(label.clone())),
+        RhaiStep::Select(labels) => bound.add_step(SelectStep::new(labels.clone())),
+        RhaiStep::SelectOne(label) => bound.add_step(SelectStep::single(label.clone())),
+
+        // Order
+        RhaiStep::Order(asc) => {
+            use crate::traversal::transform::order::{Order, OrderStep};
+            let order = if *asc { Order::Asc } else { Order::Desc };
+            bound.add_step(OrderStep::by_natural(order))
+        }
+
+        // Branch
+        RhaiStep::Union(traversals) => {
+            use crate::traversal::branch::UnionStep;
+            let anon_traversals: Vec<_> = traversals.iter().map(|t| t.to_traversal()).collect();
+            bound.add_step(UnionStep::new(anon_traversals))
+        }
+        RhaiStep::Coalesce(traversals) => {
+            use crate::traversal::branch::CoalesceStep;
+            let anon_traversals: Vec<_> = traversals.iter().map(|t| t.to_traversal()).collect();
+            bound.add_step(CoalesceStep::new(anon_traversals))
+        }
+        RhaiStep::Optional(traversal) => {
+            use crate::traversal::branch::OptionalStep;
+            bound.add_step(OptionalStep::new(traversal.to_traversal()))
+        }
+        RhaiStep::Choose(cond, true_branch, false_branch) => {
+            use crate::traversal::branch::ChooseStep;
+            bound.add_step(ChooseStep::new(
+                cond.to_traversal(),
+                true_branch.to_traversal(),
+                false_branch.to_traversal(),
+            ))
+        }
+        RhaiStep::ChooseOption(key_traversal, options, default) => {
+            use crate::traversal::branch::{BranchStep, OptionKey};
+            let mut step = BranchStep::new(key_traversal.to_traversal());
+            for (value, t) in options {
+                step = step.add_option(OptionKey::Value(value.clone()), t.to_traversal());
+            }
+            if let Some(default_traversal) = default {
+                step = step.add_none_option(default_traversal.to_traversal());
+            }
+            bound.add_step(step)
+        }
+
+        // Repeat steps
+        RhaiStep::RepeatTimes(traversal, times) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new().with_times(*times);
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+        RhaiStep::RepeatUntil(traversal, until) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new().with_until(until.to_traversal());
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+        RhaiStep::RepeatEmit(traversal, times) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new().with_times(*times).with_emit();
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+        RhaiStep::RepeatEmitUntil(traversal, until) => {
+            use crate::traversal::repeat::{RepeatConfig, RepeatStep};
+            let config = RepeatConfig::new()
+                .with_until(until.to_traversal())
+                .with_emit();
+            bound.add_step(RepeatStep::with_config(traversal.to_traversal(), config))
+        }
+
+        // Traversal-based filter steps
+        RhaiStep::Where(cond) => bound.append(__.where_(cond.to_traversal())),
+        RhaiStep::Not(cond) => bound.append(__.not(cond.to_traversal())),
+        RhaiStep::And(conds) => {
+            let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
+            bound.append(__.and_(anon_traversals))
+        }
+        RhaiStep::Or(conds) => {
+            let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
+            bound.append(__.or_(anon_traversals))
+        }
+
+        // Side effect steps
+        RhaiStep::Store(key) => bound.add_step(StoreStep::new(key.clone())),
+        RhaiStep::Aggregate(key) => bound.add_step(AggregateStep::new(key.clone())),
+        RhaiStep::Cap(key) => bound.add_step(CapStep::new(key.clone())),
+        RhaiStep::CapMulti(keys) => bound.add_step(CapStep::multi(keys.clone())),
+        RhaiStep::SideEffect(t) => bound.add_step(SideEffectStep::new(t.to_traversal())),
+
+        // Mutation steps
+        RhaiStep::AddV(label) => {
+            use crate::traversal::mutation::AddVStep;
+            bound.add_step(AddVStep::new(label.clone()))
+        }
+        RhaiStep::AddE { label, from, to } => {
+            use crate::traversal::mutation::AddEStep;
+            let mut step = AddEStep::new(label.clone());
+            if let Some(endpoint) = from {
+                step = match endpoint {
+                    RhaiEdgeEndpoint::VertexId(id) => step.from_vertex(*id),
+                    RhaiEdgeEndpoint::StepLabel(lbl) => step.from_label(lbl.clone()),
+                };
+            }
+            if let Some(endpoint) = to {
+                step = match endpoint {
+                    RhaiEdgeEndpoint::VertexId(id) => step.to_vertex(*id),
+                    RhaiEdgeEndpoint::StepLabel(lbl) => step.to_label(lbl.clone()),
+                };
+            }
+            bound.add_step(step)
+        }
+        RhaiStep::Property(key, value) => {
+            use crate::traversal::mutation::PropertyStep;
+            bound.add_step(PropertyStep::new(key.clone(), value.clone()))
+        }
+        RhaiStep::Drop => {
+            use crate::traversal::mutation::DropStep;
+            bound.add_step(DropStep)
+        }
+
+        // Builder pattern steps
+        RhaiStep::OrderBy(key, asc) => {
+            use crate::traversal::transform::order::{Order, OrderStep};
+            let order = if *asc { Order::Asc } else { Order::Desc };
+            bound.add_step(OrderStep::by_property(key.clone(), order))
+        }
+        RhaiStep::OrderByTraversal(sub, asc) => {
+            use crate::traversal::transform::order::{Order, OrderKey, OrderStep};
+            let order = if *asc { Order::Asc } else { Order::Desc };
+            bound.add_step(OrderStep::with_keys(vec![OrderKey::Traversal(
+                sub.to_traversal(),
+                order,
+            )]))
+        }
+        RhaiStep::Project(keys, projections) => {
+            use crate::traversal::transform::{ProjectStep, Projection};
+            let core_projections: Vec<Projection> = projections
+                .iter()
+                .map(|p| match p {
+                    RhaiProjection::Key(k) => Projection::Key(k.clone()),
+                    RhaiProjection::Traversal(t) => Projection::Traversal(t.to_traversal()),
+                })
+                .collect();
+            bound.add_step(ProjectStep::new(keys.clone(), core_projections))
+        }
+        RhaiStep::Group(key_selector, value_collector) => {
+            use crate::traversal::aggregate::{GroupKey, GroupStep, GroupValue};
+            let core_key = match key_selector {
+                RhaiGroupKey::Label => GroupKey::Label,
+                RhaiGroupKey::Property(k) => GroupKey::Property(k.clone()),
+                RhaiGroupKey::Traversal(t) => GroupKey::Traversal(Box::new(t.to_traversal())),
+            };
+            let core_value = match value_collector {
+                RhaiGroupValue::Identity => GroupValue::Identity,
+                RhaiGroupValue::Property(k) => GroupValue::Property(k.clone()),
+                RhaiGroupValue::Traversal(t) => GroupValue::Traversal(Box::new(t.to_traversal())),
+            };
+            bound.add_step(GroupStep::with_selectors(core_key, core_value))
+        }
+        RhaiStep::GroupCount(key_selector) => {
+            use crate::traversal::aggregate::{GroupCountStep, GroupKey};
+            let core_key = match key_selector {
+                RhaiGroupKey::Label => GroupKey::Label,
+                RhaiGroupKey::Property(k) => GroupKey::Property(k.clone()),
+                RhaiGroupKey::Traversal(t) => GroupKey::Traversal(Box::new(t.to_traversal())),
+            };
+            bound.add_step(GroupCountStep::new(core_key))
+        }
+        RhaiStep::Math(expression, bindings) => {
+            use crate::traversal::transform::MathStep;
+            if bindings.is_empty() {
+                bound.add_step(MathStep::new(expression.clone()))
+            } else {
+                bound.add_step(MathStep::with_bindings(
+                    expression.clone(),
+                    bindings.clone(),
+                ))
+            }
+        }
+
+        // Anonymous traversal (for appending)
+        RhaiStep::Anonymous(anon) => bound.append(anon.to_traversal()),
+    }
+}
+
 /// Apply a step to an anonymous traversal.
 #[allow(unused_imports)]
 fn apply_anonymous_step(
@@ -2127,9 +2501,7 @@ fn apply_anonymous_step(
             }
             traversal.add_step(step)
         }
-        RhaiStep::Property(key, value) => {
-            traversal.append(__.property(key.clone(), value.clone()))
-        }
+        RhaiStep::Property(key, value) => traversal.append(__.property(key.clone(), value.clone())),
         RhaiStep::Drop => traversal.append(__.drop()),
 
         // Branching steps (Phase 9)

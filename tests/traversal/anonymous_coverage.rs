@@ -773,11 +773,7 @@ fn anon_choose() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __.choose(
-        __.has_label("person"),
-        __.values("age"),
-        __.values("name"),
-    );
+    let anon = __.choose(__.has_label("person"), __.values("age"), __.values("name"));
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // 3 ages + 1 name
 }
@@ -939,7 +935,8 @@ fn anon_project() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __.project(&["name", "age"])
+    let anon = __
+        .project(&["name", "age"])
         .by_key("name")
         .by_key("age")
         .build();

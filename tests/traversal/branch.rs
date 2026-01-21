@@ -507,11 +507,7 @@ fn choose_branches_based_on_label() {
     // Alice is a person -> should get Bob (knows)
     let results = g
         .v_ids([tg.alice])
-        .choose(
-            __.has_label("person"),
-            __.out_labels(&["knows"]),
-            __.out(),
-        )
+        .choose(__.has_label("person"), __.out_labels(&["knows"]), __.out())
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -528,11 +524,7 @@ fn choose_executes_if_false_branch_when_condition_fails() {
     // if_false branch: in_() returns Alice and Bob (who use GraphDB)
     let results = g
         .v_ids([tg.graphdb])
-        .choose(
-            __.has_label("person"),
-            __.out_labels(&["knows"]),
-            __.in_(),
-        )
+        .choose(__.has_label("person"), __.out_labels(&["knows"]), __.in_())
         .to_list();
 
     assert_eq!(results.len(), 2);
@@ -553,11 +545,7 @@ fn choose_evaluates_condition_per_traverser() {
     // - GraphDB: condition false -> in_() -> Alice, Bob
     let results = g
         .v_ids([tg.alice, tg.graphdb])
-        .choose(
-            __.has_label("person"),
-            __.out_labels(&["knows"]),
-            __.in_(),
-        )
+        .choose(__.has_label("person"), __.out_labels(&["knows"]), __.in_())
         .to_list();
 
     // Alice -> Bob (1), GraphDB -> Alice, Bob (2) = 3 total
@@ -688,11 +676,7 @@ fn anonymous_choose_factory() {
     let g = snapshot.gremlin();
 
     // Use __.choose factory to create anonymous traversal
-    let anon = __.choose(
-        __.has_label("person"),
-        __.out_labels(&["knows"]),
-        __.in_(),
-    );
+    let anon = __.choose(__.has_label("person"), __.out_labels(&["knows"]), __.in_());
 
     let results = g.v_ids([tg.alice]).append(anon).to_list();
 
@@ -734,11 +718,7 @@ fn choose_all_persons_get_true_branch() {
     // Each takes true branch (out_labels(["knows"]))
     let results = g
         .v_ids([tg.alice, tg.bob, tg.charlie])
-        .choose(
-            __.has_label("person"),
-            __.out_labels(&["knows"]),
-            __.in_(),
-        )
+        .choose(__.has_label("person"), __.out_labels(&["knows"]), __.in_())
         .to_list();
 
     // Alice -> Bob, Bob -> Charlie, Charlie -> Alice = 3 results
@@ -794,10 +774,7 @@ fn optional_per_traverser_evaluation() {
     // Alice has out edges, GraphDB does not
     // Alice -> sub-traversal results (Bob, GraphDB)
     // GraphDB -> original (GraphDB)
-    let results = g
-        .v_ids([tg.alice, tg.graphdb])
-        .optional(__.out())
-        .to_list();
+    let results = g.v_ids([tg.alice, tg.graphdb]).optional(__.out()).to_list();
 
     // Alice: out -> Bob, GraphDB (2 results)
     // GraphDB: out empty -> GraphDB (1 result, original)
@@ -1072,7 +1049,10 @@ fn local_dedup_per_traverser() {
     // Using union to create duplicates, then local dedup
     let results = g
         .v_ids([tg.alice])
-        .local(__.union(vec![__.out_labels(&["knows"]), __.out_labels(&["knows"])]).dedup())
+        .local(
+            __.union(vec![__.out_labels(&["knows"]), __.out_labels(&["knows"])])
+                .dedup(),
+        )
         .to_list();
 
     // Union creates Bob twice, dedup reduces to 1
@@ -1091,7 +1071,10 @@ fn local_dedup_per_traverser_multiple_inputs() {
     // Bob union(knows,knows) -> Charlie, Charlie -> dedup -> Charlie
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__.union(vec![__.out_labels(&["knows"]), __.out_labels(&["knows"])]).dedup())
+        .local(
+            __.union(vec![__.out_labels(&["knows"]), __.out_labels(&["knows"])])
+                .dedup(),
+        )
         .to_list();
 
     // Each traverser produces 1 deduped result
@@ -1145,10 +1128,7 @@ fn local_with_values_transform() {
     let g = snapshot.gremlin();
 
     // Get names of out neighbors, per-traverser
-    let results = g
-        .v_ids([tg.alice])
-        .local(__.out().values("name"))
-        .to_list();
+    let results = g.v_ids([tg.alice]).local(__.out().values("name")).to_list();
 
     // Alice -> Bob, GraphDB
     assert_eq!(results.len(), 2);

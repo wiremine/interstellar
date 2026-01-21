@@ -22,6 +22,25 @@
 //! let result = engine.eval(&graph.snapshot(), script)?;
 //! ```
 //!
+//! ## Storage Backend Support
+//!
+//! The Rhai integration supports both in-memory (`Graph`) and memory-mapped (`CowMmapGraph`)
+//! storage backends. The script syntax is identical regardless of the underlying storage.
+//!
+//! ```rust,ignore
+//! // In-memory graph
+//! let engine = RhaiEngine::new();
+//! let graph = Arc::new(Graph::new());
+//! let result = engine.eval_with_graph(graph, script)?;
+//!
+//! // Persistent mmap graph (requires "mmap" feature)
+//! #[cfg(feature = "mmap")]
+//! {
+//!     let mmap_graph = Arc::new(CowMmapGraph::open("data.db")?);
+//!     let result = engine.eval_with_mmap_graph(mmap_graph, script)?;
+//! }
+//! ```
+//!
 //! ## Module Structure
 //!
 //! - [`engine`] - The main `RhaiEngine` type for script execution

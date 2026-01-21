@@ -38,6 +38,18 @@ pub enum RhaiError {
     /// The traversal has already been consumed.
     #[error("traversal already consumed")]
     TraversalConsumed,
+
+    /// A feature is not available (e.g., mmap support without the feature flag).
+    #[error("feature not available: {0}")]
+    FeatureNotAvailable(String),
+}
+
+impl RhaiError {
+    /// Create an error for when mmap support is not available.
+    #[cfg(not(feature = "mmap"))]
+    pub fn mmap_not_available() -> Self {
+        RhaiError::FeatureNotAvailable("mmap support requires the 'mmap' feature flag".to_string())
+    }
 }
 
 impl From<Box<EvalAltResult>> for RhaiError {

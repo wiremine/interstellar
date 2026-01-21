@@ -848,7 +848,9 @@ fn traversal_coalesce() {
     let g = snapshot.gremlin();
 
     // Try to get nickname (doesn't exist), fall back to name
-    let anon = __.identity().coalesce(vec![__.values("nickname"), __.values("name")]);
+    let anon = __
+        .identity()
+        .coalesce(vec![__.values("nickname"), __.values("name")]);
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 3); // All persons get names
 }
@@ -860,11 +862,9 @@ fn traversal_choose() {
     let g = snapshot.gremlin();
 
     // If person, get age; otherwise get name
-    let anon = __.identity().choose(
-        __.has_label("person"),
-        __.values("age"),
-        __.values("name"),
-    );
+    let anon = __
+        .identity()
+        .choose(__.has_label("person"), __.values("age"), __.values("name"));
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // 3 ages + 1 name
 }
@@ -942,7 +942,8 @@ fn traversal_cap_multi() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __.identity()
+    let anon = __
+        .identity()
         .store("a")
         .out()
         .store("b")
