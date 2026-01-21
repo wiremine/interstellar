@@ -366,11 +366,15 @@ pub mod algorithms;
 pub mod error;
 pub mod gql;
 pub mod graph;
+pub mod graph_elements;
 pub mod index;
 pub mod schema;
 pub mod storage;
 pub mod traversal;
 pub mod value;
+
+// Re-export graph element types for convenience
+pub use graph_elements::{GraphEdge, GraphVertex, GraphVertexTraversal};
 
 #[cfg(kani)]
 mod kani_proofs;

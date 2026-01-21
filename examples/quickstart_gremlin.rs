@@ -13,6 +13,7 @@
 
 use interstellar::storage::Graph;
 use interstellar::value::Value;
+use std::sync::Arc;
 
 fn main() {
     println!("=== Interstellar Gremlin Quickstart ===\n");
@@ -20,8 +21,8 @@ fn main() {
     // -------------------------------------------------------------------------
     // 1. Create an in-memory graph
     // -------------------------------------------------------------------------
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // -------------------------------------------------------------------------
     // 2. Mutations: Adding vertices with add_v() and property()
@@ -58,10 +59,12 @@ fn main() {
     println!("Created: Alice, Bob, Carol (Person) and Acme Corp (Company)");
 
     // Extract vertex IDs for edge creation
-    let alice_id = alice.as_vertex_id().unwrap();
-    let bob_id = bob.as_vertex_id().unwrap();
-    let carol_id = carol.as_vertex_id().unwrap();
-    let acme_id = acme.as_vertex_id().unwrap();
+    // With the new typed API, add_v().next() returns Option<GraphVertex>
+    // and we can use .id() to get the VertexId directly
+    let alice_id = alice.id();
+    let bob_id = bob.id();
+    let carol_id = carol.id();
+    let acme_id = acme.id();
 
     // -------------------------------------------------------------------------
     // 3. Mutations: Adding edges with add_e()

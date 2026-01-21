@@ -74,6 +74,7 @@ pub mod anonymous;
 pub mod branch;
 pub mod context;
 pub mod filter;
+pub mod markers;
 pub mod mutation;
 pub mod navigation;
 pub mod predicate;
@@ -83,6 +84,7 @@ pub mod source;
 pub mod step;
 pub mod transform;
 pub mod traverser;
+pub mod typed;
 
 // Internal modules (not re-exported directly)
 mod builder;
@@ -100,6 +102,14 @@ pub use traverser::{CloneSack, Path, PathElement, PathValue, TraversalSource, Tr
 
 // Re-export Traversal from pipeline module
 pub use pipeline::Traversal;
+
+// Re-export marker types for compile-time type tracking
+pub use markers::{
+    Edge as EdgeMarker, OutputMarker, Scalar as ScalarMarker, Vertex as VertexMarker,
+};
+
+// Re-export typed traversal types
+pub use typed::{TypedTraversal, TypedTraversalSource};
 
 // Re-export aggregate types
 pub use aggregate::{

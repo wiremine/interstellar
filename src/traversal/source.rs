@@ -26,7 +26,10 @@
 //! ```
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
+use crate::graph_elements::{GraphEdge, GraphVertex};
+use crate::storage::cow::Graph;
 use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
 use crate::traversal::context::SnapshotLike;
@@ -3194,6 +3197,315 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// A `BranchBuilder` that allows configuring option branches.
     pub fn choose_by(self, branch_traversal: Traversal<Value, Value>) -> BranchBuilder<'g, In> {
         self.branch(branch_traversal)
+    }
+
+    // -------------------------------------------------------------------------
+    // Type-Specific Terminal Methods (Non-Breaking)
+    // -------------------------------------------------------------------------
+
+    /// Execute and return all results as vertices.
+    ///
+    /// This method provides TinkerPop-style semantics where traversals
+    /// return rich `GraphVertex` objects instead of raw `Value`s.
+    ///
+    /// Non-vertex values in the traversal output are silently filtered.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with returned vertices
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let _ = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Alice".into()),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let vertices = g.v().to_vertex_list(graph.clone());
+    /// assert_eq!(vertices.len(), 1);
+    /// assert_eq!(vertices[0].label(), Some("person".to_string()));
+    /// ```
+    pub fn to_vertex_list(self, graph: Arc<Graph>) -> Vec<GraphVertex> {
+        self.execute()
+            .filter_map(|t| match t.value {
+                Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Execute and return the first result as a vertex.
+    ///
+    /// Returns `None` if the traversal produces no vertices.
+    /// Non-vertex values are silently filtered.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with the returned vertex
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let _ = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Alice".into()),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let v = g.v().next_vertex(graph.clone()).unwrap();
+    /// assert_eq!(v.property("name"), Some(Value::String("Alice".to_string())));
+    /// ```
+    pub fn next_vertex(self, graph: Arc<Graph>) -> Option<GraphVertex> {
+        self.execute().find_map(|t| match t.value {
+            Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
+            _ => None,
+        })
+    }
+
+    /// Execute and return exactly one vertex, or error.
+    ///
+    /// Returns an error if there are zero or more than one vertices.
+    /// Non-vertex values are silently filtered before counting.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with the returned vertex
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let _ = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Alice".into()),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let v = g.v().one_vertex(graph.clone()).unwrap();
+    /// assert_eq!(v.property("name"), Some(Value::String("Alice".to_string())));
+    /// ```
+    pub fn one_vertex(
+        self,
+        graph: Arc<Graph>,
+    ) -> Result<GraphVertex, crate::error::TraversalError> {
+        let ids: Vec<_> = self
+            .execute()
+            .filter_map(|t| match t.value {
+                Value::Vertex(id) => Some(id),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        match ids.len() {
+            1 => Ok(GraphVertex::new(ids[0], graph)),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
+    }
+
+    /// Execute and return all results as edges.
+    ///
+    /// This method provides TinkerPop-style semantics where traversals
+    /// return rich `GraphEdge` objects instead of raw `Value`s.
+    ///
+    /// Non-edge values in the traversal output are silently filtered.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with returned edges
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let edges = g.e().to_edge_list(graph.clone());
+    /// assert_eq!(edges.len(), 1);
+    /// assert_eq!(edges[0].label(), Some("knows".to_string()));
+    /// ```
+    pub fn to_edge_list(self, graph: Arc<Graph>) -> Vec<GraphEdge> {
+        self.execute()
+            .filter_map(|t| match t.value {
+                Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Execute and return the first result as an edge.
+    ///
+    /// Returns `None` if the traversal produces no edges.
+    /// Non-edge values are silently filtered.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with the returned edge
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::from([
+    ///     ("since".to_string(), 2020i64.into()),
+    /// ])).unwrap();
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let e = g.e().next_edge(graph.clone()).unwrap();
+    /// assert_eq!(e.property("since"), Some(Value::Int(2020)));
+    /// ```
+    pub fn next_edge(self, graph: Arc<Graph>) -> Option<GraphEdge> {
+        self.execute().find_map(|t| match t.value {
+            Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
+            _ => None,
+        })
+    }
+
+    /// Execute and return exactly one edge, or error.
+    ///
+    /// Returns an error if there are zero or more than one edges.
+    /// Non-edge values are silently filtered before counting.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with the returned edge
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let e = g.e().one_edge(graph.clone()).unwrap();
+    /// assert_eq!(e.label(), Some("knows".to_string()));
+    /// ```
+    pub fn one_edge(self, graph: Arc<Graph>) -> Result<GraphEdge, crate::error::TraversalError> {
+        let ids: Vec<_> = self
+            .execute()
+            .filter_map(|t| match t.value {
+                Value::Edge(id) => Some(id),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        match ids.len() {
+            1 => Ok(GraphEdge::new(ids[0], graph)),
+            n => Err(crate::error::TraversalError::NotOne(n)),
+        }
+    }
+
+    /// Execute and return an iterator over vertices.
+    ///
+    /// This is a lazy version of `to_vertex_list()` that doesn't collect
+    /// all results into memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with returned vertices
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let _ = graph.add_vertex("person", HashMap::from([
+    ///     ("name".to_string(), "Alice".into()),
+    /// ]));
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// for v in g.v().vertex_iter(graph.clone()) {
+    ///     println!("Vertex: {:?}", v.label());
+    /// }
+    /// ```
+    pub fn vertex_iter(self, graph: Arc<Graph>) -> impl Iterator<Item = GraphVertex> + 'g {
+        self.execute().filter_map(move |t| match t.value {
+            Value::Vertex(id) => Some(GraphVertex::new(id, Arc::clone(&graph))),
+            _ => None,
+        })
+    }
+
+    /// Execute and return an iterator over edges.
+    ///
+    /// This is a lazy version of `to_edge_list()` that doesn't collect
+    /// all results into memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Graph>` to associate with returned edges
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("person", HashMap::new());
+    /// let bob = graph.add_vertex("person", HashMap::new());
+    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    ///
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// for e in g.e().edge_iter(graph.clone()) {
+    ///     println!("Edge: {:?}", e.label());
+    /// }
+    /// ```
+    pub fn edge_iter(self, graph: Arc<Graph>) -> impl Iterator<Item = GraphEdge> + 'g {
+        self.execute().filter_map(move |t| match t.value {
+            Value::Edge(id) => Some(GraphEdge::new(id, Arc::clone(&graph))),
+            _ => None,
+        })
     }
 }
 

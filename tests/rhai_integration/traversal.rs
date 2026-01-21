@@ -3268,14 +3268,14 @@ fn test_rhai_add_v_first_returns_vertex_id() {
     let engine = RhaiEngine::new();
     let graph = create_empty_graph();
 
-    // Without .id(), first() should return a VertexId (accessed via .id property)
+    // first() now returns a GraphVertex; access .id to get VertexId, then .id again for i64
     let result: i64 = engine
         .eval_with_graph(
             graph.clone(),
             r#"
             let g = graph.gremlin();
             let v = g.add_v("person").first();
-            v.id
+            v.id.id
         "#,
         )
         .unwrap();

@@ -11,6 +11,7 @@ use rhai::{Dynamic, Engine, ImmutableString};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::graph_elements::{GraphEdge, GraphVertex};
 use crate::storage::cow::CowBoundTraversal;
 #[cfg(feature = "mmap")]
 use crate::storage::CowMmapGraph;
@@ -410,11 +411,41 @@ impl RhaiTraversal {
         self
     }
 
-    /// Execute the traversal and return results as a list.
+    /// Convert a Value to a Dynamic, upgrading vertices and edges to rich types.
+    ///
+    /// - `Value::Vertex(id)` → `GraphVertex` (for in-memory) or `Value` (for mmap)
+    /// - `Value::Edge(id)` → `GraphEdge` (for in-memory) or `Value` (for mmap)
+    /// - Other values → converted via `value_to_dynamic`
+    fn value_to_rich_dynamic(&self, value: Value) -> Dynamic {
+        match &self.storage {
+            StorageAdapter::InMemory(graph) => match value {
+                Value::Vertex(id) => Dynamic::from(GraphVertex::new(id, Arc::clone(graph))),
+                Value::Edge(id) => Dynamic::from(GraphEdge::new(id, Arc::clone(graph))),
+                other => value_to_dynamic(other),
+            },
+            #[cfg(feature = "mmap")]
+            StorageAdapter::Mmap(_) => {
+                // Mmap doesn't support rich types yet, return Value
+                value_to_dynamic(value)
+            }
+        }
+    }
+
+    /// Convert a list of Values to Dynamics with rich types.
+    fn values_to_rich_dynamics(&self, values: Vec<Value>) -> Vec<Dynamic> {
+        values
+            .into_iter()
+            .map(|v| self.value_to_rich_dynamic(v))
+            .collect()
+    }
+
+    /// Execute the traversal and return results as a list of raw Values.
     ///
     /// Uses the appropriate backend based on the storage type.
     /// Any pending mutations (add_v, add_e, property, drop) are automatically
     /// executed against the graph.
+    ///
+    /// Note: For rich types (GraphVertex, GraphEdge), use `to_rich_list()` instead.
     pub fn to_list(&self) -> Vec<Value> {
         match &self.storage {
             StorageAdapter::InMemory(graph) => {
@@ -427,21 +458,38 @@ impl RhaiTraversal {
         }
     }
 
+    /// Execute the traversal and return results as rich types.
+    ///
+    /// Returns a `Vec<Dynamic>` where:
+    /// - Vertices are returned as `GraphVertex` objects
+    /// - Edges are returned as `GraphEdge` objects  
+    /// - Other values are returned as their native Rhai types
+    pub fn to_rich_list(&self) -> Vec<Dynamic> {
+        self.values_to_rich_dynamics(self.to_list())
+    }
+
     /// Execute the traversal and return the count.
     pub fn count(&self) -> i64 {
         self.to_list().len() as i64
     }
 
-    /// Execute the traversal and return the first result.
-    pub fn first(&self) -> Option<Value> {
-        self.to_list().into_iter().next()
+    /// Execute the traversal and return the first result as a rich type.
+    ///
+    /// Returns `GraphVertex` for vertices, `GraphEdge` for edges,
+    /// or the appropriate Rhai type for other values.
+    pub fn first(&self) -> Dynamic {
+        self.to_list()
+            .into_iter()
+            .next()
+            .map(|v| self.value_to_rich_dynamic(v))
+            .unwrap_or(Dynamic::UNIT)
     }
 
-    /// Execute the traversal and return exactly one result.
-    pub fn one(&self) -> Result<Value, RhaiError> {
+    /// Execute the traversal and return exactly one result as a rich type.
+    pub fn one(&self) -> Result<Dynamic, RhaiError> {
         let results = self.to_list();
         match results.len() {
-            1 => Ok(results.into_iter().next().unwrap()),
+            1 => Ok(self.value_to_rich_dynamic(results.into_iter().next().unwrap())),
             n => Err(RhaiError::Traversal(crate::error::TraversalError::NotOne(
                 n,
             ))),
@@ -453,9 +501,9 @@ impl RhaiTraversal {
         !self.to_list().is_empty()
     }
 
-    /// Execute the traversal and return unique results as a set.
+    /// Execute the traversal and return unique results as rich types.
     /// Returns a Vec with duplicates removed (order preserved).
-    pub fn to_set(&self) -> Vec<Value> {
+    pub fn to_set(&self) -> Vec<Dynamic> {
         let results = self.to_list();
         let mut seen = std::collections::HashSet::new();
         results
@@ -464,6 +512,7 @@ impl RhaiTraversal {
                 let key = format!("{:?}", v);
                 seen.insert(key)
             })
+            .map(|v| self.value_to_rich_dynamic(v))
             .collect()
     }
 
@@ -473,9 +522,13 @@ impl RhaiTraversal {
         let _ = self.to_list();
     }
 
-    /// Execute the traversal and return the first n results.
-    pub fn take(&self, n: i64) -> Vec<Value> {
-        self.to_list().into_iter().take(n as usize).collect()
+    /// Execute the traversal and return the first n results as rich types.
+    pub fn take(&self, n: i64) -> Vec<Dynamic> {
+        self.to_list()
+            .into_iter()
+            .take(n as usize)
+            .map(|v| self.value_to_rich_dynamic(v))
+            .collect()
     }
 
     // =========================================================================
@@ -1735,13 +1788,14 @@ fn execute_with_cow_graph(
     steps: &[RhaiStep],
     track_paths: bool,
 ) -> Vec<Value> {
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(graph));
 
+    // Use untyped methods to get CowBoundTraversal<..., Scalar> for all sources
     let mut bound = match source {
-        TraversalSource::AllVertices => g.v(),
-        TraversalSource::Vertices(ids) => g.v_ids(ids.clone()),
-        TraversalSource::AllEdges => g.e(),
-        TraversalSource::Edges(ids) => g.e_ids(ids.clone()),
+        TraversalSource::AllVertices => g.v_untyped(),
+        TraversalSource::Vertices(ids) => g.v_ids_untyped(ids.clone()),
+        TraversalSource::AllEdges => g.e_untyped(),
+        TraversalSource::Edges(ids) => g.e_ids_untyped(ids.clone()),
         TraversalSource::Inject(values) => g.inject(values.clone()),
     };
 
@@ -1793,11 +1847,13 @@ fn execute_with_mmap_graph(
 ///
 /// This function uses `add_step()` with step types directly, which works with
 /// `CowBoundTraversal` for mutation support via `graph.gremlin()`.
+///
+/// Uses `Scalar` marker so all traversals return `Value` from terminal methods.
 #[allow(unused_imports)]
 fn apply_step_cow<'g, In>(
-    bound: CowBoundTraversal<'g, In, Value>,
+    bound: CowBoundTraversal<'g, In, Value, crate::traversal::markers::Scalar>,
     step: &RhaiStep,
-) -> CowBoundTraversal<'g, In, Value> {
+) -> CowBoundTraversal<'g, In, Value, crate::traversal::markers::Scalar> {
     use crate::traversal::filter::*;
     use crate::traversal::navigation::*;
     use crate::traversal::sideeffect::*;
@@ -2673,29 +2729,25 @@ fn register_source_methods(engine: &mut Engine) {
 }
 
 fn register_traversal_methods(engine: &mut Engine) {
-    // Terminal steps
+    // Terminal steps - return rich types (GraphVertex, GraphEdge) where applicable
     engine.register_fn("to_list", |t: &mut RhaiTraversal| -> rhai::Array {
-        t.to_list().into_iter().map(value_to_dynamic).collect()
+        t.to_rich_list()
     });
     engine.register_fn("list", |t: &mut RhaiTraversal| -> rhai::Array {
-        t.to_list().into_iter().map(value_to_dynamic).collect()
+        t.to_rich_list()
     });
     engine.register_fn("count", |t: &mut RhaiTraversal| t.count());
-    engine.register_fn("first", |t: &mut RhaiTraversal| -> Dynamic {
-        t.first().map(value_to_dynamic).unwrap_or(Dynamic::UNIT)
-    });
-    engine.register_fn("next", |t: &mut RhaiTraversal| -> Dynamic {
-        t.first().map(value_to_dynamic).unwrap_or(Dynamic::UNIT)
-    });
+    engine.register_fn("first", |t: &mut RhaiTraversal| -> Dynamic { t.first() });
+    engine.register_fn("next", |t: &mut RhaiTraversal| -> Dynamic { t.first() });
     engine.register_fn("has_next", |t: &mut RhaiTraversal| t.has_next());
     engine.register_fn("to_set", |t: &mut RhaiTraversal| -> rhai::Array {
-        t.to_set().into_iter().map(value_to_dynamic).collect()
+        t.to_set()
     });
     engine.register_fn("iterate", |t: &mut RhaiTraversal| {
         t.iterate();
     });
     engine.register_fn("take", |t: &mut RhaiTraversal, n: i64| -> rhai::Array {
-        t.take(n).into_iter().map(value_to_dynamic).collect()
+        t.take(n)
     });
 
     // Path tracking
@@ -2995,6 +3047,9 @@ fn register_traversal_methods(engine: &mut Engine) {
     engine.register_fn("from_v", |t: &mut RhaiTraversal, id: VertexId| {
         t.clone().from_v(id)
     });
+    engine.register_fn("from_v", |t: &mut RhaiTraversal, v: GraphVertex| {
+        t.clone().from_v(v.id())
+    });
     engine.register_fn(
         "from_label",
         |t: &mut RhaiTraversal, label: ImmutableString| t.clone().from_label(label.to_string()),
@@ -3004,6 +3059,9 @@ fn register_traversal_methods(engine: &mut Engine) {
     });
     engine.register_fn("to_v", |t: &mut RhaiTraversal, id: VertexId| {
         t.clone().to_v(id)
+    });
+    engine.register_fn("to_v", |t: &mut RhaiTraversal, v: GraphVertex| {
+        t.clone().to_v(v.id())
     });
     engine.register_fn(
         "to_label",
@@ -3394,6 +3452,10 @@ fn register_anonymous_factory(engine: &mut Engine) {
         a.clone().from_v(id)
     });
     engine.register_fn(
+        "from_v",
+        |a: &mut RhaiAnonymousTraversal, v: GraphVertex| a.clone().from_v(v.id()),
+    );
+    engine.register_fn(
         "from_label",
         |a: &mut RhaiAnonymousTraversal, label: ImmutableString| {
             a.clone().from_label(label.to_string())
@@ -3404,6 +3466,9 @@ fn register_anonymous_factory(engine: &mut Engine) {
     });
     engine.register_fn("to_v", |a: &mut RhaiAnonymousTraversal, id: VertexId| {
         a.clone().to_v(id)
+    });
+    engine.register_fn("to_v", |a: &mut RhaiAnonymousTraversal, v: GraphVertex| {
+        a.clone().to_v(v.id())
     });
     engine.register_fn(
         "to_label",

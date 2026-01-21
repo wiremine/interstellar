@@ -6,6 +6,7 @@
 use rhai::{Dynamic, Engine, ImmutableString, Map as RhaiMap};
 use std::collections::HashMap;
 
+use crate::graph_elements::{GraphEdge, GraphVertex};
 use crate::value::{EdgeId, Value, VertexId};
 
 /// Converts a Rhai `Dynamic` value to an Interstellar `Value`.
@@ -134,10 +135,14 @@ pub fn value_to_dynamic(v: Value) -> Dynamic {
 /// - `VertexId` with constructor, getter, and display
 /// - `EdgeId` with constructor, getter, and display
 /// - `Value` with constructors, type checks, and extractors
+/// - `GraphVertex` with property access and traversal methods
+/// - `GraphEdge` with property access and endpoint methods
 pub fn register_types(engine: &mut Engine) {
     register_vertex_id(engine);
     register_edge_id(engine);
     register_value(engine);
+    register_graph_vertex(engine);
+    register_graph_edge(engine);
 }
 
 /// Registers `VertexId` with the Rhai engine.
@@ -329,6 +334,130 @@ fn register_value(engine: &mut Engine) {
     engine.register_fn("to_debug", |v: &mut Value| format!("{:?}", v));
 }
 
+/// Registers `GraphVertex` with the Rhai engine.
+///
+/// This enables Rhai scripts to work with `GraphVertex` objects returned
+/// from typed traversals.
+///
+/// # Registered Methods
+///
+/// | Method | Description |
+/// |--------|-------------|
+/// | `.id` | Get the vertex ID |
+/// | `.label()` | Get the vertex label |
+/// | `.property(key)` | Get a property value |
+/// | `.exists()` | Check if vertex exists |
+/// | `.to_value()` | Convert to Value |
+fn register_graph_vertex(engine: &mut Engine) {
+    // Register the type
+    engine.register_type_with_name::<GraphVertex>("GraphVertex");
+
+    // Getter: .id -> VertexId
+    engine.register_get("id", |v: &mut GraphVertex| v.id());
+
+    // label() -> String or ()
+    engine.register_fn("label", |v: &mut GraphVertex| -> Dynamic {
+        match v.label() {
+            Some(label) => Dynamic::from(label),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // property(key) -> Value or ()
+    engine.register_fn(
+        "property",
+        |v: &mut GraphVertex, key: ImmutableString| -> Dynamic {
+            match v.property(key.as_str()) {
+                Some(val) => value_to_dynamic(val),
+                None => Dynamic::UNIT,
+            }
+        },
+    );
+
+    // exists() -> bool
+    engine.register_fn("exists", |v: &mut GraphVertex| v.exists());
+
+    // to_value() -> Value
+    engine.register_fn("to_value", |v: &mut GraphVertex| v.to_value());
+
+    // Display: to_string()
+    engine.register_fn("to_string", |v: &mut GraphVertex| format!("{:?}", v));
+
+    // Debug representation
+    engine.register_fn("to_debug", |v: &mut GraphVertex| format!("{:?}", v));
+}
+
+/// Registers `GraphEdge` with the Rhai engine.
+///
+/// This enables Rhai scripts to work with `GraphEdge` objects returned
+/// from typed traversals.
+///
+/// # Registered Methods
+///
+/// | Method | Description |
+/// |--------|-------------|
+/// | `.id` | Get the edge ID |
+/// | `.label()` | Get the edge label |
+/// | `.property(key)` | Get a property value |
+/// | `.exists()` | Check if edge exists |
+/// | `.to_value()` | Convert to Value |
+/// | `.out_v()` | Get source vertex |
+/// | `.in_v()` | Get destination vertex |
+fn register_graph_edge(engine: &mut Engine) {
+    // Register the type
+    engine.register_type_with_name::<GraphEdge>("GraphEdge");
+
+    // Getter: .id -> EdgeId
+    engine.register_get("id", |e: &mut GraphEdge| e.id());
+
+    // label() -> String or ()
+    engine.register_fn("label", |e: &mut GraphEdge| -> Dynamic {
+        match e.label() {
+            Some(label) => Dynamic::from(label),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // property(key) -> Value or ()
+    engine.register_fn(
+        "property",
+        |e: &mut GraphEdge, key: ImmutableString| -> Dynamic {
+            match e.property(key.as_str()) {
+                Some(val) => value_to_dynamic(val),
+                None => Dynamic::UNIT,
+            }
+        },
+    );
+
+    // exists() -> bool
+    engine.register_fn("exists", |e: &mut GraphEdge| e.exists());
+
+    // to_value() -> Value
+    engine.register_fn("to_value", |e: &mut GraphEdge| e.to_value());
+
+    // out_v() -> GraphVertex or ()
+    engine.register_fn("out_v", |e: &mut GraphEdge| -> Dynamic {
+        match e.out_v() {
+            Some(v) => Dynamic::from(v),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // in_v() -> GraphVertex or ()
+    engine.register_fn("in_v", |e: &mut GraphEdge| -> Dynamic {
+        match e.in_v() {
+            Some(v) => Dynamic::from(v),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // Display: to_string()
+    engine.register_fn("to_string", |e: &mut GraphEdge| format!("{:?}", e));
+
+    // Debug representation
+    engine.register_fn("to_debug", |e: &mut GraphEdge| format!("{:?}", e));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,5 +621,81 @@ mod tests {
         // Test error on wrong type
         let result: Result<bool, _> = engine.eval("value_int(42).as_bool()");
         assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // GraphVertex and GraphEdge Rhai Tests (Phase 4)
+    // =========================================================================
+
+    #[test]
+    fn test_graph_vertex_rhai_registration() {
+        use crate::storage::cow::Graph;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let mut engine = Engine::new();
+        register_types(&mut engine);
+
+        // Create a graph with a vertex
+        let graph = Arc::new(Graph::new());
+        let id = graph.add_vertex(
+            "person",
+            HashMap::from([
+                ("name".to_string(), Value::String("Alice".to_string())),
+                ("age".to_string(), Value::Int(30)),
+            ]),
+        );
+
+        // Create GraphVertex
+        let v = GraphVertex::new(id, Arc::clone(&graph));
+
+        // Set the vertex as a variable in the scope
+        let mut scope = rhai::Scope::new();
+        scope.push("v", v);
+
+        // Test .id getter
+        let vertex_id: VertexId = engine.eval_with_scope(&mut scope, "v.id").unwrap();
+        assert_eq!(vertex_id, id);
+
+        // Test .exists()
+        let exists: bool = engine.eval_with_scope(&mut scope, "v.exists()").unwrap();
+        assert!(exists);
+    }
+
+    #[test]
+    fn test_graph_edge_rhai_registration() {
+        use crate::storage::cow::Graph;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let mut engine = Engine::new();
+        register_types(&mut engine);
+
+        // Create a graph with vertices and edge
+        let graph = Arc::new(Graph::new());
+        let alice = graph.add_vertex("person", HashMap::new());
+        let bob = graph.add_vertex("person", HashMap::new());
+        let edge_id = graph
+            .add_edge(
+                alice,
+                bob,
+                "knows",
+                HashMap::from([("since".to_string(), Value::Int(2020))]),
+            )
+            .unwrap();
+
+        // Create GraphEdge
+        let e = GraphEdge::new(edge_id, Arc::clone(&graph));
+
+        let mut scope = rhai::Scope::new();
+        scope.push("e", e);
+
+        // Test .id getter
+        let eid: EdgeId = engine.eval_with_scope(&mut scope, "e.id").unwrap();
+        assert_eq!(eid, edge_id);
+
+        // Test .exists()
+        let exists: bool = engine.eval_with_scope(&mut scope, "e.exists()").unwrap();
+        assert!(exists);
     }
 }

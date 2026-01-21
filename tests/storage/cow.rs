@@ -10,10 +10,12 @@
 //! - Schema integration
 //! - Large-scale data handling
 
+use interstellar::graph_elements::{GraphEdge, GraphVertex};
 use interstellar::prelude::*;
 use interstellar::storage::{BatchError, Graph, GraphStorage};
 use interstellar::StorageError;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
 
@@ -1455,20 +1457,18 @@ fn cow_index_with_batch_operations() {
 
 #[test]
 fn cow_unified_traversal_add_v_basic() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add a vertex through the unified traversal API
+    // With the new typed API, add_v().next() returns Option<GraphVertex>
     let result = g.add_v("Person").next();
 
-    // Should return a vertex
+    // Should return a GraphVertex
     assert!(result.is_some());
-    let value = result.unwrap();
-    assert!(
-        matches!(value, Value::Vertex(_)),
-        "Expected Vertex, got {:?}",
-        value
-    );
+    let vertex = result.unwrap();
+    // Verify it's a valid vertex by checking the ID is accessible
+    let _id = vertex.id();
 
     // Graph should now have one vertex
     assert_eq!(graph.vertex_count(), 1);
@@ -1476,10 +1476,11 @@ fn cow_unified_traversal_add_v_basic() {
 
 #[test]
 fn cow_unified_traversal_add_v_with_properties() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add a vertex with properties
+    // With the new typed API, add_v().next() returns Option<GraphVertex>
     let result = g
         .add_v("Person")
         .property("name", "Alice")
@@ -1487,26 +1488,24 @@ fn cow_unified_traversal_add_v_with_properties() {
         .next();
 
     assert!(result.is_some());
-    let vertex_id = match result.unwrap() {
-        Value::Vertex(id) => id,
-        other => panic!("Expected Vertex, got {:?}", other),
-    };
+    let vertex = result.unwrap();
+    let vertex_id = vertex.id();
 
     // Verify the vertex has correct properties
     let snap = graph.snapshot();
-    let vertex = snap.get_vertex(vertex_id).unwrap();
-    assert_eq!(vertex.label, "Person");
+    let stored = snap.get_vertex(vertex_id).unwrap();
+    assert_eq!(stored.label, "Person");
     assert_eq!(
-        vertex.properties.get("name"),
+        stored.properties.get("name"),
         Some(&Value::String("Alice".into()))
     );
-    assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
+    assert_eq!(stored.properties.get("age"), Some(&Value::Int(30)));
 }
 
 #[test]
 fn cow_unified_traversal_add_v_multiple() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add multiple vertices
     g.add_v("Person").property("name", "Alice").iterate();
@@ -1529,29 +1528,31 @@ fn cow_unified_traversal_add_v_multiple() {
 
 #[test]
 fn cow_unified_traversal_add_v_to_list() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Use to_list() to add multiple vertices via inject + add_v pattern
     // (Here we just add one, but to_list collects all results)
+    // With typed API, to_list() returns Vec<GraphVertex>
     let results = g.add_v("Person").to_list();
 
     assert_eq!(results.len(), 1);
-    assert!(matches!(results[0], Value::Vertex(_)));
+    // Verify it's a valid GraphVertex
+    let _id = results[0].id();
     assert_eq!(graph.vertex_count(), 1);
 }
 
 #[test]
 fn cow_unified_traversal_query_after_mutation() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add vertices
     g.add_v("Person").property("name", "Alice").iterate();
     g.add_v("Person").property("name", "Bob").iterate();
 
     // Query the newly added vertices
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
     let results = g2.v().has_label("Person").to_list();
 
     assert_eq!(results.len(), 2);
@@ -1559,7 +1560,7 @@ fn cow_unified_traversal_query_after_mutation() {
 
 #[test]
 fn cow_unified_traversal_add_e_from_source() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // First add some vertices directly
     let alice = graph.add_vertex(
@@ -1572,16 +1573,14 @@ fn cow_unified_traversal_add_e_from_source() {
     );
 
     // Now use traversal API to add an edge
-    let g = graph.gremlin();
+    // With typed API, add_e().next() returns Option<GraphEdge>
+    let g = graph.gremlin(Arc::clone(&graph));
     let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
 
     assert!(result.is_some());
-    let value = result.unwrap();
-    assert!(
-        matches!(value, Value::Edge(_)),
-        "Expected Edge, got {:?}",
-        value
-    );
+    let edge = result.unwrap();
+    // Verify it's a valid edge by accessing ID
+    let _id = edge.id();
 
     // Graph should have one edge
     assert_eq!(graph.edge_count(), 1);
@@ -1589,12 +1588,13 @@ fn cow_unified_traversal_add_e_from_source() {
 
 #[test]
 fn cow_unified_traversal_add_e_with_properties() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
 
-    let g = graph.gremlin();
+    // With typed API, add_e().next() returns Option<GraphEdge>
+    let g = graph.gremlin(Arc::clone(&graph));
     let result = g
         .add_e("KNOWS")
         .from_id(alice)
@@ -1602,47 +1602,40 @@ fn cow_unified_traversal_add_e_with_properties() {
         .property("since", 2020i64)
         .next();
 
-    let edge_id = match result.unwrap() {
-        Value::Edge(id) => id,
-        other => panic!("Expected Edge, got {:?}", other),
-    };
+    let edge = result.unwrap();
+    let edge_id = edge.id();
 
     // Verify the edge has correct properties
     let snap = graph.snapshot();
-    let edge = snap.get_edge(edge_id).unwrap();
-    assert_eq!(edge.label, "KNOWS");
-    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
+    let stored = snap.get_edge(edge_id).unwrap();
+    assert_eq!(stored.label, "KNOWS");
+    assert_eq!(stored.properties.get("since"), Some(&Value::Int(2020)));
 }
 
 #[test]
 fn cow_unified_traversal_full_workflow() {
     // Test the complete workflow: add vertices with traversal, add edges, then query
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Add vertices through traversal API
-    let alice_value = g
+    // With typed API, add_v().next() returns Option<GraphVertex>
+    let alice_vertex = g
         .add_v("Person")
         .property("name", "Alice")
         .property("age", 30i64)
         .next()
         .unwrap();
-    let bob_value = g
+    let bob_vertex = g
         .add_v("Person")
         .property("name", "Bob")
         .property("age", 25i64)
         .next()
         .unwrap();
 
-    // Extract vertex IDs
-    let alice_id = match alice_value {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex"),
-    };
-    let bob_id = match bob_value {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex"),
-    };
+    // Extract vertex IDs from GraphVertex objects
+    let alice_id = alice_vertex.id();
+    let bob_id = bob_vertex.id();
 
     // Add edge through traversal API
     g.add_e("KNOWS")
@@ -1656,34 +1649,31 @@ fn cow_unified_traversal_full_workflow() {
     assert_eq!(graph.edge_count(), 1);
 
     // Query through traversal API
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
 
     // Get all people
     let people = g2.v().has_label("Person").to_list();
     assert_eq!(people.len(), 2);
 
     // Get Alice's outgoing connections
-    let g3 = graph.gremlin();
+    let g3 = graph.gremlin(Arc::clone(&graph));
     let alice_out = g3.v_id(alice_id).out_label("KNOWS").to_list();
     assert_eq!(alice_out.len(), 1);
 }
 
 #[test]
 fn cow_unified_traversal_drop_vertex() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    // Add a vertex
-    let result = g.add_v("Person").property("name", "Alice").next().unwrap();
-    let vertex_id = match result {
-        Value::Vertex(id) => id,
-        _ => panic!("Expected vertex"),
-    };
+    // Add a vertex - now returns GraphVertex
+    let vertex = g.add_v("Person").property("name", "Alice").next().unwrap();
+    let vertex_id = vertex.id();
 
     assert_eq!(graph.vertex_count(), 1);
 
     // Drop the vertex
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
     g2.v_id(vertex_id).drop().iterate();
 
     assert_eq!(graph.vertex_count(), 0);
@@ -1691,7 +1681,7 @@ fn cow_unified_traversal_drop_vertex() {
 
 #[test]
 fn cow_unified_traversal_drop_edge() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
@@ -1700,7 +1690,7 @@ fn cow_unified_traversal_drop_edge() {
     assert_eq!(graph.edge_count(), 1);
 
     // Drop the edge through traversal API
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
     // Note: We need to use e_id to start from a specific edge
     // The e() method exists but e_id() for single edge might need to be added
     // For now, let's use e_ids with a single element
@@ -1713,7 +1703,7 @@ fn cow_unified_traversal_drop_edge() {
 
 #[test]
 fn cow_unified_traversal_v_returns_all_vertices() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add vertices directly
     graph.add_vertex("Person", HashMap::new());
@@ -1721,7 +1711,7 @@ fn cow_unified_traversal_v_returns_all_vertices() {
     graph.add_vertex("Software", HashMap::new());
 
     // Query through traversal
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
     let results = g.v().to_list();
 
     assert_eq!(results.len(), 3);
@@ -1729,7 +1719,7 @@ fn cow_unified_traversal_v_returns_all_vertices() {
 
 #[test]
 fn cow_unified_traversal_v_id_returns_specific_vertex() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let alice = graph.add_vertex(
         "Person",
@@ -1737,19 +1727,17 @@ fn cow_unified_traversal_v_id_returns_specific_vertex() {
     );
     graph.add_vertex("Person", HashMap::new());
 
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
     let results = g.v_id(alice).to_list();
 
     assert_eq!(results.len(), 1);
-    match &results[0] {
-        Value::Vertex(id) => assert_eq!(*id, alice),
-        _ => panic!("Expected vertex"),
-    }
+    // Now returns GraphVertex, check ID directly
+    assert_eq!(results[0].id(), alice);
 }
 
 #[test]
 fn cow_unified_traversal_chained_steps() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let alice = graph.add_vertex(
         "Person",
@@ -1769,50 +1757,50 @@ fn cow_unified_traversal_chained_steps() {
         .add_edge(bob, software, "USES", HashMap::new())
         .unwrap();
 
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Alice's friends
     let friends = g.v_id(alice).out_label("KNOWS").to_list();
     assert_eq!(friends.len(), 1);
 
     // All people who created or use software
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
     let sw_related = g2.v_id(software).in_().has_label("Person").to_list();
     assert_eq!(sw_related.len(), 2);
 }
 
 #[test]
 fn cow_unified_traversal_count() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     g.add_v("Person").iterate();
     g.add_v("Person").iterate();
     g.add_v("Software").iterate();
 
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
     let total = g2.v().count();
     assert_eq!(total, 3);
 
-    let g3 = graph.gremlin();
+    let g3 = graph.gremlin(Arc::clone(&graph));
     let people = g3.v().has_label("Person").count();
     assert_eq!(people, 2);
 }
 
 #[test]
 fn cow_unified_traversal_has_next() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Empty graph should not have vertices
     assert!(!g.v().has_next());
 
     // Add a vertex
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
     g2.add_v("Person").iterate();
 
     // Now should have vertices
-    let g3 = graph.gremlin();
+    let g3 = graph.gremlin(Arc::clone(&graph));
     assert!(g3.v().has_next());
 }
 
@@ -1822,10 +1810,10 @@ fn cow_unified_traversal_has_next() {
 
 #[test]
 fn cow_add_v_id_returns_integer() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    // Using .id() after add_v() should return the ID as an integer
+    // Using .id() after add_v() should return the ID as an integer (Value)
     let result = g.add_v("Person").property("name", "Alice").id().next();
 
     assert!(result.is_some());
@@ -1840,41 +1828,32 @@ fn cow_add_v_id_returns_integer() {
 
 #[test]
 fn cow_add_v_without_id_returns_vertex() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    // Without .id(), should return Value::Vertex
+    // Without .id(), add_v().next() now returns GraphVertex with typed API
     let result = g.add_v("Person").next();
 
     assert!(result.is_some());
-    match result.unwrap() {
-        Value::Vertex(_) => {}
-        other => panic!("Expected Vertex, got {:?}", other),
-    }
+    // Just verify we got a valid GraphVertex by accessing its ID
+    let _vertex_id = result.unwrap().id();
 }
 
 #[test]
 fn cow_add_e_id_returns_integer() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let alice = graph.add_vertex("Person", HashMap::new());
     let bob = graph.add_vertex("Person", HashMap::new());
 
-    let g = graph.gremlin();
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    // Note: CowAddEdgeBuilder (from g.add_e()) doesn't support .id() directly
-    // because it's a convenience builder that bypasses the traversal engine.
-    // The .id() pattern works through RhaiTraversal which uses AddEStep.
-    // Here we test the standard pattern which returns Value::Edge
+    // Note: With typed API, add_e().next() returns GraphEdge
     let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
 
     assert!(result.is_some());
-    match result.unwrap() {
-        Value::Edge(id) => {
-            // Verify we got a valid edge ID
-            let _ = id; // Edge was created successfully
-        }
-        other => panic!("Expected Edge, got {:?}", other),
-    }
+    // Verify we got a valid GraphEdge by accessing its ID
+    let edge = result.unwrap();
+    let _edge_id = edge.id();
 
     // Verify edge was created
     assert_eq!(graph.edge_count(), 1);
@@ -1882,10 +1861,11 @@ fn cow_add_e_id_returns_integer() {
 
 #[test]
 fn cow_add_v_id_to_list_returns_integers() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
     // Create multiple vertices and get their IDs
+    // Using .id() returns Scalar marker, so we get Value
     let id1 = g.add_v("Person").id().next().unwrap();
     let id2 = g.add_v("Person").id().next().unwrap();
     let id3 = g.add_v("Software").id().next().unwrap();
@@ -1905,10 +1885,10 @@ fn cow_add_v_id_to_list_returns_integers() {
 
 #[test]
 fn cow_add_v_id_can_be_used_for_edges() {
-    let graph = Graph::new();
-    let g = graph.gremlin();
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
 
-    // Create vertices using .id() to get integer IDs
+    // Create vertices using .id() to get integer IDs (Scalar marker)
     let alice_id = match g.add_v("Person").property("name", "Alice").id().next() {
         Some(Value::Int(id)) => VertexId(id as u64),
         other => panic!("Expected Int, got {:?}", other),
@@ -1931,7 +1911,7 @@ fn cow_add_v_id_can_be_used_for_edges() {
     assert_eq!(graph.edge_count(), 1);
 
     // Verify edge connects correct vertices
-    let g2 = graph.gremlin();
+    let g2 = graph.gremlin(Arc::clone(&graph));
     let alice_friends: Vec<Value> = g2
         .v_id(alice_id)
         .out_label("KNOWS")
@@ -1939,4 +1919,369 @@ fn cow_add_v_id_can_be_used_for_edges() {
         .to_list();
     assert_eq!(alice_friends.len(), 1);
     assert_eq!(alice_friends[0], Value::String("Bob".to_string()));
+}
+
+// =============================================================================
+// Plan 30: Typed Terminal Method Tests
+// =============================================================================
+//
+// These tests use explicit type annotations to verify at COMPILE TIME that
+// terminal methods return the correct types (GraphVertex, GraphEdge, Value).
+// If the return types were changed, these tests would fail to compile.
+
+/// Helper to create a test graph with vertices and edges
+fn create_typed_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
+
+    let alice = graph.add_vertex(
+        "person",
+        HashMap::from([("name".to_string(), Value::String("Alice".into()))]),
+    );
+    let bob = graph.add_vertex(
+        "person",
+        HashMap::from([("name".to_string(), Value::String("Bob".into()))]),
+    );
+    let charlie = graph.add_vertex(
+        "person",
+        HashMap::from([("name".to_string(), Value::String("Charlie".into()))]),
+    );
+
+    graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    graph
+        .add_edge(bob, charlie, "knows", HashMap::new())
+        .unwrap();
+
+    graph
+}
+
+// -----------------------------------------------------------------------------
+// VertexMarker Terminal Methods
+// -----------------------------------------------------------------------------
+
+#[test]
+fn cow_typed_vertex_next_returns_graph_vertex() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: next() must return Option<GraphVertex>
+    let vertex: Option<GraphVertex> = g.v().next();
+
+    assert!(vertex.is_some());
+    let v = vertex.unwrap();
+    // Verify GraphVertex methods work
+    assert!(v.label().is_some());
+    assert!(v.property("name").is_some());
+}
+
+#[test]
+fn cow_typed_vertex_to_list_returns_vec_graph_vertex() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: to_list() must return Vec<GraphVertex>
+    let vertices: Vec<GraphVertex> = g.v().to_list();
+
+    assert_eq!(vertices.len(), 3);
+    for v in &vertices {
+        assert!(v.label().is_some());
+    }
+}
+
+#[test]
+fn cow_typed_vertex_one_returns_result_graph_vertex() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: one() must return Result<GraphVertex, TraversalError>
+    let result: Result<GraphVertex, interstellar::error::TraversalError> =
+        g.v().has_value("name", Value::String("Alice".into())).one();
+
+    assert!(result.is_ok());
+    let alice = result.unwrap();
+    assert_eq!(alice.property("name"), Some(Value::String("Alice".into())));
+}
+
+#[test]
+fn cow_typed_vertex_to_set_returns_hashset_graph_vertex() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: to_set() must return HashSet<GraphVertex>
+    let vertices: HashSet<GraphVertex> = g.v().to_set();
+
+    assert_eq!(vertices.len(), 3);
+}
+
+#[test]
+fn cow_typed_vertex_count_returns_u64() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: count() must return u64
+    let count: u64 = g.v().count();
+
+    assert_eq!(count, 3);
+}
+
+// -----------------------------------------------------------------------------
+// EdgeMarker Terminal Methods
+// -----------------------------------------------------------------------------
+
+#[test]
+fn cow_typed_edge_next_returns_graph_edge() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: next() must return Option<GraphEdge>
+    let edge: Option<GraphEdge> = g.e().next();
+
+    assert!(edge.is_some());
+    let e = edge.unwrap();
+    // Verify GraphEdge methods work
+    assert_eq!(e.label(), Some("knows".to_string()));
+    assert!(e.out_v().is_some());
+    assert!(e.in_v().is_some());
+}
+
+#[test]
+fn cow_typed_edge_to_list_returns_vec_graph_edge() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: to_list() must return Vec<GraphEdge>
+    let edges: Vec<GraphEdge> = g.e().to_list();
+
+    assert_eq!(edges.len(), 2);
+    for e in &edges {
+        assert_eq!(e.label(), Some("knows".to_string()));
+    }
+}
+
+#[test]
+fn cow_typed_edge_one_returns_result_graph_edge() {
+    let graph = Arc::new(Graph::new());
+    let a = graph.add_vertex("person", HashMap::new());
+    let b = graph.add_vertex("person", HashMap::new());
+    graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
+
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: one() must return Result<GraphEdge, TraversalError>
+    let result: Result<GraphEdge, interstellar::error::TraversalError> = g.e().one();
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().label(), Some("knows".to_string()));
+}
+
+#[test]
+fn cow_typed_edge_to_set_returns_hashset_graph_edge() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: to_set() must return HashSet<GraphEdge>
+    let edges: HashSet<GraphEdge> = g.e().to_set();
+
+    assert_eq!(edges.len(), 2);
+}
+
+#[test]
+fn cow_typed_edge_count_returns_u64() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: count() must return u64
+    let count: u64 = g.e().count();
+
+    assert_eq!(count, 2);
+}
+
+// -----------------------------------------------------------------------------
+// Scalar Terminal Methods (via .values() or .id())
+// -----------------------------------------------------------------------------
+
+#[test]
+fn cow_typed_scalar_next_returns_value() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: values().next() must return Option<Value>
+    let value: Option<Value> = g.v().values("name").next();
+
+    assert!(value.is_some());
+    assert!(matches!(value.unwrap(), Value::String(_)));
+}
+
+#[test]
+fn cow_typed_scalar_to_list_returns_vec_value() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: values().to_list() must return Vec<Value>
+    let values: Vec<Value> = g.v().values("name").to_list();
+
+    assert_eq!(values.len(), 3);
+    for v in &values {
+        assert!(matches!(v, Value::String(_)));
+    }
+}
+
+#[test]
+fn cow_typed_scalar_count_returns_u64() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: values().count() must return u64
+    let count: u64 = g.v().values("name").count();
+
+    assert_eq!(count, 3);
+}
+
+// -----------------------------------------------------------------------------
+// Mutation Terminal Methods (add_v, add_e)
+// -----------------------------------------------------------------------------
+
+#[test]
+fn cow_typed_add_v_next_returns_graph_vertex() {
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: add_v().next() must return Option<GraphVertex>
+    let vertex: Option<GraphVertex> = g.add_v("person").property("name", "Test").next();
+
+    assert!(vertex.is_some());
+    let v = vertex.unwrap();
+    assert_eq!(v.label(), Some("person".to_string()));
+    assert_eq!(v.property("name"), Some(Value::String("Test".into())));
+}
+
+#[test]
+fn cow_typed_add_v_to_list_returns_vec_graph_vertex() {
+    let graph = Arc::new(Graph::new());
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: add_v().to_list() must return Vec<GraphVertex>
+    let vertices: Vec<GraphVertex> = g.add_v("person").to_list();
+
+    assert_eq!(vertices.len(), 1);
+    assert_eq!(vertices[0].label(), Some("person".to_string()));
+}
+
+#[test]
+fn cow_typed_add_e_next_returns_graph_edge() {
+    let graph = Arc::new(Graph::new());
+    let a = graph.add_vertex("person", HashMap::new());
+    let b = graph.add_vertex("person", HashMap::new());
+
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: add_e().next() must return Option<GraphEdge>
+    let edge: Option<GraphEdge> = g.add_e("knows").from_id(a).to_id(b).next();
+
+    assert!(edge.is_some());
+    let e = edge.unwrap();
+    assert_eq!(e.label(), Some("knows".to_string()));
+}
+
+#[test]
+fn cow_typed_add_e_to_list_returns_vec_graph_edge() {
+    let graph = Arc::new(Graph::new());
+    let a = graph.add_vertex("person", HashMap::new());
+    let b = graph.add_vertex("person", HashMap::new());
+
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // COMPILE-TIME CHECK: add_e().to_list() must return Vec<GraphEdge>
+    let edges: Vec<GraphEdge> = g.add_e("knows").from_id(a).to_id(b).to_list();
+
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].label(), Some("knows".to_string()));
+}
+
+// -----------------------------------------------------------------------------
+// Traversal Step Type Transformations
+// -----------------------------------------------------------------------------
+
+#[test]
+fn cow_typed_vertex_to_edge_transformation() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // Start with vertices, transform to edges via out_e()
+    // COMPILE-TIME CHECK: out_e().to_list() must return Vec<GraphEdge>
+    let edges: Vec<GraphEdge> = g.v().out_e().to_list();
+
+    assert_eq!(edges.len(), 2);
+}
+
+#[test]
+fn cow_typed_edge_to_vertex_transformation() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // Start with edges, transform to vertices via out_v()
+    // COMPILE-TIME CHECK: out_v().to_list() must return Vec<GraphVertex>
+    let vertices: Vec<GraphVertex> = g.e().out_v().to_list();
+
+    assert_eq!(vertices.len(), 2);
+}
+
+#[test]
+fn cow_typed_vertex_to_scalar_transformation() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // Start with vertices, transform to scalars via values()
+    // COMPILE-TIME CHECK: values().to_list() must return Vec<Value>
+    let names: Vec<Value> = g.v().values("name").to_list();
+
+    assert_eq!(names.len(), 3);
+}
+
+// -----------------------------------------------------------------------------
+// GraphVertex/GraphEdge Object Methods
+// -----------------------------------------------------------------------------
+
+#[test]
+fn cow_typed_graph_vertex_methods() {
+    let graph = create_typed_test_graph();
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    let alice: GraphVertex = g
+        .v()
+        .has_value("name", Value::String("Alice".into()))
+        .one()
+        .unwrap();
+
+    // Verify all GraphVertex methods work
+    let _id: VertexId = alice.id();
+    let _label: Option<String> = alice.label();
+    let _prop: Option<Value> = alice.property("name");
+    let _props: HashMap<String, Value> = alice.properties();
+    let _exists: bool = alice.exists();
+
+    // Can traverse from GraphVertex
+    let friends: Vec<GraphVertex> = alice.out("knows").to_list();
+    assert_eq!(friends.len(), 1);
+}
+
+#[test]
+fn cow_typed_graph_edge_methods() {
+    let graph = Arc::new(Graph::new());
+    let a = graph.add_vertex("person", HashMap::new());
+    let b = graph.add_vertex("person", HashMap::new());
+    graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
+
+    let g = graph.gremlin(Arc::clone(&graph));
+
+    // Use one() since there's exactly one edge
+    let edge: GraphEdge = g.e().one().unwrap();
+
+    // Verify all GraphEdge methods work
+    let _id: EdgeId = edge.id();
+    let _label: Option<String> = edge.label();
+    let _out_v: Option<GraphVertex> = edge.out_v();
+    let _in_v: Option<GraphVertex> = edge.in_v();
+    let _both: Option<(GraphVertex, GraphVertex)> = edge.both_v();
+    let _props: HashMap<String, Value> = edge.properties();
+    let _exists: bool = edge.exists();
 }
