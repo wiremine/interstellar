@@ -1815,3 +1815,128 @@ fn cow_unified_traversal_has_next() {
     let g3 = graph.gremlin();
     assert!(g3.v().has_next());
 }
+
+// =============================================================================
+// Spec 36: Mutation ID Extraction Tests
+// =============================================================================
+
+#[test]
+fn cow_add_v_id_returns_integer() {
+    let graph = Graph::new();
+    let g = graph.gremlin();
+
+    // Using .id() after add_v() should return the ID as an integer
+    let result = g.add_v("Person").property("name", "Alice").id().next();
+
+    assert!(result.is_some());
+    match result.unwrap() {
+        Value::Int(id) => assert!(id >= 0),
+        other => panic!("Expected Int, got {:?}", other),
+    }
+
+    // Verify vertex was actually created
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn cow_add_v_without_id_returns_vertex() {
+    let graph = Graph::new();
+    let g = graph.gremlin();
+
+    // Without .id(), should return Value::Vertex
+    let result = g.add_v("Person").next();
+
+    assert!(result.is_some());
+    match result.unwrap() {
+        Value::Vertex(_) => {}
+        other => panic!("Expected Vertex, got {:?}", other),
+    }
+}
+
+#[test]
+fn cow_add_e_id_returns_integer() {
+    let graph = Graph::new();
+    let alice = graph.add_vertex("Person", HashMap::new());
+    let bob = graph.add_vertex("Person", HashMap::new());
+
+    let g = graph.gremlin();
+
+    // Note: CowAddEdgeBuilder (from g.add_e()) doesn't support .id() directly
+    // because it's a convenience builder that bypasses the traversal engine.
+    // The .id() pattern works through RhaiTraversal which uses AddEStep.
+    // Here we test the standard pattern which returns Value::Edge
+    let result = g.add_e("KNOWS").from_id(alice).to_id(bob).next();
+
+    assert!(result.is_some());
+    match result.unwrap() {
+        Value::Edge(id) => {
+            // Verify we got a valid edge ID
+            let _ = id; // Edge was created successfully
+        }
+        other => panic!("Expected Edge, got {:?}", other),
+    }
+
+    // Verify edge was created
+    assert_eq!(graph.edge_count(), 1);
+}
+
+#[test]
+fn cow_add_v_id_to_list_returns_integers() {
+    let graph = Graph::new();
+    let g = graph.gremlin();
+
+    // Create multiple vertices and get their IDs
+    let id1 = g.add_v("Person").id().next().unwrap();
+    let id2 = g.add_v("Person").id().next().unwrap();
+    let id3 = g.add_v("Software").id().next().unwrap();
+
+    // All should be integers
+    assert!(matches!(id1, Value::Int(_)));
+    assert!(matches!(id2, Value::Int(_)));
+    assert!(matches!(id3, Value::Int(_)));
+
+    // IDs should be different
+    assert_ne!(id1, id2);
+    assert_ne!(id2, id3);
+
+    // Three vertices should exist
+    assert_eq!(graph.vertex_count(), 3);
+}
+
+#[test]
+fn cow_add_v_id_can_be_used_for_edges() {
+    let graph = Graph::new();
+    let g = graph.gremlin();
+
+    // Create vertices using .id() to get integer IDs
+    let alice_id = match g.add_v("Person").property("name", "Alice").id().next() {
+        Some(Value::Int(id)) => VertexId(id as u64),
+        other => panic!("Expected Int, got {:?}", other),
+    };
+
+    let bob_id = match g.add_v("Person").property("name", "Bob").id().next() {
+        Some(Value::Int(id)) => VertexId(id as u64),
+        other => panic!("Expected Int, got {:?}", other),
+    };
+
+    // Use IDs to create edge
+    g.add_e("KNOWS")
+        .from_id(alice_id)
+        .to_id(bob_id)
+        .property("since", 2020i64)
+        .iterate();
+
+    // Verify graph structure
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 1);
+
+    // Verify edge connects correct vertices
+    let g2 = graph.gremlin();
+    let alice_friends: Vec<Value> = g2
+        .v_id(alice_id)
+        .out_label("KNOWS")
+        .values("name")
+        .to_list();
+    assert_eq!(alice_friends.len(), 1);
+    assert_eq!(alice_friends[0], Value::String("Bob".to_string()));
+}

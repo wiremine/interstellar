@@ -1,6 +1,6 @@
-# Spec 36: Rhai Mutation ID Capture
+# Spec 36: Mutation ID Extraction in Traversal Engine
 
-This specification addresses the gap in the Rhai scripting API where mutation steps (`add_v`, `add_e`) do not properly return element IDs for use in subsequent operations.
+This specification addresses a bug in the traversal engine where `IdStep` fails to extract IDs from mutation traversals because it executes before mutations are materialized.
 
 ---
 
@@ -8,280 +8,456 @@ This specification addresses the gap in the Rhai scripting API where mutation st
 
 ### 1.1 Current Behavior
 
-When attempting to create a graph entirely via Rhai scripts, the following pattern fails:
+When chaining `.id()` after mutation steps, the traversal returns no results:
 
-```javascript
+```rust
+// Rust API
 let g = graph.gremlin();
-
-// Create a vertex and capture its ID
-let alice = g.add_v("person")
-    .property("name", "Alice")
-    .id()
-    .first();  // Returns () instead of VertexId
-
-// This fails: "Function not found: from_v (Traversal, ())"
-g.add_e("knows").from_v(alice).to_v(bob).iterate();
+let id = g.add_v("person").property("name", "Alice").id().next();
+// id = None (expected: Some(Value::Int(...)))
 ```
 
-The `id().first()` chain after `add_v()` returns unit `()` instead of the created vertex's `VertexId`.
+```javascript
+// Rhai API
+let g = graph.gremlin();
+let alice = g.add_v("person").property("name", "Alice").id().first();
+// alice = () (expected: integer ID)
+
+// This fails because alice is unit:
+g.add_e("knows").from_v(alice).to_v(bob).iterate();
+```
 
 ### 1.2 Expected Behavior
 
-```javascript
-let alice = g.add_v("person").property("name", "Alice").id().first();
-// alice should be a VertexId that can be used in from_v()/to_v()
-
-g.add_e("knows").from_v(alice).to_v(bob).iterate();
-// Should successfully create an edge
+```rust
+// Rust API
+let id = g.add_v("person").property("name", "Alice").id().next();
+// id = Some(Value::Int(0))  // The created vertex's ID as an integer
 ```
 
-### 1.3 Impact
+```javascript
+// Rhai API
+let alice = g.add_v("person").property("name", "Alice").id().first();
+// alice = 0  // The created vertex's ID as an integer
 
-- Users cannot build graphs entirely via Rhai scripts
-- The `scripting.rs` example must use Rust code for graph creation
-- Limits the usefulness of Rhai for dynamic graph construction scenarios
+g.add_e("knows").from_v(alice).to_v(bob).iterate();  // Works
+```
+
+### 1.3 Working Pattern (Current)
+
+The Rust API works correctly if you skip `.id()` and use `.as_vertex_id()`:
+
+```rust
+// This works (see examples/quickstart_gremlin.rs)
+let alice = g.add_v("Person")
+    .property("name", "Alice")
+    .next()
+    .unwrap();  // Returns Value::Vertex(VertexId)
+
+let alice_id = alice.as_vertex_id().unwrap();  // Extract VertexId
+```
+
+In Rhai, the equivalent pattern also works:
+
+```javascript
+let alice = g.add_v("person").property("name", "Alice").first();
+// alice is a VertexId (value_to_dynamic unwraps Value::Vertex to VertexId)
+g.add_e("knows").from_v(alice).to_v(bob).iterate();  // Works!
+```
+
+### 1.4 When the Bug Manifests
+
+The bug only occurs when `.id()` is explicitly chained before the terminal step:
+
+```rust
+// This is broken
+let id = g.add_v("Person").id().next();  // Returns None
+```
+
+```javascript
+// This is broken  
+let id = g.add_v("person").id().first();  // Returns ()
+```
+
+Users might use `.id()` expecting to get an integer ID directly, rather than a `VertexId` wrapper type.
+
+### 1.5 Scope
+
+This bug affects the core traversal engine (`src/storage/cow.rs`), not just the Rhai layer. The Rhai API correctly delegates to the engine, which has the underlying timing issue.
+
+### 1.6 Impact Assessment
+
+**Low priority.** The working pattern (without `.id()`) is already documented in examples and is the idiomatic approach. This bug only affects users who explicitly chain `.id()` expecting an integer result.
+
+However, fixing this improves API consistency: `.id()` should work uniformly whether the traversal starts from existing elements (`g.v().id()`) or newly created ones (`g.add_v().id()`).
 
 ---
 
 ## 2. Root Cause Analysis
 
-### 2.1 Traversal Flow
+### 2.1 Execution Flow
 
-The Rhai traversal execution path is:
+The bug occurs in `CowBoundTraversal::execute_with_mutations()` (`src/storage/cow.rs:1779-1878`):
 
-1. `RhaiTraversalSource::add_v(label)` creates a `RhaiTraversal` with `RhaiStep::AddV`
-2. `.property()` adds `RhaiStep::Property` steps
-3. `.id()` adds `RhaiStep::Id`
-4. `.first()` calls `to_list()` which:
-   - Calls `graph.gremlin()` to get a `CowTraversalSource`
-   - Builds the traversal via `apply_step_cow()`
-   - Executes and returns results
+```rust
+fn execute_with_mutations(self) -> Vec<Value> {
+    // ... setup ...
 
-### 2.2 Suspected Issues
+    // Phase 1: Apply all steps in sequence
+    for step in &steps {
+        current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+    }
 
-1. **Source mismatch**: `RhaiTraversalSource::add_v()` creates a traversal with `TraversalSource::Inject(vec![])` as the source, but mutations need to flow through the mutation executor.
+    // Phase 2: Execute pending mutations (AFTER all steps)
+    for traverser in results {
+        if let Some(mutation) = PendingMutation::from_value(&traverser.value) {
+            if let Some(result) = Self::execute_mutation(&mut wrapper, mutation) {
+                final_results.push(result);
+            }
+        } else {
+            final_results.push(traverser.value);
+        }
+    }
+}
+```
 
-2. **ID extraction timing**: The `IdStep` may be applied before the vertex is actually created, resulting in no elements to extract IDs from.
+### 2.2 Step-by-Step Trace
 
-3. **Mutation vs Query path**: The `CowTraversalSource` distinguishes between query traversals (starting with `v()`, `e()`) and mutation traversals (starting with `add_v()`, `add_e()`). The Rhai layer may not be correctly routing through the mutation path.
+For `g.add_v("person").property("name", "Alice").id().next()`:
 
-### 2.3 Investigation Points
+| Step | Input | Output |
+|------|-------|--------|
+| Start | `[Traverser(Null)]` | - |
+| AddVStep | `[Traverser(Null)]` | `[Traverser(Map{__pending_add_v: true, label: "person", ...})]` |
+| PropertyStep | `[Traverser(Map{...})]` | `[Traverser(Map{..., properties: {name: "Alice"}})]` |
+| IdStep | `[Traverser(Map{...})]` | `[]` ← **Bug: Map filtered out** |
+| Mutation execution | `[]` | `[]` |
+| Return | - | `[]` |
 
-Review these code locations:
+### 2.3 IdStep Implementation
 
-- `src/rhai/traversal.rs:137-161` - `RhaiTraversalSource::add_v()` and `add_e()`
-- `src/rhai/traversal.rs:375-396` - `RhaiTraversal::to_list()` execution
-- `src/rhai/traversal.rs:1890-1909` - `apply_step_cow` handling of `AddV` and `AddE`
-- `src/storage/cow.rs` - `CowTraversalSource` mutation handling
+The current `IdStep` (`src/traversal/transform/metadata.rs:39-68`) only handles actual elements:
+
+```rust
+impl AnyStep for IdStep {
+    fn apply<'a>(&'a self, _ctx: &'a ExecutionContext<'a>, input: ...) -> ... {
+        Box::new(input.filter_map(|traverser| {
+            match &traverser.value {
+                Value::Vertex(id) => Some(traverser.split(Value::Int(id.0 as i64))),
+                Value::Edge(id) => Some(traverser.split(Value::Int(id.0 as i64))),
+                _ => None,  // ← Pending mutations (Map) are filtered out
+            }
+        }))
+    }
+}
+```
+
+### 2.4 Core Issue
+
+**The mutation execution model is deferred**: Steps produce "pending mutation markers" (`Value::Map` with `__pending_add_v`), and actual mutations happen only at the terminal step. But `IdStep` runs during the step-application phase when only markers exist, not actual vertices.
 
 ---
 
 ## 3. Proposed Solution
 
-### 3.1 Option A: Fix the Execution Path
+### 3.1 Approach: Deferred ID Extraction
 
-Modify `RhaiTraversal::to_list()` to detect mutation-starting traversals and route them through the correct execution path that returns created elements.
+Modify `IdStep` to recognize pending mutation markers and annotate them for post-mutation ID extraction. The mutation execution phase then extracts the ID instead of returning the element.
+
+### 3.2 Implementation Details
+
+#### 3.2.1 Update IdStep to Handle Pending Mutations
+
+**File:** `src/traversal/transform/metadata.rs`
 
 ```rust
-// In RhaiTraversal::to_list()
-pub fn to_list(&self) -> Vec<Value> {
-    let g = self.graph.gremlin();
-    
-    // Check if this is a mutation-starting traversal
-    if self.is_mutation_start() {
-        return self.execute_mutation(&g);
+impl AnyStep for IdStep {
+    fn apply<'a>(&'a self, _ctx: &'a ExecutionContext<'a>, input: ...) -> ... {
+        Box::new(input.filter_map(|traverser| {
+            match &traverser.value {
+                Value::Vertex(id) => Some(traverser.split(Value::Int(id.0 as i64))),
+                Value::Edge(id) => Some(traverser.split(Value::Int(id.0 as i64))),
+                
+                // Handle pending mutations: mark for ID extraction after mutation
+                Value::Map(map) if map.contains_key("__pending_add_v") 
+                                || map.contains_key("__pending_add_e") => {
+                    let mut new_map = map.clone();
+                    new_map.insert("__extract_id".to_string(), Value::Bool(true));
+                    Some(traverser.split(Value::Map(new_map)))
+                }
+                
+                _ => None,
+            }
+        }))
     }
-    
-    // Existing query path...
-}
-
-fn is_mutation_start(&self) -> bool {
-    matches!(self.steps.first(), Some(RhaiStep::AddV(_)) | Some(RhaiStep::AddE { .. }))
-}
-
-fn execute_mutation(&self, g: &CowTraversalSource) -> Vec<Value> {
-    // Route through mutation-aware execution
-    // Return created element wrapped in Value
 }
 ```
 
-### 3.2 Option B: Dedicated Mutation Methods
+#### 3.2.2 Update Mutation Execution to Respect `__extract_id`
 
-Add explicit mutation methods to `RhaiTraversalSource` that return IDs directly:
-
-```javascript
-// New Rhai API
-let alice = g.create_vertex("person", #{
-    name: "Alice",
-    age: 30
-});  // Returns VertexId directly
-
-let edge = g.create_edge("knows", alice, bob, #{
-    since: 2020
-});  // Returns EdgeId directly
-```
-
-Implementation:
+**File:** `src/storage/cow.rs` in `execute_with_mutations()`
 
 ```rust
-// In RhaiTraversalSource
-pub fn create_vertex(&self, label: String, properties: rhai::Map) -> VertexId {
-    let props = map_to_hashmap(properties);
-    self.graph.add_vertex(&label, props)
-}
-
-pub fn create_edge(&self, label: String, from: VertexId, to: VertexId, properties: rhai::Map) -> Result<EdgeId, ...> {
-    let props = map_to_hashmap(properties);
-    self.graph.add_edge(from, to, &label, props)
+for traverser in results {
+    if let Some(mutation) = PendingMutation::from_value(&traverser.value) {
+        // Check if ID extraction was requested
+        let extract_id = traverser.value
+            .as_map()
+            .map(|m| m.contains_key("__extract_id"))
+            .unwrap_or(false);
+        
+        if let Some(result) = Self::execute_mutation(&mut wrapper, mutation) {
+            if extract_id {
+                // Return the ID as an integer instead of the element
+                let id_value = match result {
+                    Value::Vertex(vid) => Value::Int(vid.0 as i64),
+                    Value::Edge(eid) => Value::Int(eid.0 as i64),
+                    other => other,
+                };
+                final_results.push(id_value);
+            } else {
+                final_results.push(result);
+            }
+        }
+    } else {
+        final_results.push(traverser.value);
+    }
 }
 ```
 
-### 3.3 Option C: Hybrid Approach
+#### 3.2.3 Update PendingMutation::from_value
 
-Implement both:
-1. Fix the traversal-based mutation flow (Option A) for Gremlin compatibility
-2. Add convenience methods (Option B) for simpler scripting use cases
+**File:** `src/traversal/mutation.rs`
 
----
+The `from_value` function should ignore the `__extract_id` key when parsing (it's metadata, not mutation data). Current implementation already handles this correctly since it only checks for specific keys.
 
-## 4. Recommended Approach
+### 3.3 Execution Flow After Fix
 
-**Option C (Hybrid)** is recommended because:
+For `g.add_v("person").property("name", "Alice").id().next()`:
 
-1. **Gremlin compatibility**: Users familiar with Gremlin expect `add_v().property().id()` to work
-2. **Scripting ergonomics**: Direct `create_vertex()` methods are more natural for scripts
-3. **Flexibility**: Users can choose the pattern that fits their use case
-
----
-
-## 5. Implementation Plan
-
-### Phase 1: Investigate and Diagnose
-
-1. Add test case that reproduces the issue
-2. Add debug logging to trace the execution path
-3. Identify exact point of failure
-
-### Phase 2: Fix Traversal-Based Mutations
-
-1. Modify `RhaiTraversal::to_list()` to handle mutation-starting traversals
-2. Ensure `AddVStep` execution returns the created vertex
-3. Ensure `IdStep` correctly extracts ID from mutation results
-4. Add tests for `add_v().id().first()` pattern
-
-### Phase 3: Add Convenience Methods
-
-1. Add `create_vertex(label, properties)` to `RhaiTraversalSource`
-2. Add `create_edge(label, from, to, properties)` to `RhaiTraversalSource`
-3. Register these functions with the Rhai engine
-4. Add tests for convenience methods
-
-### Phase 4: Update Examples
-
-1. Update `examples/scripting.rs` to build graph via scripts
-2. Demonstrate both patterns (traversal-based and convenience methods)
+| Step | Input | Output |
+|------|-------|--------|
+| Start | `[Traverser(Null)]` | - |
+| AddVStep | `[Traverser(Null)]` | `[Traverser(Map{__pending_add_v: true, ...})]` |
+| PropertyStep | `[Traverser(Map{...})]` | `[Traverser(Map{..., properties: {name: "Alice"}})]` |
+| IdStep | `[Traverser(Map{...})]` | `[Traverser(Map{..., __extract_id: true})]` ← **Fixed** |
+| Mutation execution | Sees `__extract_id` | Creates vertex, returns `Value::Int(id)` |
+| Return | - | `[Value::Int(0)]` |
 
 ---
 
-## 6. Test Cases
+## 4. Alternative Approaches Considered
 
-### 6.1 Traversal-Based Mutation Tests
+### 4.1 Execute Mutations Eagerly
+
+Execute mutations during step application instead of deferring to terminal steps.
+
+**Rejected because:**
+- Breaks lazy evaluation model
+- Mutations would execute even if traversal is never terminated
+- Complicates error handling and rollback
+
+### 4.2 Two-Phase Execution for Mutations
+
+Detect mutation traversals and execute them in a special mode.
+
+**Rejected because:**
+- Adds complexity to determine "is this a mutation traversal"
+- Traversals can mix reads and mutations (e.g., `g.v().property("updated", true)`)
+- The proposed solution is simpler and more targeted
+
+### 4.3 Add Separate `mutation_id()` Step
+
+Create a new step specifically for mutation ID extraction.
+
+**Rejected because:**
+- Breaks Gremlin compatibility (`.id()` should work)
+- Adds API surface without necessity
+- Users would need to learn when to use which step
+
+---
+
+## 5. Test Plan
+
+### 5.1 Unit Tests
+
+**File:** `src/traversal/transform/metadata.rs` (add to existing tests)
 
 ```rust
 #[test]
-fn test_rhai_add_v_returns_vertex_id() {
-    let graph = Arc::new(Graph::new());
+fn id_step_preserves_pending_add_v() {
+    // IdStep should pass through pending add_v markers with __extract_id flag
+    let pending = Value::Map(HashMap::from([
+        ("__pending_add_v".to_string(), Value::Bool(true)),
+        ("label".to_string(), Value::String("person".into())),
+        ("properties".to_string(), Value::Map(HashMap::new())),
+    ]));
+    
+    let traverser = Traverser::new(pending);
+    let step = IdStep;
+    let ctx = /* create test context */;
+    
+    let results: Vec<_> = step.apply(&ctx, Box::new(std::iter::once(traverser))).collect();
+    
+    assert_eq!(results.len(), 1);
+    let map = results[0].value.as_map().unwrap();
+    assert!(map.contains_key("__pending_add_v"));
+    assert!(map.contains_key("__extract_id"));
+}
+
+#[test]
+fn id_step_preserves_pending_add_e() {
+    // Same as above but for edge mutations
+}
+```
+
+### 5.2 Integration Tests
+
+**File:** `tests/storage/cow.rs` (add new tests)
+
+```rust
+#[test]
+fn cow_add_v_id_returns_integer() {
+    let graph = Graph::new();
+    let g = graph.gremlin();
+    
+    let result = g.add_v("Person").property("name", "Alice").id().next();
+    
+    assert!(result.is_some());
+    match result.unwrap() {
+        Value::Int(id) => assert!(id >= 0),
+        other => panic!("Expected Int, got {:?}", other),
+    }
+    
+    // Verify vertex was actually created
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn cow_add_e_id_returns_integer() {
+    let graph = Graph::new();
+    let alice = graph.add_vertex("Person", HashMap::new());
+    let bob = graph.add_vertex("Person", HashMap::new());
+    
+    let g = graph.gremlin();
+    let result = g.add_e("KNOWS").from_id(alice).to_id(bob).id().next();
+    
+    assert!(result.is_some());
+    match result.unwrap() {
+        Value::Int(id) => assert!(id >= 0),
+        other => panic!("Expected Int, got {:?}", other),
+    }
+}
+
+#[test]
+fn cow_add_v_without_id_returns_vertex() {
+    // Ensure existing behavior is preserved: without .id(), returns Value::Vertex
+    let graph = Graph::new();
+    let g = graph.gremlin();
+    
+    let result = g.add_v("Person").next();
+    
+    assert!(matches!(result, Some(Value::Vertex(_))));
+}
+```
+
+### 5.3 Rhai Integration Tests
+
+**File:** `tests/rhai_integration/traversal.rs` (add new tests)
+
+```rust
+#[test]
+fn test_rhai_add_v_id_first() {
     let engine = RhaiEngine::new();
+    let graph = Arc::new(Graph::new());
     
-    let script = r#"
-        let g = graph.gremlin();
-        let id = g.add_v("person").property("name", "Alice").id().first();
-        id
-    "#;
+    let result: i64 = engine.eval_with_graph(
+        graph.clone(),
+        r#"
+            let g = graph.gremlin();
+            g.add_v("person").property("name", "Alice").id().first()
+        "#,
+    ).unwrap();
     
-    let result: VertexId = engine.eval_with_graph(graph.clone(), script).unwrap();
-    assert!(graph.get_vertex(result).is_some());
+    assert!(result >= 0);
+    assert_eq!(graph.vertex_count(), 1);
 }
 
 #[test]
 fn test_rhai_add_e_with_captured_ids() {
-    let graph = Arc::new(Graph::new());
     let engine = RhaiEngine::new();
-    
-    let script = r#"
-        let g = graph.gremlin();
-        let alice = g.add_v("person").property("name", "Alice").id().first();
-        let bob = g.add_v("person").property("name", "Bob").id().first();
-        g.add_e("knows").from_v(alice).to_v(bob).iterate();
-        g.e().count()
-    "#;
-    
-    let count: i64 = engine.eval_with_graph(graph, script).unwrap();
-    assert_eq!(count, 1);
-}
-```
-
-### 6.2 Convenience Method Tests
-
-```rust
-#[test]
-fn test_rhai_create_vertex() {
     let graph = Arc::new(Graph::new());
-    let engine = RhaiEngine::new();
     
-    let script = r#"
-        let g = graph.gremlin();
-        let id = g.create_vertex("person", #{ name: "Alice", age: 30 });
-        id
-    "#;
+    let edge_count: i64 = engine.eval_with_graph(
+        graph.clone(),
+        r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").property("name", "Alice").id().first();
+            let bob = g.add_v("person").property("name", "Bob").id().first();
+            g.add_e("knows").from_v(alice).to_v(bob).iterate();
+            g.e().count()
+        "#,
+    ).unwrap();
     
-    let result: VertexId = engine.eval_with_graph(graph.clone(), script).unwrap();
-    let vertex = graph.get_vertex(result).unwrap();
-    assert_eq!(vertex.label(), "person");
+    assert_eq!(edge_count, 1);
 }
 
 #[test]
-fn test_rhai_create_edge() {
-    let graph = Arc::new(Graph::new());
+fn test_rhai_add_v_first_returns_vertex_id() {
+    // Without .id(), first() should return a VertexId (not integer)
     let engine = RhaiEngine::new();
+    let graph = Arc::new(Graph::new());
     
-    let script = r#"
-        let g = graph.gremlin();
-        let alice = g.create_vertex("person", #{ name: "Alice" });
-        let bob = g.create_vertex("person", #{ name: "Bob" });
-        let edge = g.create_edge("knows", alice, bob, #{ since: 2020 });
-        edge
-    "#;
+    let result: rhai::Dynamic = engine.eval_with_graph(
+        graph.clone(),
+        r#"
+            let g = graph.gremlin();
+            let v = g.add_v("person").first();
+            v.id  // Access the .id property of VertexId
+        "#,
+    ).unwrap();
     
-    let result: EdgeId = engine.eval_with_graph(graph.clone(), script).unwrap();
-    let edge = graph.get_edge(result).unwrap();
-    assert_eq!(edge.label(), "knows");
+    assert!(result.is::<i64>());
 }
 ```
+
+---
+
+## 6. Migration & Compatibility
+
+### 6.1 Breaking Changes
+
+**None.** This fix only adds behavior for a previously-broken case.
+
+### 6.2 Backward Compatibility
+
+Existing working patterns are unaffected:
+
+- `g.add_v("label").next()` continues to return `Value::Vertex(id)` (see `examples/quickstart_gremlin.rs`)
+- `g.v().id().to_list()` continues to return `Vec<Value::Int>`
+- Rhai: `g.add_v("label").first()` continues to return `VertexId`
+
+Only the currently-broken pattern gains functionality:
+- `g.add_v("label").id().next()` will now return `Some(Value::Int(id))`
 
 ---
 
 ## 7. Success Criteria
 
-1. `g.add_v("label").property(...).id().first()` returns a valid `VertexId`
-2. `g.add_e("label").from_v(id1).to_v(id2).id().first()` returns a valid `EdgeId`
-3. `g.create_vertex(label, props)` returns a `VertexId`
-4. `g.create_edge(label, from, to, props)` returns an `EdgeId`
-5. `examples/scripting.rs` builds its graph entirely via Rhai scripts
-6. All existing Rhai tests continue to pass
+1. `g.add_v("label").property(...).id().next()` returns `Some(Value::Int(id))`
+2. `g.add_e("label").from_id(a).to_id(b).id().next()` returns `Some(Value::Int(id))`
+3. Rhai pattern `g.add_v("label").id().first()` returns an integer usable in `from_v()`/`to_v()`
+4. All existing tests pass without modification
+5. The `examples/scripting.rs` can build graphs entirely via Rhai scripts
 
 ---
 
-## 8. Open Questions
+## 8. Implementation Checklist
 
-1. Should `create_vertex` / `create_edge` be on the graph object directly (`graph.create_vertex(...)`) or on the traversal source (`g.create_vertex(...)`)?
-
-2. Should we support batch creation methods for performance?
-   ```javascript
-   g.create_vertices("person", [
-       #{ name: "Alice" },
-       #{ name: "Bob" }
-   ])  // Returns array of VertexIds
-   ```
-
-3. Should failed mutations throw Rhai exceptions or return error values?
+- [ ] Update `IdStep::apply()` to handle `__pending_add_v` and `__pending_add_e` markers
+- [ ] Update `CowBoundTraversal::execute_with_mutations()` to check `__extract_id` flag
+- [ ] Add unit tests for `IdStep` with pending mutations
+- [ ] Add integration tests for Rust API
+- [ ] Add integration tests for Rhai API
+- [ ] Update `examples/scripting.rs` to demonstrate the pattern
+- [ ] Run full test suite and benchmarks

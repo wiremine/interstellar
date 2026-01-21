@@ -3238,3 +3238,157 @@ fn test_take_with_order() {
         "Alice".to_string()
     );
 }
+
+// =============================================================================
+// Spec 36: Mutation ID Extraction Tests
+// =============================================================================
+
+#[test]
+fn test_rhai_add_v_id_first() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Using .id().first() after add_v() should return the ID as an integer
+    let result: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            g.add_v("person").property("name", "Alice").id().first()
+        "#,
+        )
+        .unwrap();
+
+    assert!(result >= 0);
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn test_rhai_add_v_first_returns_vertex_id() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Without .id(), first() should return a VertexId (accessed via .id property)
+    let result: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let v = g.add_v("person").first();
+            v.id
+        "#,
+        )
+        .unwrap();
+
+    assert!(result >= 0);
+}
+
+#[test]
+fn test_rhai_add_e_id_first() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create vertices and edge, get edge ID
+    let result: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            g.add_e("knows").from_v(alice).to_v(bob).id().first()
+        "#,
+        )
+        .unwrap();
+
+    assert!(result >= 0);
+    assert_eq!(graph.edge_count(), 1);
+}
+
+#[test]
+fn test_rhai_add_v_id_usable_in_from_v() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // The main use case: capture vertex IDs and use them to create edges
+    let edge_count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").property("name", "Alice").id().first();
+            let bob = g.add_v("person").property("name", "Bob").id().first();
+            g.add_e("knows").from_v(alice).to_v(bob).iterate();
+            g.e().count()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(edge_count, 1);
+    assert_eq!(graph.vertex_count(), 2);
+}
+
+#[test]
+fn test_rhai_multiple_add_v_id() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create multiple vertices and verify IDs are different
+    let ids: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let id1 = g.add_v("person").id().first();
+            let id2 = g.add_v("person").id().first();
+            let id3 = g.add_v("software").id().first();
+            [id1, id2, id3]
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(ids.len(), 3);
+
+    // IDs should be different
+    let id1 = ids[0].clone().cast::<i64>();
+    let id2 = ids[1].clone().cast::<i64>();
+    let id3 = ids[2].clone().cast::<i64>();
+    assert_ne!(id1, id2);
+    assert_ne!(id2, id3);
+
+    assert_eq!(graph.vertex_count(), 3);
+}
+
+#[test]
+fn test_rhai_build_graph_entirely_via_script() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Build a complete graph using only Rhai scripting
+    let result: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            
+            // Create vertices using .id().first() pattern
+            let alice = g.add_v("person").property("name", "Alice").property("age", 30).id().first();
+            let bob = g.add_v("person").property("name", "Bob").property("age", 25).id().first();
+            let carol = g.add_v("person").property("name", "Carol").property("age", 35).id().first();
+            
+            // Create edges using captured IDs
+            g.add_e("knows").from_v(alice).to_v(bob).property("since", 2020).iterate();
+            g.add_e("knows").from_v(alice).to_v(carol).iterate();
+            g.add_e("knows").from_v(bob).to_v(carol).iterate();
+            
+            // Query the graph to verify
+            g.v().has_label("person").out("knows").values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    // Alice knows Bob and Carol (2), Bob knows Carol (1) = 3 total traversals
+    assert_eq!(result.len(), 3);
+    assert_eq!(graph.vertex_count(), 3);
+    assert_eq!(graph.edge_count(), 3);
+}

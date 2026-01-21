@@ -4,21 +4,79 @@
 //!
 //! Run: `cargo run --example scripting --features rhai`
 
-use interstellar::prelude::*;
 use interstellar::rhai::RhaiEngine;
 use interstellar::storage::Graph;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
     println!("=== Interstellar Rhai Scripting ===\n");
 
-    // 1. Create a graph and RhaiEngine
-    let graph = build_graph();
+    // 1. Create an empty graph and RhaiEngine
+    let graph = Arc::new(Graph::new());
     let engine = RhaiEngine::new();
 
-    // 2. Basic traversal via script
-    println!("--- Basic Traversal ---");
+    // 2. Build the graph using Rhai scripting
+    println!("--- Building Graph via Script ---");
+    let build_script = r#"
+        let g = graph.gremlin();
+        
+        // Create people - use .id().first() to get IDs for edge creation
+        let alice = g.add_v("person")
+            .property("name", "Alice")
+            .property("age", 30)
+            .property("city", "New York")
+            .id().first();
+        
+        let bob = g.add_v("person")
+            .property("name", "Bob")
+            .property("age", 25)
+            .property("city", "Boston")
+            .id().first();
+        
+        let carol = g.add_v("person")
+            .property("name", "Carol")
+            .property("age", 35)
+            .property("city", "Chicago")
+            .id().first();
+        
+        let dave = g.add_v("person")
+            .property("name", "Dave")
+            .property("age", 40)
+            .property("city", "Denver")
+            .id().first();
+        
+        // Create companies
+        let acme = g.add_v("company")
+            .property("name", "Acme Corp")
+            .property("industry", "Technology")
+            .id().first();
+        
+        let globex = g.add_v("company")
+            .property("name", "Globex Inc")
+            .property("industry", "Finance")
+            .id().first();
+        
+        // Create relationships using the captured vertex IDs
+        g.add_e("knows").from_v(alice).to_v(bob).first();
+        g.add_e("knows").from_v(alice).to_v(carol).first();
+        g.add_e("knows").from_v(bob).to_v(carol).first();
+        g.add_e("knows").from_v(bob).to_v(dave).first();
+        g.add_e("knows").from_v(carol).to_v(dave).first();
+        g.add_e("works_at").from_v(alice).to_v(acme).first();
+        g.add_e("works_at").from_v(bob).to_v(acme).first();
+        
+        // Return stats
+        #{ vertices: g.v().count(), edges: g.e().count() }
+    "#;
+    let stats: rhai::Map = engine.eval_with_graph(graph.clone(), build_script).unwrap();
+    println!(
+        "Created {} vertices and {} edges",
+        stats.get("vertices").unwrap(),
+        stats.get("edges").unwrap()
+    );
+
+    // 3. Basic traversal via script
+    println!("\n--- Basic Traversal ---");
     let script = r#"
         let g = graph.gremlin();
         g.v().has_label("person").values("name").to_list()
@@ -30,7 +88,7 @@ fn main() {
         eval_count(&engine, graph.clone(), "g.v().count()")
     );
 
-    // 3. Predicates in scripts (gt, between, within)
+    // 4. Predicates in scripts (gt, between, within)
     println!("\n--- Predicates ---");
     let script = r#"
         let g = graph.gremlin();
@@ -55,7 +113,7 @@ fn main() {
     let in_cities: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     println!("In NYC/Boston: {:?}", in_cities);
 
-    // 4. Navigation patterns (out, in_)
+    // 5. Navigation patterns (out, in_)
     println!("\n--- Navigation ---");
     let script = r#"
         let g = graph.gremlin();
@@ -81,7 +139,7 @@ fn main() {
     let coworkers: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     println!("Alice's coworkers: {:?}", coworkers);
 
-    // 5. Anonymous traversals (A.out(), A.values())
+    // 6. Anonymous traversals (A.out(), A.values())
     println!("\n--- Anonymous Traversals ---");
     let script = r#"
         let g = graph.gremlin();
@@ -107,7 +165,7 @@ fn main() {
     let fallback: rhai::Array = engine.eval_with_graph(graph.clone(), script).unwrap();
     println!("Coalesce (managers or friends): {:?}", fallback);
 
-    // 6. Pre-compiled scripts for performance
+    // 7. Pre-compiled scripts for performance
     println!("\n--- Pre-compiled Scripts ---");
     let ast = engine
         .compile(r#"graph.gremlin().v().has_label("person").count()"#)
@@ -118,7 +176,7 @@ fn main() {
         println!("  Run {}: {} people", i, count);
     }
 
-    // 7. Complex query returning structured data
+    // 8. Complex query returning structured data
     println!("\n--- Complex Query ---");
     let script = r#"
         let g = graph.gremlin();
@@ -133,95 +191,49 @@ fn main() {
         
         #{ company: company, friends_of_friends: fof }
     "#;
-    let result: rhai::Map = engine.eval_with_graph(graph, script).unwrap();
+    let result: rhai::Map = engine.eval_with_graph(graph.clone(), script).unwrap();
     println!("Alice's company: {}", result.get("company").unwrap());
     println!(
         "Friends of friends: {:?}",
         result.get("friends_of_friends").unwrap()
     );
 
+    // 9. Dynamic graph updates via script
+    println!("\n--- Dynamic Updates ---");
+    let update_script = r#"
+        let g = graph.gremlin();
+        
+        // Add a new person
+        let eve = g.add_v("person")
+            .property("name", "Eve")
+            .property("age", 28)
+            .property("city", "Seattle")
+            .id().first();
+        
+        // Connect Eve to the social network
+        let alice = g.v().has_value("name", "Alice").id().first();
+        g.add_e("knows").from_v(alice).to_v(eve).first();
+        
+        // Eve works at Globex
+        let globex = g.v().has_value("name", "Globex Inc").id().first();
+        g.add_e("works_at").from_v(eve).to_v(globex).first();
+        
+        // Return updated stats
+        #{ 
+            vertices: g.v().count(), 
+            edges: g.e().count(),
+            people: g.v().has_label("person").values("name").to_list()
+        }
+    "#;
+    let updated: rhai::Map = engine.eval_with_graph(graph, update_script).unwrap();
+    println!(
+        "After update: {} vertices, {} edges",
+        updated.get("vertices").unwrap(),
+        updated.get("edges").unwrap()
+    );
+    println!("All people: {:?}", updated.get("people").unwrap());
+
     println!("\n=== Done ===");
-}
-
-/// Build a sample social network graph.
-fn build_graph() -> Arc<Graph> {
-    let graph = Graph::new();
-
-    // Create people
-    let alice = graph.add_vertex(
-        "person",
-        HashMap::from([
-            ("name".to_string(), Value::String("Alice".to_string())),
-            ("age".to_string(), Value::Int(30)),
-            ("city".to_string(), Value::String("New York".to_string())),
-        ]),
-    );
-
-    let bob = graph.add_vertex(
-        "person",
-        HashMap::from([
-            ("name".to_string(), Value::String("Bob".to_string())),
-            ("age".to_string(), Value::Int(25)),
-            ("city".to_string(), Value::String("Boston".to_string())),
-        ]),
-    );
-
-    let carol = graph.add_vertex(
-        "person",
-        HashMap::from([
-            ("name".to_string(), Value::String("Carol".to_string())),
-            ("age".to_string(), Value::Int(35)),
-            ("city".to_string(), Value::String("Chicago".to_string())),
-        ]),
-    );
-
-    let dave = graph.add_vertex(
-        "person",
-        HashMap::from([
-            ("name".to_string(), Value::String("Dave".to_string())),
-            ("age".to_string(), Value::Int(40)),
-            ("city".to_string(), Value::String("Denver".to_string())),
-        ]),
-    );
-
-    // Create companies
-    let acme = graph.add_vertex(
-        "company",
-        HashMap::from([
-            ("name".to_string(), Value::String("Acme Corp".to_string())),
-            (
-                "industry".to_string(),
-                Value::String("Technology".to_string()),
-            ),
-        ]),
-    );
-
-    let _globex = graph.add_vertex(
-        "company",
-        HashMap::from([
-            ("name".to_string(), Value::String("Globex Inc".to_string())),
-            ("industry".to_string(), Value::String("Finance".to_string())),
-        ]),
-    );
-
-    // Create relationships
-    graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-    graph
-        .add_edge(alice, carol, "knows", HashMap::new())
-        .unwrap();
-    graph.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
-    graph.add_edge(bob, dave, "knows", HashMap::new()).unwrap();
-    graph
-        .add_edge(carol, dave, "knows", HashMap::new())
-        .unwrap();
-    graph
-        .add_edge(alice, acme, "works_at", HashMap::new())
-        .unwrap();
-    graph
-        .add_edge(bob, acme, "works_at", HashMap::new())
-        .unwrap();
-
-    Arc::new(graph)
 }
 
 /// Helper to evaluate count queries

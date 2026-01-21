@@ -52,6 +52,15 @@ impl crate::traversal::step::AnyStep for IdStep {
                     // Return the edge ID as an integer
                     Some(traverser.split(Value::Int(id.0 as i64)))
                 }
+                // Handle pending mutations: mark for ID extraction after mutation execution
+                Value::Map(map)
+                    if map.contains_key("__pending_add_v")
+                        || map.contains_key("__pending_add_e") =>
+                {
+                    let mut new_map = map.clone();
+                    new_map.insert("__extract_id".to_string(), Value::Bool(true));
+                    Some(traverser.split(Value::Map(new_map)))
+                }
                 // Non-element values are filtered out
                 _ => None,
             }
@@ -760,6 +769,202 @@ mod tests {
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
+        }
+    }
+
+    mod id_step_pending_mutation_tests {
+        use super::*;
+
+        /// Helper to create a pending add_v mutation marker
+        fn create_pending_add_v(label: &str) -> Value {
+            let mut map = HashMap::new();
+            map.insert("__pending_add_v".to_string(), Value::Bool(true));
+            map.insert("label".to_string(), Value::String(label.to_string()));
+            map.insert("properties".to_string(), Value::Map(HashMap::new()));
+            Value::Map(map)
+        }
+
+        /// Helper to create a pending add_e mutation marker
+        fn create_pending_add_e(label: &str, from: VertexId, to: VertexId) -> Value {
+            let mut map = HashMap::new();
+            map.insert("__pending_add_e".to_string(), Value::Bool(true));
+            map.insert("label".to_string(), Value::String(label.to_string()));
+            map.insert("from".to_string(), Value::Vertex(from));
+            map.insert("to".to_string(), Value::Vertex(to));
+            map.insert("properties".to_string(), Value::Map(HashMap::new()));
+            Value::Map(map)
+        }
+
+        #[test]
+        fn preserves_pending_add_v_with_extract_id_flag() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+            let step = IdStep::new();
+            let pending = create_pending_add_v("person");
+            let input = vec![Traverser::new(pending)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.contains_key("__pending_add_v"));
+                assert!(map.contains_key("__extract_id"));
+                assert_eq!(map.get("__extract_id"), Some(&Value::Bool(true)));
+            } else {
+                panic!("Expected Map, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn preserves_pending_add_e_with_extract_id_flag() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+            let step = IdStep::new();
+            let pending = create_pending_add_e("knows", VertexId(0), VertexId(1));
+            let input = vec![Traverser::new(pending)];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                assert!(map.contains_key("__pending_add_e"));
+                assert!(map.contains_key("__extract_id"));
+                assert_eq!(map.get("__extract_id"), Some(&Value::Bool(true)));
+            } else {
+                panic!("Expected Map, got {:?}", output[0].value);
+            }
+        }
+
+        #[test]
+        fn preserves_all_pending_mutation_fields() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+            let step = IdStep::new();
+
+            // Create a pending add_v with properties
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), Value::String("Alice".to_string()));
+            props.insert("age".to_string(), Value::Int(30));
+
+            let mut pending_map = HashMap::new();
+            pending_map.insert("__pending_add_v".to_string(), Value::Bool(true));
+            pending_map.insert("label".to_string(), Value::String("person".to_string()));
+            pending_map.insert("properties".to_string(), Value::Map(props));
+
+            let input = vec![Traverser::new(Value::Map(pending_map))];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            if let Value::Map(map) = &output[0].value {
+                // Original fields preserved
+                assert!(map.contains_key("__pending_add_v"));
+                assert_eq!(map.get("label"), Some(&Value::String("person".to_string())));
+
+                // Properties preserved
+                if let Some(Value::Map(props)) = map.get("properties") {
+                    assert_eq!(props.get("name"), Some(&Value::String("Alice".to_string())));
+                    assert_eq!(props.get("age"), Some(&Value::Int(30)));
+                } else {
+                    panic!("Properties not preserved");
+                }
+
+                // New extract_id flag added
+                assert_eq!(map.get("__extract_id"), Some(&Value::Bool(true)));
+            } else {
+                panic!("Expected Map");
+            }
+        }
+
+        #[test]
+        fn filters_out_regular_maps_without_pending_marker() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+            let step = IdStep::new();
+
+            // Regular map without pending mutation marker
+            let mut regular_map = HashMap::new();
+            regular_map.insert("name".to_string(), Value::String("Alice".to_string()));
+
+            let input = vec![Traverser::new(Value::Map(regular_map))];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert!(output.is_empty());
+        }
+
+        #[test]
+        fn handles_mixed_elements_and_pending_mutations() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+            let step = IdStep::new();
+            let pending_v = create_pending_add_v("person");
+            let pending_e = create_pending_add_e("knows", VertexId(0), VertexId(1));
+
+            let input = vec![
+                Traverser::from_vertex(VertexId(5)), // Real vertex -> extract ID
+                Traverser::new(pending_v),           // Pending vertex -> add flag
+                Traverser::new(Value::Int(42)),      // Filtered out
+                Traverser::new(pending_e),           // Pending edge -> add flag
+                Traverser::from_edge(EdgeId(10)),    // Real edge -> extract ID
+            ];
+
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 4);
+
+            // First: real vertex ID extracted
+            assert_eq!(output[0].value, Value::Int(5));
+
+            // Second: pending add_v with extract_id flag
+            if let Value::Map(map) = &output[1].value {
+                assert!(map.contains_key("__pending_add_v"));
+                assert!(map.contains_key("__extract_id"));
+            } else {
+                panic!("Expected pending add_v map");
+            }
+
+            // Third: pending add_e with extract_id flag
+            if let Value::Map(map) = &output[2].value {
+                assert!(map.contains_key("__pending_add_e"));
+                assert!(map.contains_key("__extract_id"));
+            } else {
+                panic!("Expected pending add_e map");
+            }
+
+            // Fourth: real edge ID extracted
+            assert_eq!(output[3].value, Value::Int(10));
+        }
+
+        #[test]
+        fn preserves_traverser_metadata_for_pending_mutations() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+            let step = IdStep::new();
+
+            let pending = create_pending_add_v("person");
+            let mut traverser = Traverser::new(pending);
+            traverser.extend_path_labeled("start");
+            traverser.loops = 3;
+            traverser.bulk = 5;
+
+            let input = vec![traverser];
+            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+            assert_eq!(output.len(), 1);
+            assert!(output[0].path.has_label("start"));
+            assert_eq!(output[0].loops, 3);
+            assert_eq!(output[0].bulk, 5);
         }
     }
 

@@ -1864,9 +1864,26 @@ impl<'g, In, Out> CowBoundTraversal<'g, In, Out> {
 
         for traverser in results {
             if let Some(mutation) = PendingMutation::from_value(&traverser.value) {
+                // Check if ID extraction was requested (via .id() step on pending mutation)
+                let extract_id = traverser
+                    .value
+                    .as_map()
+                    .map(|m| m.contains_key("__extract_id"))
+                    .unwrap_or(false);
+
                 // Execute the mutation and get the result
                 if let Some(result) = Self::execute_mutation(&mut wrapper, mutation) {
-                    final_results.push(result);
+                    if extract_id {
+                        // Return the ID as an integer instead of the element
+                        let id_value = match result {
+                            Value::Vertex(vid) => Value::Int(vid.0 as i64),
+                            Value::Edge(eid) => Value::Int(eid.0 as i64),
+                            other => other,
+                        };
+                        final_results.push(id_value);
+                    } else {
+                        final_results.push(result);
+                    }
                 }
             } else {
                 // Not a mutation, pass through
