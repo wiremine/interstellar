@@ -92,8 +92,8 @@ mod pipeline;
 // Re-exports from core modules
 // -----------------------------------------------------------------------------
 
-// Re-export anonymous module as __ for Gremlin-style API
-pub use anonymous as __;
+// Re-export static __ instance for Gremlin-style `__.method()` syntax
+pub use anonymous::{AnonymousTraversal, __};
 
 // Re-export core types from traverser module
 pub use traverser::{CloneSack, Path, PathElement, PathValue, TraversalSource, Traverser};

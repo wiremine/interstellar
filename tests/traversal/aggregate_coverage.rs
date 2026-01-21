@@ -97,7 +97,7 @@ mod group_key_constructors {
 
     #[test]
     fn group_key_by_traversal() {
-        let t = __::values("name");
+        let t = __.values("name");
         let key = GroupKey::by_traversal(t);
         assert!(matches!(key, GroupKey::Traversal(_)));
     }
@@ -120,7 +120,7 @@ mod group_key_constructors {
 
     #[test]
     fn group_value_by_traversal() {
-        let t = __::values("name");
+        let t = __.values("name");
         let value = GroupValue::by_traversal(t);
         assert!(matches!(value, GroupValue::Traversal(_)));
     }
@@ -276,7 +276,7 @@ mod group_count_key_types {
         let g = snapshot.gremlin();
 
         // Count edges grouped by target vertex
-        let result = g.e().group_count().by_traversal(__::in_v()).build().next();
+        let result = g.e().group_count().by_traversal(__.in_v()).build().next();
 
         assert!(result.is_some());
         if let Some(Value::Map(map)) = result {
@@ -322,7 +322,7 @@ mod group_value_traversal_tests {
             .has_label("person")
             .group()
             .by_label()
-            .by_value_traversal(__::out().values("name"))
+            .by_value_traversal(__.out().values("name"))
             .build()
             .next();
 
@@ -357,7 +357,7 @@ mod group_value_traversal_tests {
             .has_label("person")
             .group()
             .by_label()
-            .by_value_traversal(__::out().values("name"))
+            .by_value_traversal(__.out().values("name"))
             .build()
             .next();
 
@@ -396,7 +396,7 @@ mod group_value_traversal_tests {
             .has_label("person")
             .group()
             .by_key("name")
-            .by_value_traversal(__::out().values("name"))
+            .by_value_traversal(__.out().values("name"))
             .build()
             .next();
 

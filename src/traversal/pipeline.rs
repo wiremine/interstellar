@@ -143,7 +143,7 @@ impl<In, Out> Traversal<In, Out> {
     /// # Example
     ///
     /// ```ignore
-    /// let anon: Traversal<Value, Value> = __::out().has_label("person");
+    /// let anon: Traversal<Value, Value> = __.out().has_label("person");
     /// let bound = g.v().append(anon);
     /// ```
     pub fn append<Mid>(mut self, other: Traversal<Out, Mid>) -> Traversal<In, Mid> {

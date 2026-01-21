@@ -123,7 +123,7 @@ fn loops_increments_within_repeat() {
     // Bob -> Charlie (loops=1 after second out)
     let results: Vec<Value> = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(2)
         .emit()
         .loops()
@@ -148,8 +148,8 @@ fn loops_with_until_condition() {
     // Repeat until we find Charlie, then get loop count
     let results: Vec<Value> = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
-        .until(__::has_value("name", "Charlie"))
+        .repeat(__.out_labels(&["knows"]))
+        .until(__.has_value("name", "Charlie"))
         .loops()
         .to_list();
 
@@ -422,15 +422,15 @@ fn anonymous_traversal_key_value() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::key() and __::value() in anonymous traversals
-    let keys: Vec<Value> = g.v_ids([tg.alice]).properties().local(__::key()).to_list();
+    // Use __.key() and __.value() in anonymous traversals
+    let keys: Vec<Value> = g.v_ids([tg.alice]).properties().local(__.key()).to_list();
 
     assert_eq!(keys.len(), 2);
 
     let values: Vec<Value> = g
         .v_ids([tg.alice])
         .properties()
-        .local(__::value())
+        .local(__.value())
         .to_list();
 
     assert_eq!(values.len(), 2);
@@ -442,8 +442,8 @@ fn anonymous_traversal_index() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::index() in anonymous traversal
-    let indexed: Vec<Value> = g.inject([1i64, 2i64, 3i64]).local(__::index()).to_list();
+    // Use __.index() in anonymous traversal
+    let indexed: Vec<Value> = g.inject([1i64, 2i64, 3i64]).local(__.index()).to_list();
 
     // Each element should be indexed
     assert_eq!(indexed.len(), 3);
@@ -455,8 +455,8 @@ fn anonymous_traversal_property_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::property_map() in anonymous traversal
-    let maps: Vec<Value> = g.v_ids([tg.alice]).local(__::property_map()).to_list();
+    // Use __.property_map() in anonymous traversal
+    let maps: Vec<Value> = g.v_ids([tg.alice]).local(__.property_map()).to_list();
 
     assert_eq!(maps.len(), 1);
     if let Value::Map(map) = &maps[0] {

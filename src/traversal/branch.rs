@@ -646,10 +646,10 @@ impl AnyStep for LocalStep {
 ///
 /// // Route based on vertex label
 /// g.v()
-///     .branch(__::label())
-///     .option("person", __::out_labels(&["knows"]))
-///     .option("software", __::in_labels(&["created"]))
-///     .option_none(__::identity())
+///     .branch(__.label())
+///     .option("person", __.out_labels(&["knows"]))
+///     .option("software", __.in_labels(&["created"]))
+///     .option_none(__.identity())
 ///     .to_list()
 /// ```
 #[derive(Clone)]

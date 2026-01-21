@@ -23,7 +23,7 @@ fn union_returns_neighbors_from_both_directions() {
     // union(out, in) should return all 3
     let results = g
         .v_ids([tg.alice])
-        .union(vec![__::out(), __::in_()])
+        .union(vec![__.out(), __.in_()])
         .to_list();
 
     assert_eq!(results.len(), 3);
@@ -49,7 +49,7 @@ fn union_merges_results_in_traverser_major_order() {
     // Bob knows Charlie (out), Alice knows Bob (in) -> Bob produces 2
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .union(vec![__::out_labels(&["knows"]), __::in_labels(&["knows"])])
+        .union(vec![__.out_labels(&["knows"]), __.in_labels(&["knows"])])
         .to_list();
 
     // Alice: out->Bob, in<-Charlie = 2
@@ -96,7 +96,7 @@ fn union_with_branch_producing_no_results() {
     // GraphDB has no outgoing edges but has incoming "uses" edges
     let results = g
         .v_ids([tg.graphdb])
-        .union(vec![__::out(), __::in_()])
+        .union(vec![__.out(), __.in_()])
         .to_list();
 
     // out() produces nothing, in() produces Alice and Bob
@@ -117,8 +117,8 @@ fn union_with_all_empty_branches() {
     let results = g
         .v_ids([tg.alice])
         .union(vec![
-            __::out_labels(&["nonexistent1"]),
-            __::out_labels(&["nonexistent2"]),
+            __.out_labels(&["nonexistent1"]),
+            __.out_labels(&["nonexistent2"]),
         ])
         .to_list();
 
@@ -132,7 +132,7 @@ fn union_with_single_branch_matches_direct_traversal() {
     let g = snapshot.gremlin();
 
     // union with single branch should equal direct traversal
-    let union_results = g.v_ids([tg.alice]).union(vec![__::out()]).to_list();
+    let union_results = g.v_ids([tg.alice]).union(vec![__.out()]).to_list();
 
     let direct_results = g.v_ids([tg.alice]).out().to_list();
 
@@ -162,7 +162,7 @@ fn union_with_labeled_edges() {
     // Get neighbors via both edge types using union
     let results = g
         .v_ids([tg.alice])
-        .union(vec![__::out_labels(&["knows"]), __::out_labels(&["uses"])])
+        .union(vec![__.out_labels(&["knows"]), __.out_labels(&["uses"])])
         .to_list();
 
     assert_eq!(results.len(), 2);
@@ -182,8 +182,8 @@ fn union_with_chained_sub_traversals() {
     let results = g
         .v_ids([tg.alice])
         .union(vec![
-            __::out_labels(&["knows"]),
-            __::out_labels(&["knows"]).values("name"),
+            __.out_labels(&["knows"]),
+            __.out_labels(&["knows"]).values("name"),
         ])
         .to_list();
 
@@ -208,7 +208,7 @@ fn union_preserves_traverser_metadata() {
     let results = g
         .v_ids([tg.alice])
         .as_("start")
-        .union(vec![__::out_labels(&["knows"])])
+        .union(vec![__.out_labels(&["knows"])])
         .as_("end")
         .select(&["start", "end"])
         .to_list();
@@ -239,8 +239,8 @@ fn anonymous_union_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::union factory to create anonymous traversal
-    let anon = __::union(vec![__::out(), __::in_()]);
+    // Use __.union factory to create anonymous traversal
+    let anon = __.union(vec![__.out(), __.in_()]);
     let results = g.v_ids([tg.alice]).append(anon).to_list();
 
     // Alice: out(Bob, GraphDB), in(Charlie)
@@ -254,7 +254,7 @@ fn union_on_all_vertices() {
     let g = snapshot.gremlin();
 
     // Get all neighbors (both directions) for all vertices
-    let results = g.v().union(vec![__::out(), __::in_()]).to_list();
+    let results = g.v().union(vec![__.out(), __.in_()]).to_list();
 
     // Each vertex contributes its out + in neighbors
     // This will have duplicates since neighbors are shared
@@ -276,8 +276,8 @@ fn union_dedup_removes_duplicates() {
     let results = g
         .v_ids([tg.alice])
         .union(vec![
-            __::out_labels(&["knows"]), // Bob
-            __::out_labels(&["knows"]), // Bob again (same branch duplicated)
+            __.out_labels(&["knows"]), // Bob
+            __.out_labels(&["knows"]), // Bob again (same branch duplicated)
         ])
         .dedup()
         .to_list();
@@ -301,7 +301,7 @@ fn coalesce_returns_first_non_empty_branch() {
     // coalesce should skip the empty nickname branch and return name
     let results = g
         .v_ids([tg.alice])
-        .coalesce(vec![__::values("nickname"), __::values("name")])
+        .coalesce(vec![__.values("nickname"), __.values("name")])
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -317,7 +317,7 @@ fn coalesce_uses_first_branch_when_it_has_results() {
     // Alice has "name" property - first branch should be used
     let results = g
         .v_ids([tg.alice])
-        .coalesce(vec![__::values("name"), __::values("age")])
+        .coalesce(vec![__.values("name"), __.values("age")])
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -334,9 +334,9 @@ fn coalesce_returns_empty_when_all_branches_empty() {
     let results = g
         .v_ids([tg.alice])
         .coalesce(vec![
-            __::values("nonexistent1"),
-            __::values("nonexistent2"),
-            __::values("nonexistent3"),
+            __.values("nonexistent1"),
+            __.values("nonexistent2"),
+            __.values("nonexistent3"),
         ])
         .to_list();
 
@@ -364,7 +364,7 @@ fn coalesce_short_circuits_on_first_success() {
     // Coalesce should only return name (short-circuit)
     let results = g
         .v_ids([tg.alice])
-        .coalesce(vec![__::values("name"), __::values("age")])
+        .coalesce(vec![__.values("name"), __.values("age")])
         .to_list();
 
     // Should only have name, not age
@@ -382,7 +382,7 @@ fn coalesce_with_traversal_branches() {
     // First branch (out) should be empty, second (in) should have results
     let results = g
         .v_ids([tg.graphdb])
-        .coalesce(vec![__::out(), __::in_()])
+        .coalesce(vec![__.out(), __.in_()])
         .to_list();
 
     // Should have the incoming neighbors (Alice and Bob who use GraphDB)
@@ -403,7 +403,7 @@ fn coalesce_on_multiple_inputs() {
     // GraphDB has no out edges but has in edges -> falls back to second branch
     let results = g
         .v_ids([tg.alice, tg.graphdb])
-        .coalesce(vec![__::out(), __::in_()])
+        .coalesce(vec![__.out(), __.in_()])
         .to_list();
 
     // Alice: out -> Bob, GraphDB (2 results)
@@ -429,7 +429,7 @@ fn coalesce_with_labeled_edge_branches() {
     // Should return GraphDB (first branch succeeds)
     let results = g
         .v_ids([tg.alice])
-        .coalesce(vec![__::out_labels(&["uses"]), __::out_labels(&["knows"])])
+        .coalesce(vec![__.out_labels(&["uses"]), __.out_labels(&["knows"])])
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -446,9 +446,9 @@ fn coalesce_falls_back_through_multiple_empty_branches() {
     let results = g
         .v_ids([tg.alice])
         .coalesce(vec![
-            __::out_labels(&["nonexistent1"]),
-            __::out_labels(&["nonexistent2"]),
-            __::out_labels(&["knows"]),
+            __.out_labels(&["nonexistent1"]),
+            __.out_labels(&["nonexistent2"]),
+            __.out_labels(&["knows"]),
         ])
         .to_list();
 
@@ -462,8 +462,8 @@ fn anonymous_coalesce_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::coalesce factory to create anonymous traversal
-    let anon = __::coalesce(vec![__::values("nickname"), __::values("name")]);
+    // Use __.coalesce factory to create anonymous traversal
+    let anon = __.coalesce(vec![__.values("nickname"), __.values("name")]);
 
     let results = g.v_ids([tg.alice]).append(anon).to_list();
 
@@ -483,8 +483,8 @@ fn coalesce_with_chained_sub_traversals() {
     let results = g
         .v_ids([tg.alice])
         .coalesce(vec![
-            __::out().has_label("software"),
-            __::out().has_label("person"),
+            __.out().has_label("software"),
+            __.out().has_label("person"),
         ])
         .to_list();
 
@@ -508,9 +508,9 @@ fn choose_branches_based_on_label() {
     let results = g
         .v_ids([tg.alice])
         .choose(
-            __::has_label("person"),
-            __::out_labels(&["knows"]),
-            __::out(),
+            __.has_label("person"),
+            __.out_labels(&["knows"]),
+            __.out(),
         )
         .to_list();
 
@@ -529,9 +529,9 @@ fn choose_executes_if_false_branch_when_condition_fails() {
     let results = g
         .v_ids([tg.graphdb])
         .choose(
-            __::has_label("person"),
-            __::out_labels(&["knows"]),
-            __::in_(),
+            __.has_label("person"),
+            __.out_labels(&["knows"]),
+            __.in_(),
         )
         .to_list();
 
@@ -554,9 +554,9 @@ fn choose_evaluates_condition_per_traverser() {
     let results = g
         .v_ids([tg.alice, tg.graphdb])
         .choose(
-            __::has_label("person"),
-            __::out_labels(&["knows"]),
-            __::in_(),
+            __.has_label("person"),
+            __.out_labels(&["knows"]),
+            __.in_(),
         )
         .to_list();
 
@@ -582,9 +582,9 @@ fn choose_with_property_condition() {
     let results = g
         .v_ids([tg.alice, tg.bob])
         .choose(
-            __::has_where("age", p::gte(30)),
-            __::out_labels(&["knows"]),
-            __::out(),
+            __.has_where("age", p::gte(30)),
+            __.out_labels(&["knows"]),
+            __.out(),
         )
         .to_list();
 
@@ -609,9 +609,9 @@ fn choose_if_true_branch_returns_empty() {
     let results = g
         .v_ids([tg.alice])
         .choose(
-            __::has_label("person"),
-            __::out_labels(&["worksAt"]), // Empty - no such edges
-            __::out(),
+            __.has_label("person"),
+            __.out_labels(&["worksAt"]), // Empty - no such edges
+            __.out(),
         )
         .to_list();
 
@@ -630,9 +630,9 @@ fn choose_if_false_branch_returns_empty() {
     let results = g
         .v_ids([tg.graphdb])
         .choose(
-            __::has_label("person"),
-            __::out(),
-            __::out_labels(&["nonexistent"]),
+            __.has_label("person"),
+            __.out(),
+            __.out_labels(&["nonexistent"]),
         )
         .to_list();
 
@@ -650,9 +650,9 @@ fn choose_with_chained_condition() {
     let results = g
         .v_ids([tg.alice])
         .choose(
-            __::out_labels(&["knows"]).has_value("name", "Bob"),
-            __::out_labels(&["uses"]),
-            __::in_(),
+            __.out_labels(&["knows"]).has_value("name", "Bob"),
+            __.out_labels(&["uses"]),
+            __.in_(),
         )
         .to_list();
 
@@ -671,9 +671,9 @@ fn choose_condition_false_for_chained_condition() {
     let results = g
         .v_ids([tg.bob])
         .choose(
-            __::out_labels(&["knows"]).has_value("name", "Alice"),
-            __::out_labels(&["uses"]),
-            __::in_labels(&["knows"]),
+            __.out_labels(&["knows"]).has_value("name", "Alice"),
+            __.out_labels(&["uses"]),
+            __.in_labels(&["knows"]),
         )
         .to_list();
 
@@ -687,11 +687,11 @@ fn anonymous_choose_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::choose factory to create anonymous traversal
-    let anon = __::choose(
-        __::has_label("person"),
-        __::out_labels(&["knows"]),
-        __::in_(),
+    // Use __.choose factory to create anonymous traversal
+    let anon = __.choose(
+        __.has_label("person"),
+        __.out_labels(&["knows"]),
+        __.in_(),
     );
 
     let results = g.v_ids([tg.alice]).append(anon).to_list();
@@ -712,9 +712,9 @@ fn choose_with_identity_branches() {
     let results = g
         .v_ids([tg.alice, tg.graphdb])
         .choose(
-            __::has_label("person"),
-            __::identity(),
-            __::out_labels(&["nonexistent"]), // Returns nothing
+            __.has_label("person"),
+            __.identity(),
+            __.out_labels(&["nonexistent"]), // Returns nothing
         )
         .to_list();
 
@@ -735,9 +735,9 @@ fn choose_all_persons_get_true_branch() {
     let results = g
         .v_ids([tg.alice, tg.bob, tg.charlie])
         .choose(
-            __::has_label("person"),
-            __::out_labels(&["knows"]),
-            __::in_(),
+            __.has_label("person"),
+            __.out_labels(&["knows"]),
+            __.in_(),
         )
         .to_list();
 
@@ -764,7 +764,7 @@ fn optional_returns_sub_traversal_results_when_present() {
     // optional should return Bob (sub-traversal result)
     let results = g
         .v_ids([tg.alice])
-        .optional(__::out_labels(&["knows"]))
+        .optional(__.out_labels(&["knows"]))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -779,7 +779,7 @@ fn optional_keeps_original_when_sub_traversal_empty() {
 
     // GraphDB has no outgoing edges
     // optional should return GraphDB itself (original)
-    let results = g.v_ids([tg.graphdb]).optional(__::out()).to_list();
+    let results = g.v_ids([tg.graphdb]).optional(__.out()).to_list();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
@@ -796,7 +796,7 @@ fn optional_per_traverser_evaluation() {
     // GraphDB -> original (GraphDB)
     let results = g
         .v_ids([tg.alice, tg.graphdb])
-        .optional(__::out())
+        .optional(__.out())
         .to_list();
 
     // Alice: out -> Bob, GraphDB (2 results)
@@ -819,7 +819,7 @@ fn optional_with_labeled_edges() {
     // optional(out_labels(["worksAt"])) should return Bob (original)
     let results = g
         .v_ids([tg.bob])
-        .optional(__::out_labels(&["worksAt"]))
+        .optional(__.out_labels(&["worksAt"]))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -834,7 +834,7 @@ fn optional_returns_multiple_results_from_sub_traversal() {
 
     // Alice has two outgoing edges: knows->Bob, uses->GraphDB
     // optional should return both
-    let results = g.v_ids([tg.alice]).optional(__::out()).to_list();
+    let results = g.v_ids([tg.alice]).optional(__.out()).to_list();
 
     assert_eq!(results.len(), 2);
     let ids: Vec<VertexId> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
@@ -851,7 +851,7 @@ fn optional_with_chained_sub_traversal() {
     // Alice -> out().has_label("person") -> Bob (Charlie is also person but not direct neighbor)
     let results = g
         .v_ids([tg.alice])
-        .optional(__::out().has_label("person"))
+        .optional(__.out().has_label("person"))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -868,7 +868,7 @@ fn optional_chained_sub_traversal_returns_empty() {
     // Should fall back to Alice
     let results = g
         .v_ids([tg.alice])
-        .optional(__::out().has_label("company"))
+        .optional(__.out().has_label("company"))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -884,7 +884,7 @@ fn optional_with_property_filter() {
     // Alice -> out neighbors with age < 30 -> Bob (age 25)
     let results = g
         .v_ids([tg.alice])
-        .optional(__::out().has_where("age", p::lt(30)))
+        .optional(__.out().has_where("age", p::lt(30)))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -901,7 +901,7 @@ fn optional_with_property_filter_returns_empty() {
     // Should fall back to Alice
     let results = g
         .v_ids([tg.alice])
-        .optional(__::out().has_where("age", p::gt(100)))
+        .optional(__.out().has_where("age", p::gt(100)))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -914,8 +914,8 @@ fn anonymous_optional_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::optional factory to create anonymous traversal
-    let anon = __::optional(__::out_labels(&["knows"]));
+    // Use __.optional factory to create anonymous traversal
+    let anon = __.optional(__.out_labels(&["knows"]));
 
     let results = g.v_ids([tg.alice]).append(anon).to_list();
 
@@ -934,7 +934,7 @@ fn optional_all_inputs_have_results() {
     // Alice -> Bob, Bob -> Charlie, Charlie -> Alice
     let results = g
         .v_ids([tg.alice, tg.bob, tg.charlie])
-        .optional(__::out_labels(&["knows"]))
+        .optional(__.out_labels(&["knows"]))
         .to_list();
 
     assert_eq!(results.len(), 3);
@@ -953,7 +953,7 @@ fn optional_all_inputs_fallback() {
     // No vertex has "nonexistent" edges, all should fall back to original
     let results = g
         .v_ids([tg.alice, tg.bob, tg.charlie])
-        .optional(__::out_labels(&["nonexistent"]))
+        .optional(__.out_labels(&["nonexistent"]))
         .to_list();
 
     assert_eq!(results.len(), 3);
@@ -973,7 +973,7 @@ fn optional_mixed_results_and_fallbacks() {
     // Charlie has no "uses" edges -> falls back to Charlie
     let results = g
         .v_ids([tg.alice, tg.bob, tg.charlie])
-        .optional(__::out_labels(&["uses"]))
+        .optional(__.out_labels(&["uses"]))
         .to_list();
 
     // Alice -> GraphDB, Bob -> GraphDB, Charlie -> Charlie (fallback)
@@ -999,7 +999,7 @@ fn local_executes_sub_traversal_per_traverser() {
     // local() should execute the sub-traversal independently for each input
     // Alice has 2 out neighbors (Bob, GraphDB)
     // Bob has 2 out neighbors (Charlie, GraphDB)
-    let results = g.v_ids([tg.alice, tg.bob]).local(__::out()).to_list();
+    let results = g.v_ids([tg.alice, tg.bob]).local(__.out()).to_list();
 
     // Should get all 4 neighbors
     assert_eq!(results.len(), 4);
@@ -1020,7 +1020,7 @@ fn local_with_empty_sub_traversal_produces_nothing() {
 
     // GraphDB has no outgoing edges
     // local(out()) should produce nothing for GraphDB
-    let results = g.v_ids([tg.graphdb]).local(__::out()).to_list();
+    let results = g.v_ids([tg.graphdb]).local(__.out()).to_list();
 
     assert!(results.is_empty());
 }
@@ -1035,7 +1035,7 @@ fn local_limit_per_traverser() {
     // local(out().limit(1)) should return 1 neighbor per-traverser
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__::out().limit(1))
+        .local(__.out().limit(1))
         .to_list();
 
     // One result per input traverser = 2 total
@@ -1056,7 +1056,7 @@ fn local_vs_global_limit() {
     // Local limit: limits per-traverser
     let local_results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__::out().limit(1))
+        .local(__.out().limit(1))
         .to_list();
     // Takes first 1 from each traverser = 2 total
     assert_eq!(local_results.len(), 2);
@@ -1072,7 +1072,7 @@ fn local_dedup_per_traverser() {
     // Using union to create duplicates, then local dedup
     let results = g
         .v_ids([tg.alice])
-        .local(__::union(vec![__::out_labels(&["knows"]), __::out_labels(&["knows"])]).dedup())
+        .local(__.union(vec![__.out_labels(&["knows"]), __.out_labels(&["knows"])]).dedup())
         .to_list();
 
     // Union creates Bob twice, dedup reduces to 1
@@ -1091,7 +1091,7 @@ fn local_dedup_per_traverser_multiple_inputs() {
     // Bob union(knows,knows) -> Charlie, Charlie -> dedup -> Charlie
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__::union(vec![__::out_labels(&["knows"]), __::out_labels(&["knows"])]).dedup())
+        .local(__.union(vec![__.out_labels(&["knows"]), __.out_labels(&["knows"])]).dedup())
         .to_list();
 
     // Each traverser produces 1 deduped result
@@ -1112,7 +1112,7 @@ fn local_with_filter_steps() {
     // Get out neighbors that are persons
     let results = g
         .v_ids([tg.alice])
-        .local(__::out().has_label("person"))
+        .local(__.out().has_label("person"))
         .to_list();
 
     // Alice -> Bob (person), GraphDB (software)
@@ -1131,7 +1131,7 @@ fn local_with_property_filter() {
     // Alice's neighbors: Bob (25), GraphDB (no age)
     let results = g
         .v_ids([tg.alice])
-        .local(__::out().has_where("age", p::lt(30)))
+        .local(__.out().has_where("age", p::lt(30)))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -1147,7 +1147,7 @@ fn local_with_values_transform() {
     // Get names of out neighbors, per-traverser
     let results = g
         .v_ids([tg.alice])
-        .local(__::out().values("name"))
+        .local(__.out().values("name"))
         .to_list();
 
     // Alice -> Bob, GraphDB
@@ -1175,7 +1175,7 @@ fn local_with_chained_navigation() {
     // Two-hop traversal within local
     // Alice -> out -> (Bob, GraphDB) -> out -> (Charlie, GraphDB, Alice, Bob)
     // But local executes per input traverser
-    let results = g.v_ids([tg.alice]).local(__::out().out()).to_list();
+    let results = g.v_ids([tg.alice]).local(__.out().out()).to_list();
 
     // Alice -> Bob -> Charlie, GraphDB
     // Alice -> GraphDB -> (nothing, no out edges)
@@ -1190,8 +1190,8 @@ fn anonymous_local_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::local factory to create anonymous traversal
-    let anon = __::local(__::out().limit(1));
+    // Use __.local factory to create anonymous traversal
+    let anon = __.local(__.out().limit(1));
 
     let results = g.v_ids([tg.alice, tg.bob]).append(anon).to_list();
 
@@ -1211,7 +1211,7 @@ fn local_preserves_traverser_isolation() {
     // Bob has 2 out (Charlie, GraphDB), skip(1) -> 1 result
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__::out().skip(1))
+        .local(__.out().skip(1))
         .to_list();
 
     // Each traverser skips 1 of their 2 neighbors
@@ -1228,7 +1228,7 @@ fn local_with_range_step() {
     // Bob has 2 neighbors, range(0,1) takes first 1
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__::out().range(0, 1))
+        .local(__.out().range(0, 1))
         .to_list();
 
     assert_eq!(results.len(), 2);
@@ -1243,7 +1243,7 @@ fn local_with_labeled_edges() {
     // Get only "knows" neighbors within local scope
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .local(__::out_labels(&["knows"]))
+        .local(__.out_labels(&["knows"]))
         .to_list();
 
     // Alice knows Bob, Bob knows Charlie
@@ -1265,7 +1265,7 @@ fn local_mixed_results_per_traverser() {
     // GraphDB: 0 out neighbors
     let results = g
         .v_ids([tg.alice, tg.charlie, tg.graphdb])
-        .local(__::out())
+        .local(__.out())
         .to_list();
 
     // Alice: 2, Charlie: 1, GraphDB: 0 = 3 total

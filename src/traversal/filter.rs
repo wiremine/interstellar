@@ -654,13 +654,13 @@ impl AnyStep for DedupByLabelStep {
 /// ```ignore
 /// // Keep only one vertex per out-degree (number of outgoing edges)
 /// let unique_outdegree = g.v()
-///     .dedup_by(__::out().count())
+///     .dedup_by(__.out().count())
 ///     .to_list();
 ///
 /// // Keep only one person per first known friend's name
 /// let unique_friend_name = g.v()
 ///     .has_label("person")
-///     .dedup_by(__::out_labels(&["knows"]).limit(1).values("name"))
+///     .dedup_by(__.out_labels(&["knows"]).limit(1).values("name"))
 ///     .to_list();
 /// ```
 #[derive(Clone)]
@@ -1232,7 +1232,7 @@ impl_filter_step!(IsStep, "is");
 ///
 /// // Find all simple paths of length 3
 /// let simple_paths = g.v()
-///     .repeat(__::out())
+///     .repeat(__.out())
 ///     .times(3)
 ///     .simple_path()
 ///     .path()
@@ -1294,7 +1294,7 @@ impl_filter_step!(SimplePathStep, "simplePath");
 ///
 /// // Find all cyclic paths
 /// let cyclic_paths = g.v()
-///     .repeat(__::out())
+///     .repeat(__.out())
 ///     .times(4)
 ///     .cyclic_path()
 ///     .path()

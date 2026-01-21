@@ -402,7 +402,7 @@ mod subtraversal_sorting {
         let g = snapshot.gremlin();
 
         // Sort by score using a sub-traversal
-        let sub = __::values("score");
+        let sub = __.values("score");
         let results = g
             .v()
             .has_label("person")

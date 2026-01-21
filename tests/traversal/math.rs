@@ -4,7 +4,7 @@
 //! - Basic arithmetic operations with current value (_)
 //! - Mathematical functions (sqrt, abs, sin, cos, etc.)
 //! - Constants (pi, e)
-//! - Anonymous traversal `__::math()`
+//! - Anonymous traversal `__.math()`
 //! - BoundTraversal math() with by() modulators
 //! - Labeled path value extraction
 //! - Edge cases (empty input, non-numeric values, domain errors)
@@ -449,7 +449,7 @@ fn math_pythagorean_on_properties() {
 }
 
 // =============================================================================
-// Anonymous Traversal __::math()
+// Anonymous Traversal __.math()
 // =============================================================================
 
 #[test]
@@ -458,7 +458,7 @@ fn anonymous_math_basic() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::math("_ * 3").build();
+    let anon = __.math("_ * 3").build();
     let results = g.inject([2i64, 4i64]).append(anon).to_list();
 
     assert_eq!(results.len(), 2);
@@ -472,7 +472,7 @@ fn anonymous_math_with_sqrt() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::math("sqrt(_)").build();
+    let anon = __.math("sqrt(_)").build();
     let results = g.inject([4i64, 9i64, 16i64]).append(anon).to_list();
 
     assert_eq!(results.len(), 3);
@@ -488,7 +488,7 @@ fn anonymous_math_chained_with_filter() {
     let g = snapshot.gremlin();
 
     // Double values then filter > 10
-    let anon = __::math("_ * 2").build();
+    let anon = __.math("_ * 2").build();
     let results = g
         .inject([3i64, 5i64, 7i64, 10i64])
         .append(anon)
@@ -507,8 +507,8 @@ fn anonymous_math_in_complex_traversal() {
     let g = snapshot.gremlin();
 
     // Get ages from people, add 10 years
-    let anon = __::values("age");
-    let math_step = __::math("_ + 10").build();
+    let anon = __.values("age");
+    let math_step = __.math("_ + 10").build();
 
     let results = g
         .v()

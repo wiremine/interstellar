@@ -795,10 +795,10 @@ pub enum MutationError {
     ///
     /// ```ignore
     /// // Wrong: matches multiple people
-    /// .to_traversal(__::v().has_label("person"))
+    /// .to_traversal(__.v().has_label("person"))
     ///
     /// // Correct: matches exactly one person
-    /// .to_traversal(__::v().has_label("person").has_value("name", "Bob"))
+    /// .to_traversal(__.v().has_label("person").has_value("name", "Bob"))
     /// ```
     #[error("traversal yielded multiple vertices for edge endpoint")]
     AmbiguousTraversalEndpoint,

@@ -14,7 +14,7 @@ fn repeat_out_compiles_with_anonymous_traversal() {
     let g = snapshot.gremlin();
 
     // This should compile - the main acceptance criteria
-    let _results = g.v().repeat(__::out()).times(1).to_list();
+    let _results = g.v().repeat(__.out()).times(1).to_list();
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn repeat_returns_repeat_traversal_builder() {
     // Should be able to chain configuration methods
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(1)
         .to_list();
 
@@ -45,7 +45,7 @@ fn repeat_out_times_2_traverses_two_hops() {
     // Alice -knows-> Bob -knows-> Charlie
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(2)
         .to_list();
 
@@ -65,8 +65,8 @@ fn repeat_until_terminates_on_condition() {
     // on paths that don't hit software vertices
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out())
-        .until(__::has_label("software"))
+        .repeat(__.out())
+        .until(__.has_label("software"))
         .times(5) // Safety limit for cyclic graph
         .to_list();
 
@@ -84,7 +84,7 @@ fn repeat_emit_includes_intermediates() {
     // Alice -> Bob -> Charlie with emit
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(2)
         .emit()
         .to_list();
@@ -106,7 +106,7 @@ fn repeat_emit_first_includes_starting_vertex() {
     // Include Alice in results
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(1)
         .emit()
         .emit_first()
@@ -129,9 +129,9 @@ fn repeat_emit_if_selectively_emits() {
     // Emit only software vertices during traversal
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out())
+        .repeat(__.out())
         .times(2)
-        .emit_if(__::has_label("software"))
+        .emit_if(__.has_label("software"))
         .to_list();
 
     // Alice -> Bob, GraphDB (emit GraphDB)
@@ -151,7 +151,7 @@ fn repeat_continuation_step_returns_bound_traversal() {
     // After repeat, should be able to continue with bound traversal methods
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(1)
         .values("name")
         .to_list();
@@ -169,7 +169,7 @@ fn repeat_with_dedup_continuation() {
     // Multiple paths may reach same vertex; dedup after repeat
     let results = g
         .v_ids([tg.alice])
-        .repeat(__::out())
+        .repeat(__.out())
         .times(2)
         .emit()
         .dedup()
@@ -192,7 +192,7 @@ fn repeat_from_multiple_starting_vertices() {
     // Start from both Alice and Bob
     let results = g
         .v_ids([tg.alice, tg.bob])
-        .repeat(__::out_labels(&["knows"]))
+        .repeat(__.out_labels(&["knows"]))
         .times(1)
         .to_list();
 
@@ -211,7 +211,7 @@ fn repeat_from_leaf_vertex_with_no_outgoing_edges() {
     let g = snapshot.gremlin();
 
     // GraphDB has no outgoing edges
-    let results = g.v_ids([tg.graphdb]).repeat(__::out()).times(3).to_list();
+    let results = g.v_ids([tg.graphdb]).repeat(__.out()).times(3).to_list();
 
     // Should emit GraphDB immediately due to exhaustion
     assert_eq!(results.len(), 1);
@@ -225,7 +225,7 @@ fn repeat_times_zero_returns_input_unchanged() {
     let g = snapshot.gremlin();
 
     // times(0) means don't iterate at all
-    let results = g.v_ids([tg.alice]).repeat(__::out()).times(0).to_list();
+    let results = g.v_ids([tg.alice]).repeat(__.out()).times(0).to_list();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));

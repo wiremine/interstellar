@@ -281,7 +281,7 @@ fn test_dedup_by_traversal_with_values() {
     let results = g
         .v()
         .has_label("person")
-        .dedup_by(__::values("age"))
+        .dedup_by(__.values("age"))
         .to_list();
 
     // All persons have different ages (25, 30, 35), so all pass through
@@ -601,7 +601,7 @@ fn test_anonymous_traversal_where_p() {
     // Use anonymous where_p in a filter context
     let results = g
         .inject([10i64, 20i64, 30i64, 40i64, 50i64])
-        .local(__::where_p(p::gt(25)))
+        .local(__.where_p(p::gt(25)))
         .to_list();
 
     // Should filter to values > 25: [30, 40, 50]
@@ -653,7 +653,7 @@ fn where_filters_by_sub_traversal_existence() {
     // Bob: out to Charlie, GraphDB (2 out) -> passes
     // Charlie: out to Alice (1 out) -> passes
     // GraphDB: no outgoing edges -> filtered out
-    let results = g.v().where_(__::out()).to_list();
+    let results = g.v().where_(__.out()).to_list();
     assert_eq!(results.len(), 3); // Alice, Bob, Charlie have outgoing edges
 }
 
@@ -668,7 +668,7 @@ fn where_filters_by_labeled_edges() {
     // Bob: knows Charlie -> passes
     // Charlie: knows Alice -> passes
     // GraphDB: no knows edges -> filtered out
-    let results = g.v().where_(__::out_labels(&["knows"])).to_list();
+    let results = g.v().where_(__.out_labels(&["knows"])).to_list();
     assert_eq!(results.len(), 3);
 
     // Verify all results are people (not GraphDB)
@@ -690,7 +690,7 @@ fn where_filters_by_chained_sub_traversal() {
     // Charlie knows Alice, Alice uses GraphDB -> Charlie passes
     let results = g
         .v()
-        .where_(__::out_labels(&["knows"]).out_labels(&["uses"]))
+        .where_(__.out_labels(&["knows"]).out_labels(&["uses"]))
         .to_list();
     assert_eq!(results.len(), 2); // Alice and Charlie
 }
@@ -702,7 +702,7 @@ fn where_empty_sub_traversal_filters_out() {
     let g = snapshot.gremlin();
 
     // No vertex has outgoing "nonexistent" edges
-    let results = g.v().where_(__::out_labels(&["nonexistent"])).to_list();
+    let results = g.v().where_(__.out_labels(&["nonexistent"])).to_list();
     assert!(results.is_empty());
 }
 
@@ -719,7 +719,7 @@ fn not_filters_to_traversers_without_outgoing_edges() {
     // Keep vertices WITHOUT outgoing edges
     // GraphDB has no outgoing edges -> passes
     // Alice, Bob, Charlie all have outgoing edges -> filtered out
-    let results = g.v().not(__::out()).to_list();
+    let results = g.v().not(__.out()).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
 }
@@ -731,10 +731,10 @@ fn not_is_inverse_of_where() {
     let g = snapshot.gremlin();
 
     // Vertices with outgoing edges (where)
-    let with_out = g.v().where_(__::out()).to_list();
+    let with_out = g.v().where_(__.out()).to_list();
 
     // Vertices without outgoing edges (not)
-    let without_out = g.v().not(__::out()).to_list();
+    let without_out = g.v().not(__.out()).to_list();
 
     // Together they should equal all vertices
     assert_eq!(with_out.len() + without_out.len(), 4);
@@ -761,7 +761,7 @@ fn not_filters_by_labeled_edges() {
     // Bob: uses GraphDB -> filtered out
     // Charlie: no uses edges -> passes
     // GraphDB: no uses edges -> passes
-    let results = g.v().not(__::out_labels(&["uses"])).to_list();
+    let results = g.v().not(__.out_labels(&["uses"])).to_list();
     assert_eq!(results.len(), 2); // Charlie and GraphDB
 
     let ids: Vec<_> = results.iter().filter_map(|v| v.as_vertex_id()).collect();
@@ -777,7 +777,7 @@ fn not_with_has_label_sub_traversal() {
 
     // Keep vertices that are NOT persons
     // This uses a sub-traversal pattern - filter out if has_label matches
-    let results = g.v().not(__::has_label("person")).to_list();
+    let results = g.v().not(__.has_label("person")).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
 }
@@ -790,7 +790,7 @@ fn not_finds_leaf_vertices() {
 
     // Leaf vertices have no outgoing edges
     // In this graph, only GraphDB has no outgoing edges
-    let leaves = g.v().not(__::out()).to_list();
+    let leaves = g.v().not(__.out()).to_list();
     assert_eq!(leaves.len(), 1);
 
     // Verify it's GraphDB (the software vertex)
@@ -814,7 +814,7 @@ fn and_requires_all_conditions() {
     // Bob: out(Charlie,GraphDB), in(Alice) -> passes
     // Charlie: out(Alice), in(Bob) -> passes
     // GraphDB: out(), in(Alice,Bob) -> fails (no outgoing)
-    let results = g.v().and_(vec![__::out(), __::in_()]).to_list();
+    let results = g.v().and_(vec![__.out(), __.in_()]).to_list();
     assert_eq!(results.len(), 3); // Alice, Bob, Charlie
 }
 
@@ -831,7 +831,7 @@ fn and_short_circuits_on_first_failure() {
     // GraphDB: no knows, no uses -> fails
     let results = g
         .v()
-        .and_(vec![__::out_labels(&["knows"]), __::out_labels(&["uses"])])
+        .and_(vec![__.out_labels(&["knows"]), __.out_labels(&["uses"])])
         .to_list();
     assert_eq!(results.len(), 2); // Alice, Bob
 
@@ -868,7 +868,7 @@ fn or_accepts_any_condition() {
     // GraphDB: neither -> fails
     let results = g
         .v()
-        .or_(vec![__::out_labels(&["knows"]), __::out_labels(&["uses"])])
+        .or_(vec![__.out_labels(&["knows"]), __.out_labels(&["uses"])])
         .to_list();
     assert_eq!(results.len(), 3); // Alice, Bob, Charlie
 }
@@ -882,7 +882,7 @@ fn or_short_circuits_on_first_success() {
     // Keep vertices that are person OR software
     let results = g
         .v()
-        .or_(vec![__::has_label("person"), __::has_label("software")])
+        .or_(vec![__.has_label("person"), __.has_label("software")])
         .to_list();
     assert_eq!(results.len(), 4); // All vertices match
 }
@@ -911,7 +911,7 @@ fn or_finds_vertices_with_either_edge_type() {
     // GraphDB: is used by Alice, Bob -> passes
     let results = g
         .v()
-        .or_(vec![__::out_labels(&["uses"]), __::in_labels(&["uses"])])
+        .or_(vec![__.out_labels(&["uses"]), __.in_labels(&["uses"])])
         .to_list();
     assert_eq!(results.len(), 3); // Alice, Bob, GraphDB
 
@@ -936,7 +936,7 @@ fn where_and_not_combined() {
     let results = g
         .v()
         .has_label("person")
-        .not(__::out_labels(&["uses"]))
+        .not(__.out_labels(&["uses"]))
         .to_list();
     assert_eq!(results.len(), 1); // Charlie
     assert_eq!(results[0].as_vertex_id(), Some(tg.charlie));
@@ -955,7 +955,7 @@ fn nested_filter_steps() {
     // GraphDB knows nobody -> fails
     let results = g
         .v()
-        .where_(__::out_labels(&["knows"]).out_labels(&["knows"]))
+        .where_(__.out_labels(&["knows"]).out_labels(&["knows"]))
         .to_list();
     assert_eq!(results.len(), 3);
 }
@@ -970,8 +970,8 @@ fn anonymous_where_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::where_ factory to create anonymous traversal
-    let anon = __::where_(__::out());
+    // Use __.where_ factory to create anonymous traversal
+    let anon = __.where_(__.out());
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 3);
 }
@@ -982,8 +982,8 @@ fn anonymous_not_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::not factory to create anonymous traversal
-    let anon = __::not(__::out());
+    // Use __.not factory to create anonymous traversal
+    let anon = __.not(__.out());
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.graphdb));
@@ -995,8 +995,8 @@ fn anonymous_and_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::and_ factory to create anonymous traversal
-    let anon = __::and_(vec![__::out(), __::in_()]);
+    // Use __.and_ factory to create anonymous traversal
+    let anon = __.and_(vec![__.out(), __.in_()]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 3);
 }
@@ -1007,8 +1007,8 @@ fn anonymous_or_factory() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    // Use __::or_ factory to create anonymous traversal
-    let anon = __::or_(vec![__::has_label("person"), __::has_label("software")]);
+    // Use __.or_ factory to create anonymous traversal
+    let anon = __.or_(vec![__.has_label("person"), __.has_label("software")]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }

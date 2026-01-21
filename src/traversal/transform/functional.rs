@@ -729,7 +729,7 @@ impl From<String> for Projection {
 /// let results = g.v().has_label("person")
 ///     .project(&["name", "friend_count"])
 ///     .by_key("name")
-///     .by(__::out("knows").count())
+///     .by(__.out("knows").count())
 ///     .build()
 ///     .to_list();
 /// // Results: [{name: "Alice", friend_count: 2}, ...]
@@ -859,7 +859,7 @@ use std::marker::PhantomData;
 /// let results = g.v().has_label("person")
 ///     .project(&["name", "friends"])
 ///     .by_key("name")
-///     .by(__::out("knows").count())
+///     .by(__.out("knows").count())
 ///     .build()
 ///     .to_list();
 /// ```
@@ -955,7 +955,7 @@ impl<In> ProjectBuilder<In> {
 /// let results = g.v().has_label("person")
 ///     .project(&["name", "friends"])
 ///     .by_key("name")
-///     .by(__::out("knows").count())
+///     .by(__.out("knows").count())
 ///     .build()
 ///     .to_list();
 /// ```

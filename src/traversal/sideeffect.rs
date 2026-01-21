@@ -375,7 +375,7 @@ impl AnyStep for CapStep {
 /// ```ignore
 /// // Store counts as side effect while traversing
 /// let names = g.v()
-///     .side_effect(__::out_e().count().store("edge_counts"))
+///     .side_effect(__.out_e().count().store("edge_counts"))
 ///     .values("name")
 ///     .to_list();
 /// ```
@@ -394,7 +394,7 @@ impl SideEffectStep {
     /// # Example
     ///
     /// ```ignore
-    /// let step = SideEffectStep::new(__::out().count().store("x"));
+    /// let step = SideEffectStep::new(__.out().count().store("x"));
     /// ```
     pub fn new(side_traversal: Traversal<Value, Value>) -> Self {
         Self { side_traversal }

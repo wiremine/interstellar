@@ -290,7 +290,7 @@ impl crate::traversal::step::AnyStep for ValueStep {
 /// // Get loop depth at each emit
 /// let depths = g.v()
 ///     .has_label("person")
-///     .repeat(__::out())
+///     .repeat(__.out())
 ///     .times(3)
 ///     .emit()
 ///     .loops()
@@ -299,8 +299,8 @@ impl crate::traversal::step::AnyStep for ValueStep {
 ///
 /// // Use in until condition
 /// let vertices = g.v()
-///     .repeat(__::out())
-///     .until(__::loops().is_(p::gte(3)))
+///     .repeat(__.out())
+///     .until(__.loops().is_(p::gte(3)))
 ///     .to_list();
 /// ```
 ///

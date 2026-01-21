@@ -21,7 +21,7 @@ fn anon_in_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::in_labels(&["knows"]);
+    let anon = __.in_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1); // Alice knows Bob
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));
@@ -33,7 +33,7 @@ fn anon_both_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::both_labels(&["knows"]);
+    let anon = __.both_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     // Bob: Alice->Bob (in) and Bob->Charlie (out)
     assert_eq!(results.len(), 2);
@@ -49,7 +49,7 @@ fn anon_out_e_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::out_e_labels(&["knows"]);
+    let anon = __.out_e_labels(&["knows"]);
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1); // Alice has one "knows" edge
 }
@@ -60,7 +60,7 @@ fn anon_in_e_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::in_e_labels(&["knows"]);
+    let anon = __.in_e_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1); // One incoming "knows" edge to Bob
 }
@@ -71,7 +71,7 @@ fn anon_both_e_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::both_e_labels(&["knows"]);
+    let anon = __.both_e_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 2); // Alice->Bob and Bob->Charlie
 }
@@ -86,7 +86,7 @@ fn anon_has_not() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_not("age");
+    let anon = __.has_not("age");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1); // Software doesn't have age
 }
@@ -97,7 +97,7 @@ fn anon_has_id() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_id(tg.alice);
+    let anon = __.has_id(tg.alice);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));
@@ -109,7 +109,7 @@ fn anon_has_ids() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_ids([tg.alice, tg.bob]);
+    let anon = __.has_ids([tg.alice, tg.bob]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -120,7 +120,7 @@ fn anon_has_where() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_where("age", p::gte(30));
+    let anon = __.has_where("age", p::gte(30));
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // Alice (30) and Charlie (35)
 }
@@ -131,7 +131,7 @@ fn anon_is_predicate() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::is_(p::gt(25));
+    let anon = __.is_(p::gt(25));
     let results = g
         .v()
         .has_label("person")
@@ -147,7 +147,7 @@ fn anon_is_eq() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::is_eq(30i64);
+    let anon = __.is_eq(30i64);
     let results = g
         .v()
         .has_label("person")
@@ -164,7 +164,7 @@ fn anon_dedup_by_key() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::dedup_by_key("status");
+    let anon = __.dedup_by_key("status");
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 2); // "active" and "inactive"
 }
@@ -175,7 +175,7 @@ fn anon_dedup_by_label() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::dedup_by_label();
+    let anon = __.dedup_by_label();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // person and software
 }
@@ -187,7 +187,7 @@ fn anon_dedup_by_traversal() {
     let g = snapshot.gremlin();
 
     // Dedup by label using a sub-traversal
-    let anon = __::dedup_by(__::label());
+    let anon = __.dedup_by(__.label());
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // One per unique label
 }
@@ -198,7 +198,7 @@ fn anon_skip() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::skip(2);
+    let anon = __.skip(2);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // 4 - 2 = 2
 }
@@ -209,7 +209,7 @@ fn anon_range() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::range(1, 3);
+    let anon = __.range(1, 3);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // Indices 1 and 2
 }
@@ -220,7 +220,7 @@ fn anon_simple_path() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::simple_path();
+    let anon = __.simple_path();
     let results = g
         .v_ids([tg.alice])
         .with_path()
@@ -238,7 +238,7 @@ fn anon_cyclic_path() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::cyclic_path();
+    let anon = __.cyclic_path();
     let results = g
         .v_ids([tg.alice])
         .with_path()
@@ -257,7 +257,7 @@ fn anon_tail() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::tail();
+    let anon = __.tail();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -268,7 +268,7 @@ fn anon_tail_n() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::tail_n(2);
+    let anon = __.tail_n(2);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -280,12 +280,12 @@ fn anon_coin() {
     let g = snapshot.gremlin();
 
     // p=0 filters everything
-    let anon = __::coin(0.0);
+    let anon = __.coin(0.0);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 0);
 
     // p=1 keeps everything
-    let anon2 = __::coin(1.0);
+    let anon2 = __.coin(1.0);
     let results2 = g.v().append(anon2).to_list();
     assert_eq!(results2.len(), 4);
 }
@@ -296,7 +296,7 @@ fn anon_sample() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::sample(2);
+    let anon = __.sample(2);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -307,7 +307,7 @@ fn anon_has_key() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_key("name");
+    let anon = __.has_key("name");
     let results = g
         .v()
         .has_label("person")
@@ -324,7 +324,7 @@ fn anon_has_key_any() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_key_any(["name", "age"]);
+    let anon = __.has_key_any(["name", "age"]);
     let results = g
         .v()
         .has_label("person")
@@ -341,7 +341,7 @@ fn anon_has_prop_value() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_prop_value("Alice");
+    let anon = __.has_prop_value("Alice");
     let results = g
         .v()
         .has_label("person")
@@ -357,7 +357,7 @@ fn anon_has_prop_value_any() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_prop_value_any(["Alice", "Bob"]);
+    let anon = __.has_prop_value_any(["Alice", "Bob"]);
     let results = g
         .v()
         .has_label("person")
@@ -373,7 +373,7 @@ fn anon_where_p() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::where_p(p::between(25, 35));
+    let anon = __.where_p(p::between(25, 35));
     let results = g
         .v()
         .has_label("person")
@@ -393,7 +393,7 @@ fn anon_values_multi() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::values_multi(["name", "age"]);
+    let anon = __.values_multi(["name", "age"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -404,7 +404,7 @@ fn anon_properties() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::properties();
+    let anon = __.properties();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 2); // name and age
 }
@@ -415,7 +415,7 @@ fn anon_properties_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::properties_keys(&["name"]);
+    let anon = __.properties_keys(&["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -426,7 +426,7 @@ fn anon_value_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::value_map();
+    let anon = __.value_map();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Map(_)));
@@ -438,7 +438,7 @@ fn anon_value_map_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::value_map_keys(&["name"]);
+    let anon = __.value_map_keys(&["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -453,7 +453,7 @@ fn anon_value_map_with_tokens() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::value_map_with_tokens();
+    let anon = __.value_map_with_tokens();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -468,7 +468,7 @@ fn anon_element_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::element_map();
+    let anon = __.element_map();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -483,7 +483,7 @@ fn anon_element_map_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::element_map_keys(&["name"]);
+    let anon = __.element_map_keys(&["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -498,7 +498,7 @@ fn anon_property_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::property_map();
+    let anon = __.property_map();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Map(_)));
@@ -510,7 +510,7 @@ fn anon_property_map_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::property_map_keys(&["name"]);
+    let anon = __.property_map_keys(&["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -522,7 +522,7 @@ fn anon_unfold() {
     let g = snapshot.gremlin();
 
     let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    let anon = __::unfold();
+    let anon = __.unfold();
     let results = g.inject([list]).append(anon).to_list();
     assert_eq!(results.len(), 3);
 }
@@ -533,7 +533,7 @@ fn anon_mean() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::mean();
+    let anon = __.mean();
     let results = g
         .v()
         .has_label("person")
@@ -551,7 +551,7 @@ fn anon_id() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::id();
+    let anon = __.id();
     let results = g.v().limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Int(_)));
@@ -563,7 +563,7 @@ fn anon_label() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::label();
+    let anon = __.label();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("person".to_string()));
@@ -575,7 +575,7 @@ fn anon_key() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::key();
+    let anon = __.key();
     let results = g
         .v()
         .has_label("person")
@@ -594,7 +594,7 @@ fn anon_value() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::value();
+    let anon = __.value();
     let results = g
         .v()
         .has_label("person")
@@ -613,7 +613,7 @@ fn anon_loops() {
     let g = snapshot.gremlin();
 
     // loops() returns the current loop counter, which is 0 outside of repeat
-    let anon = __::loops();
+    let anon = __.loops();
     let results = g.v().limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(0));
@@ -625,7 +625,7 @@ fn anon_index() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::index();
+    let anon = __.index();
     let results = g.inject([1i64, 2i64, 3i64]).append(anon).to_list();
     assert_eq!(results.len(), 3);
     // Each result should be a list [index, value]
@@ -640,7 +640,7 @@ fn anon_path() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::path();
+    let anon = __.path();
     let results = g.v_ids([tg.alice]).with_path().out().append(anon).to_list();
     assert_eq!(results.len(), 2);
     for r in &results {
@@ -654,7 +654,7 @@ fn anon_as_and_select() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::as_("start").out().select(&["start"]);
+    let anon = __.as_("start").out().select(&["start"]);
     let results = g.v_ids([tg.alice]).with_path().append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -665,7 +665,7 @@ fn anon_select_one() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::as_("x").out().select_one("x");
+    let anon = __.as_("x").out().select_one("x");
     let results = g.v_ids([tg.alice]).with_path().append(anon).to_list();
     assert_eq!(results.len(), 2);
     for r in &results {
@@ -679,7 +679,7 @@ fn anon_flat_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::flat_map(|_ctx, v| {
+    let anon = __.flat_map(|_ctx, v| {
         if let Value::Int(n) = v {
             (0..*n).map(Value::Int).collect()
         } else {
@@ -700,7 +700,7 @@ fn anon_where_subtraversal() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::where_(__::out());
+    let anon = __.where_(__.out());
     let results = g.v().append(anon).to_list();
     // All persons have outgoing edges
     assert!(results.len() >= 2);
@@ -712,7 +712,7 @@ fn anon_not_subtraversal() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::not(__::out());
+    let anon = __.not(__.out());
     let results = g.v().append(anon).to_list();
     // Software has no outgoing edges
     assert!(results.len() >= 1);
@@ -724,7 +724,7 @@ fn anon_and_subtraversals() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::and_(vec![__::out(), __::in_()]);
+    let anon = __.and_(vec![__.out(), __.in_()]);
     let results = g.v().append(anon).to_list();
     // Bob has both outgoing and incoming
     assert!(results.len() >= 1);
@@ -736,7 +736,7 @@ fn anon_or_subtraversals() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::or_(vec![__::has_label("person"), __::in_()]);
+    let anon = __.or_(vec![__.has_label("person"), __.in_()]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // All vertices match
 }
@@ -751,7 +751,7 @@ fn anon_union() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::union(vec![__::out(), __::in_()]);
+    let anon = __.union(vec![__.out(), __.in_()]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert!(results.len() >= 2);
 }
@@ -762,7 +762,7 @@ fn anon_coalesce() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::coalesce(vec![__::values("nickname"), __::values("name")]);
+    let anon = __.coalesce(vec![__.values("nickname"), __.values("name")]);
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 3); // Falls back to name for all
 }
@@ -773,10 +773,10 @@ fn anon_choose() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::choose(
-        __::has_label("person"),
-        __::values("age"),
-        __::values("name"),
+    let anon = __.choose(
+        __.has_label("person"),
+        __.values("age"),
+        __.values("name"),
     );
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // 3 ages + 1 name
@@ -788,7 +788,7 @@ fn anon_optional() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::optional(__::out_labels(&["knows"]));
+    let anon = __.optional(__.out_labels(&["knows"]));
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.bob));
@@ -800,7 +800,7 @@ fn anon_local() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::local(__::out().limit(1));
+    let anon = __.local(__.out().limit(1));
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 3); // One neighbor per person
 }
@@ -812,7 +812,7 @@ fn anon_branch() {
     let g = snapshot.gremlin();
 
     // branch() creates a step that can route based on label
-    let anon = __::branch(__::label());
+    let anon = __.branch(__.label());
     let results = g.v().limit(1).append(anon).to_list();
     // Without options configured, branch returns empty
     assert_eq!(results.len(), 0);
@@ -825,19 +825,19 @@ fn anon_branch() {
 #[test]
 fn anon_add_v_creates_traversal() {
     // Just test that add_v creates a valid traversal
-    let _anon = __::add_v("person");
+    let _anon = __.add_v("person");
     // The traversal compiles and is created - execution requires mutation executor
 }
 
 #[test]
 fn anon_property_creates_traversal() {
-    let _anon = __::property("name", "Alice");
+    let _anon = __.property("name", "Alice");
     // The traversal compiles and is created - execution requires mutation executor
 }
 
 #[test]
 fn anon_drop_creates_traversal() {
-    let _anon = __::drop();
+    let _anon = __.drop();
     // The traversal compiles and is created - execution requires mutation executor
 }
 
@@ -851,7 +851,7 @@ fn anon_store() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::store("x");
+    let anon = __.store("x");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
@@ -862,7 +862,7 @@ fn anon_aggregate() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::aggregate("all");
+    let anon = __.aggregate("all");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
@@ -873,7 +873,7 @@ fn anon_cap() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::store("x").cap("x");
+    let anon = __.store("x").cap("x");
     let results = g.v().limit(2).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::List(list) = &results[0] {
@@ -887,7 +887,7 @@ fn anon_side_effect() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::side_effect(__::out().store("neighbors"));
+    let anon = __.side_effect(__.out().store("neighbors"));
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));
@@ -899,7 +899,7 @@ fn anon_profile() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::profile();
+    let anon = __.profile();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
@@ -910,7 +910,7 @@ fn anon_profile_as() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::profile_as("my_profile");
+    let anon = __.profile_as("my_profile");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
@@ -925,7 +925,7 @@ fn anon_order() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::order().build();
+    let anon = __.order().build();
     let results = g.inject([3i64, 1i64, 2i64]).append(anon).to_list();
     assert_eq!(results.len(), 3);
     assert_eq!(results[0], Value::Int(1));
@@ -939,7 +939,7 @@ fn anon_project() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::project(&["name", "age"])
+    let anon = __.project(&["name", "age"])
         .by_key("name")
         .by_key("age")
         .build();
@@ -957,7 +957,7 @@ fn anon_group() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::group().by_label().by_value().build();
+    let anon = __.group().by_label().by_value().build();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Map(_)));
@@ -969,7 +969,7 @@ fn anon_group_count() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::group_count().by_label().build();
+    let anon = __.group_count().by_label().build();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -984,7 +984,7 @@ fn anon_math() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::math("_ * 2").build();
+    let anon = __.math("_ * 2").build();
     let results = g.inject([5.0f64]).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Float(10.0));
@@ -1000,7 +1000,7 @@ fn anon_out_v() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::out_v();
+    let anon = __.out_v();
     let results = g.v_ids([tg.alice]).out_e().append(anon).to_list();
     assert_eq!(results.len(), 2); // Source vertex of each edge
     for r in &results {
@@ -1014,7 +1014,7 @@ fn anon_in_v() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::in_v();
+    let anon = __.in_v();
     let results = g.v_ids([tg.alice]).out_e().append(anon).to_list();
     assert_eq!(results.len(), 2); // Target vertex of each edge
 }
@@ -1025,7 +1025,7 @@ fn anon_both_v() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::both_v();
+    let anon = __.both_v();
     let results = g.v_ids([tg.alice]).out_e().limit(1).append(anon).to_list();
     assert_eq!(results.len(), 2); // Both vertices of edge
 }
@@ -1036,7 +1036,7 @@ fn anon_other_v() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::other_v();
+    let anon = __.other_v();
     let results = g
         .v_ids([tg.alice])
         .with_path()
@@ -1056,7 +1056,7 @@ fn anon_has() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has("age");
+    let anon = __.has("age");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 3); // Only persons have age
 }
@@ -1067,7 +1067,7 @@ fn anon_has_value() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_value("name", "Alice");
+    let anon = __.has_value("name", "Alice");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -1078,7 +1078,7 @@ fn anon_has_label_any() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::has_label_any(&["person", "software"]);
+    let anon = __.has_label_any(&["person", "software"]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
@@ -1089,7 +1089,7 @@ fn anon_both() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::both();
+    let anon = __.both();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert!(results.len() >= 2);
 }
@@ -1100,7 +1100,7 @@ fn anon_out_e() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::out_e();
+    let anon = __.out_e();
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -1111,7 +1111,7 @@ fn anon_in_e() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::in_e();
+    let anon = __.in_e();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -1122,7 +1122,7 @@ fn anon_both_e() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::both_e();
+    let anon = __.both_e();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert!(results.len() >= 2);
 }
@@ -1133,7 +1133,7 @@ fn anon_in_() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::in_();
+    let anon = __.in_();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }

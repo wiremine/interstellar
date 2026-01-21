@@ -3692,23 +3692,23 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         match direction {
             EdgeDirection::Outgoing => {
                 if label_refs.is_empty() {
-                    __::out()
+                    __.out()
                 } else {
-                    __::out_labels(&label_refs)
+                    __.out_labels(&label_refs)
                 }
             }
             EdgeDirection::Incoming => {
                 if label_refs.is_empty() {
-                    __::in_()
+                    __.in_()
                 } else {
-                    __::in_labels(&label_refs)
+                    __.in_labels(&label_refs)
                 }
             }
             EdgeDirection::Both => {
                 if label_refs.is_empty() {
-                    __::both()
+                    __.both()
                 } else {
-                    __::both_labels(&label_refs)
+                    __.both_labels(&label_refs)
                 }
             }
         }

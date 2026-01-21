@@ -399,13 +399,13 @@ fn main() {
     // =========================================================================
     // Part 5: Anonymous Traversals - where_(), not(), and_(), or_()
     // =========================================================================
-    print_section("Part 5: ANONYMOUS TRAVERSALS (__:: module)");
+    print_section("Part 5: ANONYMOUS TRAVERSALS (__. module)");
 
     print_query("Characters in at least one team");
     let in_teams = g
         .v()
         .has_label("character")
-        .where_(__::out_labels(&["member_of"]))
+        .where_(__.out_labels(&["member_of"]))
         .count();
     println!("Characters in teams: {}", in_teams);
 
@@ -413,7 +413,7 @@ fn main() {
     let lone = g
         .v()
         .has_label("character")
-        .not(__::out_labels(&["member_of"]))
+        .not(__.out_labels(&["member_of"]))
         .to_list();
     println!(
         "Lone wolves ({}): {}",
@@ -426,8 +426,8 @@ fn main() {
         .v()
         .has_label("character")
         .and_(vec![
-            __::out_labels(&["rivals_with"]),
-            __::out_labels(&["allies_with"]),
+            __.out_labels(&["rivals_with"]),
+            __.out_labels(&["allies_with"]),
         ])
         .to_list();
     println!(
@@ -441,8 +441,8 @@ fn main() {
         .v()
         .has_label("character")
         .or_(vec![
-            __::out_labels(&["rivals_with"]),
-            __::out_labels(&["works_for"]),
+            __.out_labels(&["rivals_with"]),
+            __.out_labels(&["works_for"]),
         ])
         .count();
     println!("With rivals or employer: {}", either);
@@ -457,8 +457,8 @@ fn main() {
         .v()
         .has_value("alias", "Spider-Man")
         .union(vec![
-            __::out_labels(&["rivals_with"]),
-            __::out_labels(&["allies_with"]),
+            __.out_labels(&["rivals_with"]),
+            __.out_labels(&["allies_with"]),
         ])
         .dedup()
         .to_list();
@@ -469,8 +469,8 @@ fn main() {
         .v()
         .has_value("alias", "Iron Man")
         .union(vec![
-            __::out_labels(&["mentors"]),
-            __::in_labels(&["mentors"]),
+            __.out_labels(&["mentors"]),
+            __.in_labels(&["mentors"]),
         ])
         .dedup()
         .to_list();
@@ -484,7 +484,7 @@ fn main() {
         .v()
         .has_label("team")
         .limit(3)
-        .coalesce(vec![__::values("alias"), __::values("name")])
+        .coalesce(vec![__.values("alias"), __.values("name")])
         .to_list();
     println!("Team identifiers: {:?}", coalesce);
 
@@ -493,9 +493,9 @@ fn main() {
         .v()
         .has_value("alias", "Wolverine")
         .choose(
-            __::has_value("type", "hero"),
-            __::out_labels(&["allies_with"]),
-            __::out_labels(&["rivals_with"]),
+            __.has_value("type", "hero"),
+            __.out_labels(&["allies_with"]),
+            __.out_labels(&["rivals_with"]),
         )
         .to_list();
     println!(
@@ -507,9 +507,9 @@ fn main() {
         .v()
         .has_value("alias", "Magneto")
         .choose(
-            __::has_value("type", "hero"),
-            __::out_labels(&["allies_with"]),
-            __::out_labels(&["rivals_with"]),
+            __.has_value("type", "hero"),
+            __.out_labels(&["allies_with"]),
+            __.out_labels(&["rivals_with"]),
         )
         .to_list();
     println!(
@@ -521,7 +521,7 @@ fn main() {
     let optional = g
         .v()
         .has_value("alias", "Deadpool")
-        .optional(__::in_labels(&["mentors"]))
+        .optional(__.in_labels(&["mentors"]))
         .to_list();
     println!(
         "Deadpool with optional mentor: {}",
@@ -537,7 +537,7 @@ fn main() {
     let alliance = g
         .v()
         .has_value("alias", "Captain America")
-        .repeat(__::out_labels(&["allies_with"]))
+        .repeat(__.out_labels(&["allies_with"]))
         .times(2)
         .emit()
         .dedup()
@@ -570,7 +570,7 @@ fn main() {
     let rivals = g
         .v()
         .has_value("alias", "Spider-Man")
-        .repeat(__::out_labels(&["rivals_with"]))
+        .repeat(__.out_labels(&["rivals_with"]))
         .times(2)
         .emit()
         .dedup()

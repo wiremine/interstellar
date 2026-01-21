@@ -162,15 +162,15 @@
 //!
 //! // Use in branch steps
 //! let _ = g.v().union(vec![
-//!     __::out_labels(&["knows"]),
-//!     __::out_labels(&["created"]),
+//!     __.out_labels(&["knows"]),
+//!     __.out_labels(&["created"]),
 //! ]);
 //!
 //! // Use in repeat
-//! let _ = g.v().repeat(__::out_labels(&["parent"])).times(3);
+//! let _ = g.v().repeat(__.out_labels(&["parent"])).times(3);
 //!
 //! // Use in where clauses
-//! // g.v().where_(__::out("knows").count().is_(p::gt(3)))
+//! // g.v().where_(__.out("knows").count().is_(p::gt(3)))
 //! ```
 //!
 //! ## GQL Query Language

@@ -740,7 +740,7 @@ fn test_anonymous_traversal_with_new_steps() {
     let results = g
         .v()
         .has_label("person")
-        .where_(__::values("age").is_(p::gte(30)))
+        .where_(__.values("age").is_(p::gte(30)))
         .to_list();
 
     assert_eq!(results.len(), 2); // Alice (30) and Charlie (35)
@@ -759,7 +759,7 @@ fn test_mean_with_navigation() {
     let results = g
         .v()
         .has_label("person")
-        .where_(__::out_labels(&["knows"]))
+        .where_(__.out_labels(&["knows"]))
         .values("age")
         .mean()
         .to_list();

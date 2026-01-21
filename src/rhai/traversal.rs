@@ -1174,7 +1174,7 @@ impl RhaiAnonymousTraversal {
 
     /// Convert to a real anonymous traversal.
     pub fn to_traversal(&self) -> Traversal<Value, Value> {
-        let mut traversal = __::identity();
+        let mut traversal = __.identity();
         for step in &self.steps {
             traversal = apply_anonymous_step(traversal, step);
         }
@@ -1868,15 +1868,15 @@ fn apply_step_cow<'g, In>(
         }
 
         // Traversal-based filter steps (Phase 2)
-        RhaiStep::Where(cond) => bound.append(__::where_(cond.to_traversal())),
-        RhaiStep::Not(cond) => bound.append(__::not(cond.to_traversal())),
+        RhaiStep::Where(cond) => bound.append(__.where_(cond.to_traversal())),
+        RhaiStep::Not(cond) => bound.append(__.not(cond.to_traversal())),
         RhaiStep::And(conds) => {
             let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
-            bound.append(__::and_(anon_traversals))
+            bound.append(__.and_(anon_traversals))
         }
         RhaiStep::Or(conds) => {
             let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
-            bound.append(__::or_(anon_traversals))
+            bound.append(__.or_(anon_traversals))
         }
 
         // Side effect steps (Phase 5)
@@ -2090,15 +2090,15 @@ fn apply_anonymous_step(
         RhaiStep::As(label) => traversal.add_step(AsStep::new(label.clone())),
 
         // Traversal-based filter steps (Phase 2)
-        RhaiStep::Where(cond) => traversal.append(__::where_(cond.to_traversal())),
-        RhaiStep::Not(cond) => traversal.append(__::not(cond.to_traversal())),
+        RhaiStep::Where(cond) => traversal.append(__.where_(cond.to_traversal())),
+        RhaiStep::Not(cond) => traversal.append(__.not(cond.to_traversal())),
         RhaiStep::And(conds) => {
             let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
-            traversal.append(__::and_(anon_traversals))
+            traversal.append(__.and_(anon_traversals))
         }
         RhaiStep::Or(conds) => {
             let anon_traversals: Vec<_> = conds.iter().map(|t| t.to_traversal()).collect();
-            traversal.append(__::or_(anon_traversals))
+            traversal.append(__.or_(anon_traversals))
         }
 
         // Side effect steps (Phase 5)
@@ -2109,7 +2109,7 @@ fn apply_anonymous_step(
         RhaiStep::SideEffect(t) => traversal.add_step(SideEffectStep::new(t.to_traversal())),
 
         // Mutation steps (Phase 6)
-        RhaiStep::AddV(label) => traversal.append(__::add_v(label.clone())),
+        RhaiStep::AddV(label) => traversal.append(__.add_v(label.clone())),
         RhaiStep::AddE { label, from, to } => {
             use crate::traversal::mutation::{AddEStep, EdgeEndpoint};
             let mut step = AddEStep::new(label.clone());
@@ -2128,9 +2128,9 @@ fn apply_anonymous_step(
             traversal.add_step(step)
         }
         RhaiStep::Property(key, value) => {
-            traversal.append(__::property(key.clone(), value.clone()))
+            traversal.append(__.property(key.clone(), value.clone()))
         }
-        RhaiStep::Drop => traversal.append(__::drop()),
+        RhaiStep::Drop => traversal.append(__.drop()),
 
         // Branching steps (Phase 9)
         RhaiStep::Choose(cond, true_branch, false_branch) => {

@@ -1505,7 +1505,7 @@ fn test_gql_debug_traverser_repeat_path() {
         .has_label("Person")
         .has_value("name", interstellar::value::Value::from("Alice"))
         .as_("p")
-        .repeat(__::out_labels(&["KNOWS"]))
+        .repeat(__.out_labels(&["KNOWS"]))
         .times(2)
         .as_("target")
         .select(&["p", "target"])

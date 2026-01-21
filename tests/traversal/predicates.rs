@@ -669,7 +669,7 @@ fn has_where_in_where_step() {
     // GraphDB -> (no out): fails
     let results = g
         .v()
-        .where_(__::out().has_where("age", p::lt(30)))
+        .where_(__.out().has_where("age", p::lt(30)))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -686,8 +686,8 @@ fn has_where_in_union_branches() {
     let results = g
         .v_ids([tg.alice])
         .union(vec![
-            __::out().has_where("age", p::lt(30)),              // Bob (25)
-            __::out().has_where("name", p::starting_with("G")), // GraphDB
+            __.out().has_where("age", p::lt(30)),              // Bob (25)
+            __.out().has_where("name", p::starting_with("G")), // GraphDB
         ])
         .to_list();
 
@@ -784,7 +784,7 @@ fn has_where_spec_graph_integration() {
     let results = g
         .v()
         .has_where("age", p::gte(18))
-        .where_(__::out_labels(&["works_at"]))
+        .where_(__.out_labels(&["works_at"]))
         .to_list();
 
     assert_eq!(results.len(), 2);

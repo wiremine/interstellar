@@ -30,7 +30,7 @@ impl<In> Traversal<In, Value> {
     ///
     /// ```ignore
     /// // Create an anonymous traversal that filters to person vertices
-    /// let anon = __::has_label("person");
+    /// let anon = __.has_label("person");
     /// let people = g.v().append(anon).to_list();
     /// ```
     pub fn has_label(self, label: impl Into<String>) -> Traversal<In, Value> {
@@ -46,7 +46,7 @@ impl<In> Traversal<In, Value> {
     ///
     /// ```ignore
     /// // Create an anonymous traversal that filters to person or company vertices
-    /// let anon = __::has_label_any(&["person", "company"]);
+    /// let anon = __.has_label_any(&["person", "company"]);
     /// let entities = g.v().append(anon).to_list();
     /// ```
     pub fn has_label_any<I, S>(self, labels: I) -> Traversal<In, Value>
@@ -266,7 +266,7 @@ impl<In> Traversal<In, Value> {
     /// ```ignore
     /// // Create an anonymous traversal that deduplicates by out-degree
     /// let anon = Traversal::<Value, Value>::new()
-    ///     .dedup_by(__::out().count());
+    ///     .dedup_by(__.out().count());
     /// let unique_outdegree = g.v().append(anon).to_list();
     /// ```
     pub fn dedup_by(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
@@ -336,7 +336,7 @@ impl<In> Traversal<In, Value> {
     /// ```ignore
     /// // Find all simple paths of length 3
     /// let simple = g.v()
-    ///     .repeat(__::out())
+    ///     .repeat(__.out())
     ///     .times(3)
     ///     .simple_path()
     ///     .to_list();
@@ -361,7 +361,7 @@ impl<In> Traversal<In, Value> {
     /// ```ignore
     /// // Find all cyclic paths
     /// let cyclic = g.v()
-    ///     .repeat(__::out())
+    ///     .repeat(__.out())
     ///     .times(4)
     ///     .cyclic_path()
     ///     .to_list();
@@ -1167,7 +1167,7 @@ impl<In> Traversal<In, Value> {
     /// let results = g.v().has_label("person")
     ///     .project(&["name", "friend_count"])
     ///     .by_key("name")
-    ///     .by(__::out("knows").count())
+    ///     .by(__.out("knows").count())
     ///     .build()
     ///     .to_list();
     /// // Results: [{name: "Alice", friend_count: 2}, ...]
@@ -1240,10 +1240,10 @@ impl<In> Traversal<In, Value> {
     /// use interstellar::traversal::__;
     ///
     /// // Count vertices by label
-    /// let t = __::v().group_count().by_label().build();
+    /// let t = __.v().group_count().by_label().build();
     ///
     /// // Count vertices by a property
-    /// let t2 = __::v().group_count().by_key("age").build();
+    /// let t2 = __.v().group_count().by_key("age").build();
     /// ```
     ///
     /// # Returns
@@ -1733,7 +1733,7 @@ impl<In> Traversal<In, Value> {
     /// ```ignore
     /// // Create an anonymous traversal that executes a side effect
     /// let anon = Traversal::<Value, Value>::new()
-    ///     .side_effect(__::out().store("neighbors"));
+    ///     .side_effect(__.out().store("neighbors"));
     /// ```
     pub fn side_effect(self, traversal: Traversal<Value, Value>) -> Traversal<In, Value> {
         self.add_step(sideeffect::SideEffectStep::new(traversal))

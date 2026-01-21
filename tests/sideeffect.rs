@@ -402,7 +402,7 @@ fn test_side_effect_executes_sub_traversal() {
     // Execute side effect that stores neighbors
     let results = g
         .v_ids([test.alice])
-        .side_effect(__::out().store("neighbors"))
+        .side_effect(__.out().store("neighbors"))
         .cap("neighbors")
         .to_list();
 
@@ -424,7 +424,7 @@ fn test_side_effect_preserves_original_traverser() {
     // Side effect should pass through original traverser
     let results = g
         .v_ids([test.alice])
-        .side_effect(__::out().store("neighbors"))
+        .side_effect(__.out().store("neighbors"))
         .values("name")
         .to_list();
 
@@ -443,7 +443,7 @@ fn test_side_effect_with_complex_sub_traversal() {
     let count = g
         .v()
         .has_label("person")
-        .side_effect(__::out_labels(&["knows"]).store("friends"))
+        .side_effect(__.out_labels(&["knows"]).store("friends"))
         .count();
 
     // Count of input traversers (3 people)
@@ -559,7 +559,7 @@ fn test_anonymous_store() {
     let results = g
         .v()
         .has_label("person")
-        .append(__::store("x").values("name"))
+        .append(__.store("x").values("name"))
         .to_list();
 
     // Should get names
@@ -573,7 +573,7 @@ fn test_anonymous_aggregate() {
     let g = snapshot.gremlin();
 
     // Use anonymous traversal with aggregate - aggregate is barrier then emits all
-    let count = g.v().has_label("person").append(__::aggregate("x")).count();
+    let count = g.v().has_label("person").append(__.aggregate("x")).count();
 
     // After aggregate (barrier), count of 3 items emitted
     assert_eq!(count, 3);
@@ -590,7 +590,7 @@ fn test_anonymous_cap() {
         .v()
         .has_label("person")
         .store("x")
-        .append(__::cap("x"))
+        .append(__.cap("x"))
         .to_list();
 
     assert_eq!(results.len(), 1);
@@ -606,7 +606,7 @@ fn test_anonymous_side_effect() {
     // Anonymous side effect that stores outgoing neighbors
     let results = g
         .v_ids([test.alice])
-        .append(__::side_effect(__::out().store("neighbors")))
+        .append(__.side_effect(__.out().store("neighbors")))
         .cap("neighbors")
         .to_list();
 
@@ -628,7 +628,7 @@ fn test_anonymous_profile() {
     let results = g
         .v()
         .has_label("person")
-        .append(__::profile())
+        .append(__.profile())
         .cap("profile")
         .to_list();
 
@@ -716,8 +716,8 @@ fn test_side_effect_in_union() {
     let results = g
         .v_ids([test.alice])
         .union(vec![
-            __::out_labels(&["knows"]).store("friends"),
-            __::out_labels(&["created"]).store("creations"),
+            __.out_labels(&["knows"]).store("friends"),
+            __.out_labels(&["created"]).store("creations"),
         ])
         .cap_multi(["friends", "creations"])
         .to_list();

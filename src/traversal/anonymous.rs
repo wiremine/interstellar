@@ -24,7 +24,7 @@
 //! use interstellar::traversal::__;
 //!
 //! // Create an anonymous traversal
-//! let knows_bob = __::out_labels(&["knows"]).has_value("name", "Bob");
+//! let knows_bob = __.out_labels(&["knows"]).has_value("name", "Bob");
 //!
 //! // Use in a parent traversal
 //! let people_who_know_bob = g.v()
@@ -33,7 +33,7 @@
 //!     .to_list();
 //!
 //! // Factory functions can also be chained
-//! let complex = __::out()
+//! let complex = __.out()
 //!     .has_label("person")
 //!     .values("name");
 //! ```
@@ -72,7 +72,7 @@ use crate::value::Value;
 /// # Example
 ///
 /// ```ignore
-/// let anon = __::identity();
+/// let anon = __.identity();
 /// // Equivalent to no-op, but useful as a placeholder or in union branches
 /// ```
 #[inline]
@@ -89,7 +89,7 @@ pub fn identity() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let friends = __::out();
+/// let friends = __.out();
 /// ```
 #[inline]
 pub fn out() -> Traversal<Value, Value> {
@@ -101,7 +101,7 @@ pub fn out() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let friends = __::out_labels(&["knows", "likes"]);
+/// let friends = __.out_labels(&["knows", "likes"]);
 /// ```
 pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -115,7 +115,7 @@ pub fn out_labels(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let known_by = __::in_();
+/// let known_by = __.in_();
 /// ```
 #[inline]
 pub fn in_() -> Traversal<Value, Value> {
@@ -127,7 +127,7 @@ pub fn in_() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let known_by = __::in_labels(&["knows"]);
+/// let known_by = __.in_labels(&["knows"]);
 /// ```
 pub fn in_labels(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -139,7 +139,7 @@ pub fn in_labels(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let neighbors = __::both();
+/// let neighbors = __.both();
 /// ```
 #[inline]
 pub fn both() -> Traversal<Value, Value> {
@@ -151,7 +151,7 @@ pub fn both() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let connected = __::both_labels(&["knows"]);
+/// let connected = __.both_labels(&["knows"]);
 /// ```
 pub fn both_labels(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -167,7 +167,7 @@ pub fn both_labels(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let edges = __::out_e();
+/// let edges = __.out_e();
 /// ```
 #[inline]
 pub fn out_e() -> Traversal<Value, Value> {
@@ -179,7 +179,7 @@ pub fn out_e() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let knows_edges = __::out_e_labels(&["knows"]);
+/// let knows_edges = __.out_e_labels(&["knows"]);
 /// ```
 pub fn out_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -191,7 +191,7 @@ pub fn out_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let edges = __::in_e();
+/// let edges = __.in_e();
 /// ```
 #[inline]
 pub fn in_e() -> Traversal<Value, Value> {
@@ -203,7 +203,7 @@ pub fn in_e() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let known_by_edges = __::in_e_labels(&["knows"]);
+/// let known_by_edges = __.in_e_labels(&["knows"]);
 /// ```
 pub fn in_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -215,7 +215,7 @@ pub fn in_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let all_edges = __::both_e();
+/// let all_edges = __.both_e();
 /// ```
 #[inline]
 pub fn both_e() -> Traversal<Value, Value> {
@@ -227,7 +227,7 @@ pub fn both_e() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let knows_edges = __::both_e_labels(&["knows"]);
+/// let knows_edges = __.both_e_labels(&["knows"]);
 /// ```
 pub fn both_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -243,7 +243,7 @@ pub fn both_e_labels(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let sources = __::out_v();
+/// let sources = __.out_v();
 /// ```
 #[inline]
 pub fn out_v() -> Traversal<Value, Value> {
@@ -255,7 +255,7 @@ pub fn out_v() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let targets = __::in_v();
+/// let targets = __.in_v();
 /// ```
 #[inline]
 pub fn in_v() -> Traversal<Value, Value> {
@@ -267,7 +267,7 @@ pub fn in_v() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let endpoints = __::both_v();
+/// let endpoints = __.both_v();
 /// ```
 #[inline]
 pub fn both_v() -> Traversal<Value, Value> {
@@ -283,7 +283,7 @@ pub fn both_v() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let others = __::other_v();
+/// let others = __.other_v();
 /// ```
 #[inline]
 pub fn other_v() -> Traversal<Value, Value> {
@@ -299,7 +299,7 @@ pub fn other_v() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let people = __::has_label("person");
+/// let people = __.has_label("person");
 /// ```
 pub fn has_label(label: impl Into<String>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(HasLabelStep::single(label))
@@ -310,7 +310,7 @@ pub fn has_label(label: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let entities = __::has_label_any(&["person", "company"]);
+/// let entities = __.has_label_any(&["person", "company"]);
 /// ```
 pub fn has_label_any(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -322,7 +322,7 @@ pub fn has_label_any(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let with_age = __::has("age");
+/// let with_age = __.has("age");
 /// ```
 pub fn has(key: impl Into<String>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(HasStep::new(key))
@@ -336,7 +336,7 @@ pub fn has(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let without_email = __::has_not("email");
+/// let without_email = __.has_not("email");
 /// ```
 pub fn has_not(key: impl Into<String>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(HasNotStep::new(key))
@@ -347,7 +347,7 @@ pub fn has_not(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let alice = __::has_value("name", "Alice");
+/// let alice = __.has_value("name", "Alice");
 /// ```
 pub fn has_value(key: impl Into<String>, value: impl Into<Value>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(HasValueStep::new(key, value))
@@ -358,7 +358,7 @@ pub fn has_value(key: impl Into<String>, value: impl Into<Value>) -> Traversal<V
 /// # Example
 ///
 /// ```ignore
-/// let specific = __::has_id(VertexId(1));
+/// let specific = __.has_id(VertexId(1));
 /// ```
 pub fn has_id(id: impl Into<Value>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(HasIdStep::from_value(id))
@@ -369,7 +369,7 @@ pub fn has_id(id: impl Into<Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let specific = __::has_ids([VertexId(1), VertexId(2)]);
+/// let specific = __.has_ids([VertexId(1), VertexId(2)]);
 /// ```
 pub fn has_ids<I, T>(ids: I) -> Traversal<Value, Value>
 where
@@ -389,13 +389,13 @@ where
 /// use interstellar::traversal::p;
 ///
 /// // Filter to adults
-/// let adults = __::has_where("age", p::gte(18));
+/// let adults = __.has_where("age", p::gte(18));
 ///
 /// // Filter names starting with "A"
-/// let a_names = __::has_where("name", p::starting_with("A"));
+/// let a_names = __.has_where("name", p::starting_with("A"));
 ///
 /// // Combine predicates
-/// let working_age = __::has_where("age", p::and(p::gte(18), p::lt(65)));
+/// let working_age = __.has_where("age", p::and(p::gte(18), p::lt(65)));
 /// ```
 pub fn has_where(
     key: impl Into<String>,
@@ -416,11 +416,11 @@ pub fn has_where(
 /// use interstellar::traversal::{__, p};
 ///
 /// // Filter ages greater than 25
-/// let gt_25 = __::is_(p::gt(25));
+/// let gt_25 = __.is_(p::gt(25));
 /// let adults = g.v().values("age").append(gt_25).to_list();
 ///
 /// // Filter ages in a range
-/// let in_range = __::is_(p::between(20, 40));
+/// let in_range = __.is_(p::between(20, 40));
 /// ```
 pub fn is_(predicate: impl Predicate + 'static) -> Traversal<Value, Value> {
     use crate::traversal::filter::IsStep;
@@ -438,11 +438,11 @@ pub fn is_(predicate: impl Predicate + 'static) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Filter to ages equal to 29
-/// let age_29 = __::is_eq(29);
+/// let age_29 = __.is_eq(29);
 /// let results = g.v().values("age").append(age_29).to_list();
 ///
 /// // Filter to a specific name
-/// let alice = __::is_eq("Alice");
+/// let alice = __.is_eq("Alice");
 /// ```
 pub fn is_eq(value: impl Into<Value>) -> Traversal<Value, Value> {
     use crate::traversal::filter::IsStep;
@@ -454,7 +454,7 @@ pub fn is_eq(value: impl Into<Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let positive = __::filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 0));
+/// let positive = __.filter(|_ctx, v| matches!(v, Value::Int(n) if *n > 0));
 /// ```
 pub fn filter<F>(predicate: F) -> Traversal<Value, Value>
 where
@@ -468,7 +468,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// let unique = __::dedup();
+/// let unique = __.dedup();
 /// ```
 #[inline]
 pub fn dedup() -> Traversal<Value, Value> {
@@ -483,7 +483,7 @@ pub fn dedup() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let unique_ages = __::dedup_by_key("age");
+/// let unique_ages = __.dedup_by_key("age");
 /// ```
 #[inline]
 pub fn dedup_by_key(key: impl Into<String>) -> Traversal<Value, Value> {
@@ -498,7 +498,7 @@ pub fn dedup_by_key(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let one_per_label = __::dedup_by_label();
+/// let one_per_label = __.dedup_by_label();
 /// ```
 #[inline]
 pub fn dedup_by_label() -> Traversal<Value, Value> {
@@ -514,7 +514,7 @@ pub fn dedup_by_label() -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Dedup by out-degree
-/// let unique_outdegree = __::dedup_by(__::out().count());
+/// let unique_outdegree = __.dedup_by(__.out().count());
 /// ```
 #[inline]
 pub fn dedup_by(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
@@ -526,7 +526,7 @@ pub fn dedup_by(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let first_ten = __::limit(10);
+/// let first_ten = __.limit(10);
 /// ```
 #[inline]
 pub fn limit(count: usize) -> Traversal<Value, Value> {
@@ -538,7 +538,7 @@ pub fn limit(count: usize) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let after_ten = __::skip(10);
+/// let after_ten = __.skip(10);
 /// ```
 #[inline]
 pub fn skip(count: usize) -> Traversal<Value, Value> {
@@ -550,7 +550,7 @@ pub fn skip(count: usize) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let page = __::range(10, 20);
+/// let page = __.range(10, 20);
 /// ```
 #[inline]
 pub fn range(start: usize, end: usize) -> Traversal<Value, Value> {
@@ -564,7 +564,7 @@ pub fn range(start: usize, end: usize) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let simple = __::simple_path();
+/// let simple = __.simple_path();
 /// ```
 #[inline]
 pub fn simple_path() -> Traversal<Value, Value> {
@@ -579,7 +579,7 @@ pub fn simple_path() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let cyclic = __::cyclic_path();
+/// let cyclic = __.cyclic_path();
 /// ```
 #[inline]
 pub fn cyclic_path() -> Traversal<Value, Value> {
@@ -595,7 +595,7 @@ pub fn cyclic_path() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let last = __::tail();
+/// let last = __.tail();
 /// ```
 #[inline]
 pub fn tail() -> Traversal<Value, Value> {
@@ -610,7 +610,7 @@ pub fn tail() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let last_three = __::tail_n(3);
+/// let last_three = __.tail_n(3);
 /// ```
 #[inline]
 pub fn tail_n(count: usize) -> Traversal<Value, Value> {
@@ -626,7 +626,7 @@ pub fn tail_n(count: usize) -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Random sample of approximately 50%
-/// let sample = __::coin(0.5);
+/// let sample = __.coin(0.5);
 /// ```
 #[inline]
 pub fn coin(probability: f64) -> Traversal<Value, Value> {
@@ -643,7 +643,7 @@ pub fn coin(probability: f64) -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Sample 5 random elements
-/// let sampled = __::sample(5);
+/// let sampled = __.sample(5);
 /// ```
 #[inline]
 pub fn sample(count: usize) -> Traversal<Value, Value> {
@@ -659,7 +659,7 @@ pub fn sample(count: usize) -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Filter to only "name" properties
-/// let names = __::has_key("name");
+/// let names = __.has_key("name");
 /// ```
 #[inline]
 pub fn has_key(key: impl Into<String>) -> Traversal<Value, Value> {
@@ -675,7 +675,7 @@ pub fn has_key(key: impl Into<String>) -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Filter to "name" or "age" properties
-/// let props = __::has_key_any(["name", "age"]);
+/// let props = __.has_key_any(["name", "age"]);
 /// ```
 #[inline]
 pub fn has_key_any<I, S>(keys: I) -> Traversal<Value, Value>
@@ -695,7 +695,7 @@ where
 ///
 /// ```ignore
 /// // Filter to properties with value "Alice"
-/// let alice_props = __::has_prop_value("Alice");
+/// let alice_props = __.has_prop_value("Alice");
 /// ```
 #[inline]
 pub fn has_prop_value(value: impl Into<Value>) -> Traversal<Value, Value> {
@@ -711,7 +711,7 @@ pub fn has_prop_value(value: impl Into<Value>) -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Filter to properties with value "Alice" or "Bob"
-/// let props = __::has_prop_value_any(["Alice", "Bob"]);
+/// let props = __.has_prop_value_any(["Alice", "Bob"]);
 /// ```
 #[inline]
 pub fn has_prop_value_any<I, V>(values: I) -> Traversal<Value, Value>
@@ -733,10 +733,10 @@ where
 /// use interstellar::traversal::p;
 ///
 /// // Filter values greater than 25
-/// let adults = __::where_p(p::gt(25));
+/// let adults = __.where_p(p::gt(25));
 ///
 /// // Filter values within a set
-/// let selected = __::where_p(p::within(["Alice", "Bob"]));
+/// let selected = __.where_p(p::within(["Alice", "Bob"]));
 /// ```
 #[inline]
 pub fn where_p(
@@ -754,7 +754,7 @@ pub fn where_p(
 /// # Example
 ///
 /// ```ignore
-/// let names = __::values("name");
+/// let names = __.values("name");
 /// ```
 pub fn values(key: impl Into<String>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(ValuesStep::new(key))
@@ -765,7 +765,7 @@ pub fn values(key: impl Into<String>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let data = __::values_multi(["name", "age"]);
+/// let data = __.values_multi(["name", "age"]);
 /// ```
 pub fn values_multi<I, S>(keys: I) -> Traversal<Value, Value>
 where
@@ -783,7 +783,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// let props = __::properties();
+/// let props = __.properties();
 /// // Each result is Value::Map { "key": "name", "value": "Alice" } etc.
 /// ```
 pub fn properties() -> Traversal<Value, Value> {
@@ -798,7 +798,7 @@ pub fn properties() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let props = __::properties_keys(&["name", "age"]);
+/// let props = __.properties_keys(&["name", "age"]);
 /// ```
 pub fn properties_keys(keys: &[&str]) -> Traversal<Value, Value> {
     let keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
@@ -813,7 +813,7 @@ pub fn properties_keys(keys: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::value_map();
+/// let maps = __.value_map();
 /// // Returns: {"name": ["Alice"], "age": [30]}
 /// ```
 #[inline]
@@ -829,7 +829,7 @@ pub fn value_map() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::value_map_keys(&["name"]);
+/// let maps = __.value_map_keys(&["name"]);
 /// // Returns: {"name": ["Alice"]}
 /// ```
 pub fn value_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
@@ -845,7 +845,7 @@ pub fn value_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::value_map_with_tokens();
+/// let maps = __.value_map_with_tokens();
 /// // Returns: {"id": 0, "label": "person", "name": ["Alice"], "age": [30]}
 /// ```
 #[inline]
@@ -862,7 +862,7 @@ pub fn value_map_with_tokens() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::element_map();
+/// let maps = __.element_map();
 /// // Vertex: {"id": 0, "label": "person", "name": "Alice", "age": 30}
 /// // Edge: {"id": 0, "label": "knows", "IN": {...}, "OUT": {...}, "since": 2020}
 /// ```
@@ -879,7 +879,7 @@ pub fn element_map() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::element_map_keys(&["name"]);
+/// let maps = __.element_map_keys(&["name"]);
 /// // Returns: {"id": 0, "label": "person", "name": "Alice"}
 /// ```
 pub fn element_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
@@ -900,7 +900,7 @@ pub fn element_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::property_map();
+/// let maps = __.property_map();
 /// // Returns: {name: [{key: "name", value: "Alice"}], age: [{key: "age", value: 30}]}
 /// ```
 #[inline]
@@ -915,7 +915,7 @@ pub fn property_map() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let maps = __::property_map_keys(&["name"]);
+/// let maps = __.property_map_keys(&["name"]);
 /// // Returns: {name: [{key: "name", value: "Alice"}]}
 /// ```
 pub fn property_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
@@ -933,7 +933,7 @@ pub fn property_map_keys(keys: &[&str]) -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Unfold a list
-/// let unfolded = __::unfold();
+/// let unfolded = __.unfold();
 ///
 /// // Use in pipeline
 /// let entries = g.v().value_map().unfold().to_list();
@@ -954,12 +954,12 @@ pub fn unfold() -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Use in branch to calculate average
-/// let avg = __::mean();
+/// let avg = __.mean();
 ///
 /// // As part of a larger traversal
 /// let avg_ages = g.v().has_label("person")
 ///     .values("age")
-///     .append(__::mean())
+///     .append(__.mean())
 ///     .to_list();
 /// ```
 #[inline]
@@ -977,10 +977,10 @@ pub fn mean() -> Traversal<Value, Value> {
 ///
 /// ```ignore
 /// // Sort by natural order
-/// let sorted = __::order().build();
+/// let sorted = __.order().build();
 ///
 /// // Sort by property
-/// let sorted = __::order().by_key_desc("age").build();
+/// let sorted = __.order().by_key_desc("age").build();
 /// ```
 pub fn order() -> OrderBuilder<Value> {
     OrderBuilder::new(vec![])
@@ -1005,13 +1005,13 @@ pub fn order() -> OrderBuilder<Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Double current values
-/// let doubled = __::math("_ * 2").build();
+/// let doubled = __.math("_ * 2").build();
 ///
 /// // Calculate square root of sum
-/// let sqrt = __::math("sqrt(_ ^ 2 + 1)").build();
+/// let sqrt = __.math("sqrt(_ ^ 2 + 1)").build();
 ///
 /// // With labeled path values (requires by() for each variable)
-/// let diff = __::math("a - b")
+/// let diff = __.math("a - b")
 ///     .by("a", "age")
 ///     .by("b", "age")
 ///     .build();
@@ -1041,9 +1041,9 @@ pub fn math(expression: &str) -> crate::traversal::transform::MathBuilder<Value>
 /// use __; // Anonymous traversal module
 ///
 /// // Use in a where clause to project data
-/// let projection = __::project(&["name", "friend_count"])
+/// let projection = __.project(&["name", "friend_count"])
 ///     .by_key("name")
-///     .by(__::out("knows").count())
+///     .by(__.out("knows").count())
 ///     .build();
 /// ```
 ///
@@ -1077,10 +1077,10 @@ pub fn project(keys: &[&str]) -> ProjectBuilder<Value> {
 /// use __; // Anonymous traversal module
 ///
 /// // Group by label
-/// let groups = __::group().by_label().by_value().build();
+/// let groups = __.group().by_label().by_value().build();
 ///
 /// // Group by property
-/// let groups = __::group().by_key("age").by_value_key("name").build();
+/// let groups = __.group().by_key("age").by_value_key("name").build();
 /// ```
 ///
 /// # Returns
@@ -1103,10 +1103,10 @@ pub fn group() -> crate::traversal::aggregate::GroupBuilder<Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Count by label
-/// let count_step = __::group_count().by_label().build();
+/// let count_step = __.group_count().by_label().build();
 ///
 /// // Count by property
-/// let age_count_step = __::group_count().by_key("age").build();
+/// let age_count_step = __.group_count().by_key("age").build();
 /// ```
 ///
 /// # Returns
@@ -1122,7 +1122,7 @@ pub fn group_count() -> crate::traversal::aggregate::GroupCountBuilder<Value> {
 /// # Example
 ///
 /// ```ignore
-/// let ids = __::id();
+/// let ids = __.id();
 /// ```
 #[inline]
 pub fn id() -> Traversal<Value, Value> {
@@ -1134,7 +1134,7 @@ pub fn id() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let labels = __::label();
+/// let labels = __.label();
 /// ```
 #[inline]
 pub fn label() -> Traversal<Value, Value> {
@@ -1146,7 +1146,7 @@ pub fn label() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let keys = __::key();
+/// let keys = __.key();
 /// ```
 #[inline]
 pub fn key() -> Traversal<Value, Value> {
@@ -1158,7 +1158,7 @@ pub fn key() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let values = __::value();
+/// let values = __.value();
 /// ```
 #[inline]
 pub fn value() -> Traversal<Value, Value> {
@@ -1172,8 +1172,8 @@ pub fn value() -> Traversal<Value, Value> {
 /// ```ignore
 /// // Use in until condition
 /// let vertices = g.v()
-///     .repeat(__::out())
-///     .until(__::loops().is_(p::gte(3)))
+///     .repeat(__.out())
+///     .until(__.loops().is_(p::gte(3)))
 ///     .to_list();
 /// ```
 #[inline]
@@ -1188,7 +1188,7 @@ pub fn loops() -> Traversal<Value, Value> {
 /// ```ignore
 /// // Get elements with indices
 /// let indexed = g.v()
-///     .flat_map(__::index())
+///     .flat_map(__.index())
 ///     .to_list();
 /// ```
 #[inline]
@@ -1201,7 +1201,7 @@ pub fn index() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let markers = __::constant("found");
+/// let markers = __.constant("found");
 /// ```
 pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(ConstantStep::new(value))
@@ -1212,7 +1212,7 @@ pub fn constant(value: impl Into<Value>) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let paths = __::path();
+/// let paths = __.path();
 /// ```
 #[inline]
 pub fn path() -> Traversal<Value, Value> {
@@ -1224,7 +1224,7 @@ pub fn path() -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let doubled = __::map(|_ctx, v| {
+/// let doubled = __.map(|_ctx, v| {
 ///     if let Value::Int(n) = v {
 ///         Value::Int(n * 2)
 ///     } else {
@@ -1244,7 +1244,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// let expanded = __::flat_map(|_ctx, v| {
+/// let expanded = __.flat_map(|_ctx, v| {
 ///     if let Value::Int(n) = v {
 ///         (0..*n).map(Value::Int).collect()
 ///     } else {
@@ -1264,7 +1264,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// let labeled = __::as_("start");
+/// let labeled = __.as_("start");
 /// ```
 pub fn as_(label: &str) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(AsStep::new(label))
@@ -1275,7 +1275,7 @@ pub fn as_(label: &str) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let selected = __::select(&["a", "b"]);
+/// let selected = __.select(&["a", "b"]);
 /// ```
 pub fn select(labels: &[&str]) -> Traversal<Value, Value> {
     let labels: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
@@ -1287,7 +1287,7 @@ pub fn select(labels: &[&str]) -> Traversal<Value, Value> {
 /// # Example
 ///
 /// ```ignore
-/// let selected = __::select_one("start");
+/// let selected = __.select_one("start");
 /// ```
 pub fn select_one(label: &str) -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(SelectStep::single(label))
@@ -1307,7 +1307,7 @@ pub fn select_one(label: &str) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Keep only vertices that have outgoing edges
-/// let with_out = __::where_(__.out());
+/// let with_out = __.where_(__.out());
 /// ```
 pub fn where_(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
     use crate::traversal::branch::WhereStep;
@@ -1324,7 +1324,7 @@ pub fn where_(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Keep only leaf vertices (no outgoing edges)
-/// let leaves = __::not(__.out());
+/// let leaves = __.not(__.out());
 /// ```
 pub fn not(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
     use crate::traversal::branch::NotStep;
@@ -1341,7 +1341,7 @@ pub fn not(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Keep vertices that have both outgoing AND incoming edges
-/// let connected = __::and_(vec![__.out(), __.in_()]);
+/// let connected = __.and_(vec![__.out(), __.in_()]);
 /// ```
 pub fn and_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
     use crate::traversal::branch::AndStep;
@@ -1358,7 +1358,7 @@ pub fn and_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Keep vertices that are either "person" OR "software"
-/// let entities = __::or_(vec![__.has_label("person"), __.has_label("software")]);
+/// let entities = __.or_(vec![__.has_label("person"), __.has_label("software")]);
 /// ```
 pub fn or_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
     use crate::traversal::branch::OrStep;
@@ -1379,7 +1379,7 @@ pub fn or_(subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Get neighbors in both directions
-/// let neighbors = __::union(vec![__.out(), __.in_()]);
+/// let neighbors = __.union(vec![__.out(), __.in_()]);
 /// ```
 pub fn union(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
     use crate::traversal::branch::UnionStep;
@@ -1396,7 +1396,7 @@ pub fn union(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> 
 /// use interstellar::traversal::__;
 ///
 /// // Try to get nickname, fall back to name
-/// let names = __::coalesce(vec![__.values("nickname"), __.values("name")]);
+/// let names = __.coalesce(vec![__.values("nickname"), __.values("name")]);
 /// ```
 pub fn coalesce(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
     use crate::traversal::branch::CoalesceStep;
@@ -1413,7 +1413,7 @@ pub fn coalesce(branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Valu
 /// use interstellar::traversal::__;
 ///
 /// // If person, get friends; otherwise get all neighbors
-/// let results = __::choose(__.has_label("person"), __.out_labels(&["knows"]), __.out());
+/// let results = __.choose(__.has_label("person"), __.out_labels(&["knows"]), __.out());
 /// ```
 pub fn choose(
     condition: Traversal<Value, Value>,
@@ -1434,7 +1434,7 @@ pub fn choose(
 /// use interstellar::traversal::__;
 ///
 /// // Try to traverse to friends, keep original if none found
-/// let results = __::optional(__.out_labels(&["knows"]));
+/// let results = __.optional(__.out_labels(&["knows"]));
 /// ```
 pub fn optional(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
     use crate::traversal::branch::OptionalStep;
@@ -1451,7 +1451,7 @@ pub fn optional(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Count neighbors per vertex
-/// let counts = __::local(__.out().limit(1));
+/// let counts = __.local(__.out().limit(1));
 /// ```
 pub fn local(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
     use crate::traversal::branch::LocalStep;
@@ -1474,7 +1474,7 @@ pub fn local(sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Create a pending vertex (actual creation happens at execution time)
-/// let vertex_traversal = __::add_v("person")
+/// let vertex_traversal = __.add_v("person")
 ///     .property("name", "Alice")
 ///     .property("age", 30);
 /// ```
@@ -1496,7 +1496,7 @@ pub fn add_v(label: impl Into<String>) -> Traversal<Value, Value> {
 /// use interstellar::value::VertexId;
 ///
 /// // Create a pending edge between two vertices
-/// let edge_step = __::add_e("knows")
+/// let edge_step = __.add_e("knows")
 ///     .from_vertex(VertexId(1))
 ///     .to_vertex(VertexId(2))
 ///     .property("since", 2020);
@@ -1517,7 +1517,7 @@ pub fn add_e(label: impl Into<String>) -> crate::traversal::mutation::AddEStep {
 /// use interstellar::traversal::__;
 ///
 /// // Add a property to current element
-/// let with_name = __::property("name", "Alice");
+/// let with_name = __.property("name", "Alice");
 /// ```
 pub fn property(key: impl Into<String>, value: impl Into<Value>) -> Traversal<Value, Value> {
     use crate::traversal::mutation::PropertyStep;
@@ -1536,7 +1536,7 @@ pub fn property(key: impl Into<String>, value: impl Into<Value>) -> Traversal<Va
 /// use interstellar::traversal::__;
 ///
 /// // Mark elements for deletion
-/// let deleted = __::drop();
+/// let deleted = __.drop();
 /// ```
 pub fn drop() -> Traversal<Value, Value> {
     use crate::traversal::mutation::DropStep;
@@ -1563,7 +1563,7 @@ pub fn drop() -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Create a basic branch step (options added via bound traversal)
-/// let branch_traversal = __::branch(__::label());
+/// let branch_traversal = __.branch(__.label());
 /// ```
 pub fn branch(branch_traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
     use crate::traversal::branch::BranchStep;
@@ -1585,7 +1585,7 @@ pub fn branch(branch_traversal: Traversal<Value, Value>) -> Traversal<Value, Val
 /// use interstellar::traversal::__;
 ///
 /// // Store values as they pass through
-/// let stored = __::store("x");
+/// let stored = __.store("x");
 /// ```
 pub fn store(key: impl Into<String>) -> Traversal<Value, Value> {
     use crate::traversal::sideeffect::StoreStep;
@@ -1603,7 +1603,7 @@ pub fn store(key: impl Into<String>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Aggregate all values
-/// let aggregated = __::aggregate("all");
+/// let aggregated = __.aggregate("all");
 /// ```
 pub fn aggregate(key: impl Into<String>) -> Traversal<Value, Value> {
     use crate::traversal::sideeffect::AggregateStep;
@@ -1621,7 +1621,7 @@ pub fn aggregate(key: impl Into<String>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Retrieve stored data
-/// let capped = __::cap("x");
+/// let capped = __.cap("x");
 /// ```
 pub fn cap(key: impl Into<String>) -> Traversal<Value, Value> {
     use crate::traversal::sideeffect::CapStep;
@@ -1639,7 +1639,7 @@ pub fn cap(key: impl Into<String>) -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Execute side effect traversal
-/// let with_side_effect = __::side_effect(__::out().store("neighbors"));
+/// let with_side_effect = __.side_effect(__.out().store("neighbors"));
 /// ```
 pub fn side_effect(traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
     use crate::traversal::sideeffect::SideEffectStep;
@@ -1657,7 +1657,7 @@ pub fn side_effect(traversal: Traversal<Value, Value>) -> Traversal<Value, Value
 /// use interstellar::traversal::__;
 ///
 /// // Profile traversal step
-/// let profiled = __::profile();
+/// let profiled = __.profile();
 /// ```
 pub fn profile() -> Traversal<Value, Value> {
     use crate::traversal::sideeffect::ProfileStep;
@@ -1675,9 +1675,717 @@ pub fn profile() -> Traversal<Value, Value> {
 /// use interstellar::traversal::__;
 ///
 /// // Profile with custom key
-/// let profiled = __::profile_as("my_profile");
+/// let profiled = __.profile_as("my_profile");
 /// ```
 pub fn profile_as(key: impl Into<String>) -> Traversal<Value, Value> {
     use crate::traversal::sideeffect::ProfileStep;
     Traversal::<Value, Value>::new().add_step(ProfileStep::with_key(key))
+}
+
+// =============================================================================
+// AnonymousTraversal Struct - Enables `__.method()` syntax
+// =============================================================================
+
+/// Anonymous traversal factory for Gremlin-style `__.method()` syntax.
+///
+/// This zero-sized struct provides method-based access to all anonymous
+/// traversal functions. Use the static `__` instance for fluent syntax.
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Gremlin-style syntax
+/// let friends = __.out_labels(&["knows"]);
+///
+/// // Chain anonymous traversals
+/// let complex = __.out().has_label("person").values("name");
+///
+/// // Use in parent traversals
+/// let results = g.v()
+///     .has_label("person")
+///     .where_(__.out_labels(&["knows"]))
+///     .to_list();
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AnonymousTraversal;
+
+/// Static instance for `__.method()` syntax.
+///
+/// This is the primary way to create anonymous traversals using Gremlin-style syntax.
+#[allow(non_upper_case_globals)]
+pub static __: AnonymousTraversal = AnonymousTraversal;
+
+impl AnonymousTraversal {
+    // -------------------------------------------------------------------------
+    // Identity
+    // -------------------------------------------------------------------------
+
+    /// Create an identity traversal that passes input through unchanged.
+    #[inline]
+    pub fn identity(&self) -> Traversal<Value, Value> {
+        identity()
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation - Vertex to Vertex
+    // -------------------------------------------------------------------------
+
+    /// Traverse to outgoing adjacent vertices.
+    #[inline]
+    pub fn out(&self) -> Traversal<Value, Value> {
+        out()
+    }
+
+    /// Traverse to outgoing adjacent vertices via edges with given labels.
+    #[inline]
+    pub fn out_labels(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        out_labels(labels)
+    }
+
+    /// Traverse to incoming adjacent vertices.
+    #[inline]
+    pub fn in_(&self) -> Traversal<Value, Value> {
+        in_()
+    }
+
+    /// Traverse to incoming adjacent vertices via edges with given labels.
+    #[inline]
+    pub fn in_labels(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        in_labels(labels)
+    }
+
+    /// Traverse to adjacent vertices in both directions.
+    #[inline]
+    pub fn both(&self) -> Traversal<Value, Value> {
+        both()
+    }
+
+    /// Traverse to adjacent vertices in both directions via edges with given labels.
+    #[inline]
+    pub fn both_labels(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        both_labels(labels)
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation - Vertex to Edge
+    // -------------------------------------------------------------------------
+
+    /// Traverse to outgoing edges.
+    #[inline]
+    pub fn out_e(&self) -> Traversal<Value, Value> {
+        out_e()
+    }
+
+    /// Traverse to outgoing edges with given labels.
+    #[inline]
+    pub fn out_e_labels(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        out_e_labels(labels)
+    }
+
+    /// Traverse to incoming edges.
+    #[inline]
+    pub fn in_e(&self) -> Traversal<Value, Value> {
+        in_e()
+    }
+
+    /// Traverse to incoming edges with given labels.
+    #[inline]
+    pub fn in_e_labels(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        in_e_labels(labels)
+    }
+
+    /// Traverse to all incident edges (both directions).
+    #[inline]
+    pub fn both_e(&self) -> Traversal<Value, Value> {
+        both_e()
+    }
+
+    /// Traverse to all incident edges with given labels.
+    #[inline]
+    pub fn both_e_labels(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        both_e_labels(labels)
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation - Edge to Vertex
+    // -------------------------------------------------------------------------
+
+    /// Get the source (outgoing) vertex of an edge.
+    #[inline]
+    pub fn out_v(&self) -> Traversal<Value, Value> {
+        out_v()
+    }
+
+    /// Get the target (incoming) vertex of an edge.
+    #[inline]
+    pub fn in_v(&self) -> Traversal<Value, Value> {
+        in_v()
+    }
+
+    /// Get both vertices of an edge.
+    #[inline]
+    pub fn both_v(&self) -> Traversal<Value, Value> {
+        both_v()
+    }
+
+    /// Get the "other" vertex of an edge.
+    #[inline]
+    pub fn other_v(&self) -> Traversal<Value, Value> {
+        other_v()
+    }
+
+    // -------------------------------------------------------------------------
+    // Filter Steps
+    // -------------------------------------------------------------------------
+
+    /// Filter elements by label.
+    #[inline]
+    pub fn has_label(&self, label: impl Into<String>) -> Traversal<Value, Value> {
+        has_label(label)
+    }
+
+    /// Filter elements by any of the given labels.
+    #[inline]
+    pub fn has_label_any(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        has_label_any(labels)
+    }
+
+    /// Filter elements by property existence.
+    #[inline]
+    pub fn has(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        has(key)
+    }
+
+    /// Filter elements by property absence.
+    #[inline]
+    pub fn has_not(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        has_not(key)
+    }
+
+    /// Filter elements by property value equality.
+    #[inline]
+    pub fn has_value(
+        &self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> Traversal<Value, Value> {
+        has_value(key, value)
+    }
+
+    /// Filter elements by ID.
+    #[inline]
+    pub fn has_id(&self, id: impl Into<Value>) -> Traversal<Value, Value> {
+        has_id(id)
+    }
+
+    /// Filter elements by multiple IDs.
+    #[inline]
+    pub fn has_ids<I, T>(&self, ids: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Value>,
+    {
+        has_ids(ids)
+    }
+
+    /// Filter elements by property value using a predicate.
+    #[inline]
+    pub fn has_where(
+        &self,
+        key: impl Into<String>,
+        predicate: impl Predicate + 'static,
+    ) -> Traversal<Value, Value> {
+        has_where(key, predicate)
+    }
+
+    /// Filter by testing the current value against a predicate.
+    #[inline]
+    pub fn is_(&self, predicate: impl Predicate + 'static) -> Traversal<Value, Value> {
+        is_(predicate)
+    }
+
+    /// Filter by testing the current value for equality.
+    #[inline]
+    pub fn is_eq(&self, value: impl Into<Value>) -> Traversal<Value, Value> {
+        is_eq(value)
+    }
+
+    /// Filter elements using a custom predicate.
+    #[inline]
+    pub fn filter<F>(&self, predicate: F) -> Traversal<Value, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
+    {
+        filter(predicate)
+    }
+
+    /// Deduplicate traversers by value.
+    #[inline]
+    pub fn dedup(&self) -> Traversal<Value, Value> {
+        dedup()
+    }
+
+    /// Deduplicate traversers by property value.
+    #[inline]
+    pub fn dedup_by_key(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        dedup_by_key(key)
+    }
+
+    /// Deduplicate traversers by element label.
+    #[inline]
+    pub fn dedup_by_label(&self) -> Traversal<Value, Value> {
+        dedup_by_label()
+    }
+
+    /// Deduplicate traversers by sub-traversal result.
+    #[inline]
+    pub fn dedup_by(&self, sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        dedup_by(sub)
+    }
+
+    /// Limit the number of traversers.
+    #[inline]
+    pub fn limit(&self, count: usize) -> Traversal<Value, Value> {
+        limit(count)
+    }
+
+    /// Skip the first n traversers.
+    #[inline]
+    pub fn skip(&self, count: usize) -> Traversal<Value, Value> {
+        skip(count)
+    }
+
+    /// Select traversers within a range.
+    #[inline]
+    pub fn range(&self, start: usize, end: usize) -> Traversal<Value, Value> {
+        range(start, end)
+    }
+
+    /// Filter to only simple paths (no repeated elements).
+    #[inline]
+    pub fn simple_path(&self) -> Traversal<Value, Value> {
+        simple_path()
+    }
+
+    /// Filter to only cyclic paths (at least one repeated element).
+    #[inline]
+    pub fn cyclic_path(&self) -> Traversal<Value, Value> {
+        cyclic_path()
+    }
+
+    /// Return only the last element from the traversal.
+    #[inline]
+    pub fn tail(&self) -> Traversal<Value, Value> {
+        tail()
+    }
+
+    /// Return only the last n elements from the traversal.
+    #[inline]
+    pub fn tail_n(&self, count: usize) -> Traversal<Value, Value> {
+        tail_n(count)
+    }
+
+    /// Probabilistic filter using random coin flip.
+    #[inline]
+    pub fn coin(&self, probability: f64) -> Traversal<Value, Value> {
+        coin(probability)
+    }
+
+    /// Randomly sample n elements using reservoir sampling.
+    #[inline]
+    pub fn sample(&self, count: usize) -> Traversal<Value, Value> {
+        sample(count)
+    }
+
+    /// Filter property objects by key name.
+    #[inline]
+    pub fn has_key(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        has_key(key)
+    }
+
+    /// Filter property objects by any of the specified key names.
+    #[inline]
+    pub fn has_key_any<I, S>(&self, keys: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        has_key_any(keys)
+    }
+
+    /// Filter property objects by value.
+    #[inline]
+    pub fn has_prop_value(&self, value: impl Into<Value>) -> Traversal<Value, Value> {
+        has_prop_value(value)
+    }
+
+    /// Filter property objects by any of the specified values.
+    #[inline]
+    pub fn has_prop_value_any<I, V>(&self, values: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        has_prop_value_any(values)
+    }
+
+    /// Filter traversers by testing their current value against a predicate.
+    #[inline]
+    pub fn where_p(
+        &self,
+        predicate: impl crate::traversal::predicate::Predicate + 'static,
+    ) -> Traversal<Value, Value> {
+        where_p(predicate)
+    }
+
+    // -------------------------------------------------------------------------
+    // Transform Steps
+    // -------------------------------------------------------------------------
+
+    /// Extract property values.
+    #[inline]
+    pub fn values(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        values(key)
+    }
+
+    /// Extract multiple property values.
+    #[inline]
+    pub fn values_multi<I, S>(&self, keys: I) -> Traversal<Value, Value>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        values_multi(keys)
+    }
+
+    /// Extract all property objects.
+    #[inline]
+    pub fn properties(&self) -> Traversal<Value, Value> {
+        properties()
+    }
+
+    /// Extract specific property objects.
+    #[inline]
+    pub fn properties_keys(&self, keys: &[&str]) -> Traversal<Value, Value> {
+        properties_keys(keys)
+    }
+
+    /// Get all properties as a map with list-wrapped values.
+    #[inline]
+    pub fn value_map(&self) -> Traversal<Value, Value> {
+        value_map()
+    }
+
+    /// Get specific properties as a map with list-wrapped values.
+    #[inline]
+    pub fn value_map_keys(&self, keys: &[&str]) -> Traversal<Value, Value> {
+        value_map_keys(keys)
+    }
+
+    /// Get all properties as a map including id and label tokens.
+    #[inline]
+    pub fn value_map_with_tokens(&self) -> Traversal<Value, Value> {
+        value_map_with_tokens()
+    }
+
+    /// Get complete element representation as a map.
+    #[inline]
+    pub fn element_map(&self) -> Traversal<Value, Value> {
+        element_map()
+    }
+
+    /// Get element representation with specific properties.
+    #[inline]
+    pub fn element_map_keys(&self, keys: &[&str]) -> Traversal<Value, Value> {
+        element_map_keys(keys)
+    }
+
+    /// Get all properties as a map of property objects.
+    #[inline]
+    pub fn property_map(&self) -> Traversal<Value, Value> {
+        property_map()
+    }
+
+    /// Get specific properties as a map of property objects.
+    #[inline]
+    pub fn property_map_keys(&self, keys: &[&str]) -> Traversal<Value, Value> {
+        property_map_keys(keys)
+    }
+
+    /// Unroll collections into individual elements.
+    #[inline]
+    pub fn unfold(&self) -> Traversal<Value, Value> {
+        unfold()
+    }
+
+    /// Calculate the arithmetic mean (average) of numeric values.
+    #[inline]
+    pub fn mean(&self) -> Traversal<Value, Value> {
+        mean()
+    }
+
+    /// Sort traversers using a fluent builder.
+    #[inline]
+    pub fn order(&self) -> OrderBuilder<Value> {
+        order()
+    }
+
+    /// Evaluate a mathematical expression.
+    #[inline]
+    pub fn math(&self, expression: &str) -> crate::traversal::transform::MathBuilder<Value> {
+        math(expression)
+    }
+
+    /// Create a projection with named keys.
+    #[inline]
+    pub fn project(&self, keys: &[&str]) -> ProjectBuilder<Value> {
+        project(keys)
+    }
+
+    /// Group traversers by a key and collect values.
+    #[inline]
+    pub fn group(&self) -> crate::traversal::aggregate::GroupBuilder<Value> {
+        group()
+    }
+
+    /// Count traversers grouped by a key.
+    #[inline]
+    pub fn group_count(&self) -> crate::traversal::aggregate::GroupCountBuilder<Value> {
+        group_count()
+    }
+
+    /// Extract the element ID.
+    #[inline]
+    pub fn id(&self) -> Traversal<Value, Value> {
+        id()
+    }
+
+    /// Extract the element label.
+    #[inline]
+    pub fn label(&self) -> Traversal<Value, Value> {
+        label()
+    }
+
+    /// Extract the key from property map objects.
+    #[inline]
+    pub fn key(&self) -> Traversal<Value, Value> {
+        key()
+    }
+
+    /// Extract the value from property map objects.
+    #[inline]
+    pub fn value(&self) -> Traversal<Value, Value> {
+        value()
+    }
+
+    /// Extract the current loop depth.
+    #[inline]
+    pub fn loops(&self) -> Traversal<Value, Value> {
+        loops()
+    }
+
+    /// Annotate each element with its position index.
+    #[inline]
+    pub fn index(&self) -> Traversal<Value, Value> {
+        index()
+    }
+
+    /// Replace values with a constant.
+    #[inline]
+    pub fn constant(&self, value: impl Into<Value>) -> Traversal<Value, Value> {
+        constant(value)
+    }
+
+    /// Convert the path to a list.
+    #[inline]
+    pub fn path(&self) -> Traversal<Value, Value> {
+        path()
+    }
+
+    /// Transform values using a closure.
+    #[inline]
+    pub fn map<F>(&self, f: F) -> Traversal<Value, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static,
+    {
+        map(f)
+    }
+
+    /// Transform values to multiple values using a closure.
+    #[inline]
+    pub fn flat_map<F>(&self, f: F) -> Traversal<Value, Value>
+    where
+        F: Fn(&ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static,
+    {
+        flat_map(f)
+    }
+
+    /// Label the current position in the path.
+    #[inline]
+    pub fn as_(&self, label: &str) -> Traversal<Value, Value> {
+        as_(label)
+    }
+
+    /// Select multiple labeled values from the path.
+    #[inline]
+    pub fn select(&self, labels: &[&str]) -> Traversal<Value, Value> {
+        select(labels)
+    }
+
+    /// Select a single labeled value from the path.
+    #[inline]
+    pub fn select_one(&self, label: &str) -> Traversal<Value, Value> {
+        select_one(label)
+    }
+
+    // -------------------------------------------------------------------------
+    // Filter Steps using Anonymous Traversals
+    // -------------------------------------------------------------------------
+
+    /// Filter by sub-traversal existence.
+    #[inline]
+    pub fn where_(&self, sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        where_(sub)
+    }
+
+    /// Filter by sub-traversal non-existence.
+    #[inline]
+    pub fn not(&self, sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        not(sub)
+    }
+
+    /// Filter by multiple sub-traversals (AND logic).
+    #[inline]
+    pub fn and_(&self, subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        and_(subs)
+    }
+
+    /// Filter by multiple sub-traversals (OR logic).
+    #[inline]
+    pub fn or_(&self, subs: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        or_(subs)
+    }
+
+    // -------------------------------------------------------------------------
+    // Branch Steps using Anonymous Traversals
+    // -------------------------------------------------------------------------
+
+    /// Execute multiple branches and merge results.
+    #[inline]
+    pub fn union(&self, branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        union(branches)
+    }
+
+    /// Try branches in order, return first non-empty result.
+    #[inline]
+    pub fn coalesce(&self, branches: Vec<Traversal<Value, Value>>) -> Traversal<Value, Value> {
+        coalesce(branches)
+    }
+
+    /// Conditional branching.
+    #[inline]
+    pub fn choose(
+        &self,
+        condition: Traversal<Value, Value>,
+        if_true: Traversal<Value, Value>,
+        if_false: Traversal<Value, Value>,
+    ) -> Traversal<Value, Value> {
+        choose(condition, if_true, if_false)
+    }
+
+    /// Optional traversal with fallback to input.
+    #[inline]
+    pub fn optional(&self, sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        optional(sub)
+    }
+
+    /// Execute sub-traversal in isolated scope.
+    #[inline]
+    pub fn local(&self, sub: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        local(sub)
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation Steps
+    // -------------------------------------------------------------------------
+
+    /// Create a new vertex with the specified label.
+    #[inline]
+    pub fn add_v(&self, label: impl Into<String>) -> Traversal<Value, Value> {
+        add_v(label)
+    }
+
+    /// Create a new edge with the specified label.
+    #[inline]
+    pub fn add_e(&self, label: impl Into<String>) -> crate::traversal::mutation::AddEStep {
+        add_e(label)
+    }
+
+    /// Add or update a property on the current element.
+    #[inline]
+    pub fn property(
+        &self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> Traversal<Value, Value> {
+        property(key, value)
+    }
+
+    /// Delete the current element (vertex or edge).
+    #[inline]
+    pub fn drop(&self) -> Traversal<Value, Value> {
+        drop()
+    }
+
+    // -------------------------------------------------------------------------
+    // Branch Steps
+    // -------------------------------------------------------------------------
+
+    /// Create a branch step for anonymous traversals.
+    #[inline]
+    pub fn branch(&self, branch_traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        branch(branch_traversal)
+    }
+
+    // -------------------------------------------------------------------------
+    // Side Effect Steps
+    // -------------------------------------------------------------------------
+
+    /// Store traverser values in a side-effect collection.
+    #[inline]
+    pub fn store(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        store(key)
+    }
+
+    /// Aggregate all traverser values into a side-effect collection.
+    #[inline]
+    pub fn aggregate(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        aggregate(key)
+    }
+
+    /// Retrieve side-effect data by key.
+    #[inline]
+    pub fn cap(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        cap(key)
+    }
+
+    /// Execute a sub-traversal for its side effects.
+    #[inline]
+    pub fn side_effect(&self, traversal: Traversal<Value, Value>) -> Traversal<Value, Value> {
+        side_effect(traversal)
+    }
+
+    /// Profile the traversal step timing and counts.
+    #[inline]
+    pub fn profile(&self) -> Traversal<Value, Value> {
+        profile()
+    }
+
+    /// Profile the traversal with a custom key.
+    #[inline]
+    pub fn profile_as(&self, key: impl Into<String>) -> Traversal<Value, Value> {
+        profile_as(key)
+    }
 }

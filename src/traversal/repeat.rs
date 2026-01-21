@@ -276,7 +276,7 @@ impl RepeatStep {
     /// # Example
     ///
     /// ```ignore
-    /// let step = RepeatStep::new(__::out());
+    /// let step = RepeatStep::new(__.out());
     /// // Will iterate until no more outgoing edges
     /// ```
     pub fn new(sub: Traversal<Value, Value>) -> Self {
@@ -297,7 +297,7 @@ impl RepeatStep {
     ///
     /// ```ignore
     /// let config = RepeatConfig::new().with_times(3).with_emit();
-    /// let step = RepeatStep::with_config(__::out(), config);
+    /// let step = RepeatStep::with_config(__.out(), config);
     /// ```
     pub fn with_config(sub: Traversal<Value, Value>, config: RepeatConfig) -> Self {
         Self { sub, config }

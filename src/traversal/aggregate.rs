@@ -1151,7 +1151,7 @@ mod tests {
         // Group by out-degree (count of outgoing edges)
         // Since our test graph has no edges, we'll use a simpler traversal
         // Group by the first character of name property
-        let key_traversal = crate::traversal::__::values("name");
+        let key_traversal = crate::traversal::__.values("name");
 
         let result = g
             .v()
@@ -1186,7 +1186,7 @@ mod tests {
         let g = snapshot.gremlin();
 
         // Group by label, collect age property values
-        let value_traversal = crate::traversal::__::values("age");
+        let value_traversal = crate::traversal::__.values("age");
 
         let result = g
             .v()
@@ -1376,7 +1376,7 @@ mod tests {
         let g = snapshot.gremlin();
 
         // Count by name property value
-        let key_traversal = crate::traversal::__::values("name");
+        let key_traversal = crate::traversal::__.values("name");
 
         let result = g
             .v()

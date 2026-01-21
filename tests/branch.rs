@@ -154,9 +154,9 @@ fn test_branch_routes_by_label() {
     // - software vertices: follow incoming "created" edges
     let results = g
         .v()
-        .branch(__::label())
-        .option("person", __::out_labels(&["knows"]))
-        .option("software", __::in_labels(&["created"]))
+        .branch(__.label())
+        .option("person", __.out_labels(&["knows"]))
+        .option("software", __.in_labels(&["created"]))
         .values("name")
         .to_list();
 
@@ -181,9 +181,9 @@ fn test_branch_with_identity_option() {
     // Route by label, use identity for persons to keep them
     let results = g
         .v()
-        .branch(__::label())
-        .option("person", __::identity())
-        .option("software", __::identity())
+        .branch(__.label())
+        .option("person", __.identity())
+        .option("software", __.identity())
         .values("name")
         .to_list();
 
@@ -210,9 +210,9 @@ fn test_branch_with_property_value_key() {
     let results = g
         .v()
         .has_label("person")
-        .branch(__::values("status"))
-        .option("active", __::out_labels(&["knows"]))
-        .option("inactive", __::identity())
+        .branch(__.values("status"))
+        .option("active", __.out_labels(&["knows"]))
+        .option("inactive", __.identity())
         .values("name")
         .to_list();
 
@@ -241,9 +241,9 @@ fn test_branch_with_none_default() {
     // Route by label, with default for unknown labels
     let results = g
         .v()
-        .branch(__::label())
-        .option("person", __::values("name"))
-        .option_none(__::constant(Value::String("other".to_string())))
+        .branch(__.label())
+        .option("person", __.values("name"))
+        .option_none(__.constant(Value::String("other".to_string())))
         .to_list();
 
     // Person vertices get their names
@@ -268,9 +268,9 @@ fn test_branch_none_branch_used_when_no_match() {
     // Only handle "person", use default for everything else
     let results = g
         .v()
-        .branch(__::label())
-        .option("person", __::values("age"))
-        .option_none(__::values("version"))
+        .branch(__.label())
+        .option("person", __.values("age"))
+        .option_none(__.values("version"))
         .to_list();
 
     // Persons get age values: 30, 25, 35
@@ -296,8 +296,8 @@ fn test_branch_filters_unmatched_without_none() {
     // Only handle "person", no default -> software vertices filtered out
     let count = g
         .v()
-        .branch(__::label())
-        .option("person", __::identity())
+        .branch(__.label())
+        .option("person", __.identity())
         // No option_none, so non-person vertices are filtered
         .count();
 
@@ -314,9 +314,9 @@ fn test_branch_filters_when_branch_traversal_empty() {
     // Use a property that doesn't exist on some vertices
     let results = g
         .v()
-        .branch(__::values("status")) // only persons have "status"
-        .option("active", __::values("name"))
-        .option("inactive", __::values("name"))
+        .branch(__.values("status")) // only persons have "status"
+        .option("active", __.values("name"))
+        .option("inactive", __.values("name"))
         // No option_none -> software vertices (no status) are filtered
         .to_list();
 
@@ -340,10 +340,10 @@ fn test_branch_with_integer_key() {
     // Route by priority property (integer)
     let results = g
         .v()
-        .branch(__::values("priority"))
-        .option(1i64, __::values("name"))
-        .option(2i64, __::constant(Value::String("priority-2".to_string())))
-        .option(3i64, __::constant(Value::String("priority-3".to_string())))
+        .branch(__.values("priority"))
+        .option(1i64, __.values("name"))
+        .option(2i64, __.constant(Value::String("priority-2".to_string())))
+        .option(3i64, __.constant(Value::String("priority-3".to_string())))
         .to_list();
 
     // Priority 1: Alice, Charlie -> names
@@ -370,9 +370,9 @@ fn test_branch_with_i32_key() {
     // i32 keys should work (converted to i64 internally)
     let results = g
         .v()
-        .branch(__::values("priority"))
-        .option(1i32, __::values("name"))
-        .option_none(__::constant(Value::String("other".to_string())))
+        .branch(__.values("priority"))
+        .option(1i32, __.values("name"))
+        .option_none(__.constant(Value::String("other".to_string())))
         .to_list();
 
     // Priority 1: Alice, Charlie -> names
@@ -422,9 +422,9 @@ fn test_branch_with_boolean_key() {
 
     let results = g
         .v()
-        .branch(__::values("active"))
-        .option(true, __::values("name"))
-        .option(false, __::constant(Value::String("inactive".to_string())))
+        .branch(__.values("active"))
+        .option(true, __.values("name"))
+        .option(false, __.constant(Value::String("inactive".to_string())))
         .to_list();
 
     // Active items: Item1, Item3 -> names
@@ -449,15 +449,15 @@ fn test_choose_by_equivalent_to_branch() {
     // Using branch()
     let branch_results = g
         .v()
-        .branch(__::label())
-        .option("person", __::out())
+        .branch(__.label())
+        .option("person", __.out())
         .to_list();
 
     // Using choose_by() - should be identical
     let choose_results = g
         .v()
-        .choose_by(__::label())
-        .option("person", __::out())
+        .choose_by(__.label())
+        .option("person", __.out())
         .to_list();
 
     assert_eq!(branch_results.len(), choose_results.len());
@@ -476,13 +476,13 @@ fn test_choose_by_with_option_none() {
 
     let results = g
         .v()
-        .choose_by(__::values("status"))
-        .option("active", __::constant(Value::String("ACTIVE".to_string())))
+        .choose_by(__.values("status"))
+        .option("active", __.constant(Value::String("ACTIVE".to_string())))
         .option(
             "inactive",
-            __::constant(Value::String("INACTIVE".to_string())),
+            __.constant(Value::String("INACTIVE".to_string())),
         )
-        .option_none(__::constant(Value::String("NO_STATUS".to_string())))
+        .option_none(__.constant(Value::String("NO_STATUS".to_string())))
         .to_list();
 
     // Active persons: Alice, Charlie
@@ -516,8 +516,8 @@ fn test_branch_preserves_path() {
     let results = g
         .v_ids([test.alice])
         .as_("start")
-        .branch(__::label())
-        .option("person", __::out_labels(&["knows"]).as_("end"))
+        .branch(__.label())
+        .option("person", __.out_labels(&["knows"]).as_("end"))
         .path()
         .to_list();
 
@@ -542,9 +542,9 @@ fn test_branch_path_with_multiple_inputs() {
         .v()
         .has_label("person")
         .as_("person")
-        .branch(__::values("status"))
-        .option("active", __::out_labels(&["knows"]).as_("friend"))
-        .option("inactive", __::identity().as_("self"))
+        .branch(__.values("status"))
+        .option("active", __.out_labels(&["knows"]).as_("friend"))
+        .option("inactive", __.identity().as_("self"))
         .path()
         .to_list();
 
@@ -572,9 +572,9 @@ fn test_branch_builder_continuation_out() {
     let results = g
         .v()
         .has_label("person")
-        .branch(__::values("status"))
-        .option("active", __::identity())
-        .option("inactive", __::identity())
+        .branch(__.values("status"))
+        .option("active", __.identity())
+        .option("inactive", __.identity())
         .out() // continuation method
         .values("name")
         .to_list();
@@ -592,9 +592,9 @@ fn test_branch_builder_continuation_has_label() {
     // Using has_label() continuation after branch
     let count = g
         .v()
-        .branch(__::label())
-        .option("person", __::out())
-        .option("software", __::in_())
+        .branch(__.label())
+        .option("person", __.out())
+        .option("software", __.in_())
         .has_label("person") // continuation method
         .count();
 
@@ -611,8 +611,8 @@ fn test_branch_builder_terminal_count() {
     // Direct terminal method on builder
     let count = g
         .v()
-        .branch(__::label())
-        .option("person", __::identity())
+        .branch(__.label())
+        .option("person", __.identity())
         .count();
 
     // Only person vertices pass through
@@ -629,8 +629,8 @@ fn test_branch_builder_terminal_next() {
     let result = g
         .v()
         .has_label("person")
-        .branch(__::label())
-        .option("person", __::values("name"))
+        .branch(__.label())
+        .option("person", __.values("name"))
         .next();
 
     assert!(result.is_some());
@@ -649,8 +649,8 @@ fn test_branch_builder_terminal_has_next() {
     let has_results = g
         .v()
         .has_label("person")
-        .branch(__::label())
-        .option("person", __::identity())
+        .branch(__.label())
+        .option("person", __.identity())
         .has_next();
 
     assert!(has_results);
@@ -659,8 +659,8 @@ fn test_branch_builder_terminal_has_next() {
     let no_results = g
         .v()
         .has_label("nonexistent")
-        .branch(__::label())
-        .option("nonexistent", __::identity())
+        .branch(__.label())
+        .option("nonexistent", __.identity())
         .has_next();
 
     assert!(!no_results);
@@ -680,8 +680,8 @@ fn test_branch_with_empty_input() {
     let results = g
         .v()
         .has_label("nonexistent")
-        .branch(__::label())
-        .option("nonexistent", __::identity())
+        .branch(__.label())
+        .option("nonexistent", __.identity())
         .to_list();
 
     assert!(results.is_empty());
@@ -696,8 +696,8 @@ fn test_branch_option_produces_multiple_results() {
     // Option branch that produces multiple results per input
     let results = g
         .v_ids([test.alice])
-        .branch(__::label())
-        .option("person", __::out()) // Alice has 2 outgoing edges
+        .branch(__.label())
+        .option("person", __.out()) // Alice has 2 outgoing edges
         .to_list();
 
     // Alice -> out() -> Bob (knows), GraphDB (created)
@@ -714,9 +714,9 @@ fn test_branch_multiple_options_same_key_overwrites() {
     let results = g
         .v()
         .has_label("person")
-        .branch(__::label())
-        .option("person", __::constant(Value::String("first".to_string())))
-        .option("person", __::constant(Value::String("second".to_string()))) // overwrites
+        .branch(__.label())
+        .option("person", __.constant(Value::String("first".to_string())))
+        .option("person", __.constant(Value::String("second".to_string()))) // overwrites
         .to_list();
 
     // All results should be "second"
@@ -737,9 +737,9 @@ fn test_branch_chained_with_filter() {
 
     let results = g
         .v()
-        .branch(__::label())
-        .option("person", __::out_labels(&["knows"]))
-        .option("software", __::in_labels(&["created"]))
+        .branch(__.label())
+        .option("person", __.out_labels(&["knows"]))
+        .option("software", __.in_labels(&["created"]))
         .has_label("person") // filter after branch
         .values("name")
         .dedup()
@@ -767,9 +767,9 @@ fn test_branch_with_transform_in_option() {
     let results = g
         .v()
         .has_label("person")
-        .branch(__::values("status"))
-        .option("active", __::values("age"))
-        .option("inactive", __::values("age"))
+        .branch(__.values("status"))
+        .option("active", __.values("age"))
+        .option("inactive", __.values("age"))
         .to_list();
 
     // Each person should produce their age

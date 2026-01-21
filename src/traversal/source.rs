@@ -485,13 +485,13 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
     /// Append an anonymous traversal's steps to this traversal.
     ///
-    /// This is used to merge anonymous traversals (created with `__::`)
+    /// This is used to merge anonymous traversals (created with `__.`)
     /// into bound traversals.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let anon = __::out().has_label("person");
+    /// let anon = __.out().has_label("person");
     /// let results = g.v().append(anon).to_list();
     /// ```
     pub fn append<Mid>(self, anon: Traversal<Out, Mid>) -> BoundTraversal<'g, In, Mid> {
@@ -779,13 +779,13 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// ```ignore
     /// // Keep only one vertex per out-degree
     /// let unique_outdegree = g.v()
-    ///     .dedup_by(__::out().count())
+    ///     .dedup_by(__.out().count())
     ///     .to_list();
     ///
     /// // Keep one person per first friend's name
     /// let unique_friend = g.v()
     ///     .has_label("person")
-    ///     .dedup_by(__::out_labels(&["knows"]).limit(1).values("name"))
+    ///     .dedup_by(__.out_labels(&["knows"]).limit(1).values("name"))
     ///     .to_list();
     /// ```
     pub fn dedup_by(
@@ -952,7 +952,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// // Find all simple paths from a vertex
     /// let simple = g.v()
     ///     .has("name", "marko")
-    ///     .repeat(__::both())
+    ///     .repeat(__.both())
     ///     .times(3)
     ///     .simple_path()
     ///     .path()
@@ -973,7 +973,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// ```ignore
     /// // Find all paths that contain cycles
     /// let cycles = g.v()
-    ///     .repeat(__::both())
+    ///     .repeat(__.both())
     ///     .times(4)
     ///     .cyclic_path()
     ///     .path()
@@ -1590,7 +1590,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// // Get loop depth at each emit
     /// let depths = g.v()
     ///     .has_label("person")
-    ///     .repeat(__::out())
+    ///     .repeat(__.out())
     ///     .times(3)
     ///     .emit()
     ///     .loops()
@@ -1598,8 +1598,8 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     ///
     /// // Use in until condition
     /// let vertices = g.v()
-    ///     .repeat(__::out())
-    ///     .until(__::loops().is_(p::gte(3)))
+    ///     .repeat(__.out())
+    ///     .until(__.loops().is_(p::gte(3)))
     ///     .to_list();
     /// ```
     pub fn loops(self) -> BoundTraversal<'g, In, Value> {
@@ -2133,7 +2133,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// let results = g.v().has_label("person")
     ///     .project(&["name", "friend_count"])
     ///     .by_key("name")
-    ///     .by(__::out("knows").count())
+    ///     .by(__.out("knows").count())
     ///     .build()
     ///     .to_list();
     /// // Results: [{name: "Alice", friend_count: 2}, ...]
@@ -2679,7 +2679,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     ///
     /// // Store counts as side effect while traversing
     /// let names = g.v()
-    ///     .side_effect(__::out_e().count().store("edge_counts"))
+    ///     .side_effect(__.out_e().count().store("edge_counts"))
     ///     .values("name")
     ///     .to_list();
     /// ```
@@ -3142,10 +3142,10 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     ///
     /// // Route based on vertex label
     /// let results = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::out_labels(&["knows"]))
-    ///     .option("software", __::in_labels(&["created"]))
-    ///     .option_none(__::identity())
+    ///     .branch(__.label())
+    ///     .option("person", __.out_labels(&["knows"]))
+    ///     .option("software", __.in_labels(&["created"]))
+    ///     .option_none(__.identity())
     ///     .to_list();
     /// ```
     ///
@@ -3182,10 +3182,10 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     ///
     /// // Route based on property value
     /// let results = g.v()
-    ///     .choose_by(__::values("status"))
-    ///     .option("active", __::out())
-    ///     .option("inactive", __::identity())
-    ///     .option_none(__::constant("unknown"))
+    ///     .choose_by(__.values("status"))
+    ///     .option("active", __.out())
+    ///     .option("inactive", __.identity())
+    ///     .option_none(__.constant("unknown"))
     ///     .to_list();
     /// ```
     ///
@@ -3213,10 +3213,10 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 ///
 /// // Route based on vertex label
 /// let results = g.v()
-///     .branch(__::label())
-///     .option("person", __::out_labels(&["knows"]))
-///     .option("software", __::in_labels(&["created"]))
-///     .option_none(__::identity())
+///     .branch(__.label())
+///     .option("person", __.out_labels(&["knows"]))
+///     .option("software", __.in_labels(&["created"]))
+///     .option_none(__.identity())
 ///     .to_list();
 /// ```
 pub struct BranchBuilder<'g, In> {
@@ -3273,9 +3273,9 @@ impl<'g, In> BranchBuilder<'g, In> {
     /// use interstellar::traversal::__;
     ///
     /// let results = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::values("name"))
-    ///     .option("software", __::values("version"))
+    ///     .branch(__.label())
+    ///     .option("person", __.values("name"))
+    ///     .option("software", __.values("version"))
     ///     .to_list();
     /// ```
     pub fn option<K: Into<crate::traversal::branch::OptionKey>>(
@@ -3312,9 +3312,9 @@ impl<'g, In> BranchBuilder<'g, In> {
     /// use interstellar::traversal::__;
     ///
     /// let results = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::values("name"))
-    ///     .option_none(__::constant("unknown"))
+    ///     .branch(__.label())
+    ///     .option("person", __.values("name"))
+    ///     .option_none(__.constant("unknown"))
     ///     .to_list();
     /// ```
     pub fn option_none(mut self, branch: Traversal<Value, Value>) -> Self {
@@ -3357,8 +3357,8 @@ impl<'g, In> BranchBuilder<'g, In> {
     ///
     /// ```ignore
     /// let results = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::values("name"))
+    ///     .branch(__.label())
+    ///     .option("person", __.values("name"))
     ///     .to_list();
     /// ```
     pub fn to_list(self) -> Vec<Value> {
@@ -3371,8 +3371,8 @@ impl<'g, In> BranchBuilder<'g, In> {
     ///
     /// ```ignore
     /// let count = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::identity())
+    ///     .branch(__.label())
+    ///     .option("person", __.identity())
     ///     .count();
     /// ```
     pub fn count(self) -> u64 {
@@ -3385,8 +3385,8 @@ impl<'g, In> BranchBuilder<'g, In> {
     ///
     /// ```ignore
     /// let first = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::values("name"))
+    ///     .branch(__.label())
+    ///     .option("person", __.values("name"))
     ///     .next();
     /// ```
     pub fn next(self) -> Option<Value> {
@@ -3399,8 +3399,8 @@ impl<'g, In> BranchBuilder<'g, In> {
     ///
     /// ```ignore
     /// let single = g.v_id(VertexId(0))
-    ///     .branch(__::label())
-    ///     .option("person", __::values("name"))
+    ///     .branch(__.label())
+    ///     .option("person", __.values("name"))
     ///     .one();
     /// ```
     pub fn one(self) -> Result<Value, crate::error::TraversalError> {
@@ -3413,8 +3413,8 @@ impl<'g, In> BranchBuilder<'g, In> {
     ///
     /// ```ignore
     /// g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::drop())
+    ///     .branch(__.label())
+    ///     .option("person", __.drop())
     ///     .iterate();
     /// ```
     pub fn iterate(self) {
@@ -3427,8 +3427,8 @@ impl<'g, In> BranchBuilder<'g, In> {
     ///
     /// ```ignore
     /// let has_people = g.v()
-    ///     .branch(__::label())
-    ///     .option("person", __::identity())
+    ///     .branch(__.label())
+    ///     .option("person", __.identity())
     ///     .has_next();
     /// ```
     pub fn has_next(self) -> bool {

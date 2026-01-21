@@ -22,7 +22,7 @@ fn traversal_has_label_any() {
     let g = snapshot.gremlin();
 
     // Test has_label_any by chaining on anonymous traversal
-    let anon = __::identity().has_label_any(["person", "software"]);
+    let anon = __.identity().has_label_any(["person", "software"]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // 3 persons + 1 software
 }
@@ -33,7 +33,7 @@ fn traversal_has_key() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().has("age");
+    let anon = __.identity().has("age");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 3); // Only persons have age
 }
@@ -44,7 +44,7 @@ fn traversal_has_not() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().has_not("age");
+    let anon = __.identity().has_not("age");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1); // Software doesn't have age
 }
@@ -55,7 +55,7 @@ fn traversal_has_value() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().has_value("name", "Alice");
+    let anon = __.identity().has_value("name", "Alice");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -66,7 +66,7 @@ fn traversal_has_where() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().has_where("age", p::gte(30));
+    let anon = __.identity().has_where("age", p::gte(30));
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // Alice (30) and Charlie (35)
 }
@@ -77,7 +77,7 @@ fn traversal_is_predicate() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::values("age").is_(p::gt(25));
+    let anon = __.values("age").is_(p::gt(25));
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 2); // Ages 30 and 35
 }
@@ -88,7 +88,7 @@ fn traversal_is_eq() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::values("age").is_eq(30i64);
+    let anon = __.values("age").is_eq(30i64);
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::Int(30));
@@ -100,7 +100,7 @@ fn traversal_skip() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().skip(2);
+    let anon = __.identity().skip(2);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // 4 vertices - 2 skipped
 }
@@ -111,7 +111,7 @@ fn traversal_range() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().range(1, 3);
+    let anon = __.identity().range(1, 3);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // Elements at indices 1 and 2
 }
@@ -122,7 +122,7 @@ fn traversal_tail() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().tail();
+    let anon = __.identity().tail();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1); // Just the last element
 }
@@ -133,7 +133,7 @@ fn traversal_tail_n() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().tail_n(2);
+    let anon = __.identity().tail_n(2);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // Last 2 elements
 }
@@ -145,7 +145,7 @@ fn traversal_dedup_by_key() {
     let g = snapshot.gremlin();
 
     // Dedup by status - should get one per unique status
-    let anon = __::identity().dedup_by_key("status");
+    let anon = __.identity().dedup_by_key("status");
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 2); // "active" and "inactive"
 }
@@ -156,7 +156,7 @@ fn traversal_dedup_by_label() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().dedup_by_label();
+    let anon = __.identity().dedup_by_label();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // One person, one software
 }
@@ -168,7 +168,7 @@ fn traversal_dedup_by_traversal() {
     let g = snapshot.gremlin();
 
     // Dedup by label - keeps unique based on label
-    let anon = __::identity().dedup_by(__::label());
+    let anon = __.identity().dedup_by(__.label());
     let results = g.v().append(anon).to_list();
     // Should get one per unique label (person, software)
     assert_eq!(results.len(), 2);
@@ -181,12 +181,12 @@ fn traversal_coin_filters_probabilistically() {
     let g = snapshot.gremlin();
 
     // With p=0, nothing passes
-    let anon = __::identity().coin(0.0);
+    let anon = __.identity().coin(0.0);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 0);
 
     // With p=1, everything passes
-    let anon2 = __::identity().coin(1.0);
+    let anon2 = __.identity().coin(1.0);
     let results2 = g.v().append(anon2).to_list();
     assert_eq!(results2.len(), 4);
 }
@@ -197,7 +197,7 @@ fn traversal_sample() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().sample(2);
+    let anon = __.identity().sample(2);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2); // Exactly 2 sampled
 }
@@ -209,7 +209,7 @@ fn traversal_simple_path() {
     let g = snapshot.gremlin();
 
     // Simple path should filter out traversers with repeated elements
-    let anon = __::identity().simple_path();
+    let anon = __.identity().simple_path();
     let results = g
         .v_ids([tg.alice])
         .with_path()
@@ -228,7 +228,7 @@ fn traversal_cyclic_path() {
     let g = snapshot.gremlin();
 
     // Find cyclic paths (paths with repeated elements)
-    let anon = __::identity().cyclic_path();
+    let anon = __.identity().cyclic_path();
     // Going out().out().out() from Alice might hit a cycle
     let results = g
         .v_ids([tg.alice])
@@ -248,7 +248,7 @@ fn traversal_has_id() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().has_id(tg.alice);
+    let anon = __.identity().has_id(tg.alice);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));
@@ -260,7 +260,7 @@ fn traversal_has_ids() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().has_ids([tg.alice, tg.bob]);
+    let anon = __.identity().has_ids([tg.alice, tg.bob]);
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 2);
 }
@@ -272,7 +272,7 @@ fn traversal_has_key_filter() {
     let g = snapshot.gremlin();
 
     // has_key filters property maps by key name
-    let anon = __::properties().has_key("name");
+    let anon = __.properties().has_key("name");
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -283,7 +283,7 @@ fn traversal_has_key_any_filter() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::properties().has_key_any(["name", "age"]);
+    let anon = __.properties().has_key_any(["name", "age"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 2); // name and age properties
 }
@@ -294,7 +294,7 @@ fn traversal_has_prop_value() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::properties().has_prop_value("Alice");
+    let anon = __.properties().has_prop_value("Alice");
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 1); // The name="Alice" property
 }
@@ -305,7 +305,7 @@ fn traversal_has_prop_value_any() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::properties().has_prop_value_any(["Alice", "Bob"]);
+    let anon = __.properties().has_prop_value_any(["Alice", "Bob"]);
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 2); // Alice and Bob name properties
 }
@@ -316,7 +316,7 @@ fn traversal_where_p() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::values("age").where_p(p::between(25, 35));
+    let anon = __.values("age").where_p(p::between(25, 35));
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 2); // 30 and 25 are in range, 35 is not (exclusive upper bound)
 }
@@ -331,7 +331,7 @@ fn traversal_out() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().out();
+    let anon = __.identity().out();
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 2); // Bob and GraphDB
 }
@@ -342,7 +342,7 @@ fn traversal_out_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().out_labels(&["knows"]);
+    let anon = __.identity().out_labels(&["knows"]);
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1); // Just Bob
 }
@@ -353,7 +353,7 @@ fn traversal_in() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().in_();
+    let anon = __.identity().in_();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1); // Alice
 }
@@ -364,7 +364,7 @@ fn traversal_in_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().in_labels(&["knows"]);
+    let anon = __.identity().in_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1); // Alice knows Bob
 }
@@ -375,7 +375,7 @@ fn traversal_both() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().both();
+    let anon = __.identity().both();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     // Bob has: incoming from Alice (knows), outgoing to Charlie (knows), outgoing to GraphDB (uses)
     assert!(results.len() >= 2);
@@ -387,7 +387,7 @@ fn traversal_both_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().both_labels(&["knows"]);
+    let anon = __.identity().both_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     // Alice knows Bob, Bob knows Charlie
     assert_eq!(results.len(), 2);
@@ -399,7 +399,7 @@ fn traversal_out_e() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().out_e();
+    let anon = __.identity().out_e();
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 2); // knows->Bob, uses->GraphDB
 }
@@ -410,7 +410,7 @@ fn traversal_out_e_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().out_e_labels(&["knows"]);
+    let anon = __.identity().out_e_labels(&["knows"]);
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -421,7 +421,7 @@ fn traversal_in_e() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().in_e();
+    let anon = __.identity().in_e();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1); // Edge from Alice
 }
@@ -432,7 +432,7 @@ fn traversal_in_e_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().in_e_labels(&["knows"]);
+    let anon = __.identity().in_e_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -443,7 +443,7 @@ fn traversal_both_e() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().both_e();
+    let anon = __.identity().both_e();
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert!(results.len() >= 2); // Edges in both directions
 }
@@ -454,7 +454,7 @@ fn traversal_both_e_labels() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().both_e_labels(&["knows"]);
+    let anon = __.identity().both_e_labels(&["knows"]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     assert_eq!(results.len(), 2); // Alice->Bob and Bob->Charlie
 }
@@ -466,7 +466,7 @@ fn traversal_out_v() {
     let g = snapshot.gremlin();
 
     // Get source vertex of edges
-    let anon = __::out_e().out_v();
+    let anon = __.out_e().out_v();
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     // Should get Alice (the source of outgoing edges)
     assert_eq!(results.len(), 2);
@@ -482,7 +482,7 @@ fn traversal_in_v() {
     let g = snapshot.gremlin();
 
     // Get target vertex of edges
-    let anon = __::out_e().in_v();
+    let anon = __.out_e().in_v();
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     // Should get Bob and GraphDB
     assert_eq!(results.len(), 2);
@@ -495,7 +495,7 @@ fn traversal_both_v() {
     let g = snapshot.gremlin();
 
     // Get both vertices of edges
-    let anon = __::out_e().both_v();
+    let anon = __.out_e().both_v();
     let results = g.v_ids([tg.alice]).limit(1).append(anon).to_list();
     // Each edge has 2 vertices
     assert_eq!(results.len(), 4); // 2 edges × 2 vertices each
@@ -508,7 +508,7 @@ fn traversal_other_v() {
     let g = snapshot.gremlin();
 
     // Get the other vertex (requires path tracking)
-    let anon = __::out_e().other_v();
+    let anon = __.out_e().other_v();
     let results = g.v_ids([tg.alice]).with_path().append(anon).to_list();
     // Should get targets (Bob and GraphDB)
     assert_eq!(results.len(), 2);
@@ -524,7 +524,7 @@ fn traversal_values_multi() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().values_multi(["name", "age"]);
+    let anon = __.identity().values_multi(["name", "age"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 2); // name and age
 }
@@ -535,7 +535,7 @@ fn traversal_properties() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().properties();
+    let anon = __.identity().properties();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 2); // name and age as property objects
 }
@@ -546,7 +546,7 @@ fn traversal_properties_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().properties_keys(&["name"]);
+    let anon = __.identity().properties_keys(&["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -557,7 +557,7 @@ fn traversal_value_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().value_map();
+    let anon = __.identity().value_map();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Map(_)));
@@ -569,7 +569,7 @@ fn traversal_value_map_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().value_map_keys(["name"]);
+    let anon = __.identity().value_map_keys(["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -584,7 +584,7 @@ fn traversal_value_map_with_tokens() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().value_map_with_tokens();
+    let anon = __.identity().value_map_with_tokens();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -599,7 +599,7 @@ fn traversal_element_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().element_map();
+    let anon = __.identity().element_map();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -618,7 +618,7 @@ fn traversal_element_map_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().element_map_keys(["name"]);
+    let anon = __.identity().element_map_keys(["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::Map(m) = &results[0] {
@@ -633,7 +633,7 @@ fn traversal_property_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().property_map();
+    let anon = __.identity().property_map();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Map(_)));
@@ -645,7 +645,7 @@ fn traversal_property_map_keys() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().property_map_keys(["name"]);
+    let anon = __.identity().property_map_keys(["name"]);
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
 }
@@ -658,7 +658,7 @@ fn traversal_unfold() {
 
     // Create a list and unfold it
     let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    let anon = __::identity().unfold();
+    let anon = __.identity().unfold();
     let results = g.inject([list]).append(anon).to_list();
     assert_eq!(results.len(), 3);
     assert_eq!(results[0], Value::Int(1));
@@ -672,7 +672,7 @@ fn traversal_mean() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::values("age").mean();
+    let anon = __.values("age").mean();
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 1);
     // (30 + 25 + 35) / 3 = 30
@@ -685,7 +685,7 @@ fn traversal_id() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().id();
+    let anon = __.identity().id();
     let results = g.v().limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Value::Int(_)));
@@ -697,7 +697,7 @@ fn traversal_label() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().label();
+    let anon = __.identity().label();
     let results = g.v().has_label("person").limit(1).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0], Value::String("person".to_string()));
@@ -709,7 +709,7 @@ fn traversal_flat_map() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().flat_map(|_ctx, v| {
+    let anon = __.identity().flat_map(|_ctx, v| {
         if let Value::Int(n) = v {
             (0..*n).map(Value::Int).collect()
         } else {
@@ -729,7 +729,7 @@ fn traversal_path() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::out().path();
+    let anon = __.out().path();
     let results = g.v_ids([tg.alice]).with_path().append(anon).to_list();
     assert_eq!(results.len(), 2); // Two paths (to Bob and GraphDB)
     for r in &results {
@@ -743,7 +743,7 @@ fn traversal_as_and_select() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::as_("start").out().as_("end").select(&["start", "end"]);
+    let anon = __.as_("start").out().as_("end").select(&["start", "end"]);
     let results = g.v_ids([tg.alice]).with_path().append(anon).to_list();
     assert_eq!(results.len(), 2);
     for r in &results {
@@ -760,7 +760,7 @@ fn traversal_select_one() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::as_("x").out().select_one("x");
+    let anon = __.as_("x").out().select_one("x");
     let results = g.v_ids([tg.alice]).with_path().append(anon).to_list();
     assert_eq!(results.len(), 2);
     // Each result should be Alice (the labeled vertex)
@@ -780,7 +780,7 @@ fn traversal_where_subtraversal() {
     let g = snapshot.gremlin();
 
     // Keep vertices that have outgoing edges
-    let anon = __::identity().where_(__::out());
+    let anon = __.identity().where_(__.out());
     let results = g.v().append(anon).to_list();
     // All persons have outgoing edges, software doesn't
     assert!(results.len() >= 2);
@@ -793,7 +793,7 @@ fn traversal_not_subtraversal() {
     let g = snapshot.gremlin();
 
     // Keep vertices that have NO outgoing edges
-    let anon = __::identity().not(__::out());
+    let anon = __.identity().not(__.out());
     let results = g.v().append(anon).to_list();
     // GraphDB has no outgoing edges
     assert!(results.len() >= 1);
@@ -806,7 +806,7 @@ fn traversal_and_subtraversals() {
     let g = snapshot.gremlin();
 
     // Keep vertices that have BOTH outgoing AND incoming edges
-    let anon = __::identity().and_(vec![__::out(), __::in_()]);
+    let anon = __.identity().and_(vec![__.out(), __.in_()]);
     let results = g.v().append(anon).to_list();
     // Bob has both (Alice->Bob, Bob->Charlie)
     assert!(results.len() >= 1);
@@ -819,7 +819,7 @@ fn traversal_or_subtraversals() {
     let g = snapshot.gremlin();
 
     // Keep vertices that are person OR have incoming edges
-    let anon = __::identity().or_(vec![__::has_label("person"), __::in_()]);
+    let anon = __.identity().or_(vec![__.has_label("person"), __.in_()]);
     let results = g.v().append(anon).to_list();
     // All persons + GraphDB (which has incoming edges)
     assert_eq!(results.len(), 4);
@@ -835,7 +835,7 @@ fn traversal_union() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().union(vec![__::out(), __::in_()]);
+    let anon = __.identity().union(vec![__.out(), __.in_()]);
     let results = g.v_ids([tg.bob]).append(anon).to_list();
     // Bob has Alice (in) + Charlie (out) + GraphDB (out uses)
     assert!(results.len() >= 2);
@@ -848,7 +848,7 @@ fn traversal_coalesce() {
     let g = snapshot.gremlin();
 
     // Try to get nickname (doesn't exist), fall back to name
-    let anon = __::identity().coalesce(vec![__::values("nickname"), __::values("name")]);
+    let anon = __.identity().coalesce(vec![__.values("nickname"), __.values("name")]);
     let results = g.v().has_label("person").append(anon).to_list();
     assert_eq!(results.len(), 3); // All persons get names
 }
@@ -860,10 +860,10 @@ fn traversal_choose() {
     let g = snapshot.gremlin();
 
     // If person, get age; otherwise get name
-    let anon = __::identity().choose(
-        __::has_label("person"),
-        __::values("age"),
-        __::values("name"),
+    let anon = __.identity().choose(
+        __.has_label("person"),
+        __.values("age"),
+        __.values("name"),
     );
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // 3 ages + 1 name
@@ -876,7 +876,7 @@ fn traversal_optional() {
     let g = snapshot.gremlin();
 
     // Try to get friends; if none, keep the vertex
-    let anon = __::identity().optional(__::out_labels(&["knows"]));
+    let anon = __.identity().optional(__.out_labels(&["knows"]));
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     // Alice knows Bob, so we get Bob
     assert_eq!(results.len(), 1);
@@ -890,7 +890,7 @@ fn traversal_local() {
     let g = snapshot.gremlin();
 
     // Local limit: get first outgoing neighbor per vertex
-    let anon = __::identity().local(__::out().limit(1));
+    let anon = __.identity().local(__.out().limit(1));
     let results = g.v().has_label("person").append(anon).to_list();
     // Each person gets at most 1 neighbor
     assert_eq!(results.len(), 3);
@@ -906,7 +906,7 @@ fn traversal_store() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().store("stored");
+    let anon = __.identity().store("stored");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // All vertices pass through
 }
@@ -917,7 +917,7 @@ fn traversal_aggregate() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().aggregate("all");
+    let anon = __.identity().aggregate("all");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4); // All vertices pass through after aggregation
 }
@@ -928,7 +928,7 @@ fn traversal_cap() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().store("x").cap("x");
+    let anon = __.identity().store("x").cap("x");
     let results = g.v().limit(2).append(anon).to_list();
     assert_eq!(results.len(), 1);
     if let Value::List(list) = &results[0] {
@@ -942,7 +942,7 @@ fn traversal_cap_multi() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity()
+    let anon = __.identity()
         .store("a")
         .out()
         .store("b")
@@ -959,7 +959,7 @@ fn traversal_side_effect() {
     let g = snapshot.gremlin();
 
     // Execute side effect but pass through original
-    let anon = __::identity().side_effect(__::out().store("neighbors"));
+    let anon = __.identity().side_effect(__.out().store("neighbors"));
     let results = g.v_ids([tg.alice]).append(anon).to_list();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].as_vertex_id(), Some(tg.alice));
@@ -971,7 +971,7 @@ fn traversal_profile() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().profile();
+    let anon = __.identity().profile();
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
@@ -982,7 +982,7 @@ fn traversal_profile_as() {
     let snapshot = tg.graph.snapshot();
     let g = snapshot.gremlin();
 
-    let anon = __::identity().profile_as("my_profile");
+    let anon = __.identity().profile_as("my_profile");
     let results = g.v().append(anon).to_list();
     assert_eq!(results.len(), 4);
 }
