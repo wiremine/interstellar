@@ -2460,6 +2460,57 @@ impl<'g> CowMmapTraversalSource<'g> {
             Traversal::with_source(TraversalSource::Inject(values.into_iter().collect())),
         )
     }
+
+    /// Start untyped traversal from all vertices.
+    ///
+    /// Unlike `v()`, this returns `Value` from terminal methods instead of `PersistentVertex`.
+    /// Useful for Rhai integration and dynamic scenarios.
+    pub fn v_untyped(&self) -> CowMmapBoundTraversal<'g, (), Value, Scalar> {
+        CowMmapBoundTraversal::new_typed(
+            self.graph,
+            Arc::clone(&self.graph_arc),
+            Traversal::with_source(TraversalSource::AllVertices),
+        )
+    }
+
+    /// Start untyped traversal from specific vertex IDs.
+    ///
+    /// Returns `Value` from terminal methods.
+    pub fn v_ids_untyped<I>(&self, ids: I) -> CowMmapBoundTraversal<'g, (), Value, Scalar>
+    where
+        I: IntoIterator<Item = VertexId>,
+    {
+        CowMmapBoundTraversal::new_typed(
+            self.graph,
+            Arc::clone(&self.graph_arc),
+            Traversal::with_source(TraversalSource::Vertices(ids.into_iter().collect())),
+        )
+    }
+
+    /// Start untyped traversal from all edges.
+    ///
+    /// Unlike `e()`, this returns `Value` from terminal methods instead of `PersistentEdge`.
+    pub fn e_untyped(&self) -> CowMmapBoundTraversal<'g, (), Value, Scalar> {
+        CowMmapBoundTraversal::new_typed(
+            self.graph,
+            Arc::clone(&self.graph_arc),
+            Traversal::with_source(TraversalSource::AllEdges),
+        )
+    }
+
+    /// Start untyped traversal from specific edge IDs.
+    ///
+    /// Returns `Value` from terminal methods.
+    pub fn e_ids_untyped<I>(&self, ids: I) -> CowMmapBoundTraversal<'g, (), Value, Scalar>
+    where
+        I: IntoIterator<Item = EdgeId>,
+    {
+        CowMmapBoundTraversal::new_typed(
+            self.graph,
+            Arc::clone(&self.graph_arc),
+            Traversal::with_source(TraversalSource::Edges(ids.into_iter().collect())),
+        )
+    }
 }
 
 // =============================================================================

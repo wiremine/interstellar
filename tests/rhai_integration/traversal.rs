@@ -3392,3 +3392,419 @@ fn test_rhai_build_graph_entirely_via_script() {
     assert_eq!(graph.vertex_count(), 3);
     assert_eq!(graph.edge_count(), 3);
 }
+
+#[test]
+fn test_rhai_vertex_id_function_syntax() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Test that both .id (getter) and .id() (function) work on GraphVertex
+    let result: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let v = g.add_v("person").first();
+            // Use .id() function syntax - should return VertexId
+            let vid = v.id();
+            vid.id
+        "#,
+        )
+        .unwrap();
+
+    assert!(result >= 0);
+}
+
+#[test]
+fn test_rhai_edge_id_function_syntax() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Test that both .id (getter) and .id() (function) work on GraphEdge
+    let result: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            let e = g.add_e("knows").from_v(alice).to_v(bob).first();
+            // Use .id() function syntax - should return EdgeId
+            let eid = e.id();
+            eid.id
+        "#,
+        )
+        .unwrap();
+
+    assert!(result >= 0);
+    assert_eq!(graph.edge_count(), 1);
+}
+
+// =============================================================================
+// GraphVertex/GraphEdge Direct Method Tests
+// =============================================================================
+
+#[test]
+fn test_rhai_vertex_properties_returns_map() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get a vertex and call properties() on it
+    let result: rhai::Map = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let v = g.v().has_value("name", "Alice").first();
+            v.properties()
+        "#,
+        )
+        .unwrap();
+
+    // Alice has name and age properties
+    assert!(result.contains_key("name"));
+    assert!(result.contains_key("age"));
+    assert_eq!(
+        result.get("name").unwrap().clone().into_string().unwrap(),
+        "Alice"
+    );
+}
+
+#[test]
+fn test_rhai_edge_properties_returns_map() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create edge with properties and retrieve them
+    let result: rhai::Map = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            let e = g.add_e("knows").from_v(alice).to_v(bob).property("since", 2020).first();
+            e.properties()
+        "#,
+        )
+        .unwrap();
+
+    assert!(result.contains_key("since"));
+    assert_eq!(result.get("since").unwrap().clone().cast::<i64>(), 2020);
+}
+
+#[test]
+fn test_rhai_vertex_out_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get Alice and traverse to her "knows" neighbors
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.v().has_value("name", "Alice").first();
+            let friends = alice.out("knows");
+            let names = [];
+            for f in friends {
+                names.push(f.property("name"));
+            }
+            names
+        "#,
+        )
+        .unwrap();
+
+    // Alice knows Bob and Carol
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .map(|d| d.clone().into_string().unwrap())
+        .collect();
+    assert!(names.contains(&"Bob".to_string()));
+    assert!(names.contains(&"Carol".to_string()));
+}
+
+#[test]
+fn test_rhai_vertex_out_all_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get Alice and traverse to all outgoing neighbors (knows + works_at)
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.v().has_value("name", "Alice").first();
+            let neighbors = alice.out_all();
+            neighbors.len()
+        "#,
+        )
+        .unwrap();
+
+    // Alice knows Bob, Carol and works_at Acme = 3
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn test_rhai_vertex_in_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get Carol and traverse to her incoming "knows" neighbors
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let carol = g.v().has_value("name", "Carol").first();
+            let knowers = carol.in_("knows");
+            let names = [];
+            for k in knowers {
+                names.push(k.property("name"));
+            }
+            names
+        "#,
+        )
+        .unwrap();
+
+    // Alice and Bob both know Carol
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .map(|d| d.clone().into_string().unwrap())
+        .collect();
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(names.contains(&"Bob".to_string()));
+}
+
+#[test]
+fn test_rhai_vertex_in_all_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get Carol and count all incoming neighbors
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let carol = g.v().has_value("name", "Carol").first();
+            let incomers = carol.in_all();
+            incomers.len()
+        "#,
+        )
+        .unwrap();
+
+    // Alice and Bob both know Carol = 2
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn test_rhai_vertex_both_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get Bob and traverse to neighbors in both directions via "knows"
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let bob = g.v().has_value("name", "Bob").first();
+            let neighbors = bob.both("knows");
+            neighbors.len()
+        "#,
+        )
+        .unwrap();
+
+    // Bob is known by Alice and knows Carol = 2
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn test_rhai_vertex_both_all_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get Bob and traverse all edges in both directions
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let bob = g.v().has_value("name", "Bob").first();
+            let neighbors = bob.both_all();
+            neighbors.len()
+        "#,
+        )
+        .unwrap();
+
+    // Bob has knows edges with Alice (in) and Carol (out) = 2
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn test_rhai_edge_both_v() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create edge and get both endpoints
+    let result: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").property("name", "Alice").first();
+            let bob = g.add_v("person").property("name", "Bob").first();
+            let e = g.add_e("knows").from_v(alice).to_v(bob).first();
+            let endpoints = e.both_v();
+            let names = [];
+            for v in endpoints {
+                names.push(v.property("name"));
+            }
+            names
+        "#,
+        )
+        .unwrap();
+
+    // Should have exactly 2 endpoints: Alice and Bob
+    assert_eq!(result.len(), 2);
+    let names: Vec<String> = result
+        .iter()
+        .map(|d| d.clone().into_string().unwrap())
+        .collect();
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(names.contains(&"Bob".to_string()));
+}
+
+#[test]
+fn test_rhai_vertex_property_set() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Modify Alice's age
+    let new_age: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.v().has_value("name", "Alice").first();
+            alice.property_set("age", 31);
+            // Read it back
+            let alice2 = g.v().has_value("name", "Alice").first();
+            alice2.property("age")
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(new_age, 31);
+}
+
+#[test]
+fn test_rhai_edge_property_set() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create edge and modify its property
+    let new_since: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            let e = g.add_e("knows").from_v(alice).to_v(bob).property("since", 2020).first();
+            e.property_set("since", 2021);
+            // Read it back
+            let e2 = g.e().first();
+            e2.property("since")
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(new_since, 2021);
+}
+
+#[test]
+fn test_rhai_vertex_remove() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create vertex and remove it
+    let final_count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let v = g.add_v("person").first();
+            v.remove();
+            g.v().count()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(final_count, 0);
+}
+
+#[test]
+fn test_rhai_edge_remove() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // Create edge and remove it
+    let final_count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            let e = g.add_e("knows").from_v(alice).to_v(bob).first();
+            e.remove();
+            g.e().count()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(final_count, 0);
+    // Vertices should still exist
+    assert_eq!(graph.vertex_count(), 2);
+}
+
+#[test]
+fn test_rhai_vertex_chained_traversal_from_element() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Start from Alice, traverse out, get a friend, then traverse from that friend
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.v().has_value("name", "Alice").first();
+            let friends = alice.out("knows");
+            // Find Bob among friends and see who Bob knows
+            let bob = ();
+            for f in friends {
+                if f.property("name") == "Bob" {
+                    bob = f;
+                }
+            }
+            // Now traverse from Bob
+            let bob_friends = bob.out("knows");
+            let names = [];
+            for bf in bob_friends {
+                names.push(bf.property("name"));
+            }
+            names
+        "#,
+        )
+        .unwrap();
+
+    // Bob knows Carol
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].clone().into_string().unwrap(), "Carol");
+}

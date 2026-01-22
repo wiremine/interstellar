@@ -365,6 +365,9 @@ fn register_graph_vertex(engine: &mut Engine) {
     // Getter: .id -> VertexId
     engine.register_get("id", |v: &mut InMemoryVertex| v.id());
 
+    // Function: .id() -> VertexId (same as getter, for consistency)
+    engine.register_fn("id", |v: &mut InMemoryVertex| v.id());
+
     // label() -> String or ()
     engine.register_fn("label", |v: &mut InMemoryVertex| -> Dynamic {
         match v.label() {
@@ -384,11 +387,110 @@ fn register_graph_vertex(engine: &mut Engine) {
         },
     );
 
+    // properties() -> Map of all properties
+    engine.register_fn("properties", |v: &mut InMemoryVertex| -> Dynamic {
+        let props = v.properties();
+        let mut map = RhaiMap::new();
+        for (k, val) in props {
+            map.insert(k.into(), value_to_dynamic(val));
+        }
+        Dynamic::from(map)
+    });
+
     // exists() -> bool
     engine.register_fn("exists", |v: &mut InMemoryVertex| v.exists());
 
     // to_value() -> Value
     engine.register_fn("to_value", |v: &mut InMemoryVertex| v.to_value());
+
+    // property_set(key, value) -> () or error
+    engine.register_fn(
+        "property_set",
+        |v: &mut InMemoryVertex, key: ImmutableString, value: Dynamic| {
+            let val = dynamic_to_value(value);
+            v.property_set(key.as_str(), val).ok();
+        },
+    );
+
+    // remove() -> () - removes the vertex from the graph
+    engine.register_fn("remove", |v: &mut InMemoryVertex| {
+        v.remove().ok();
+    });
+
+    // out(label) -> Array of adjacent vertices via outgoing edges with label
+    engine.register_fn(
+        "out",
+        |v: &mut InMemoryVertex, label: ImmutableString| -> Dynamic {
+            let results: Vec<Dynamic> = v
+                .out(label.as_str())
+                .to_list()
+                .into_iter()
+                .map(Dynamic::from)
+                .collect();
+            Dynamic::from(results)
+        },
+    );
+
+    // out_all() -> Array of all adjacent vertices via outgoing edges
+    engine.register_fn("out_all", |v: &mut InMemoryVertex| -> Dynamic {
+        let results: Vec<Dynamic> = v
+            .out_all()
+            .to_list()
+            .into_iter()
+            .map(Dynamic::from)
+            .collect();
+        Dynamic::from(results)
+    });
+
+    // in_(label) -> Array of adjacent vertices via incoming edges with label
+    engine.register_fn(
+        "in_",
+        |v: &mut InMemoryVertex, label: ImmutableString| -> Dynamic {
+            let results: Vec<Dynamic> = v
+                .in_(label.as_str())
+                .to_list()
+                .into_iter()
+                .map(Dynamic::from)
+                .collect();
+            Dynamic::from(results)
+        },
+    );
+
+    // in_all() -> Array of all adjacent vertices via incoming edges
+    engine.register_fn("in_all", |v: &mut InMemoryVertex| -> Dynamic {
+        let results: Vec<Dynamic> = v
+            .in_all()
+            .to_list()
+            .into_iter()
+            .map(Dynamic::from)
+            .collect();
+        Dynamic::from(results)
+    });
+
+    // both(label) -> Array of adjacent vertices in both directions with label
+    engine.register_fn(
+        "both",
+        |v: &mut InMemoryVertex, label: ImmutableString| -> Dynamic {
+            let results: Vec<Dynamic> = v
+                .both(label.as_str())
+                .to_list()
+                .into_iter()
+                .map(Dynamic::from)
+                .collect();
+            Dynamic::from(results)
+        },
+    );
+
+    // both_all() -> Array of all adjacent vertices in both directions
+    engine.register_fn("both_all", |v: &mut InMemoryVertex| -> Dynamic {
+        let results: Vec<Dynamic> = v
+            .both_all()
+            .to_list()
+            .into_iter()
+            .map(Dynamic::from)
+            .collect();
+        Dynamic::from(results)
+    });
 
     // Display: to_string()
     engine.register_fn("to_string", |v: &mut InMemoryVertex| format!("{:?}", v));
@@ -409,16 +511,23 @@ fn register_graph_vertex(engine: &mut Engine) {
 /// | `.id` | Get the edge ID |
 /// | `.label()` | Get the edge label |
 /// | `.property(key)` | Get a property value |
+/// | `.properties()` | Get all properties as map |
 /// | `.exists()` | Check if edge exists |
 /// | `.to_value()` | Convert to Value |
 /// | `.out_v()` | Get source vertex |
 /// | `.in_v()` | Get destination vertex |
+/// | `.both_v()` | Get both vertices as array |
+/// | `.property_set(key, val)` | Set a property |
+/// | `.remove()` | Remove the edge |
 fn register_graph_edge(engine: &mut Engine) {
     // Register the type
     engine.register_type_with_name::<InMemoryEdge>("GraphEdge");
 
     // Getter: .id -> EdgeId
     engine.register_get("id", |e: &mut InMemoryEdge| e.id());
+
+    // Function: .id() -> EdgeId (same as getter, for consistency)
+    engine.register_fn("id", |e: &mut InMemoryEdge| e.id());
 
     // label() -> String or ()
     engine.register_fn("label", |e: &mut InMemoryEdge| -> Dynamic {
@@ -439,11 +548,35 @@ fn register_graph_edge(engine: &mut Engine) {
         },
     );
 
+    // properties() -> Map of all properties
+    engine.register_fn("properties", |e: &mut InMemoryEdge| -> Dynamic {
+        let props = e.properties();
+        let mut map = RhaiMap::new();
+        for (k, val) in props {
+            map.insert(k.into(), value_to_dynamic(val));
+        }
+        Dynamic::from(map)
+    });
+
     // exists() -> bool
     engine.register_fn("exists", |e: &mut InMemoryEdge| e.exists());
 
     // to_value() -> Value
     engine.register_fn("to_value", |e: &mut InMemoryEdge| e.to_value());
+
+    // property_set(key, value) -> () or error
+    engine.register_fn(
+        "property_set",
+        |e: &mut InMemoryEdge, key: ImmutableString, value: Dynamic| {
+            let val = dynamic_to_value(value);
+            e.property_set(key.as_str(), val).ok();
+        },
+    );
+
+    // remove() -> () - removes the edge from the graph
+    engine.register_fn("remove", |e: &mut InMemoryEdge| {
+        e.remove().ok();
+    });
 
     // out_v() -> InMemoryVertex or ()
     engine.register_fn("out_v", |e: &mut InMemoryEdge| -> Dynamic {
@@ -457,6 +590,17 @@ fn register_graph_edge(engine: &mut Engine) {
     engine.register_fn("in_v", |e: &mut InMemoryEdge| -> Dynamic {
         match e.in_v() {
             Some(v) => Dynamic::from(v),
+            None => Dynamic::UNIT,
+        }
+    });
+
+    // both_v() -> Array of [out_v, in_v] or ()
+    engine.register_fn("both_v", |e: &mut InMemoryEdge| -> Dynamic {
+        match e.both_v() {
+            Some((out_v, in_v)) => {
+                let arr: Vec<Dynamic> = vec![Dynamic::from(out_v), Dynamic::from(in_v)];
+                Dynamic::from(arr)
+            }
             None => Dynamic::UNIT,
         }
     });
@@ -487,6 +631,9 @@ fn register_mmap_graph_vertex(engine: &mut Engine) {
     // Getter: .id -> VertexId
     engine.register_get("id", |v: &mut PersistentVertex| v.id());
 
+    // Function: .id() -> VertexId (same as getter, for consistency)
+    engine.register_fn("id", |v: &mut PersistentVertex| v.id());
+
     // label() -> String or ()
     engine.register_fn("label", |v: &mut PersistentVertex| -> Dynamic {
         match v.label() {
@@ -506,11 +653,110 @@ fn register_mmap_graph_vertex(engine: &mut Engine) {
         },
     );
 
+    // properties() -> Map of all properties
+    engine.register_fn("properties", |v: &mut PersistentVertex| -> Dynamic {
+        let props = v.properties();
+        let mut map = RhaiMap::new();
+        for (k, val) in props {
+            map.insert(k.into(), value_to_dynamic(val));
+        }
+        Dynamic::from(map)
+    });
+
     // exists() -> bool
     engine.register_fn("exists", |v: &mut PersistentVertex| v.exists());
 
     // to_value() -> Value
     engine.register_fn("to_value", |v: &mut PersistentVertex| v.to_value());
+
+    // property_set(key, value) -> () or error
+    engine.register_fn(
+        "property_set",
+        |v: &mut PersistentVertex, key: ImmutableString, value: Dynamic| {
+            let val = dynamic_to_value(value);
+            v.property_set(key.as_str(), val).ok();
+        },
+    );
+
+    // remove() -> () - removes the vertex from the graph
+    engine.register_fn("remove", |v: &mut PersistentVertex| {
+        v.remove().ok();
+    });
+
+    // out(label) -> Array of adjacent vertices via outgoing edges with label
+    engine.register_fn(
+        "out",
+        |v: &mut PersistentVertex, label: ImmutableString| -> Dynamic {
+            let results: Vec<Dynamic> = v
+                .out(label.as_str())
+                .to_list()
+                .into_iter()
+                .map(Dynamic::from)
+                .collect();
+            Dynamic::from(results)
+        },
+    );
+
+    // out_all() -> Array of all adjacent vertices via outgoing edges
+    engine.register_fn("out_all", |v: &mut PersistentVertex| -> Dynamic {
+        let results: Vec<Dynamic> = v
+            .out_all()
+            .to_list()
+            .into_iter()
+            .map(Dynamic::from)
+            .collect();
+        Dynamic::from(results)
+    });
+
+    // in_(label) -> Array of adjacent vertices via incoming edges with label
+    engine.register_fn(
+        "in_",
+        |v: &mut PersistentVertex, label: ImmutableString| -> Dynamic {
+            let results: Vec<Dynamic> = v
+                .in_(label.as_str())
+                .to_list()
+                .into_iter()
+                .map(Dynamic::from)
+                .collect();
+            Dynamic::from(results)
+        },
+    );
+
+    // in_all() -> Array of all adjacent vertices via incoming edges
+    engine.register_fn("in_all", |v: &mut PersistentVertex| -> Dynamic {
+        let results: Vec<Dynamic> = v
+            .in_all()
+            .to_list()
+            .into_iter()
+            .map(Dynamic::from)
+            .collect();
+        Dynamic::from(results)
+    });
+
+    // both(label) -> Array of adjacent vertices in both directions with label
+    engine.register_fn(
+        "both",
+        |v: &mut PersistentVertex, label: ImmutableString| -> Dynamic {
+            let results: Vec<Dynamic> = v
+                .both(label.as_str())
+                .to_list()
+                .into_iter()
+                .map(Dynamic::from)
+                .collect();
+            Dynamic::from(results)
+        },
+    );
+
+    // both_all() -> Array of all adjacent vertices in both directions
+    engine.register_fn("both_all", |v: &mut PersistentVertex| -> Dynamic {
+        let results: Vec<Dynamic> = v
+            .both_all()
+            .to_list()
+            .into_iter()
+            .map(Dynamic::from)
+            .collect();
+        Dynamic::from(results)
+    });
 
     // Display: to_string()
     engine.register_fn("to_string", |v: &mut PersistentVertex| format!("{:?}", v));
@@ -531,6 +777,9 @@ fn register_mmap_graph_edge(engine: &mut Engine) {
     // Getter: .id -> EdgeId
     engine.register_get("id", |e: &mut PersistentEdge| e.id());
 
+    // Function: .id() -> EdgeId (same as getter, for consistency)
+    engine.register_fn("id", |e: &mut PersistentEdge| e.id());
+
     // label() -> String or ()
     engine.register_fn("label", |e: &mut PersistentEdge| -> Dynamic {
         match e.label() {
@@ -550,11 +799,35 @@ fn register_mmap_graph_edge(engine: &mut Engine) {
         },
     );
 
+    // properties() -> Map of all properties
+    engine.register_fn("properties", |e: &mut PersistentEdge| -> Dynamic {
+        let props = e.properties();
+        let mut map = RhaiMap::new();
+        for (k, val) in props {
+            map.insert(k.into(), value_to_dynamic(val));
+        }
+        Dynamic::from(map)
+    });
+
     // exists() -> bool
     engine.register_fn("exists", |e: &mut PersistentEdge| e.exists());
 
     // to_value() -> Value
     engine.register_fn("to_value", |e: &mut PersistentEdge| e.to_value());
+
+    // property_set(key, value) -> () or error
+    engine.register_fn(
+        "property_set",
+        |e: &mut PersistentEdge, key: ImmutableString, value: Dynamic| {
+            let val = dynamic_to_value(value);
+            e.property_set(key.as_str(), val).ok();
+        },
+    );
+
+    // remove() -> () - removes the edge from the graph
+    engine.register_fn("remove", |e: &mut PersistentEdge| {
+        e.remove().ok();
+    });
 
     // out_v() -> PersistentVertex or ()
     engine.register_fn("out_v", |e: &mut PersistentEdge| -> Dynamic {
@@ -572,6 +845,17 @@ fn register_mmap_graph_edge(engine: &mut Engine) {
         }
     });
 
+    // both_v() -> Array of [out_v, in_v] or ()
+    engine.register_fn("both_v", |e: &mut PersistentEdge| -> Dynamic {
+        match e.both_v() {
+            Some((out_v, in_v)) => {
+                let arr: Vec<Dynamic> = vec![Dynamic::from(out_v), Dynamic::from(in_v)];
+                Dynamic::from(arr)
+            }
+            None => Dynamic::UNIT,
+        }
+    });
+
     // Display: to_string()
     engine.register_fn("to_string", |e: &mut PersistentEdge| format!("{:?}", e));
 
@@ -582,6 +866,7 @@ fn register_mmap_graph_edge(engine: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph_elements::GraphEdge;
 
     #[test]
     fn test_dynamic_to_value_primitives() {

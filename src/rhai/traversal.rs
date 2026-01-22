@@ -11,9 +11,9 @@ use rhai::{Dynamic, Engine, ImmutableString};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
 #[cfg(feature = "mmap")]
-use crate::graph_elements::{PersistentEdge, PersistentVertex};
+use crate::graph_elements::PersistentVertex;
+use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryVertex};
 use crate::storage::cow::CowBoundTraversal;
 #[cfg(feature = "mmap")]
 use crate::storage::CowMmapGraph;
@@ -1823,11 +1823,12 @@ fn execute_with_mmap_graph(
 ) -> Vec<Value> {
     let g = graph.gremlin(Arc::clone(graph));
 
+    // Use untyped methods to get CowMmapBoundTraversal<..., Scalar> for all sources
     let mut bound = match source {
-        TraversalSource::AllVertices => g.v(),
-        TraversalSource::Vertices(ids) => g.v_ids(ids.clone()),
-        TraversalSource::AllEdges => g.e(),
-        TraversalSource::Edges(ids) => g.e_ids(ids.clone()),
+        TraversalSource::AllVertices => g.v_untyped(),
+        TraversalSource::Vertices(ids) => g.v_ids_untyped(ids.clone()),
+        TraversalSource::AllEdges => g.e_untyped(),
+        TraversalSource::Edges(ids) => g.e_ids_untyped(ids.clone()),
         TraversalSource::Inject(values) => g.inject(values.clone()),
     };
 
