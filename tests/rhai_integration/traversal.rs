@@ -3808,3 +3808,259 @@ fn test_rhai_vertex_chained_traversal_from_element() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].clone().into_string().unwrap(), "Carol");
 }
+
+#[test]
+fn test_rhai_vertex_to_gremlin_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_chain_graph();
+
+    // Get vertex A, then use v_ids to start a new Gremlin traversal with repeat()
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            // Get vertex A
+            let a = g.v().has_value("name", "A").first();
+            let a_id = a.id;
+            
+            // Start a new Gremlin traversal from A with full traversal capabilities
+            // Use repeat to go 3 hops: A -> B -> C -> D
+            g.v_ids([a_id]).repeat(anon().out(), 3).values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    // Should reach D after 3 hops from A
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].clone().into_string().unwrap(), "D");
+}
+
+#[test]
+fn test_rhai_vertex_array_to_gremlin_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // Get multiple vertex IDs and use v_ids to start a traversal
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            // Get Alice and Bob's IDs
+            let alice = g.v().has_value("name", "Alice").first();
+            let bob = g.v().has_value("name", "Bob").first();
+            
+            // Start a traversal from both vertices
+            g.v_ids([alice.id, bob.id]).out("knows").dedup().values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    // Alice knows Bob and Carol, Bob knows Carol
+    // After dedup: Bob, Carol
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .map(|d| d.clone().into_string().unwrap())
+        .collect();
+    assert!(names.contains(&"Bob".to_string()) || names.contains(&"Carol".to_string()));
+}
+
+// =============================================================================
+// Idiomatic Gremlin API: V() and E()
+// =============================================================================
+
+#[test]
+fn test_rhai_idiomatic_v_all() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // g.V() should return all vertices (idiomatic Gremlin)
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            g.V().count()
+        "#,
+        )
+        .unwrap();
+
+    // 5 people + 1 company = 6
+    assert_eq!(count, 6);
+}
+
+#[test]
+fn test_rhai_idiomatic_v_single_id() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // g.V(id) should return single vertex (idiomatic Gremlin)
+    let result: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.v().has_value("name", "Alice").first();
+            let alice_id = alice.id;
+            
+            // Use idiomatic V(id) syntax
+            g.V(alice_id).values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].clone().into_string().unwrap(), "Alice");
+}
+
+#[test]
+fn test_rhai_idiomatic_v_integer_id() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // g.V(integer) should work with raw integer IDs
+    let result: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let v = g.add_v("person").property("name", "Test").first();
+            let id = v.id.id;  // Get raw integer ID
+            
+            // Use idiomatic V(integer) syntax
+            g.V(id).values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].clone().into_string().unwrap(), "Test");
+}
+
+#[test]
+fn test_rhai_idiomatic_v_array() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // g.V([ids]) should return multiple vertices (idiomatic Gremlin)
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.v().has_value("name", "Alice").first();
+            let bob = g.v().has_value("name", "Bob").first();
+            
+            // Use idiomatic V([ids]) syntax
+            g.V([alice.id, bob.id]).values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .map(|d| d.clone().into_string().unwrap())
+        .collect();
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(names.contains(&"Bob".to_string()));
+}
+
+#[test]
+fn test_rhai_idiomatic_v_with_traversal() {
+    let engine = RhaiEngine::new();
+    let graph = create_chain_graph();
+
+    // g.V(id).repeat(...) - full Gremlin traversal from specific vertex
+    let results: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let a = g.v().has_value("name", "A").first();
+            
+            // Use idiomatic V(id) with repeat
+            g.V(a.id).repeat(anon().out(), 3).values("name").to_list()
+        "#,
+        )
+        .unwrap();
+
+    // Should reach D after 3 hops from A
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].clone().into_string().unwrap(), "D");
+}
+
+#[test]
+fn test_rhai_idiomatic_e_all() {
+    let engine = RhaiEngine::new();
+    let graph = create_social_graph();
+
+    // g.E() should return all edges (idiomatic Gremlin)
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            g.E().count()
+        "#,
+        )
+        .unwrap();
+
+    // The social graph has multiple edges
+    assert!(count > 0);
+}
+
+#[test]
+fn test_rhai_idiomatic_e_single_id() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // g.E(id) should return single edge (idiomatic Gremlin)
+    let result: rhai::Array = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            let e = g.add_e("knows").from_v(alice).to_v(bob).first();
+            let edge_id = e.id;
+            
+            // Use idiomatic E(id) syntax
+            g.E(edge_id).label().to_list()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].clone().into_string().unwrap(), "knows");
+}
+
+#[test]
+fn test_rhai_idiomatic_e_array() {
+    let engine = RhaiEngine::new();
+    let graph = create_empty_graph();
+
+    // g.E([ids]) should return multiple edges (idiomatic Gremlin)
+    let count: i64 = engine
+        .eval_with_graph(
+            graph.clone(),
+            r#"
+            let g = graph.gremlin();
+            let alice = g.add_v("person").first();
+            let bob = g.add_v("person").first();
+            let carol = g.add_v("person").first();
+            
+            let e1 = g.add_e("knows").from_v(alice).to_v(bob).first();
+            let e2 = g.add_e("knows").from_v(bob).to_v(carol).first();
+            
+            // Use idiomatic E([ids]) syntax
+            g.E([e1.id, e2.id]).count()
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(count, 2);
+}

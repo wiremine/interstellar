@@ -163,6 +163,16 @@ impl RhaiTraversalSource {
         }
     }
 
+    /// Start traversal from a single edge ID.
+    pub fn e_id(&self, id: EdgeId) -> RhaiTraversal {
+        RhaiTraversal {
+            storage: self.storage.clone(),
+            source: TraversalSource::Edges(vec![id]),
+            steps: Vec::new(),
+            track_paths: false,
+        }
+    }
+
     /// Inject arbitrary values into the traversal.
     pub fn inject(&self, values: Vec<Value>) -> RhaiTraversal {
         RhaiTraversal {
@@ -2709,8 +2719,76 @@ fn register_source_methods(engine: &mut Engine) {
         },
     );
 
+    // ==========================================================================
+    // Idiomatic Gremlin API: V() and E()
+    // ==========================================================================
+    //
+    // Standard Gremlin uses uppercase V() and E() with optional ID arguments:
+    //   g.V()           - all vertices
+    //   g.V(1)          - vertex with ID 1
+    //   g.V(1, 2, 3)    - vertices with IDs 1, 2, 3
+    //   g.V([1, 2, 3])  - vertices with IDs in array
+    //
+    // Same pattern for E() with edges.
+
+    // V() - all vertices (idiomatic Gremlin)
+    engine.register_fn("V", |source: &mut RhaiTraversalSource| source.v());
+
+    // V(id) - single vertex by ID (idiomatic Gremlin)
+    engine.register_fn("V", |source: &mut RhaiTraversalSource, id: i64| {
+        source.v_id(VertexId(id as u64))
+    });
+    engine.register_fn("V", |source: &mut RhaiTraversalSource, id: VertexId| {
+        source.v_id(id)
+    });
+
+    // V([ids]) - multiple vertices by ID array (idiomatic Gremlin)
+    engine.register_fn("V", |source: &mut RhaiTraversalSource, ids: rhai::Array| {
+        let vertex_ids: Vec<VertexId> = ids
+            .into_iter()
+            .filter_map(|d| {
+                if d.is::<i64>() {
+                    Some(VertexId(d.cast::<i64>() as u64))
+                } else if d.is::<VertexId>() {
+                    Some(d.cast::<VertexId>())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        source.v_ids(vertex_ids)
+    });
+
     // e() - all edges
     engine.register_fn("e", |source: &mut RhaiTraversalSource| source.e());
+
+    // E() - all edges (idiomatic Gremlin)
+    engine.register_fn("E", |source: &mut RhaiTraversalSource| source.e());
+
+    // E(id) - single edge by ID (idiomatic Gremlin)
+    engine.register_fn("E", |source: &mut RhaiTraversalSource, id: i64| {
+        source.e_id(EdgeId(id as u64))
+    });
+    engine.register_fn("E", |source: &mut RhaiTraversalSource, id: EdgeId| {
+        source.e_id(id)
+    });
+
+    // E([ids]) - multiple edges by ID array (idiomatic Gremlin)
+    engine.register_fn("E", |source: &mut RhaiTraversalSource, ids: rhai::Array| {
+        let edge_ids: Vec<EdgeId> = ids
+            .into_iter()
+            .filter_map(|d| {
+                if d.is::<i64>() {
+                    Some(EdgeId(d.cast::<i64>() as u64))
+                } else if d.is::<EdgeId>() {
+                    Some(d.cast::<EdgeId>())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        source.e_ids(edge_ids)
+    });
 
     // inject([values])
     engine.register_fn(
