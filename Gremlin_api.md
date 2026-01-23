@@ -27,8 +27,10 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 
 | Gremlin Function | Rust Function | Module |
 |-----------------|---------------|--------|
-| `V()` | `v()`, `v_ids()` | `traversal::source` |
+| `V()` | `v()`, `v_ids()`, `v_by_id()` | `traversal::source` |
+| `V()` + index | `v_by_property()`, `v_by_property_range()` | `traversal::source` |
 | `E()` | `e()`, `e_ids()` | `traversal::source` |
+| `E()` + index | `e_by_property()` | `traversal::source` |
 | `addV()` | `add_v()` | `traversal::source`, `traversal::mutation` |
 | `addE()` | `add_e()` | `traversal::source`, `traversal::mutation` |
 | `inject()` | `inject()` | `traversal::source` |
@@ -172,7 +174,7 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 |-----------------|---------------|--------|
 | `branch(traversal)` | `branch(traversal).option()` | `traversal::branch` |
 | `choose(cond, true, false)` | `choose(condition, if_true, if_false)` | `traversal::branch` |
-| `choose(traversal).option()` | `choose_by(traversal).option()` | `traversal::branch` |
+| `choose(traversal).option()` | `choose_by(traversal).option()`, `branch(traversal).option()` | `traversal::branch` |
 | `union(traversal...)` | `union(traversals)` | `traversal::branch` |
 | `coalesce(traversal...)` | `coalesce(traversals)` | `traversal::branch` |
 | `optional(traversal)` | `optional(traversal)` | `traversal::branch` |
@@ -189,6 +191,7 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `repeat().until(traversal)` | `repeat().until(traversal)` | `traversal::repeat` |
 | `repeat().emit()` | `repeat().emit()` | `traversal::repeat` |
 | `repeat().emit(traversal)` | `repeat().emit_if(traversal)` | `traversal::repeat` |
+| `repeat().emit()` (before loop) | `repeat().emit_first()` | `traversal::repeat` |
 | `loops()` | `loops()` | `traversal::repeat` |
 
 ---
@@ -231,6 +234,7 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `with()` | - | - |
 | `option(key, traversal)` | `.option(key, traversal)` on `BranchBuilder` | `traversal::source` |
 | `option(none)` | `.option_none(traversal)` on `BranchBuilder` | `traversal::source` |
+| - | `with_path()` | `traversal::source` |
 | `from()` | - | - |
 | `to()` | - | - |
 | `read()` | - | - |
@@ -253,6 +257,19 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 | `one()` | `one()` | `traversal::source` |
 | `explain()` | - | - |
 | `profile()` | - | - |
+| - | `iter()` | `traversal::source` |
+| - | `traversers()` | `traversal::source` |
+| - | `fold()` | `traversal::source` |
+| - | `sum()` | `traversal::source` |
+| - | `min()` | `traversal::source` |
+| - | `max()` | `traversal::source` |
+| - | `count()` | `traversal::source` |
+| - | `to_vertex_list()` | `traversal::source` |
+| - | `next_vertex()` | `traversal::source` |
+| - | `one_vertex()` | `traversal::source` |
+| - | `to_edge_list()` | `traversal::source` |
+| - | `next_edge()` | `traversal::source` |
+| - | `one_edge()` | `traversal::source` |
 
 ---
 
@@ -260,8 +277,10 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust implemen
 
 | Gremlin Function | Rust Function | Module |
 |-----------------|---------------|--------|
-| `V()` | `v()`, `v_ids()` | `traversal::source` |
+| `V()` | `v()`, `v_ids()`, `v_by_id()` | `traversal::source` |
+| `V()` + index | `v_by_property()`, `v_by_property_range()` | `traversal::source` |
 | `E()` | `e()`, `e_ids()` | `traversal::source` |
+| `E()` + index | `e_by_property()` | `traversal::source` |
 | `tx()` | - | - |
 | `io()` | - | - |
 | `call()` | - | - |
@@ -561,17 +580,17 @@ The following Gremlin features are not currently planned for support:
 
 | Category | Implemented | Not Implemented |
 |----------|-------------|-----------------|
-| Source Steps | 5 | 0 |
+| Source Steps | 8 | 0 |
 | Filter Steps | 34 | 1 |
 | Navigation Steps | 16 | 0 |
 | Transform/Map Steps | 30 | 0 |
 | Aggregation Steps | 6 | 0 |
-| Branch Steps | 7 | 0 |
-| Repeat Steps | 6 | 0 |
+| Branch Steps | 8 | 0 |
+| Repeat Steps | 7 | 0 |
 | Side Effect Steps | 6 | 1 |
 | Mutation Steps | 6 | 2 |
-| Modulator Steps | 4 | 4 |
-| Terminal Steps | 7 | 4 |
+| Modulator Steps | 5 | 4 |
+| Terminal Steps | 19 | 4 |
 | Predicates (P) | 14 | 0 |
 | Text Predicates | 7 | 0 |
-| **Total** | **~148** | **~11** |
+| **Total** | **~166** | **~11** |
