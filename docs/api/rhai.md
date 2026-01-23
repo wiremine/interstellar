@@ -297,7 +297,7 @@ g.v().has_where("email", regex(".*@gmail\\.com"))
 
 ## Anonymous Traversals
 
-Use `A.` (not `__::`) for anonymous traversal fragments in Rhai:
+Use `A.` (not `__.`) for anonymous traversal fragments in Rhai:
 
 ```javascript
 // Filter with anonymous traversal
@@ -402,7 +402,7 @@ g.v_id(id).values("name").first()
 
 | Aspect | Rust | Rhai | Reason |
 |--------|------|------|--------|
-| Anonymous traversal factory | `__::` | `A.` | Rhai doesn't allow `_` prefix |
+| Anonymous traversal factory | `__.` | `A.` | Rhai doesn't allow `_` prefix |
 | `in()` step | `in_()` | `in_()` | Reserved keyword |
 | `drop()` step | `drop()` | `drop_()` | Reserved function |
 | `value()` (property) | `value()` | `prop_value()` | Avoids type conflict |

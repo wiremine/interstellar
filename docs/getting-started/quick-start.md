@@ -7,10 +7,8 @@ Get up and running with Interstellar in 5 minutes. This guide covers creating a 
 Start by creating an in-memory graph:
 
 ```rust
-use interstellar::graph::Graph;
+use interstellar::prelude::*;
 use interstellar::storage::InMemoryGraph;
-use interstellar::value::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
@@ -27,27 +25,26 @@ fn main() {
 
 ## Adding Vertices
 
-Vertices (nodes) represent entities in your graph:
+Vertices (nodes) represent entities in your graph. Use the `props!` macro for concise property definitions:
 
 ```rust
-use std::collections::HashMap;
-use interstellar::value::Value;
+// Create a person vertex with the props! macro
+let alice = storage.add_vertex("person", props! {
+    "name" => "Alice",
+    "age" => 30i64
+});
 
-// Create a person vertex
-let alice = storage.add_vertex("person", HashMap::from([
-    ("name".to_string(), Value::String("Alice".to_string())),
-    ("age".to_string(), Value::Int(30)),
-]));
+let bob = storage.add_vertex("person", props! {
+    "name" => "Bob",
+    "age" => 25i64
+});
 
-let bob = storage.add_vertex("person", HashMap::from([
-    ("name".to_string(), Value::String("Bob".to_string())),
-    ("age".to_string(), Value::Int(25)),
-]));
-
-let rust_lang = storage.add_vertex("language", HashMap::from([
-    ("name".to_string(), Value::String("Rust".to_string())),
-]));
+let rust_lang = storage.add_vertex("language", props! {
+    "name" => "Rust"
+});
 ```
+
+The `props!` macro automatically converts keys to `String` and values to `Value`, saving you from verbose `HashMap::from([...])` syntax.
 
 Each `add_vertex` call returns a `VertexId` that you can use to reference the vertex.
 
@@ -56,17 +53,17 @@ Each `add_vertex` call returns a `VertexId` that you can use to reference the ve
 Edges represent relationships between vertices:
 
 ```rust
-// Alice knows Bob
-storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+// Alice knows Bob (no properties)
+storage.add_edge(alice, bob, "knows", props! {}).unwrap();
 
-// Alice and Bob both program in Rust
-storage.add_edge(alice, rust_lang, "programs_in", HashMap::from([
-    ("skill_level".to_string(), Value::String("expert".to_string())),
-])).unwrap();
+// Alice and Bob both program in Rust (with properties)
+storage.add_edge(alice, rust_lang, "programs_in", props! {
+    "skill_level" => "expert"
+}).unwrap();
 
-storage.add_edge(bob, rust_lang, "programs_in", HashMap::from([
-    ("skill_level".to_string(), Value::String("intermediate".to_string())),
-])).unwrap();
+storage.add_edge(bob, rust_lang, "programs_in", props! {
+    "skill_level" => "intermediate"
+}).unwrap();
 ```
 
 ## Querying with Gremlin-Style API
@@ -139,27 +136,25 @@ let results = snapshot.gql("
 Here's a complete runnable example:
 
 ```rust
-use interstellar::graph::Graph;
+use interstellar::prelude::*;
 use interstellar::storage::InMemoryGraph;
-use interstellar::value::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
     // Create and populate graph
     let mut storage = InMemoryGraph::new();
     
-    let alice = storage.add_vertex("person", HashMap::from([
-        ("name".to_string(), Value::String("Alice".to_string())),
-        ("age".to_string(), Value::Int(30)),
-    ]));
+    let alice = storage.add_vertex("person", props! {
+        "name" => "Alice",
+        "age" => 30i64
+    });
     
-    let bob = storage.add_vertex("person", HashMap::from([
-        ("name".to_string(), Value::String("Bob".to_string())),
-        ("age".to_string(), Value::Int(25)),
-    ]));
+    let bob = storage.add_vertex("person", props! {
+        "name" => "Bob",
+        "age" => 25i64
+    });
     
-    storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    storage.add_edge(alice, bob, "knows", props! {}).unwrap();
     
     // Query the graph
     let graph = Graph::new(Arc::new(storage));

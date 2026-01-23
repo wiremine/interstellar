@@ -21,7 +21,7 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust and Rhai
 | `or()` | `or_()` | `or_()` | `or` is a Rust keyword; Rhai follows for consistency |
 | `has(key, value)` | `has_value(key, value)` | `has_value(key, value)` | Distinguishes from `has(key)` existence check |
 | `drop()` | `drop()` | `drop_()` | `drop` is a reserved function name in Rhai |
-| `__` (anonymous) | `__::` | `A.` | Rhai doesn't allow identifiers starting with `_` |
+| `__` (anonymous) | `__.` | `A.` | Rhai doesn't allow identifiers starting with `_` |
 | `value()` (property) | `value()` | `prop_value()` | Avoids conflict with Rhai's `Value` type |
 
 ---
@@ -314,37 +314,37 @@ This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust and Rhai
 
 | Gremlin | Rust | Rhai |
 |---------|------|------|
-| `__.identity()` | `__::identity()` | `A.identity()` |
-| `__.out()` | `__::out()` | `A.out()` |
-| `__.out(label)` | `__::out_labels(&[label])` | `A.out("label")` |
-| `__.in()` | `__::in_()` | `A.in_()` |
-| `__.in(label)` | `__::in_labels(&[label])` | `A.in_("label")` |
-| `__.both()` | `__::both()` | `A.both()` |
-| `__.outE()` | `__::out_e()` | `A.out_e()` |
-| `__.inE()` | `__::in_e()` | `A.in_e()` |
-| `__.bothE()` | `__::both_e()` | `A.both_e()` |
-| `__.outV()` | `__::out_v()` | `A.out_v()` |
-| `__.inV()` | `__::in_v()` | `A.in_v()` |
-| `__.otherV()` | `__::other_v()` | `A.other_v()` |
-| `__.hasLabel(label)` | `__::has_label(label)` | `A.has_label("label")` |
-| `__.has(key)` | `__::has(key)` | `A.has("key")` |
-| `__.hasNot(key)` | `__::has_not(key)` | `A.has_not("key")` |
-| `__.has(key, value)` | `__::has_value(key, value)` | `A.has_value("key", value)` |
-| `__.dedup()` | `__::dedup()` | `A.dedup()` |
-| `__.limit(n)` | `__::limit(n)` | `A.limit(n)` |
-| `__.id()` | `__::id()` | `A.id()` |
-| `__.label()` | `__::label()` | `A.label()` |
-| `__.values(key)` | `__::values(key)` | `A.values("key")` |
-| `__.valueMap()` | `__::value_map()` | `A.value_map()` |
-| `__.path()` | `__::path()` | `A.path()` |
-| `__.constant(value)` | `__::constant(value)` | `A.constant(value)` |
-| `__.fold()` | `__::fold()` | `A.fold()` |
-| `__.unfold()` | `__::unfold()` | `A.unfold()` |
-| `__.as(label)` | `__::as_(label)` | `A.as_("label")` |
+| `__.identity()` | `__.identity()` | `A.identity()` |
+| `__.out()` | `__.out()` | `A.out()` |
+| `__.out(label)` | `__.out_labels(&[label])` | `A.out("label")` |
+| `__.in()` | `__.in_()` | `A.in_()` |
+| `__.in(label)` | `__.in_labels(&[label])` | `A.in_("label")` |
+| `__.both()` | `__.both()` | `A.both()` |
+| `__.outE()` | `__.out_e()` | `A.out_e()` |
+| `__.inE()` | `__.in_e()` | `A.in_e()` |
+| `__.bothE()` | `__.both_e()` | `A.both_e()` |
+| `__.outV()` | `__.out_v()` | `A.out_v()` |
+| `__.inV()` | `__.in_v()` | `A.in_v()` |
+| `__.otherV()` | `__.other_v()` | `A.other_v()` |
+| `__.hasLabel(label)` | `__.has_label(label)` | `A.has_label("label")` |
+| `__.has(key)` | `__.has(key)` | `A.has("key")` |
+| `__.hasNot(key)` | `__.has_not(key)` | `A.has_not("key")` |
+| `__.has(key, value)` | `__.has_value(key, value)` | `A.has_value("key", value)` |
+| `__.dedup()` | `__.dedup()` | `A.dedup()` |
+| `__.limit(n)` | `__.limit(n)` | `A.limit(n)` |
+| `__.id()` | `__.id()` | `A.id()` |
+| `__.label()` | `__.label()` | `A.label()` |
+| `__.values(key)` | `__.values(key)` | `A.values("key")` |
+| `__.valueMap()` | `__.value_map()` | `A.value_map()` |
+| `__.path()` | `__.path()` | `A.path()` |
+| `__.constant(value)` | `__.constant(value)` | `A.constant(value)` |
+| `__.fold()` | `__.fold()` | `A.fold()` |
+| `__.unfold()` | `__.unfold()` | `A.unfold()` |
+| `__.as(label)` | `__.as_(label)` | `A.as_("label")` |
 
 ### Additional Rust-only Anonymous Functions
 
-These are available in Rust via `__::` but not yet exposed in Rhai's `A` factory:
+These are available in Rust via `__.` but not yet exposed in Rhai's `A` factory:
 
 - **Filter:** `has_label_any`, `has_id`, `has_ids`, `has_key`, `has_key_any`, `has_prop_value`, `has_prop_value_any`, `is_`, `is_eq`, `filter`, `skip`, `range`, `tail`, `tail_n`, `coin`, `sample`, `simple_path`, `cyclic_path`, `dedup_by_key`, `dedup_by_label`, `dedup_by`
 - **Transform:** `values_multi`, `properties`, `properties_keys`, `value_map_keys`, `value_map_with_tokens`, `element_map`, `element_map_keys`, `property_map`, `property_map_keys`, `key`, `value`, `index`, `loops`, `mean`, `order`, `math`, `project`, `map`, `flat_map`

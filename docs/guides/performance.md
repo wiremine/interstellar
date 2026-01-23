@@ -260,8 +260,8 @@ g.v().has_label("person")
 ```rust
 // Efficient: Stops at first non-empty
 g.v().coalesce([
-    __::has("preferred_name").values("preferred_name"),
-    __::values("name"),
+    __.has("preferred_name").values("preferred_name"),
+    __.values("name"),
 ])
 ```
 

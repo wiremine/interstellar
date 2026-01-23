@@ -95,13 +95,13 @@ g.v().has_where("age", p::and(p::gte(18), p::lt(65)))
 // Filter based on sub-traversal existence
 g.v()
     .has_label("person")
-    .where_(__::out("knows").has_label("celebrity"))
+    .where_(__.out("knows").has_label("celebrity"))
     .to_list()
 
 // Exclude based on sub-traversal
 g.v()
     .has_label("person")
-    .not(__::out("blocked"))
+    .not(__.out("blocked"))
     .to_list()
 ```
 
@@ -114,7 +114,7 @@ g.v()
 ```rust
 // Enable path tracking and retrieve paths
 g.v_ids([start])
-    .repeat(__::out())
+    .repeat(__.out())
     .times(3)
     .path()
     .to_list()
@@ -137,8 +137,8 @@ g.v()
 ```rust
 // Avoid cycles
 g.v_ids([start])
-    .repeat(__::out().simple_path())
-    .until(__::has_id(target))
+    .repeat(__.out().simple_path())
+    .until(__.has_id(target))
     .path()
     .limit(1)
     .next()
@@ -193,9 +193,9 @@ g.v().has_label("employee").values("salary").mean()
 // Merge results from multiple paths
 g.v_ids([alice])
     .union([
-        __::out("knows"),
-        __::out("follows"),
-        __::out("works_with"),
+        __.out("knows"),
+        __.out("follows"),
+        __.out("works_with"),
     ])
     .dedup()
     .to_list()
@@ -207,9 +207,9 @@ g.v_ids([alice])
 // Use first available value
 g.v()
     .coalesce([
-        __::values("nickname"),
-        __::values("name"),
-        __::constant("Unknown"),
+        __.values("nickname"),
+        __.values("name"),
+        __.constant("Unknown"),
     ])
     .to_list()
 ```
@@ -220,9 +220,9 @@ g.v()
 // If/else based on condition
 g.v()
     .choose(
-        __::has("premium"),
-        __::values("premium_name"),
-        __::values("name"),
+        __.has("premium"),
+        __.values("premium_name"),
+        __.values("name"),
     )
     .to_list()
 ```
@@ -236,7 +236,7 @@ g.v()
 ```rust
 // Traverse exactly 3 hops
 g.v_ids([start])
-    .repeat(__::out())
+    .repeat(__.out())
     .times(3)
     .to_list()
 ```
@@ -246,8 +246,8 @@ g.v_ids([start])
 ```rust
 // Traverse until reaching target
 g.v_ids([start])
-    .repeat(__::out("parent"))
-    .until(__::has_label("root"))
+    .repeat(__.out("parent"))
+    .until(__.has_label("root"))
     .to_list()
 ```
 
@@ -256,7 +256,7 @@ g.v_ids([start])
 ```rust
 // Include results from each iteration
 g.v_ids([start])
-    .repeat(__::out("knows"))
+    .repeat(__.out("knows"))
     .times(3)
     .emit()
     .to_list()

@@ -167,7 +167,7 @@ Path tracking is enabled automatically when using:
 use interstellar::traversal::__;
 
 // Anonymous traversal (no graph)
-let friends = __::out("knows").has_label("person");
+let friends = __.out("knows").has_label("person");
 
 // Use within a bound traversal
 g.v().where_(friends).to_list()
@@ -192,7 +192,7 @@ When an anonymous traversal is spliced into a bound traversal:
 ```rust
 g.v()
     .where_(
-        __::out("knows")    // Receives each vertex
+        __.out("knows")    // Receives each vertex
             .has_label("person")
     )
     .to_list()
@@ -209,8 +209,8 @@ Merge results from multiple paths:
 ```rust
 g.v_ids([alice])
     .union([
-        __::out("knows"),    // Friends
-        __::out("created"),  // Creations
+        __.out("knows"),    // Friends
+        __.out("created"),  // Creations
     ])
     .to_list()
 ```
@@ -238,9 +238,9 @@ Conditional branching:
 ```rust
 g.v()
     .choose(
-        __::has("premium"),           // Condition
-        __::values("premium_name"),   // If true
-        __::values("name"),           // If false
+        __.has("premium"),           // Condition
+        __.values("premium_name"),   // If true
+        __.values("name"),           // If false
     )
     .to_list()
 ```
@@ -273,19 +273,19 @@ Iterative traversal with `repeat()`:
 ```rust
 // Fixed iterations
 g.v_ids([alice])
-    .repeat(__::out("knows"))
+    .repeat(__.out("knows"))
     .times(3)
     .to_list()
 
 // Until condition
 g.v_ids([start])
-    .repeat(__::out("parent"))
-    .until(__::has_label("root"))
+    .repeat(__.out("parent"))
+    .until(__.has_label("root"))
     .to_list()
 
 // Emit intermediate results
 g.v_ids([alice])
-    .repeat(__::out("knows"))
+    .repeat(__.out("knows"))
     .times(3)
     .emit()  // Include results from each iteration
     .to_list()
@@ -294,7 +294,7 @@ g.v_ids([alice])
 ### Repeat Execution
 
 ```
-repeat(__::out("knows")).times(2).emit()
+repeat(__.out("knows")).times(2).emit()
 
 Iteration 0: alice
             emit → [alice]

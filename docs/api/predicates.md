@@ -301,8 +301,8 @@ g.v().has_where("age", p::or(
 // Better: combine with filter steps
 g.v()
     .or_([
-        __::has_where("age", p::and(p::gte(18), p::lt(65))),
-        __::has_value("role", "admin"),
+        __.has_where("age", p::and(p::gte(18), p::lt(65))),
+        __.has_value("role", "admin"),
     ])
 ```
 

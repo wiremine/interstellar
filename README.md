@@ -30,29 +30,27 @@ interstellar = "0.1"
 ### Basic Usage
 
 ```rust
-use interstellar::graph::Graph;
+use interstellar::prelude::*;
 use interstellar::storage::InMemoryGraph;
-use interstellar::value::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn main() {
     // Create an in-memory graph
     let mut storage = InMemoryGraph::new();
 
-    // Add vertices
-    let alice = storage.add_vertex("person", HashMap::from([
-        ("name".to_string(), Value::String("Alice".to_string())),
-        ("age".to_string(), Value::Int(30)),
-    ]));
+    // Add vertices using the props! macro
+    let alice = storage.add_vertex("person", props! {
+        "name" => "Alice",
+        "age" => 30i64
+    });
 
-    let bob = storage.add_vertex("person", HashMap::from([
-        ("name".to_string(), Value::String("Bob".to_string())),
-        ("age".to_string(), Value::Int(25)),
-    ]));
+    let bob = storage.add_vertex("person", props! {
+        "name" => "Bob",
+        "age" => 25i64
+    });
 
     // Add edge
-    storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    storage.add_edge(alice, bob, "knows", props! {}).unwrap();
 
     // Wrap in Graph for traversal API
     let graph = Graph::new(Arc::new(storage));
@@ -91,16 +89,16 @@ interstellar = { version = "0.1", features = ["mmap"] }
 ```
 
 ```rust
+use interstellar::prelude::*;
 use interstellar::storage::MmapGraph;
-use std::collections::HashMap;
 
 // Open or create a database
 let graph = MmapGraph::open("my_graph.db").unwrap();
 
 // Add data (each operation is durable by default)
-let alice = graph.add_vertex("person", HashMap::from([
-    ("name".to_string(), "Alice".into()),
-])).unwrap();
+let alice = graph.add_vertex("person", props! {
+    "name" => "Alice"
+}).unwrap();
 ```
 
 #### Batch Mode (High-Performance Writes)
@@ -108,8 +106,8 @@ let alice = graph.add_vertex("person", HashMap::from([
 For bulk loading, use batch mode to defer fsync until commit (~500x faster):
 
 ```rust
+use interstellar::prelude::*;
 use interstellar::storage::MmapGraph;
-use std::collections::HashMap;
 
 let graph = MmapGraph::open("my_graph.db").unwrap();
 
@@ -118,8 +116,7 @@ graph.begin_batch().unwrap();
 
 // Add many vertices (no fsync per operation)
 for i in 0..100_000 {
-    let props = HashMap::from([("i".to_string(), (i as i64).into())]);
-    graph.add_vertex("node", props).unwrap();
+    graph.add_vertex("node", props! { "i" => i as i64 }).unwrap();
 }
 
 // Single fsync commits all operations atomically
@@ -200,25 +197,25 @@ g.inject([1, 2, 3])      // Inject arbitrary values
 ### Branch Steps
 
 ```rust
-.union([__::out("a"), __::out("b")])     // Merge multiple traversals
-.coalesce([__::out("a"), __::out("b")])  // First non-empty traversal
+.union([__.out("a"), __.out("b")])     // Merge multiple traversals
+.coalesce([__.out("a"), __.out("b")])  // First non-empty traversal
 .choose(cond, true_branch, false_branch) // Conditional branching
-.optional(__::out("knows"))              // Include if exists
-.and_([__::has("a"), __::has("b")])      // All conditions must match
-.or_([__::has("a"), __::has("b")])       // Any condition matches
-.not_(__::has("deleted"))                // Negation
-.where_(__::out("knows").count())        // Filter by sub-traversal
-.local(__::limit(1))                     // Apply per-element
+.optional(__.out("knows"))              // Include if exists
+.and_([__.has("a"), __.has("b")])      // All conditions must match
+.or_([__.has("a"), __.has("b")])       // Any condition matches
+.not_(__.has("deleted"))                // Negation
+.where_(__.out("knows").count())        // Filter by sub-traversal
+.local(__.limit(1))                     // Apply per-element
 ```
 
 ### Repeat Steps
 
 ```rust
-.repeat(__::out("parent"))
+.repeat(__.out("parent"))
     .times(3)                      // Fixed iterations
-    .until(__::has_label("root"))  // Stop condition
+    .until(__.has_label("root"))  // Stop condition
     .emit()                        // Emit intermediates
-    .emit_if(__::has("important")) // Conditional emit
+    .emit_if(__.has("important")) // Conditional emit
 ```
 
 ### Aggregation Steps
@@ -291,15 +288,15 @@ use interstellar::traversal::__;
 
 // Use in branch steps
 g.v().union([
-    __::out("knows"),
-    __::out("created"),
+    __.out("knows"),
+    __.out("created"),
 ]);
 
 // Use in predicates
-g.v().where_(__::out("knows").count().is_(p::gt(3)));
+g.v().where_(__.out("knows").count().is_(p::gt(3)));
 
 // Use in repeat
-g.v().repeat(__::out("parent")).until(__::has_label("root"));
+g.v().repeat(__.out("parent")).until(__.has_label("root"));
 ```
 
 ## GQL (Graph Query Language)

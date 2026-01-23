@@ -62,7 +62,7 @@ A traversal fragment created via the `__` module, used for composition within ot
 use interstellar::traversal::__;
 
 // Anonymous traversal for friends-of-friends
-let fof = __::out("knows").out("knows");
+let fof = __.out("knows").out("knows");
 ```
 
 ### Predicate

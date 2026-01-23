@@ -17,35 +17,47 @@ Interstellar provides two ways to mutate graphs:
 
 ### Adding Vertices
 
+Use the `props!` macro for concise property maps:
+
 ```rust
+use interstellar::prelude::*;
 use interstellar::storage::InMemoryGraph;
-use interstellar::value::Value;
-use std::collections::HashMap;
 
 let mut storage = InMemoryGraph::new();
 
-// Add a vertex with properties
-let alice = storage.add_vertex("person", HashMap::from([
-    ("name".to_string(), Value::String("Alice".to_string())),
-    ("age".to_string(), Value::Int(30)),
-    ("email".to_string(), Value::String("alice@example.com".to_string())),
-]));
+// Add a vertex with properties using the props! macro
+let alice = storage.add_vertex("person", props! {
+    "name" => "Alice",
+    "age" => 30i64,
+    "email" => "alice@example.com"
+});
 
 // Returns VertexId for later reference
 println!("Created vertex: {:?}", alice);
+
+// The props! macro automatically converts values to Value enum
+// and keys to String. It's equivalent to:
+// HashMap::from([
+//     ("name".to_string(), Value::String("Alice".to_string())),
+//     ("age".to_string(), Value::Int(30)),
+//     ("email".to_string(), Value::String("alice@example.com".to_string())),
+// ])
+
+// For vertices without properties, use an empty props! or HashMap::new()
+let anonymous = storage.add_vertex("person", props! {});
 ```
 
 ### Adding Edges
 
 ```rust
-// Add edge with properties
-storage.add_edge(alice, bob, "knows", HashMap::from([
-    ("since".to_string(), Value::Int(2020)),
-    ("strength".to_string(), Value::Float(0.9)),
-]))?;
+// Add edge with properties using props! macro
+storage.add_edge(alice, bob, "knows", props! {
+    "since" => 2020i64,
+    "strength" => 0.9f64
+})?;
 
 // Add edge without properties
-storage.add_edge(alice, project, "created", HashMap::new())?;
+storage.add_edge(alice, project, "created", props! {})?;
 ```
 
 ### Updating Properties
@@ -212,9 +224,9 @@ let mut storage = InMemoryGraph::new();
 
 // Just add everything directly - it's already in-memory
 for i in 0..100_000 {
-    storage.add_vertex("node", HashMap::from([
-        ("index".to_string(), Value::Int(i)),
-    ]));
+    storage.add_vertex("node", props! {
+        "index" => i as i64
+    });
 }
 ```
 
@@ -227,9 +239,9 @@ let graph = MmapGraph::open("data.db")?;
 graph.begin_batch()?;
 
 for i in 0..100_000 {
-    graph.add_vertex("node", HashMap::from([
-        ("index".to_string(), Value::Int(i)),
-    ]))?;
+    graph.add_vertex("node", props! {
+        "index" => i as i64
+    })?;
 }
 
 // Single fsync at the end
