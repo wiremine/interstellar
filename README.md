@@ -565,6 +565,14 @@ cargo kani --verbose
 cargo doc --open                     # Build and view docs
 ```
 
+See the [docs/](docs/) directory for comprehensive documentation:
+
+- [Getting Started](docs/getting-started/) - Installation, quick start, and examples
+- [API Reference](docs/api/) - Gremlin, GQL, Rhai, and predicate reference
+- [Concepts](docs/concepts/) - Architecture, storage, traversal model
+- [Guides](docs/guides/) - Graph modeling, querying, mutations, performance
+- [Reference](docs/reference/) - Value types, error handling, feature flags, glossary
+
 ## License
 
 MIT
