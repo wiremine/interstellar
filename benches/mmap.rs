@@ -7,10 +7,11 @@
 
 #![cfg(feature = "mmap")]
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use interstellar::storage::{GraphStorage, MmapGraph};
-use interstellar::value::{EdgeId, VertexId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use interstellar::storage::{CowMmapGraph, GraphStorage, MmapGraph};
+use interstellar::value::{EdgeId, Value, VertexId};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a benchmark database with specified number of vertices and edges.
@@ -405,10 +406,381 @@ fn bench_multi_page_access(c: &mut Criterion) {
 
 criterion_group!(page_benches, bench_multi_page_access,);
 
+// =============================================================================
+// Gremlin Traversal Benchmarks (using CowMmapGraph)
+// =============================================================================
+
+/// Create a benchmark COW database with specified number of vertices and edges.
+fn create_cow_benchmark_db(num_vertices: usize, num_edges: usize) -> (TempDir, Arc<CowMmapGraph>) {
+    let dir = TempDir::new().expect("create temp dir");
+    let db_path = dir.path().join("bench.db");
+
+    let graph = CowMmapGraph::open(&db_path).expect("open graph");
+
+    // Use batch mode for fast loading
+    graph.mmap_graph().begin_batch().expect("begin batch");
+
+    // Create vertices
+    let mut vertex_ids = Vec::with_capacity(num_vertices);
+    for i in 0..num_vertices {
+        let (label, props) = if i % 2 == 0 {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), format!("person_{}", i).into());
+            props.insert("age".to_string(), ((i % 100) as i64).into());
+            ("person", props)
+        } else {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), format!("software_{}", i).into());
+            props.insert("version".to_string(), format!("1.{}", i % 10).into());
+            ("software", props)
+        };
+        let id = graph.add_vertex(label, props).expect("add vertex");
+        vertex_ids.push(id);
+    }
+
+    // Create edges - use deterministic pattern for reproducibility
+    for i in 0..num_edges {
+        let src_idx = i % num_vertices;
+        let dst_idx = (i * 7 + 13) % num_vertices;
+
+        // Skip self-loops
+        if src_idx == dst_idx {
+            continue;
+        }
+
+        let label = if i % 3 == 0 { "knows" } else { "created" };
+        let mut props = HashMap::new();
+        props.insert("weight".to_string(), ((i % 100) as f64 / 10.0).into());
+
+        // Ignore errors (duplicate edges are fine to skip)
+        let _ = graph.add_edge(vertex_ids[src_idx], vertex_ids[dst_idx], label, props);
+    }
+
+    graph.mmap_graph().commit_batch().expect("commit batch");
+    graph.checkpoint().expect("checkpoint");
+
+    (dir, Arc::new(graph))
+}
+
+/// Benchmark: v().count() with Gremlin API
+fn bench_gremlin_v_count(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().count()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().count())
+        })
+    });
+}
+
+/// Benchmark: v().has_label("person").count()
+fn bench_gremlin_v_has_label_count(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().has_label(\"person\").count()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().has_label("person").count())
+        })
+    });
+}
+
+/// Benchmark: v().out().limit(100).count()
+fn bench_gremlin_v_out_limit_count(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().out().limit(100).count()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().limit(100).count())
+        })
+    });
+}
+
+/// Benchmark: v().out().out().dedup().count() (2-hop)
+fn bench_gremlin_v_out_out_dedup_count(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().out().out().dedup().count()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().dedup().count())
+        })
+    });
+}
+
+/// Benchmark: v().out().out().out().dedup().count() (3-hop)
+fn bench_gremlin_v_out_out_out_dedup_count(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().out().out().out().dedup().count()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().out().dedup().count())
+        })
+    });
+}
+
+/// Benchmark: v().out_e().in_v().count()
+fn bench_gremlin_v_out_e_in_v_count(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().out_e().in_v().count()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out_e().in_v().count())
+        })
+    });
+}
+
+// =============================================================================
+// Gremlin Throughput Benchmarks
+// =============================================================================
+
+/// Benchmark: vertex write throughput for CowMmapGraph (batch mode, excludes fsync)
+///
+/// This measures the raw write throughput in batch mode, excluding the final
+/// fsync. This shows the true in-memory + WAL write speed.
+fn bench_cow_vertex_write_throughput_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mmap_gremlin: vertex_write_batch");
+
+    for size in [1_000, 10_000, 100_000] {
+        group.throughput(Throughput::Elements(size as u64));
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
+            b.iter_with_setup(
+                || {
+                    let dir = TempDir::new().expect("create temp dir");
+                    let db_path = dir.path().join("bench.db");
+                    let graph = CowMmapGraph::open(&db_path).expect("open graph");
+                    // Start batch mode in setup
+                    graph.mmap_graph().begin_batch().expect("begin batch");
+                    (dir, graph)
+                },
+                |(_dir, graph)| {
+                    // Only measure the writes, not the commit
+                    for i in 0..size {
+                        let props = HashMap::from([("i".to_string(), (i as i64).into())]);
+                        black_box(graph.add_vertex("person", props).unwrap());
+                    }
+                    // Commit in the timed section but this is amortized over many writes
+                    graph.mmap_graph().commit_batch().expect("commit batch");
+                },
+            )
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: vertex write throughput including fsync (end-to-end durability)
+///
+/// This measures the complete write cycle including the final fsync.
+/// For small batches, fsync dominates; for large batches, it's amortized.
+fn bench_cow_vertex_write_throughput_with_fsync(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mmap_gremlin: vertex_write_durable");
+    group.sample_size(50); // Fewer samples since fsync is slow
+
+    for size in [100, 1_000, 10_000] {
+        group.throughput(Throughput::Elements(size as u64));
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
+            b.iter_with_setup(
+                || {
+                    let dir = TempDir::new().expect("create temp dir");
+                    let db_path = dir.path().join("bench.db");
+                    let graph = CowMmapGraph::open(&db_path).expect("open graph");
+                    (dir, graph)
+                },
+                |(_dir, graph)| {
+                    // Full cycle: begin_batch, writes, commit_batch (with fsync)
+                    graph.mmap_graph().begin_batch().expect("begin batch");
+                    for i in 0..size {
+                        let props = HashMap::from([("i".to_string(), (i as i64).into())]);
+                        black_box(graph.add_vertex("person", props).unwrap());
+                    }
+                    graph.mmap_graph().commit_batch().expect("commit batch");
+                },
+            )
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: single vertex write WITHOUT batch mode (fsync per write)
+///
+/// This shows why batch mode is essential - each write does an fsync.
+fn bench_cow_vertex_write_single_fsync(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mmap_gremlin: vertex_write_single");
+    group.sample_size(20); // Very few samples since this is extremely slow
+
+    // Only test small counts since each write is ~5ms
+    for size in [10, 50] {
+        group.throughput(Throughput::Elements(size as u64));
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
+            b.iter_with_setup(
+                || {
+                    let dir = TempDir::new().expect("create temp dir");
+                    let db_path = dir.path().join("bench.db");
+                    let graph = CowMmapGraph::open(&db_path).expect("open graph");
+                    (dir, graph)
+                },
+                |(_dir, graph)| {
+                    // NO batch mode - each write does fsync
+                    for i in 0..size {
+                        let props = HashMap::from([("i".to_string(), (i as i64).into())]);
+                        black_box(graph.add_vertex("person", props).unwrap());
+                    }
+                },
+            )
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: vertex read throughput for CowMmapGraph
+fn bench_cow_vertex_read_throughput(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mmap_gremlin: vertex_read_throughput");
+
+    for size in [100, 1_000, 10_000] {
+        let (_dir, graph) = create_cow_benchmark_db(size, 0);
+
+        group.throughput(Throughput::Elements(size as u64));
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                for i in 0..size as u64 {
+                    black_box(snapshot.get_vertex(VertexId(i)));
+                }
+            })
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: traversal throughput for CowMmapGraph
+fn bench_cow_traversal_throughput(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mmap_gremlin: traversal_throughput");
+
+    for size in [1_000, 10_000, 50_000] {
+        let (_dir, graph) = create_cow_benchmark_db(size, size * 5);
+
+        group.throughput(Throughput::Elements(size as u64));
+
+        group.bench_with_input(BenchmarkId::new("v().to_list()", size), &size, |b, _| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v().to_list())
+            })
+        });
+    }
+
+    group.finish();
+}
+
+// =============================================================================
+// Gremlin Query Pattern Benchmarks
+// =============================================================================
+
+/// Benchmark: Find neighbors of a specific vertex
+fn bench_gremlin_find_neighbors(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function(
+        "mmap_gremlin: v(id).out().to_list() [single vertex neighbors]",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v_ids([VertexId(0)]).out().to_list())
+            })
+        },
+    );
+}
+
+/// Benchmark: Find vertices with property filter
+fn bench_gremlin_property_filter(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(10_000, 50_000);
+
+    c.bench_function("mmap_gremlin: v().has(\"age\", 42).to_list()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().has_value("age", Value::Int(42)).to_list())
+        })
+    });
+}
+
+/// Benchmark: Path query (friends of friends)
+fn bench_gremlin_friends_of_friends(c: &mut Criterion) {
+    let (_dir, graph) = create_cow_benchmark_db(1_000, 10_000);
+
+    c.bench_function(
+        "mmap_gremlin: v(id).out(\"knows\").out(\"knows\").dedup().to_list()",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(
+                    g.v_ids([VertexId(0)])
+                        .out_labels(&["knows"])
+                        .out_labels(&["knows"])
+                        .dedup()
+                        .to_list(),
+                )
+            })
+        },
+    );
+}
+
+criterion_group!(
+    gremlin_basic_benches,
+    bench_gremlin_v_count,
+    bench_gremlin_v_has_label_count,
+    bench_gremlin_v_out_limit_count,
+    bench_gremlin_v_out_out_dedup_count,
+    bench_gremlin_v_out_out_out_dedup_count,
+    bench_gremlin_v_out_e_in_v_count,
+);
+
+criterion_group!(
+    gremlin_throughput_benches,
+    bench_cow_vertex_write_throughput_batch,
+    bench_cow_vertex_write_throughput_with_fsync,
+    bench_cow_vertex_read_throughput,
+    bench_cow_traversal_throughput,
+);
+
+criterion_group!(gremlin_write_modes, bench_cow_vertex_write_single_fsync,);
+
+criterion_group!(
+    gremlin_query_benches,
+    bench_gremlin_find_neighbors,
+    bench_gremlin_property_filter,
+    bench_gremlin_friends_of_friends,
+);
+
 criterion_main!(
     vertex_benches,
     edge_benches,
     traversal_benches,
     cold_benches,
-    page_benches
+    page_benches,
+    gremlin_basic_benches,
+    gremlin_throughput_benches,
+    gremlin_write_modes,
+    gremlin_query_benches
 );

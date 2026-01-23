@@ -2998,13 +2998,27 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
     /// Execute and count the number of results.
     ///
+    /// This method uses a streaming `CountStep` that respects traverser bulk
+    /// and avoids materializing all traversers just to count them.
+    ///
     /// # Example
     ///
     /// ```ignore
     /// let count: u64 = g.v().count();
+    /// let person_count: u64 = g.v().has_label("person").count();
     /// ```
     pub fn count(self) -> u64 {
-        self.execute().len() as u64
+        use crate::traversal::aggregate::CountStep;
+
+        // Add CountStep which streams through input and produces a single count
+        self.add_step::<Value>(CountStep)
+            .execute()
+            .next()
+            .and_then(|t| match t.value {
+                Value::Int(n) => Some(n as u64),
+                _ => None,
+            })
+            .unwrap_or(0)
     }
 
     /// Execute and return the first n values.
