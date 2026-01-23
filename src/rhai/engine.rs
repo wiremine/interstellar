@@ -73,8 +73,29 @@ impl Default for RhaiEngine {
 
 impl RhaiEngine {
     /// Create a new RhaiEngine with all Interstellar bindings registered.
+    ///
+    /// The engine is configured with safety limits to prevent resource exhaustion:
+    /// - Max operations: 1,000,000 (prevents infinite loops)
+    /// - Max expression depth: 64 (prevents deep recursion)
+    /// - Max call stack levels: 64 (prevents call stack overflow)
+    /// - Max array size: 10,000 elements
+    /// - Max map size: 10,000 entries
+    /// - Max string size: 1MB
+    ///
+    /// The `eval` function is disabled for security.
     pub fn new() -> Self {
         let mut engine = Engine::new();
+
+        // Safety limits to prevent resource exhaustion
+        engine.set_max_operations(1_000_000);
+        engine.set_max_expr_depths(64, 64); // global depth, function depth
+        engine.set_max_call_levels(64);
+        engine.set_max_array_size(10_000);
+        engine.set_max_map_size(10_000);
+        engine.set_max_string_size(1_000_000); // 1MB
+
+        // Disable eval for security
+        engine.disable_symbol("eval");
 
         // Register all Interstellar types and functions
         register_types(&mut engine);
