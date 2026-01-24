@@ -58,6 +58,15 @@ name = "mmap_writes"
 harness = false
 required-features = ["mmap"]
 
+[[bench]]
+name = "rhai"
+harness = false
+required-features = ["rhai"]
+
+[[bench]]
+name = "perf_analysis"
+harness = false
+
 # Examples - consolidated per spec-35
 [[example]]
 name = "quickstart_gremlin"

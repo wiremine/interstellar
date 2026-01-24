@@ -841,6 +841,77 @@ impl<'g, In> BoundGroupCountBuilder<'g, In> {
     }
 }
 
+// -----------------------------------------------------------------------------
+// CountStep - reducing step that counts traversers
+// -----------------------------------------------------------------------------
+
+/// Reducing step that counts all input traversers.
+///
+/// This is a **reducing step** - it consumes ALL input and produces a single
+/// traverser containing the count as a `Value::Int`. The count respects
+/// traverser bulk, so a traverser with `bulk=5` contributes 5 to the count.
+///
+/// # Performance
+///
+/// This step uses streaming evaluation - it does not store traversers in memory,
+/// only accumulates a running count. Memory usage is O(1) regardless of input size.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().count()           // Count all vertices
+/// g.V().out().count()     // Count all outgoing neighbors
+/// g.E().count()           // Count all edges
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::*;
+///
+/// let graph = Graph::new();
+/// // ... add vertices ...
+/// let snapshot = graph.snapshot();
+/// let g = snapshot.gremlin();
+///
+/// // Count all vertices
+/// let count: u64 = g.v().count();
+///
+/// // Count with filters
+/// let person_count: u64 = g.v().has_label("person").count();
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CountStep;
+
+impl CountStep {
+    /// Create a new CountStep.
+    #[inline]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl AnyStep for CountStep {
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        // Stream through input, summing bulk values
+        // This is O(1) memory - we only keep a running count
+        let count: i64 = input.map(|t| t.bulk as i64).sum();
+        Box::new(std::iter::once(Traverser::new(Value::Int(count))))
+    }
+
+    fn clone_box(&self) -> Box<dyn AnyStep> {
+        Box::new(*self)
+    }
+
+    fn name(&self) -> &'static str {
+        "count"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1608,5 +1679,179 @@ mod tests {
 
         let step2 = GroupCountStep::new(GroupKey::Property("age".to_string()));
         assert_eq!(step2.name(), "groupCount");
+    }
+
+    // -------------------------------------------------------------------------
+    // CountStep Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_count_step_construction() {
+        let step = CountStep::new();
+        assert_eq!(step.name(), "count");
+
+        let step_default = CountStep::default();
+        assert_eq!(step_default.name(), "count");
+    }
+
+    #[test]
+    fn test_count_step_empty_input() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+        let step = CountStep::new();
+        let input: Vec<Traverser> = vec![];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, Value::Int(0));
+    }
+
+    #[test]
+    fn test_count_step_single_traverser() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+        let step = CountStep::new();
+        let input = vec![Traverser::from_vertex(crate::value::VertexId(0))];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, Value::Int(1));
+    }
+
+    #[test]
+    fn test_count_step_multiple_traversers() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+        let step = CountStep::new();
+        let input = vec![
+            Traverser::from_vertex(crate::value::VertexId(0)),
+            Traverser::from_vertex(crate::value::VertexId(1)),
+            Traverser::from_vertex(crate::value::VertexId(2)),
+            Traverser::from_vertex(crate::value::VertexId(3)),
+        ];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, Value::Int(4));
+    }
+
+    #[test]
+    fn test_count_step_respects_bulk() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+
+        let step = CountStep::new();
+
+        // Create traversers with different bulk values
+        let mut t1 = Traverser::from_vertex(crate::value::VertexId(0));
+        t1.bulk = 5;
+
+        let mut t2 = Traverser::from_vertex(crate::value::VertexId(1));
+        t2.bulk = 3;
+
+        let mut t3 = Traverser::from_vertex(crate::value::VertexId(2));
+        t3.bulk = 2;
+
+        let input = vec![t1, t2, t3];
+
+        let result: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+
+        assert_eq!(result.len(), 1);
+        // Count should be 5 + 3 + 2 = 10
+        assert_eq!(result[0].value, Value::Int(10));
+    }
+
+    #[test]
+    fn test_count_step_clone_box() {
+        let step = CountStep::new();
+        let cloned = step.clone_box();
+        assert_eq!(cloned.name(), "count");
+    }
+
+    #[test]
+    fn test_count_step_is_copy() {
+        let step = CountStep;
+        let copied = step; // Copy, not move
+        assert_eq!(step.name(), "count");
+        assert_eq!(copied.name(), "count");
+    }
+
+    #[test]
+    fn test_count_via_bound_traversal() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.gremlin();
+
+        // Count all vertices (4 in test graph)
+        let count = g.v().count();
+        assert_eq!(count, 4);
+    }
+
+    #[test]
+    fn test_count_with_filter() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.gremlin();
+
+        // Count only person vertices (3 in test graph)
+        let count = g.v().has_label("person").count();
+        assert_eq!(count, 3);
+
+        // Count only software vertices (1 in test graph)
+        let count = g.v().has_label("software").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_count_empty_result() {
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.gremlin();
+
+        // Count vertices with non-existent label
+        let count = g.v().has_label("nonexistent").count();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_edges() {
+        let graph = Graph::new();
+
+        let v0 = graph.add_vertex("person", StdHashMap::new());
+        let v1 = graph.add_vertex("person", StdHashMap::new());
+        let v2 = graph.add_vertex("software", StdHashMap::new());
+
+        graph.add_edge(v0, v1, "knows", StdHashMap::new()).unwrap();
+        graph
+            .add_edge(v0, v2, "created", StdHashMap::new())
+            .unwrap();
+        graph
+            .add_edge(v1, v2, "created", StdHashMap::new())
+            .unwrap();
+
+        let snapshot = graph.snapshot();
+        let g = snapshot.gremlin();
+
+        // Count all edges
+        let count = g.e().count();
+        assert_eq!(count, 3);
+
+        // Count only "knows" edges
+        let count = g.e().has_label("knows").count();
+        assert_eq!(count, 1);
+
+        // Count only "created" edges
+        let count = g.e().has_label("created").count();
+        assert_eq!(count, 2);
     }
 }
