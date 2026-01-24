@@ -13,6 +13,8 @@
 //! - `FilterStep`: Generic filter with custom predicate
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use crate::impl_filter_step;
 use crate::traversal::step::Step;
@@ -877,10 +879,12 @@ impl Step for DedupByTraversalStep {
 /// let limited = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).limit(3).to_list();
 /// // Results: [1, 2, 3]
 /// ```
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug)]
 pub struct LimitStep {
     /// Maximum number of traversers to pass through
     limit: usize,
+    /// Counter for streaming execution (shared across clones)
+    seen: Arc<AtomicUsize>,
 }
 
 impl LimitStep {
@@ -890,7 +894,10 @@ impl LimitStep {
     ///
     /// * `limit` - Maximum number of traversers to pass through
     pub fn new(limit: usize) -> Self {
-        Self { limit }
+        Self {
+            limit,
+            seen: Arc::new(AtomicUsize::new(0)),
+        }
     }
 }
 
@@ -917,9 +924,14 @@ impl Step for LimitStep {
         _ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // LimitStep requires counting state across traversers
-        // TODO: Implement with shared counter
-        Box::new(std::iter::once(input))
+        // Atomically increment and get the previous count
+        let count = self.seen.fetch_add(1, Ordering::SeqCst);
+        if count < self.limit {
+            Box::new(std::iter::once(input))
+        } else {
+            // Already at or past limit, filter out
+            Box::new(std::iter::empty())
+        }
     }
 }
 
@@ -941,10 +953,12 @@ impl Step for LimitStep {
 /// let skipped = g.inject([1i64, 2i64, 3i64, 4i64, 5i64]).skip(2).to_list();
 /// // Results: [3, 4, 5]
 /// ```
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug)]
 pub struct SkipStep {
     /// Number of traversers to skip
     count: usize,
+    /// Counter for streaming execution (shared across clones)
+    seen: Arc<AtomicUsize>,
 }
 
 impl SkipStep {
@@ -954,7 +968,10 @@ impl SkipStep {
     ///
     /// * `count` - Number of traversers to skip
     pub fn new(count: usize) -> Self {
-        Self { count }
+        Self {
+            count,
+            seen: Arc::new(AtomicUsize::new(0)),
+        }
     }
 }
 
@@ -981,9 +998,15 @@ impl Step for SkipStep {
         _ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // SkipStep requires counting state across traversers
-        // TODO: Implement with shared counter
-        Box::new(std::iter::once(input))
+        // Atomically increment and get the previous count
+        let index = self.seen.fetch_add(1, Ordering::SeqCst);
+        if index < self.count {
+            // Still in skip range, filter out
+            Box::new(std::iter::empty())
+        } else {
+            // Past skip range, pass through
+            Box::new(std::iter::once(input))
+        }
     }
 }
 
@@ -1011,12 +1034,14 @@ impl Step for SkipStep {
 ///
 /// Does not panic. If `end <= start`, returns an empty iterator.
 /// If `end` exceeds the number of traversers, returns all traversers from `start`.
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug)]
 pub struct RangeStep {
     /// Start index (inclusive)
     start: usize,
     /// End index (exclusive)
     end: usize,
+    /// Counter for streaming execution (shared across clones)
+    seen: Arc<AtomicUsize>,
 }
 
 impl RangeStep {
@@ -1027,7 +1052,11 @@ impl RangeStep {
     /// * `start` - Start index (inclusive)
     /// * `end` - End index (exclusive)
     pub fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
+        Self {
+            start,
+            end,
+            seen: Arc::new(AtomicUsize::new(0)),
+        }
     }
 }
 
@@ -1056,9 +1085,15 @@ impl Step for RangeStep {
         _ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // RangeStep requires counting state across traversers
-        // TODO: Implement with shared counter
-        Box::new(std::iter::once(input))
+        // Atomically increment and get the previous count
+        let index = self.seen.fetch_add(1, Ordering::SeqCst);
+        // In range [start, end)
+        if index >= self.start && index < self.end {
+            Box::new(std::iter::once(input))
+        } else {
+            // Outside range, filter out
+            Box::new(std::iter::empty())
+        }
     }
 }
 
@@ -4739,10 +4774,10 @@ mod tests {
         }
 
         #[test]
-        fn limit_step_is_copy() {
+        fn limit_step_is_clone() {
             let step1 = LimitStep::new(5);
-            let step2 = step1; // Copy
-            let _step3 = step1; // Can still use step1
+            let step2 = step1.clone();
+            let _step3 = step1.clone();
 
             assert_eq!(step2.limit, 5);
         }
@@ -4775,6 +4810,47 @@ mod tests {
             assert_eq!(output.len(), 2);
             assert_eq!(output[0].as_vertex_id(), Some(VertexId(0)));
             assert_eq!(output[1].as_vertex_id(), Some(VertexId(1)));
+        }
+
+        #[test]
+        fn streaming_limit_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Eager execution
+            let eager: Vec<Value> = g.v().limit(2).to_list();
+
+            // Streaming execution
+            let streaming: Vec<Value> = g.v().limit(2).iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+            assert_eq!(eager.len(), 2);
+        }
+
+        #[test]
+        fn streaming_limit_respects_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Should only return 1 even though there are 4 vertices
+            let result: Vec<Value> = g.v().limit(1).iter().collect();
+            assert_eq!(result.len(), 1);
+
+            // Should return all 4 when limit is higher
+            let result2: Vec<Value> = g.v().limit(100).iter().collect();
+            assert_eq!(result2.len(), 4);
+        }
+
+        #[test]
+        fn streaming_limit_zero_returns_empty() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let result: Vec<Value> = g.v().limit(0).iter().collect();
+            assert!(result.is_empty());
         }
     }
 
@@ -4943,10 +5019,10 @@ mod tests {
         }
 
         #[test]
-        fn skip_step_is_copy() {
+        fn skip_step_is_clone() {
             let step1 = SkipStep::new(3);
-            let step2 = step1; // Copy
-            let _step3 = step1; // Can still use step1
+            let step2 = step1.clone();
+            let _step3 = step1.clone();
 
             assert_eq!(step2.count, 3);
         }
@@ -4979,6 +5055,47 @@ mod tests {
             assert_eq!(output.len(), 2);
             assert_eq!(output[0].as_vertex_id(), Some(VertexId(2)));
             assert_eq!(output[1].as_vertex_id(), Some(VertexId(3)));
+        }
+
+        #[test]
+        fn streaming_skip_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Eager execution
+            let eager: Vec<Value> = g.v().skip(2).to_list();
+
+            // Streaming execution
+            let streaming: Vec<Value> = g.v().skip(2).iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+            assert_eq!(eager.len(), 2); // 4 vertices - skip 2 = 2
+        }
+
+        #[test]
+        fn streaming_skip_respects_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Skip 1, should return 3
+            let result: Vec<Value> = g.v().skip(1).iter().collect();
+            assert_eq!(result.len(), 3);
+
+            // Skip all, should return 0
+            let result2: Vec<Value> = g.v().skip(100).iter().collect();
+            assert!(result2.is_empty());
+        }
+
+        #[test]
+        fn streaming_skip_zero_returns_all() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let result: Vec<Value> = g.v().skip(0).iter().collect();
+            assert_eq!(result.len(), 4);
         }
     }
 
@@ -6482,10 +6599,10 @@ mod tests {
         }
 
         #[test]
-        fn range_step_is_copy() {
+        fn range_step_is_clone() {
             let step1 = RangeStep::new(2, 5);
-            let step2 = step1; // Copy
-            let _step3 = step1; // Can still use step1
+            let step2 = step1.clone();
+            let _step3 = step1.clone();
 
             assert_eq!(step2.start, 2);
             assert_eq!(step2.end, 5);
@@ -6551,6 +6668,51 @@ mod tests {
                 input.into_iter().skip(2).take(3).map(|t| t.value).collect();
 
             assert_eq!(range_output, skip_limit_output);
+        }
+
+        #[test]
+        fn streaming_range_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Eager execution: range(1, 3) = skip(1).limit(2)
+            let eager: Vec<Value> = g.v().range(1, 3).to_list();
+
+            // Streaming execution
+            let streaming: Vec<Value> = g.v().range(1, 3).iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+            assert_eq!(eager.len(), 2); // indices 1 and 2
+        }
+
+        #[test]
+        fn streaming_range_respects_bounds() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // range(0, 2) = first 2 elements
+            let result: Vec<Value> = g.v().range(0, 2).iter().collect();
+            assert_eq!(result.len(), 2);
+
+            // range(2, 4) = last 2 elements
+            let result2: Vec<Value> = g.v().range(2, 4).iter().collect();
+            assert_eq!(result2.len(), 2);
+
+            // range beyond bounds
+            let result3: Vec<Value> = g.v().range(10, 20).iter().collect();
+            assert!(result3.is_empty());
+        }
+
+        #[test]
+        fn streaming_range_empty_when_start_equals_end() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let result: Vec<Value> = g.v().range(2, 2).iter().collect();
+            assert!(result.is_empty());
         }
     }
 

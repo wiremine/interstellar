@@ -355,6 +355,123 @@ fn bench_count_by_label(c: &mut Criterion) {
     );
 }
 
+// =============================================================================
+// Streaming vs Eager Benchmarks
+// =============================================================================
+
+/// Benchmark: Compare streaming iter() vs eager to_list() with early termination
+fn bench_streaming_vs_eager_limit(c: &mut Criterion) {
+    let graph = create_benchmark_graph(10_000, 100_000);
+
+    let mut group = c.benchmark_group("streaming_vs_eager");
+
+    // Eager: to_list() collects all, then take(10)
+    group.bench_function("eager: v().values().to_list().take(10)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            let result: Vec<_> = g
+                .v()
+                .values("name")
+                .to_list()
+                .into_iter()
+                .take(10)
+                .collect();
+            black_box(result)
+        })
+    });
+
+    // Streaming: iter() stops after 10
+    group.bench_function("streaming: v().values().iter().take(10)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            let result: Vec<_> = g.v().values("name").iter().take(10).collect();
+            black_box(result)
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark: Streaming with multi-hop traversal
+fn bench_streaming_multi_hop(c: &mut Criterion) {
+    let graph = create_benchmark_graph(1_000, 10_000);
+
+    let mut group = c.benchmark_group("streaming_multi_hop");
+
+    // Eager execution
+    group.bench_function("eager: v().out().out().values().to_list().take(100)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            let result: Vec<_> = g
+                .v()
+                .out()
+                .out()
+                .values("name")
+                .to_list()
+                .into_iter()
+                .take(100)
+                .collect();
+            black_box(result)
+        })
+    });
+
+    // Streaming execution
+    group.bench_function(
+        "streaming: v().out().out().values().iter().take(100)",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                let result: Vec<_> = g.v().out().out().values("name").iter().take(100).collect();
+                black_box(result)
+            })
+        },
+    );
+
+    group.finish();
+}
+
+/// Benchmark: Full traversal comparison (streaming should be similar to eager)
+fn bench_streaming_full_traversal(c: &mut Criterion) {
+    let graph = create_benchmark_graph(1_000, 5_000);
+
+    let mut group = c.benchmark_group("streaming_full_traversal");
+
+    // Eager: collect all
+    group.bench_function("eager: v().has_label().out().values().to_list()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            let result = g.v().has_label("person").out().values("name").to_list();
+            black_box(result)
+        })
+    });
+
+    // Streaming: collect all via iter
+    group.bench_function(
+        "streaming: v().has_label().out().values().iter().collect()",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                let result: Vec<_> = g
+                    .v()
+                    .has_label("person")
+                    .out()
+                    .values("name")
+                    .iter()
+                    .collect();
+                black_box(result)
+            })
+        },
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     basic_benches,
     bench_v_count,
@@ -383,4 +500,16 @@ criterion_group!(
     bench_count_by_label,
 );
 
-criterion_main!(basic_benches, throughput_benches, query_benches);
+criterion_group!(
+    streaming_benches,
+    bench_streaming_vs_eager_limit,
+    bench_streaming_multi_hop,
+    bench_streaming_full_traversal,
+);
+
+criterion_main!(
+    basic_benches,
+    throughput_benches,
+    query_benches,
+    streaming_benches
+);
