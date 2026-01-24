@@ -403,6 +403,10 @@ impl Step for RepeatStep {
         "repeat"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,

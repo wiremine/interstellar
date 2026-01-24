@@ -569,6 +569,10 @@ impl Step for DedupStep {
         "dedup"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -663,6 +667,10 @@ impl Step for DedupByKeyStep {
         "dedup"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -747,6 +755,10 @@ impl Step for DedupByLabelStep {
 
     fn name(&self) -> &'static str {
         "dedup"
+    }
+
+    fn is_barrier(&self) -> bool {
+        true
     }
 
     fn apply_streaming(
@@ -843,6 +855,10 @@ impl Step for DedupByTraversalStep {
 
     fn name(&self) -> &'static str {
         "dedup"
+    }
+
+    fn is_barrier(&self) -> bool {
+        true
     }
 
     fn apply_streaming(
@@ -1711,6 +1727,10 @@ impl Step for TailStep {
         "tail"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -1989,6 +2009,10 @@ impl Step for SampleStep {
 
     fn name(&self) -> &'static str {
         "sample"
+    }
+
+    fn is_barrier(&self) -> bool {
+        true
     }
 
     fn apply_streaming(

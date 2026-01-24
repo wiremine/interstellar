@@ -50,7 +50,7 @@ use crate::storage::{GraphStorage, StreamableStorage};
 use crate::traversal::context::{SideEffects, StreamingContext};
 use crate::traversal::step::DynStep;
 use crate::traversal::traverser::{TraversalSource, Traverser};
-use crate::value::{EdgeId, Value, VertexId};
+use crate::value::Value;
 
 // =============================================================================
 // StreamingAdapter - Iterator adapter that chains steps
@@ -167,15 +167,19 @@ pub struct StreamingExecutor {
 impl StreamingExecutor {
     /// Create a new streaming executor.
     ///
+    /// This is the primary constructor for streaming execution. It uses
+    /// `StreamableStorage` methods for both source iteration and navigation
+    /// steps, providing true O(1) streaming throughout the pipeline.
+    ///
     /// # Arguments
     ///
-    /// * `storage` - Arc-wrapped graph storage
+    /// * `storage` - Arc-wrapped streamable storage
     /// * `interner` - Arc-wrapped string interner
     /// * `steps` - The traversal steps to execute
     /// * `source` - The source of traversers (vertices, edges, or injected values)
     /// * `track_paths` - Whether to track traversal paths
     pub fn new(
-        storage: Arc<dyn GraphStorage + Send + Sync>,
+        storage: Arc<dyn StreamableStorage>,
         interner: Arc<StringInterner>,
         steps: Vec<Box<dyn DynStep>>,
         source: Option<TraversalSource>,
@@ -186,133 +190,7 @@ impl StreamingExecutor {
             .with_side_effects(side_effects.clone())
             .with_path_tracking(track_paths);
 
-        // Build source iterator
-        let source_iter = Self::build_source(storage, source, track_paths);
-
-        // Chain adapters - fold steps into a pipeline
-        let iter = steps.into_iter().fold(
-            source_iter,
-            |input, step| -> Box<dyn Iterator<Item = Traverser> + Send> {
-                Box::new(StreamingAdapter::new(step, ctx.clone(), input))
-            },
-        );
-
-        Self { iter, side_effects }
-    }
-
-    /// Build the source iterator from the traversal source.
-    fn build_source(
-        storage: Arc<dyn GraphStorage + Send + Sync>,
-        source: Option<TraversalSource>,
-        track_paths: bool,
-    ) -> Box<dyn Iterator<Item = Traverser> + Send> {
-        match source {
-            Some(TraversalSource::AllVertices) => {
-                // Collect vertex IDs to own them (storage iteration is borrowed)
-                let ids: Vec<VertexId> = storage.all_vertices().map(|v| v.id).collect();
-                Box::new(ids.into_iter().map(move |id| {
-                    let mut t = Traverser::new(Value::Vertex(id));
-                    if track_paths {
-                        t.extend_path_unlabeled();
-                    }
-                    t
-                }))
-            }
-            Some(TraversalSource::Vertices(ids)) => {
-                let storage = storage.clone();
-                Box::new(ids.into_iter().filter_map(move |id| {
-                    // Verify vertex exists
-                    storage.get_vertex(id).map(|_| {
-                        let mut t = Traverser::new(Value::Vertex(id));
-                        if track_paths {
-                            t.extend_path_unlabeled();
-                        }
-                        t
-                    })
-                }))
-            }
-            Some(TraversalSource::AllEdges) => {
-                // Collect edge IDs to own them
-                let ids: Vec<EdgeId> = storage.all_edges().map(|e| e.id).collect();
-                Box::new(ids.into_iter().map(move |id| {
-                    let mut t = Traverser::new(Value::Edge(id));
-                    if track_paths {
-                        t.extend_path_unlabeled();
-                    }
-                    t
-                }))
-            }
-            Some(TraversalSource::Edges(ids)) => {
-                let storage = storage.clone();
-                Box::new(ids.into_iter().filter_map(move |id| {
-                    // Verify edge exists
-                    storage.get_edge(id).map(|_| {
-                        let mut t = Traverser::new(Value::Edge(id));
-                        if track_paths {
-                            t.extend_path_unlabeled();
-                        }
-                        t
-                    })
-                }))
-            }
-            Some(TraversalSource::Inject(values)) => Box::new(values.into_iter().map(move |v| {
-                let mut t = Traverser::new(v);
-                if track_paths {
-                    t.extend_path_unlabeled();
-                }
-                t
-            })),
-            None => Box::new(std::iter::empty()),
-        }
-    }
-
-    /// Create a streaming executor with true O(1) streaming for source steps.
-    ///
-    /// Unlike [`new`], this constructor uses [`StreamableStorage`] to create
-    /// source iterators without upfront collection. This enables true streaming
-    /// where `g.v().take(1)` processes exactly one vertex.
-    ///
-    /// # Arguments
-    ///
-    /// * `storage` - Arc-wrapped streamable storage
-    /// * `interner` - Arc-wrapped string interner
-    /// * `steps` - The traversal steps to execute
-    /// * `source` - The source of traversers (vertices, edges, or injected values)
-    /// * `track_paths` - Whether to track traversal paths
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let snapshot = graph.snapshot();
-    /// let executor = StreamingExecutor::new_streaming(
-    ///     snapshot.arc_streamable(),
-    ///     snapshot.arc_interner(),
-    ///     steps,
-    ///     Some(TraversalSource::AllVertices),
-    ///     false,
-    /// );
-    ///
-    /// // True O(1) streaming - only processes first vertex
-    /// let first = executor.into_iter().next();
-    /// ```
-    pub fn new_streaming(
-        storage: Arc<dyn StreamableStorage>,
-        interner: Arc<StringInterner>,
-        steps: Vec<Box<dyn DynStep>>,
-        source: Option<TraversalSource>,
-        track_paths: bool,
-    ) -> Self {
-        let side_effects = SideEffects::new();
-
-        // Build streaming context - StreamableStorage is GraphStorage so we can use it
-        let ctx = StreamingContext::new(
-            storage.clone() as Arc<dyn GraphStorage + Send + Sync>,
-            interner.clone(),
-        )
-        .with_side_effects(side_effects.clone())
-        .with_path_tracking(track_paths);
-
-        // Build source iterator using streaming methods
+        // Build source iterator using streaming methods for true O(1)
         let source_iter = Self::build_streaming_source(storage, source, track_paths);
 
         // Chain adapters - fold steps into a pipeline
@@ -326,10 +204,25 @@ impl StreamingExecutor {
         Self { iter, side_effects }
     }
 
+    /// Alias for `new()` - provided for backwards compatibility.
+    ///
+    /// Since `new()` now always uses `StreamableStorage`, this method is
+    /// identical to `new()`.
+    #[inline]
+    pub fn new_streaming(
+        storage: Arc<dyn StreamableStorage>,
+        interner: Arc<StringInterner>,
+        steps: Vec<Box<dyn DynStep>>,
+        source: Option<TraversalSource>,
+        track_paths: bool,
+    ) -> Self {
+        Self::new(storage, interner, steps, source, track_paths)
+    }
+
     /// Build the source iterator using StreamableStorage for true O(1) streaming.
     ///
-    /// Unlike `build_source`, this method uses `StreamableStorage::stream_*` methods
-    /// which return owned iterators without collecting upfront.
+    /// Uses `StreamableStorage::stream_*` methods which return owned iterators
+    /// without collecting upfront.
     fn build_streaming_source(
         storage: Arc<dyn StreamableStorage>,
         source: Option<TraversalSource>,
@@ -429,6 +322,7 @@ mod tests {
     use super::*;
     use crate::storage::Graph;
     use crate::value::Value;
+    use crate::VertexId;
     use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
@@ -483,7 +377,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             None,
@@ -500,7 +394,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             Some(TraversalSource::AllVertices),
@@ -517,7 +411,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             Some(TraversalSource::Vertices(vec![VertexId(0), VertexId(1)])),
@@ -534,7 +428,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             Some(TraversalSource::Inject(vec![
@@ -558,7 +452,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let mut executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             Some(TraversalSource::AllVertices),
@@ -580,7 +474,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             Some(TraversalSource::AllVertices),
@@ -601,7 +495,7 @@ mod tests {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
 
-        let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+        let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
 
         let source: Box<dyn Iterator<Item = Traverser> + Send> = Box::new(
             vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))].into_iter(),
@@ -622,7 +516,7 @@ mod tests {
         let snapshot = graph.snapshot();
 
         let executor = StreamingExecutor::new(
-            snapshot.arc_storage(),
+            snapshot.arc_streamable(),
             snapshot.arc_interner(),
             vec![],
             Some(TraversalSource::Inject(vec![Value::Int(42)])),
@@ -635,11 +529,11 @@ mod tests {
     }
 
     // =========================================================================
-    // StreamableStorage and new_streaming tests
+    // True O(1) streaming tests
     // =========================================================================
 
     #[test]
-    fn streaming_executor_new_streaming_all_vertices() {
+    fn streaming_executor_true_streaming_all_vertices() {
         let graph = create_test_graph();
         let snapshot = graph.snapshot();
 

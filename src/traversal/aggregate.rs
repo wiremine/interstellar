@@ -312,6 +312,10 @@ impl Step for GroupStep {
         "group"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -679,6 +683,10 @@ impl Step for GroupCountStep {
         "groupCount"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -910,6 +918,10 @@ impl Step for CountStep {
 
     fn name(&self) -> &'static str {
         "count"
+    }
+
+    fn is_barrier(&self) -> bool {
+        true
     }
 
     fn apply_streaming(

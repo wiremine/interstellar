@@ -2919,6 +2919,10 @@ impl crate::traversal::SnapshotLike for GraphSnapshot {
     fn arc_interner(&self) -> std::sync::Arc<StringInterner> {
         self.arc_interner()
     }
+
+    fn arc_streamable(&self) -> std::sync::Arc<dyn StreamableStorage> {
+        self.arc_streamable()
+    }
 }
 
 impl GraphStorage for GraphSnapshot {

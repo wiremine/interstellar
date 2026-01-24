@@ -1691,6 +1691,10 @@ impl crate::traversal::SnapshotLike for CowMmapSnapshot {
     fn arc_interner(&self) -> std::sync::Arc<StringInterner> {
         std::sync::Arc::clone(&self.interner_snapshot)
     }
+
+    fn arc_streamable(&self) -> std::sync::Arc<dyn StreamableStorage> {
+        self.arc_streamable()
+    }
 }
 
 impl Clone for CowMmapSnapshot {

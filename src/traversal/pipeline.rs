@@ -186,6 +186,24 @@ impl<In, Out> Traversal<In, Out> {
         self.steps.iter().map(|s| s.dyn_name()).collect()
     }
 
+    /// Check if this traversal contains any barrier steps.
+    ///
+    /// Barrier steps must collect all inputs before producing any output,
+    /// which is incompatible with true streaming execution. When a traversal
+    /// contains barriers, terminal methods like `next()` will fall back to
+    /// eager execution.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let has_barrier = g.v().group().build().has_barrier(); // true
+    /// let no_barrier = g.v().out().has_barrier(); // false
+    /// ```
+    #[inline]
+    pub fn has_barrier(&self) -> bool {
+        self.steps.iter().any(|s| s.is_barrier())
+    }
+
     /// Get a reference to the steps (for sub-traversal execution).
     ///
     /// This method provides read-only access to the traversal's steps,

@@ -154,24 +154,14 @@ impl Step for OutStep {
 
         let track_paths = ctx.is_tracking_paths();
 
-        // Collect edges to owned Vec (required for 'static lifetime)
-        let edges: Vec<_> = ctx
-            .storage()
-            .out_edges(vertex_id)
-            .filter_map(|edge| {
-                // Filter by label if specified
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                Some(edge.dst)
-            })
-            .collect();
+        // Use StreamableStorage::stream_out_neighbors for true O(1) streaming
+        // This returns an owned iterator without collecting all edges upfront
+        let neighbors = ctx
+            .streamable_storage()
+            .stream_out_neighbors(vertex_id, &label_ids);
 
-        // Return owned iterator over collected target vertices
-        Box::new(edges.into_iter().map(move |dst| {
+        // Return owned iterator over neighbor vertices
+        Box::new(neighbors.map(move |dst| {
             let mut new_t = input.split(Value::Vertex(dst));
             if track_paths {
                 new_t.extend_path_unlabeled();
@@ -309,24 +299,13 @@ impl Step for InStep {
 
         let track_paths = ctx.is_tracking_paths();
 
-        // Collect edges to owned Vec (required for 'static lifetime)
-        let edges: Vec<_> = ctx
-            .storage()
-            .in_edges(vertex_id)
-            .filter_map(|edge| {
-                // Filter by label if specified
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                Some(edge.src)
-            })
-            .collect();
+        // Use StreamableStorage::stream_in_neighbors for true O(1) streaming
+        let neighbors = ctx
+            .streamable_storage()
+            .stream_in_neighbors(vertex_id, &label_ids);
 
-        // Return owned iterator over collected source vertices
-        Box::new(edges.into_iter().map(move |src| {
+        // Return owned iterator over neighbor vertices
+        Box::new(neighbors.map(move |src| {
             let mut new_t = input.split(Value::Vertex(src));
             if track_paths {
                 new_t.extend_path_unlabeled();
@@ -482,51 +461,20 @@ impl Step for BothStep {
         }
 
         let track_paths = ctx.is_tracking_paths();
-        let label_ids_in = label_ids.clone();
 
-        // Collect out vertices
-        let out_vertices: Vec<_> = ctx
-            .storage()
-            .out_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                Some(edge.dst)
-            })
-            .collect();
+        // Use StreamableStorage::stream_both_neighbors for true O(1) streaming
+        let neighbors = ctx
+            .streamable_storage()
+            .stream_both_neighbors(vertex_id, &label_ids);
 
-        // Collect in vertices
-        let in_vertices: Vec<_> = ctx
-            .storage()
-            .in_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids_in.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
-                    if !label_ids_in.contains(&edge_label_id) {
-                        return None;
-                    }
-                }
-                Some(edge.src)
-            })
-            .collect();
-
-        // Chain both direction results
-        Box::new(
-            out_vertices
-                .into_iter()
-                .chain(in_vertices)
-                .map(move |neighbor| {
-                    let mut new_t = input.split(Value::Vertex(neighbor));
-                    if track_paths {
-                        new_t.extend_path_unlabeled();
-                    }
-                    new_t
-                }),
-        )
+        // Return owned iterator over neighbor vertices
+        Box::new(neighbors.map(move |neighbor| {
+            let mut new_t = input.split(Value::Vertex(neighbor));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            new_t
+        }))
     }
 }
 
@@ -654,27 +602,28 @@ impl Step for OutEStep {
 
         let track_paths = ctx.is_tracking_paths();
 
-        // Collect edge IDs to owned Vec
-        let edges: Vec<_> = ctx
-            .storage()
-            .out_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+        // Use StreamableStorage::stream_out_edges for streaming edge IDs
+        let edge_ids = ctx.streamable_storage().stream_out_edges(vertex_id);
+        let storage = ctx.arc_streamable();
+
+        // Filter by label if specified and return traversers
+        Box::new(edge_ids.filter_map(move |edge_id| {
+            // If we have label filters, check them
+            if !label_ids.is_empty() {
+                if let Some(edge) = storage.get_edge(edge_id) {
+                    let edge_label_id = storage.interner().lookup(&edge.label)?;
                     if !label_ids.contains(&edge_label_id) {
                         return None;
                     }
+                } else {
+                    return None;
                 }
-                Some(edge.id)
-            })
-            .collect();
-
-        Box::new(edges.into_iter().map(move |edge_id| {
+            }
             let mut new_t = input.split(Value::Edge(edge_id));
             if track_paths {
                 new_t.extend_path_unlabeled();
             }
-            new_t
+            Some(new_t)
         }))
     }
 }
@@ -803,27 +752,28 @@ impl Step for InEStep {
 
         let track_paths = ctx.is_tracking_paths();
 
-        // Collect edge IDs to owned Vec
-        let edges: Vec<_> = ctx
-            .storage()
-            .in_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+        // Use StreamableStorage::stream_in_edges for streaming edge IDs
+        let edge_ids = ctx.streamable_storage().stream_in_edges(vertex_id);
+        let storage = ctx.arc_streamable();
+
+        // Filter by label if specified and return traversers
+        Box::new(edge_ids.filter_map(move |edge_id| {
+            // If we have label filters, check them
+            if !label_ids.is_empty() {
+                if let Some(edge) = storage.get_edge(edge_id) {
+                    let edge_label_id = storage.interner().lookup(&edge.label)?;
                     if !label_ids.contains(&edge_label_id) {
                         return None;
                     }
+                } else {
+                    return None;
                 }
-                Some(edge.id)
-            })
-            .collect();
-
-        Box::new(edges.into_iter().map(move |edge_id| {
+            }
             let mut new_t = input.split(Value::Edge(edge_id));
             if track_paths {
                 new_t.extend_path_unlabeled();
             }
-            new_t
+            Some(new_t)
         }))
     }
 }
@@ -973,44 +923,53 @@ impl Step for BothEStep {
 
         let track_paths = ctx.is_tracking_paths();
         let label_ids_in = label_ids.clone();
+        let storage = ctx.arc_streamable();
+        let storage_in = storage.clone();
 
-        // Collect out edge IDs
-        let out_edges: Vec<_> = ctx
-            .storage()
-            .out_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+        // Use StreamableStorage::stream_out_edges and stream_in_edges for streaming
+        let out_edge_ids = ctx.streamable_storage().stream_out_edges(vertex_id);
+        let in_edge_ids = ctx.streamable_storage().stream_in_edges(vertex_id);
+
+        // Filter out edges by label
+        let input_out = input.clone();
+        let out_iter = out_edge_ids.filter_map(move |edge_id| {
+            if !label_ids.is_empty() {
+                if let Some(edge) = storage.get_edge(edge_id) {
+                    let edge_label_id = storage.interner().lookup(&edge.label)?;
                     if !label_ids.contains(&edge_label_id) {
                         return None;
                     }
+                } else {
+                    return None;
                 }
-                Some(edge.id)
-            })
-            .collect();
+            }
+            let mut new_t = input_out.split(Value::Edge(edge_id));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            Some(new_t)
+        });
 
-        // Collect in edge IDs
-        let in_edges: Vec<_> = ctx
-            .storage()
-            .in_edges(vertex_id)
-            .filter_map(|edge| {
-                if !label_ids_in.is_empty() {
-                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+        // Filter in edges by label
+        let in_iter = in_edge_ids.filter_map(move |edge_id| {
+            if !label_ids_in.is_empty() {
+                if let Some(edge) = storage_in.get_edge(edge_id) {
+                    let edge_label_id = storage_in.interner().lookup(&edge.label)?;
                     if !label_ids_in.contains(&edge_label_id) {
                         return None;
                     }
+                } else {
+                    return None;
                 }
-                Some(edge.id)
-            })
-            .collect();
-
-        Box::new(out_edges.into_iter().chain(in_edges).map(move |edge_id| {
+            }
             let mut new_t = input.split(Value::Edge(edge_id));
             if track_paths {
                 new_t.extend_path_unlabeled();
             }
-            new_t
-        }))
+            Some(new_t)
+        });
+
+        Box::new(out_iter.chain(in_iter))
     }
 }
 

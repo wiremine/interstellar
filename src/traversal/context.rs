@@ -81,6 +81,20 @@ pub trait SnapshotLike {
     fn arc_interner(&self) -> Arc<StringInterner> {
         panic!("arc_interner() not implemented for this snapshot type - streaming not supported")
     }
+
+    /// Get Arc-wrapped streamable storage for true O(1) streaming execution.
+    ///
+    /// This enables streaming pipelines to use `StreamableStorage` methods
+    /// like `stream_out_neighbors()` which return owned iterators without
+    /// upfront collection.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Types that support streaming must
+    /// override this method.
+    fn arc_streamable(&self) -> Arc<dyn crate::storage::StreamableStorage> {
+        panic!("arc_streamable() not implemented for this snapshot type - streaming not supported")
+    }
 }
 
 /// Execution context passed to steps at runtime.
@@ -352,8 +366,9 @@ impl SideEffects {
 /// ```
 #[derive(Clone)]
 pub struct StreamingContext {
-    /// Graph storage (shared ownership)
-    storage: Arc<dyn GraphStorage + Send + Sync>,
+    /// Streamable storage (shared ownership) - provides both GraphStorage
+    /// and streaming methods like stream_out_neighbors()
+    storage: Arc<dyn crate::storage::StreamableStorage>,
     /// String interner (shared ownership)
     interner: Arc<StringInterner>,
     /// Side effects (already Arc-wrapped internally)
@@ -367,10 +382,10 @@ impl StreamingContext {
     ///
     /// # Arguments
     ///
-    /// * `storage` - Arc-wrapped graph storage
+    /// * `storage` - Arc-wrapped streamable storage
     /// * `interner` - Arc-wrapped string interner
     pub fn new(
-        storage: Arc<dyn GraphStorage + Send + Sync>,
+        storage: Arc<dyn crate::storage::StreamableStorage>,
         interner: Arc<StringInterner>,
     ) -> Self {
         Self {
@@ -407,10 +422,26 @@ impl StreamingContext {
         &*self.storage
     }
 
-    /// Get the Arc-wrapped storage for cloning into iterators.
+    /// Get a reference to the streamable storage for streaming methods.
+    ///
+    /// Use this for methods like `stream_out_neighbors()` that return
+    /// owned iterators without upfront collection.
+    #[inline]
+    pub fn streamable_storage(&self) -> &dyn crate::storage::StreamableStorage {
+        &*self.storage
+    }
+
+    /// Get the Arc-wrapped streamable storage for cloning into iterators.
+    #[inline]
+    pub fn arc_streamable(&self) -> Arc<dyn crate::storage::StreamableStorage> {
+        Arc::clone(&self.storage)
+    }
+
+    /// Get the Arc-wrapped storage as GraphStorage for cloning into iterators.
     #[inline]
     pub fn arc_storage(&self) -> Arc<dyn GraphStorage + Send + Sync> {
-        Arc::clone(&self.storage)
+        // StreamableStorage: GraphStorage, so this cast is safe
+        self.storage.clone() as Arc<dyn GraphStorage + Send + Sync>
     }
 
     /// Get a reference to the string interner.
@@ -805,7 +836,7 @@ mod tests {
         fn streaming_context_new_compiles() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let _ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let _ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
             // If this compiles and doesn't panic, the test passes
         }
 
@@ -813,7 +844,7 @@ mod tests {
         fn streaming_context_is_cloneable() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx1 = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx1 = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
             let ctx2 = ctx1.clone();
 
             // Both should resolve the same label
@@ -824,7 +855,7 @@ mod tests {
         fn streaming_context_with_path_tracking() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner())
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner())
                 .with_path_tracking(true);
 
             assert!(ctx.is_tracking_paths());
@@ -837,7 +868,7 @@ mod tests {
             let side_effects = SideEffects::new();
             side_effects.store("test", Value::Int(42));
 
-            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner())
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner())
                 .with_side_effects(side_effects);
 
             assert_eq!(ctx.side_effects().get("test"), Some(vec![Value::Int(42)]));
@@ -847,7 +878,7 @@ mod tests {
         fn streaming_context_resolve_label() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
 
             assert!(ctx.resolve_label("person").is_some());
             assert!(ctx.resolve_label("software").is_some());
@@ -858,7 +889,7 @@ mod tests {
         fn streaming_context_resolve_labels() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
 
             let ids = ctx.resolve_labels(&["person", "software", "unknown"]);
             assert_eq!(ids.len(), 2); // unknown filtered out
@@ -868,7 +899,7 @@ mod tests {
         fn streaming_context_storage_accessor() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
 
             assert_eq!(ctx.storage().vertex_count(), 3);
         }
@@ -877,7 +908,7 @@ mod tests {
         fn streaming_context_arc_accessors() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
 
             // Arc accessors should return cloneable Arc references
             let _storage = ctx.arc_storage();
@@ -888,7 +919,7 @@ mod tests {
         fn streaming_context_clones_share_side_effects() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
-            let ctx1 = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx1 = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
 
             // Clone the context
             let ctx2 = ctx1.clone();

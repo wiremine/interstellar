@@ -233,6 +233,10 @@ impl Step for AggregateStep {
         "aggregate"
     }
 
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,

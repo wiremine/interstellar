@@ -554,8 +554,9 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// ```
     pub fn streaming_execute(self) -> StreamingExecutor {
         let (source, steps) = self.traversal.into_steps();
+        // Use StreamableStorage for true O(1) streaming
         StreamingExecutor::new(
-            self.snapshot.arc_storage(),
+            self.snapshot.arc_streamable(),
             self.snapshot.arc_interner(),
             steps,
             source,
@@ -565,35 +566,40 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
     /// Stream results lazily with O(1) memory per step.
     ///
-    /// This is the streaming equivalent of `iter()`. Results are pulled through
-    /// the pipeline one at a time, enabling early termination and constant memory
-    /// usage regardless of total result count.
+    /// **Deprecated**: Use `iter()` instead. `iter()` now uses streaming by default.
     ///
     /// # Example
     ///
     /// ```ignore
     /// // Stops after finding first match
-    /// let first = g.v().has_label("person").streaming_iter().next();
+    /// let first = g.v().has_label("person").iter().next();
     ///
     /// // Only processes ~10 items through pipeline
-    /// let sample: Vec<_> = g.v().out("knows").streaming_iter().take(10).collect();
+    /// let sample: Vec<_> = g.v().out("knows").iter().take(10).collect();
     /// ```
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use iter() instead - it now uses streaming by default"
+    )]
     pub fn streaming_iter(self) -> impl Iterator<Item = Value> + Send {
         self.streaming_execute().map(|t| t.value)
     }
 
     /// Stream traversers with metadata using O(1) memory per step.
     ///
-    /// This is the streaming equivalent of `traversers()`. Includes full
-    /// traverser metadata (path, bulk, sacks, loops) for each result.
+    /// **Deprecated**: Use `traversers()` instead. `traversers()` now uses streaming by default.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// for traverser in g.v().with_path().streaming_traversers() {
+    /// for traverser in g.v().with_path().traversers() {
     ///     println!("Path: {:?}", traverser.path);
     /// }
     /// ```
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use traversers() instead - it now uses streaming by default"
+    )]
     pub fn streaming_traversers(self) -> impl Iterator<Item = Traverser> + Send {
         self.streaming_execute()
     }
@@ -3035,16 +3041,28 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 
     /// Execute and return the first value, if any.
     ///
+    /// Uses streaming execution for O(1) memory when possible. Falls back to
+    /// eager execution if the traversal contains barrier steps.
+    ///
     /// # Example
     ///
     /// ```ignore
     /// let first: Option<Value> = g.v().next();
     /// ```
     pub fn next(self) -> Option<Value> {
-        self.execute().next().map(|t| t.value)
+        if self.traversal.has_barrier() {
+            // Barrier steps require eager execution
+            self.execute().next().map(|t| t.value)
+        } else {
+            // Streaming: only fetches one result
+            self.streaming_execute().next().map(|t| t.value)
+        }
     }
 
     /// Check if the traversal produces any results.
+    ///
+    /// Uses streaming execution for O(1) memory when possible. Falls back to
+    /// eager execution if the traversal contains barrier steps.
     ///
     /// # Example
     ///
@@ -3052,12 +3070,19 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let has_vertices: bool = g.v().has_next();
     /// ```
     pub fn has_next(self) -> bool {
-        !self.execute().is_empty()
+        if self.traversal.has_barrier() {
+            // Barrier steps require eager execution
+            self.execute().next().is_some()
+        } else {
+            // Streaming: only checks if one result exists
+            self.streaming_execute().next().is_some()
+        }
     }
 
     /// Execute and return exactly one value, or error.
     ///
     /// Returns an error if there are zero or more than one results.
+    /// Uses streaming execution when possible, falls back to eager for barriers.
     ///
     /// # Example
     ///
@@ -3065,16 +3090,31 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let vertex = g.v_ids([VertexId(1)]).one()?;
     /// ```
     pub fn one(self) -> Result<Value, crate::error::TraversalError> {
-        let results: Vec<_> = self.execute().take(2).collect();
-        match results.len() {
-            1 => Ok(results.into_iter().next().unwrap().value),
-            n => Err(crate::error::TraversalError::NotOne(n)),
+        if self.traversal.has_barrier() {
+            // Barrier steps require eager execution
+            let results: Vec<_> = self.execute().take(2).collect();
+            match results.len() {
+                1 => Ok(results.into_iter().next().unwrap().value),
+                n => Err(crate::error::TraversalError::NotOne(n)),
+            }
+        } else {
+            // Streaming: only fetches up to 2 results
+            let mut iter = self.streaming_execute();
+            let first = iter.next();
+            let second = iter.next();
+
+            match (first, second) {
+                (Some(t), None) => Ok(t.value),
+                (None, _) => Err(crate::error::TraversalError::NotOne(0)),
+                (Some(_), Some(_)) => Err(crate::error::TraversalError::NotOne(2)),
+            }
         }
     }
 
     /// Execute and consume the traversal, discarding results.
     ///
-    /// Useful for side-effect-only traversals.
+    /// Useful for side-effect-only traversals. Uses streaming execution
+    /// when possible, falls back to eager for barrier steps.
     ///
     /// # Example
     ///
@@ -3082,15 +3122,18 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// g.v().side_effect(|t| println!("{:?}", t)).iterate();
     /// ```
     pub fn iterate(self) {
-        for _ in self.execute() {
-            // Consume and discard
+        if self.traversal.has_barrier() {
+            for _ in self.execute() {}
+        } else {
+            for _ in self.streaming_execute() {}
         }
     }
 
     /// Execute and count the number of results.
     ///
-    /// This method uses a streaming `CountStep` that respects traverser bulk
-    /// and avoids materializing all traversers just to count them.
+    /// Uses streaming execution to count results without collecting them all
+    /// into memory. Respects traverser bulk values. Falls back to eager
+    /// execution if the traversal contains barrier steps.
     ///
     /// # Example
     ///
@@ -3099,20 +3142,19 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let person_count: u64 = g.v().has_label("person").count();
     /// ```
     pub fn count(self) -> u64 {
-        use crate::traversal::aggregate::CountStep;
-
-        // Add CountStep which streams through input and produces a single count
-        self.add_step::<Value>(CountStep)
-            .execute()
-            .next()
-            .and_then(|t| match t.value {
-                Value::Int(n) => Some(n as u64),
-                _ => None,
-            })
-            .unwrap_or(0)
+        if self.traversal.has_barrier() {
+            // Barrier steps require eager execution
+            self.execute().map(|t| t.bulk as u64).sum()
+        } else {
+            // Stream through and sum bulk values - O(1) memory
+            self.streaming_execute().map(|t| t.bulk as u64).sum()
+        }
     }
 
     /// Execute and return the first n values.
+    ///
+    /// Uses streaming execution when possible - only fetches n results without
+    /// traversing the entire graph. Falls back to eager for barrier steps.
     ///
     /// # Example
     ///
@@ -3120,12 +3162,20 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// let first_five: Vec<Value> = g.v().take(5);
     /// ```
     pub fn take(self, n: usize) -> Vec<Value> {
-        self.execute().take(n).map(|t| t.value).collect()
+        if self.traversal.has_barrier() {
+            self.execute().take(n).map(|t| t.value).collect()
+        } else {
+            self.streaming_execute().take(n).map(|t| t.value).collect()
+        }
     }
 
-    /// Execute and return an iterator over values.
+    /// Execute and return a streaming iterator over values.
     ///
-    /// This is useful for lazy processing of results.
+    /// This uses true O(1) streaming evaluation where results are pulled through
+    /// the pipeline one at a time with no eager collection. This enables early
+    /// termination and constant memory usage regardless of total result count.
+    ///
+    /// For eager evaluation that collects results, use `eager_iter()`.
     ///
     /// # Example
     ///
@@ -3133,21 +3183,56 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// for value in g.v().iter() {
     ///     println!("{:?}", value);
     /// }
+    ///
+    /// // Early termination - only processes what's needed
+    /// let first = g.v().iter().next();
+    /// let sample: Vec<_> = g.v().out().iter().take(10).collect();
     /// ```
-    pub fn iter(self) -> impl Iterator<Item = Value> + 'g {
-        self.execute().map(|t| t.value)
+    pub fn iter(self) -> impl Iterator<Item = Value> + Send {
+        self.streaming_execute().map(|t| t.value)
     }
 
-    /// Execute and return an iterator over traversers (with metadata).
+    /// Execute with eager evaluation and return an iterator over values.
+    ///
+    /// Unlike `iter()`, this uses the eager executor which may collect
+    /// intermediate results. Use this when you need lifetime binding to
+    /// the graph (`'g`) or when working with APIs that don't support `Send`.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// for traverser in g.v().traversers() {
+    /// let values: Vec<_> = g.v().eager_iter().collect();
+    /// ```
+    pub fn eager_iter(self) -> impl Iterator<Item = Value> + 'g {
+        self.execute().map(|t| t.value)
+    }
+
+    /// Execute and return a streaming iterator over traversers (with metadata).
+    ///
+    /// Uses O(1) streaming evaluation. For eager evaluation with lifetime
+    /// binding, use `eager_traversers()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// for traverser in g.v().with_path().traversers() {
     ///     println!("{:?}", traverser.path);
     /// }
     /// ```
-    pub fn traversers(self) -> impl Iterator<Item = Traverser> + 'g {
+    pub fn traversers(self) -> impl Iterator<Item = Traverser> + Send {
+        self.streaming_execute()
+    }
+
+    /// Execute with eager evaluation and return an iterator over traversers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// for traverser in g.v().eager_traversers() {
+    ///     println!("{:?}", traverser.path);
+    /// }
+    /// ```
+    pub fn eager_traversers(self) -> impl Iterator<Item = Traverser> + 'g {
         self.execute()
     }
 
@@ -5436,7 +5521,7 @@ mod tests {
         use super::*;
 
         #[test]
-        fn streaming_iter_matches_eager_to_list() {
+        fn iter_matches_eager_to_list() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
@@ -5444,9 +5529,9 @@ mod tests {
             // Eager execution
             let eager: Vec<_> = g.v().to_list();
 
-            // Streaming execution
+            // Streaming execution (iter() now uses streaming by default)
             let g = snapshot.gremlin();
-            let streaming: Vec<_> = g.v().streaming_iter().collect();
+            let streaming: Vec<_> = g.v().iter().collect();
 
             assert_eq!(eager.len(), streaming.len());
             // Note: Order may differ, so we check contents
@@ -5456,7 +5541,7 @@ mod tests {
         }
 
         #[test]
-        fn streaming_with_filter_matches_eager() {
+        fn iter_with_filter_matches_eager() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
@@ -5464,13 +5549,13 @@ mod tests {
             let eager: Vec<_> = g.v().has_label("person").to_list();
 
             let g = snapshot.gremlin();
-            let streaming: Vec<_> = g.v().has_label("person").streaming_iter().collect();
+            let streaming: Vec<_> = g.v().has_label("person").iter().collect();
 
             assert_eq!(eager.len(), streaming.len());
         }
 
         #[test]
-        fn streaming_with_navigation_matches_eager() {
+        fn iter_with_navigation_matches_eager() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
@@ -5478,30 +5563,30 @@ mod tests {
             let eager: Vec<_> = g.v().out().to_list();
 
             let g = snapshot.gremlin();
-            let streaming: Vec<_> = g.v().out().streaming_iter().collect();
+            let streaming: Vec<_> = g.v().out().iter().collect();
 
             assert_eq!(eager.len(), streaming.len());
         }
 
         #[test]
-        fn streaming_early_termination() {
+        fn iter_early_termination() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
 
             // Take only 2 from a traversal that would return 4
-            let results: Vec<_> = g.v().streaming_iter().take(2).collect();
+            let results: Vec<_> = g.v().iter().take(2).collect();
 
             assert_eq!(results.len(), 2);
         }
 
         #[test]
-        fn streaming_next_returns_single() {
+        fn iter_next_returns_single() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
 
-            let first = g.v().streaming_iter().next();
+            let first = g.v().iter().next();
 
             assert!(first.is_some());
             assert!(first.unwrap().is_vertex());
@@ -5522,12 +5607,12 @@ mod tests {
         }
 
         #[test]
-        fn streaming_traversers_includes_path() {
+        fn traversers_includes_path() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
 
-            let results: Vec<_> = g.v().with_path().streaming_traversers().collect();
+            let results: Vec<_> = g.v().with_path().traversers().collect();
 
             assert_eq!(results.len(), 4);
             for t in &results {
@@ -5537,7 +5622,7 @@ mod tests {
         }
 
         #[test]
-        fn streaming_multi_hop_navigation() {
+        fn iter_multi_hop_navigation() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
@@ -5546,13 +5631,13 @@ mod tests {
             let eager: Vec<_> = g.v().out().out().to_list();
 
             let g = snapshot.gremlin();
-            let streaming: Vec<_> = g.v().out().out().streaming_iter().collect();
+            let streaming: Vec<_> = g.v().out().out().iter().collect();
 
             assert_eq!(eager.len(), streaming.len());
         }
 
         #[test]
-        fn streaming_with_values_step() {
+        fn iter_with_values_step() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
@@ -5560,12 +5645,7 @@ mod tests {
             let eager: Vec<_> = g.v().has_label("person").values("name").to_list();
 
             let g = snapshot.gremlin();
-            let streaming: Vec<_> = g
-                .v()
-                .has_label("person")
-                .values("name")
-                .streaming_iter()
-                .collect();
+            let streaming: Vec<_> = g.v().has_label("person").values("name").iter().collect();
 
             assert_eq!(eager.len(), streaming.len());
             // All should be strings
@@ -5575,7 +5655,7 @@ mod tests {
         }
 
         #[test]
-        fn streaming_inject_source() {
+        fn iter_inject_source() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
@@ -5587,30 +5667,30 @@ mod tests {
             let g = snapshot.gremlin();
             let streaming: Vec<_> = g
                 .inject([Value::Int(1), Value::Int(2), Value::Int(3)])
-                .streaming_iter()
+                .iter()
                 .collect();
 
             assert_eq!(eager, streaming);
         }
 
         #[test]
-        fn streaming_empty_result() {
+        fn iter_empty_result() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
 
-            let results: Vec<_> = g.v().has_label("nonexistent").streaming_iter().collect();
+            let results: Vec<_> = g.v().has_label("nonexistent").iter().collect();
 
             assert!(results.is_empty());
         }
 
         #[test]
-        fn streaming_count_via_iterator() {
+        fn iter_count_via_iterator() {
             let graph = create_test_graph();
             let snapshot = graph.snapshot();
             let g = snapshot.gremlin();
 
-            let count = g.v().streaming_iter().count();
+            let count = g.v().iter().count();
 
             assert_eq!(count, 4);
         }

@@ -119,6 +119,24 @@ pub trait Step: Clone + Send + Sync + 'static {
 
     /// Step name for debugging and profiling.
     fn name(&self) -> &'static str;
+
+    /// Returns true if this step is a barrier (must collect all inputs before producing output).
+    ///
+    /// Barrier steps include:
+    /// - `group()` / `groupCount()` - need all inputs to build groups
+    /// - `order()` - need all inputs to sort
+    /// - `count()` as a step - need all inputs to count
+    /// - `fold()` - need all inputs to reduce
+    /// - `aggregate()` - collects all values
+    /// - `dedup()` - may need all inputs for global deduplication
+    /// - `sample()` / `tail()` - need all inputs to select from
+    ///
+    /// Barrier steps cannot benefit from streaming execution and will cause
+    /// terminal methods to fall back to eager execution.
+    #[inline]
+    fn is_barrier(&self) -> bool {
+        false
+    }
 }
 
 // =============================================================================
@@ -166,6 +184,9 @@ pub trait DynStep: Send + Sync {
 
     /// Get step name for debugging and profiling.
     fn dyn_name(&self) -> &'static str;
+
+    /// Returns true if this step is a barrier (must collect all inputs before producing output).
+    fn is_barrier(&self) -> bool;
 }
 
 /// Blanket implementation: every `Step` is also a `DynStep`.
@@ -196,6 +217,10 @@ impl<S: Step> DynStep for S {
 
     fn dyn_name(&self) -> &'static str {
         <Self as Step>::name(self)
+    }
+
+    fn is_barrier(&self) -> bool {
+        <Self as Step>::is_barrier(self)
     }
 }
 
