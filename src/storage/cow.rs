@@ -85,7 +85,7 @@ use crate::index::{
 };
 use crate::schema::GraphSchema;
 use crate::storage::interner::StringInterner;
-use crate::storage::{Edge, GraphStorage, Vertex};
+use crate::storage::{Edge, GraphStorage, StreamableStorage, Vertex};
 use crate::traversal::markers::{Edge as EdgeMarker, OutputMarker, Scalar, Vertex as VertexMarker};
 use crate::traversal::mutation::{DropStep, PendingMutation, PropertyStep};
 use crate::traversal::step::Step;
@@ -3128,6 +3128,38 @@ impl GraphStorage for GraphSnapshot {
 // and GraphState only contains Send + Sync types
 unsafe impl Send for GraphSnapshot {}
 unsafe impl Sync for GraphSnapshot {}
+
+// StreamableStorage implementation for GraphSnapshot.
+//
+// GraphSnapshot is ideal for streaming because it owns an Arc<GraphState> that
+// can be cheaply cloned into returned iterators. This enables true O(1) streaming
+// where the iterator holds its own reference to the graph state.
+//
+// For now we use the default implementations which collect upfront. A future
+// optimization can override these to return custom iterators that stream directly
+// from the im::HashMap internals.
+impl StreamableStorage for GraphSnapshot {}
+
+impl GraphSnapshot {
+    /// Returns an Arc<dyn StreamableStorage> for use with StreamingExecutor.
+    ///
+    /// This enables the traversal engine to hold an owned reference to the
+    /// storage that can be used to create streaming iterators. The clone is
+    /// cheap since `GraphSnapshot` is internally Arc-based.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let snapshot = graph.snapshot();
+    /// let streamable = snapshot.arc_streamable();
+    /// let interner = snapshot.arc_interner();
+    /// let executor = StreamingExecutor::new_streaming(streamable, interner, ...);
+    /// ```
+    #[inline]
+    pub fn arc_streamable(&self) -> Arc<dyn StreamableStorage> {
+        Arc::new(self.clone())
+    }
+}
 
 // =============================================================================
 // BatchContext - For Atomic Multi-Operation Batches

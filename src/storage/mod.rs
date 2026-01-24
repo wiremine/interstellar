@@ -63,6 +63,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub mod cow;
 pub mod inmemory;
@@ -756,4 +757,343 @@ pub trait GraphStorageMut: GraphStorage {
     /// assert_eq!(graph.edge_count(), 0);
     /// ```
     fn remove_edge(&mut self, id: EdgeId) -> Result<(), StorageError>;
+}
+
+// =============================================================================
+// Blanket impl: GraphStorage for Arc<T> where T: GraphStorage
+// =============================================================================
+
+/// Blanket implementation for Arc-wrapped storage types.
+///
+/// This enables `Arc<dyn GraphStorage>` and `Arc<T>` where `T: GraphStorage`
+/// to be used anywhere `GraphStorage` is required.
+impl<T: GraphStorage + ?Sized> GraphStorage for Arc<T> {
+    fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
+        (**self).get_vertex(id)
+    }
+
+    fn get_edge(&self, id: EdgeId) -> Option<Edge> {
+        (**self).get_edge(id)
+    }
+
+    fn vertex_count(&self) -> u64 {
+        (**self).vertex_count()
+    }
+
+    fn edge_count(&self) -> u64 {
+        (**self).edge_count()
+    }
+
+    fn all_vertices(&self) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        (**self).all_vertices()
+    }
+
+    fn all_edges(&self) -> Box<dyn Iterator<Item = Edge> + '_> {
+        (**self).all_edges()
+    }
+
+    fn out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = Edge> + '_> {
+        (**self).out_edges(vertex)
+    }
+
+    fn in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = Edge> + '_> {
+        (**self).in_edges(vertex)
+    }
+
+    fn vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        (**self).vertices_with_label(label)
+    }
+
+    fn edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = Edge> + '_> {
+        (**self).edges_with_label(label)
+    }
+
+    fn interner(&self) -> &StringInterner {
+        (**self).interner()
+    }
+
+    fn vertices_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: &Value,
+    ) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        (**self).vertices_by_property(label, property, value)
+    }
+
+    fn edges_by_property(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        value: &Value,
+    ) -> Box<dyn Iterator<Item = Edge> + '_> {
+        (**self).edges_by_property(label, property, value)
+    }
+
+    fn vertices_by_property_range(
+        &self,
+        label: Option<&str>,
+        property: &str,
+        start: std::ops::Bound<&Value>,
+        end: std::ops::Bound<&Value>,
+    ) -> Box<dyn Iterator<Item = Vertex> + '_> {
+        (**self).vertices_by_property_range(label, property, start, end)
+    }
+}
+
+// =============================================================================
+// StreamableStorage - Owned iterator methods for true O(1) streaming
+// =============================================================================
+
+/// Extension trait for storage backends that support streaming iteration.
+///
+/// Unlike [`GraphStorage`] which returns borrowed iterators tied to `&self`,
+/// `StreamableStorage` returns owned (`'static`) iterators by cloning internal
+/// Arc-wrapped state. This enables true streaming in [`StreamingExecutor`](crate::traversal::StreamingExecutor)
+/// without upfront collection.
+///
+/// # Problem Solved
+///
+/// `GraphStorage::all_vertices()` returns `Box<dyn Iterator<Item = Vertex> + '_>`,
+/// which is tied to the `&self` lifetime. To return an iterator from a function
+/// (like `StreamingExecutor::build_source`), we need `'static`, which requires ownership.
+///
+/// Without this trait, the streaming executor must collect all IDs upfront:
+///
+/// ```ignore
+/// // Current problem: O(V) memory even for `take(1)`
+/// let ids: Vec<_> = storage.all_vertices().map(|v| v.id).collect();
+/// Box::new(ids.into_iter().map(...))
+/// ```
+///
+/// With `StreamableStorage`, the API supports true streaming iteration (though the
+/// initial implementation may still collect internally):
+///
+/// ```ignore
+/// // True O(1) streaming API
+/// storage.stream_all_vertices()
+/// ```
+///
+/// # Implementation Notes
+///
+/// Methods use `&self` and return `'static` iterators. Implementations should
+/// clone internal Arc-wrapped state into the returned iterator. For example,
+/// `GraphSnapshot` clones its `Arc<GraphState>` which is O(1).
+///
+/// # Default Implementation
+///
+/// The default implementations fall back to collecting from `GraphStorage` methods.
+/// Backends can override these for true streaming behavior.
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::storage::StreamableStorage;
+///
+/// let snapshot = graph.snapshot();
+///
+/// // Streaming iteration
+/// let first_10: Vec<_> = snapshot.stream_all_vertices()
+///     .take(10)
+///     .collect();
+/// ```
+pub trait StreamableStorage: GraphStorage + 'static {
+    /// Stream all vertex IDs without collecting.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects all vertex IDs upfront (O(V) memory). Override for true streaming.
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let ids: Vec<_> = self.all_vertices().map(|v| v.id).collect();
+        Box::new(ids.into_iter())
+    }
+
+    /// Stream all edge IDs without collecting.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects all edge IDs upfront (O(E) memory). Override for true streaming.
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.all_edges().map(|e| e.id).collect();
+        Box::new(ids.into_iter())
+    }
+
+    /// Stream vertex IDs with a given label without collecting.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects matching vertex IDs upfront. Override for true streaming.
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let ids: Vec<_> = self.vertices_with_label(label).map(|v| v.id).collect();
+        Box::new(ids.into_iter())
+    }
+
+    /// Stream edge IDs with a given label without collecting.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects matching edge IDs upfront. Override for true streaming.
+    fn stream_edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.edges_with_label(label).map(|e| e.id).collect();
+        Box::new(ids.into_iter())
+    }
+
+    /// Stream outgoing edge IDs from a vertex without collecting.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects edge IDs upfront. Override for true streaming.
+    fn stream_out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.out_edges(vertex).map(|e| e.id).collect();
+        Box::new(ids.into_iter())
+    }
+
+    /// Stream incoming edge IDs to a vertex without collecting.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects edge IDs upfront. Override for true streaming.
+    fn stream_in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.in_edges(vertex).map(|e| e.id).collect();
+        Box::new(ids.into_iter())
+    }
+
+    // =========================================================================
+    // Neighbor Streaming (for navigation steps)
+    // =========================================================================
+
+    /// Stream outgoing neighbor vertex IDs without collecting.
+    ///
+    /// This is the primary method used by navigation steps (`out()`, `out("label")`).
+    /// Returns target vertex IDs for outgoing edges, optionally filtered by label.
+    ///
+    /// # Arguments
+    ///
+    /// * `vertex` - Source vertex ID
+    /// * `label_ids` - Label IDs to filter by (empty = all labels)
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects neighbor IDs upfront. Override for true streaming.
+    fn stream_out_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+        let interner = self.interner().clone();
+        let neighbors: Vec<_> = self
+            .out_edges(vertex)
+            .filter(move |e| {
+                if label_ids_owned.is_empty() {
+                    true
+                } else {
+                    label_ids_owned
+                        .iter()
+                        .any(|&lid| interner.lookup(&e.label) == Some(lid))
+                }
+            })
+            .map(|e| e.dst)
+            .collect();
+        Box::new(neighbors.into_iter())
+    }
+
+    /// Stream incoming neighbor vertex IDs without collecting.
+    ///
+    /// This is the primary method used by navigation steps (`in_()`, `in_("label")`).
+    /// Returns source vertex IDs for incoming edges, optionally filtered by label.
+    ///
+    /// # Default Implementation
+    ///
+    /// Collects neighbor IDs upfront. Override for true streaming.
+    fn stream_in_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+        let interner = self.interner().clone();
+        let neighbors: Vec<_> = self
+            .in_edges(vertex)
+            .filter(move |e| {
+                if label_ids_owned.is_empty() {
+                    true
+                } else {
+                    label_ids_owned
+                        .iter()
+                        .any(|&lid| interner.lookup(&e.label) == Some(lid))
+                }
+            })
+            .map(|e| e.src)
+            .collect();
+        Box::new(neighbors.into_iter())
+    }
+
+    /// Stream both incoming and outgoing neighbor vertex IDs.
+    ///
+    /// Used by `both()` navigation step.
+    ///
+    /// # Default Implementation
+    ///
+    /// Chains `stream_out_neighbors` and `stream_in_neighbors`.
+    fn stream_both_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let out_iter = self.stream_out_neighbors(vertex, label_ids);
+        let in_iter = self.stream_in_neighbors(vertex, label_ids);
+        Box::new(out_iter.chain(in_iter))
+    }
+}
+
+// Blanket implementation: any Arc<T> where T: StreamableStorage is also StreamableStorage
+impl<T: StreamableStorage + ?Sized> StreamableStorage for Arc<T> {
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        (**self).stream_all_vertices()
+    }
+
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        (**self).stream_all_edges()
+    }
+
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        (**self).stream_vertices_with_label(label)
+    }
+
+    fn stream_edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        (**self).stream_edges_with_label(label)
+    }
+
+    fn stream_out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        (**self).stream_out_edges(vertex)
+    }
+
+    fn stream_in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        (**self).stream_in_edges(vertex)
+    }
+
+    fn stream_out_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        (**self).stream_out_neighbors(vertex, label_ids)
+    }
+
+    fn stream_in_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        (**self).stream_in_neighbors(vertex, label_ids)
+    }
+
+    fn stream_both_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        (**self).stream_both_neighbors(vertex, label_ids)
+    }
 }

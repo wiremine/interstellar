@@ -58,7 +58,7 @@ use crate::index::{
     BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
 };
 use crate::storage::interner::StringInterner;
-use crate::storage::{Edge, GraphStorage, GraphStorageMut, Vertex};
+use crate::storage::{Edge, GraphStorage, GraphStorageMut, StreamableStorage, Vertex};
 use crate::value::{EdgeId, Value, VertexId};
 
 /// In-memory graph storage with HashMap-based lookups.
@@ -1409,6 +1409,11 @@ impl GraphStorageMut for InMemoryGraph {
 // Thread-safe mutation requires external synchronization (via Graph wrapper).
 unsafe impl Send for InMemoryGraph {}
 unsafe impl Sync for InMemoryGraph {}
+
+// StreamableStorage uses default implementations that collect upfront.
+// This is correct behavior but not optimal - true streaming would require
+// exposing Arc-wrapped internal state (like GraphSnapshot does).
+impl StreamableStorage for InMemoryGraph {}
 
 #[cfg(test)]
 mod tests {

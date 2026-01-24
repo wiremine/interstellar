@@ -57,21 +57,25 @@ The `'_` lifetime binds the iterator to the borrow of `&self`. To return an iter
 
 ## Solution Overview
 
-Add a new `StreamableStorage` trait that extends `GraphStorage` with owned-iterator methods. These methods take `Arc<Self>` as a parameter (not receiver) to enable cloning the Arc into the returned iterator.
+Add a new `StreamableStorage` trait that extends `GraphStorage` with owned-iterator methods. These methods use `&self` receivers and return `'static` iterators by cloning internal Arc-wrapped state.
 
 ```rust
 pub trait StreamableStorage: GraphStorage + 'static {
-    fn stream_all_vertices(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = VertexId> + Send>;
-    
-    fn stream_all_edges(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = EdgeId> + Send>;
-    
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send>;
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send>;
     // ... additional streaming methods
 }
 ```
+
+### Design Rationale
+
+The original spec proposed using `Arc<dyn StreamableStorage>` as a parameter instead of `self`. However, this approach requires `where Self: Sized` bounds which **breaks trait object compatibility**. You cannot call `StreamableStorage::stream_all_vertices(arc_storage)` when `arc_storage` is `Arc<dyn StreamableStorage>`.
+
+The revised design uses `&self` methods because:
+1. It works with trait objects (`dyn StreamableStorage`)
+2. Implementations like `GraphSnapshot` are cheap to clone (internally just `Arc<GraphState>`)
+3. The returned iterator captures a clone of `self` or relevant internal data
+4. It's idiomatic Rust
 
 ### Why `VertexId`/`EdgeId` Instead of `Vertex`/`Edge`?
 
@@ -90,19 +94,18 @@ Returning IDs instead of full elements:
 **Effort:** 0.5 days
 
 ```rust
-use std::sync::Arc;
-
 /// Extension trait for storage backends that support streaming iteration.
 ///
 /// Unlike [`GraphStorage`] which returns borrowed iterators tied to `&self`,
-/// `StreamableStorage` returns owned iterators that capture `Arc<Self>`.
-/// This enables true streaming in [`StreamingExecutor`] without upfront collection.
+/// `StreamableStorage` returns owned (`'static`) iterators by cloning internal
+/// Arc-wrapped state. This enables true streaming in [`StreamingExecutor`] 
+/// without upfront collection.
 ///
 /// # Implementation Notes
 ///
-/// Methods take `Arc<dyn StreamableStorage>` as a regular parameter (not `self`)
-/// because Rust doesn't support `self: Arc<Self>` receivers on trait objects
-/// without `#![feature(arbitrary_self_types)]`.
+/// Methods use `&self` and return `'static` iterators. Implementations should
+/// clone internal Arc-wrapped state into the returned iterator. For example,
+/// `GraphSnapshot` clones its `Arc<GraphState>` which is O(1).
 ///
 /// # Default Implementation
 ///
@@ -118,16 +121,14 @@ pub trait StreamableStorage: GraphStorage + 'static {
     /// # Example
     ///
     /// ```ignore
-    /// let storage: Arc<dyn StreamableStorage> = ...;
-    /// let first_10: Vec<_> = StreamableStorage::stream_all_vertices(storage)
+    /// let storage: &dyn StreamableStorage = &snapshot;
+    /// let first_10: Vec<_> = storage.stream_all_vertices()
     ///     .take(10)
     ///     .collect();
     /// ```
-    fn stream_all_vertices(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
         // Default: collect all IDs (fallback for backends that don't override)
-        let ids: Vec<_> = storage.all_vertices().map(|v| v.id).collect();
+        let ids: Vec<_> = self.all_vertices().map(|v| v.id).collect();
         Box::new(ids.into_iter())
     }
     
@@ -136,10 +137,8 @@ pub trait StreamableStorage: GraphStorage + 'static {
     /// # Default Implementation
     ///
     /// Collects all edge IDs upfront (O(E) memory). Override for true streaming.
-    fn stream_all_edges(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = EdgeId> + Send> {
-        let ids: Vec<_> = storage.all_edges().map(|e| e.id).collect();
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.all_edges().map(|e| e.id).collect();
         Box::new(ids.into_iter())
     }
     
@@ -148,11 +147,8 @@ pub trait StreamableStorage: GraphStorage + 'static {
     /// # Default Implementation
     ///
     /// Collects matching vertex IDs upfront. Override for true streaming.
-    fn stream_vertices_with_label(
-        storage: Arc<dyn StreamableStorage>,
-        label: String,
-    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
-        let ids: Vec<_> = storage.vertices_with_label(&label).map(|v| v.id).collect();
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let ids: Vec<_> = self.vertices_with_label(label).map(|v| v.id).collect();
         Box::new(ids.into_iter())
     }
     
@@ -161,11 +157,8 @@ pub trait StreamableStorage: GraphStorage + 'static {
     /// # Default Implementation
     ///
     /// Collects matching edge IDs upfront. Override for true streaming.
-    fn stream_edges_with_label(
-        storage: Arc<dyn StreamableStorage>,
-        label: String,
-    ) -> Box<dyn Iterator<Item = EdgeId> + Send> {
-        let ids: Vec<_> = storage.edges_with_label(&label).map(|e| e.id).collect();
+    fn stream_edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.edges_with_label(label).map(|e| e.id).collect();
         Box::new(ids.into_iter())
     }
     
@@ -174,11 +167,8 @@ pub trait StreamableStorage: GraphStorage + 'static {
     /// # Default Implementation
     ///
     /// Collects edge IDs upfront. Override for true streaming.
-    fn stream_out_edges(
-        storage: Arc<dyn StreamableStorage>,
-        vertex: VertexId,
-    ) -> Box<dyn Iterator<Item = EdgeId> + Send> {
-        let ids: Vec<_> = storage.out_edges(vertex).map(|e| e.id).collect();
+    fn stream_out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.out_edges(vertex).map(|e| e.id).collect();
         Box::new(ids.into_iter())
     }
     
@@ -187,11 +177,8 @@ pub trait StreamableStorage: GraphStorage + 'static {
     /// # Default Implementation
     ///
     /// Collects edge IDs upfront. Override for true streaming.
-    fn stream_in_edges(
-        storage: Arc<dyn StreamableStorage>,
-        vertex: VertexId,
-    ) -> Box<dyn Iterator<Item = EdgeId> + Send> {
-        let ids: Vec<_> = storage.in_edges(vertex).map(|e| e.id).collect();
+    fn stream_in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<_> = self.in_edges(vertex).map(|e| e.id).collect();
         Box::new(ids.into_iter())
     }
     
@@ -206,7 +193,6 @@ pub trait StreamableStorage: GraphStorage + 'static {
     ///
     /// # Arguments
     ///
-    /// * `storage` - Arc-wrapped storage
     /// * `vertex` - Source vertex ID
     /// * `label_ids` - Label IDs to filter by (empty = all labels)
     ///
@@ -218,31 +204,26 @@ pub trait StreamableStorage: GraphStorage + 'static {
     ///
     /// ```ignore
     /// // Used by OutStep::apply_streaming
-    /// let neighbors = StreamableStorage::stream_out_neighbors(
-    ///     storage.clone(),
-    ///     vertex_id,
-    ///     &label_ids,
-    /// );
+    /// let neighbors = storage.stream_out_neighbors(vertex_id, &label_ids);
     /// for target_id in neighbors.take(10) {
     ///     // Process only first 10 neighbors
     /// }
     /// ```
     fn stream_out_neighbors(
-        storage: Arc<dyn StreamableStorage>,
+        &self,
         vertex: VertexId,
         label_ids: &[u32],
     ) -> Box<dyn Iterator<Item = VertexId> + Send> {
         let label_ids_owned: Vec<u32> = label_ids.to_vec();
-        let neighbors: Vec<_> = storage
+        let interner = self.interner().clone();
+        let neighbors: Vec<_> = self
             .out_edges(vertex)
             .filter(move |e| {
                 if label_ids_owned.is_empty() {
                     true
                 } else {
-                    // Note: Edge.label is String, need to resolve to label_id
-                    // This requires interner access - see implementation notes
                     label_ids_owned.iter().any(|&lid| {
-                        storage.interner().lookup(&e.label) == Some(lid)
+                        interner.lookup(&e.label) == Some(lid)
                     })
                 }
             })
@@ -253,26 +234,27 @@ pub trait StreamableStorage: GraphStorage + 'static {
     
     /// Stream incoming neighbor vertex IDs without collecting.
     ///
-    /// This is the primary method used by navigation steps (`in()`, `in("label")`).
+    /// This is the primary method used by navigation steps (`in_()`, `in_("label")`).
     /// Returns source vertex IDs for incoming edges, optionally filtered by label.
     ///
     /// # Default Implementation
     ///
     /// Collects neighbor IDs upfront. Override for true streaming.
     fn stream_in_neighbors(
-        storage: Arc<dyn StreamableStorage>,
+        &self,
         vertex: VertexId,
         label_ids: &[u32],
     ) -> Box<dyn Iterator<Item = VertexId> + Send> {
         let label_ids_owned: Vec<u32> = label_ids.to_vec();
-        let neighbors: Vec<_> = storage
+        let interner = self.interner().clone();
+        let neighbors: Vec<_> = self
             .in_edges(vertex)
             .filter(move |e| {
                 if label_ids_owned.is_empty() {
                     true
                 } else {
                     label_ids_owned.iter().any(|&lid| {
-                        storage.interner().lookup(&e.label) == Some(lid)
+                        interner.lookup(&e.label) == Some(lid)
                     })
                 }
             })
@@ -289,12 +271,12 @@ pub trait StreamableStorage: GraphStorage + 'static {
     ///
     /// Chains `stream_out_neighbors` and `stream_in_neighbors`.
     fn stream_both_neighbors(
-        storage: Arc<dyn StreamableStorage>,
+        &self,
         vertex: VertexId,
         label_ids: &[u32],
     ) -> Box<dyn Iterator<Item = VertexId> + Send> {
-        let out_iter = Self::stream_out_neighbors(storage.clone(), vertex, label_ids);
-        let in_iter = Self::stream_in_neighbors(storage, vertex, label_ids);
+        let out_iter = self.stream_out_neighbors(vertex, label_ids);
+        let in_iter = self.stream_in_neighbors(vertex, label_ids);
         Box::new(out_iter.chain(in_iter))
     }
 }
@@ -306,63 +288,63 @@ pub trait StreamableStorage: GraphStorage + 'static {
 **Effort:** 1 day
 
 ```rust
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-
 impl StreamableStorage for InMemoryGraph {
-    fn stream_all_vertices(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
-        // Downcast to concrete type for access to internal structure
-        // This is safe because we know the concrete type at registration
-        let storage = storage
-            .as_any()
-            .downcast_ref::<InMemoryGraph>()
-            .expect("StreamableStorage impl only valid for InMemoryGraph");
-        
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
         // Clone the vertex ID list (just u64s, cheap)
-        let ids: Vec<VertexId> = storage.vertices.keys().copied().collect();
+        let ids: Vec<VertexId> = self.nodes.keys().copied().collect();
         Box::new(ids.into_iter())
     }
     
-    // Alternative: cursor-based streaming using atomic index
-    fn stream_all_vertices_cursor(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
-        Box::new(VertexCursor {
-            storage,
-            index: AtomicU64::new(0),
-        })
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<EdgeId> = self.edges.keys().copied().collect();
+        Box::new(ids.into_iter())
     }
-}
-
-/// Cursor-based vertex iterator for true O(1) streaming.
-struct VertexCursor {
-    storage: Arc<dyn StreamableStorage>,
-    // Using Vec index rather than HashMap iteration
-    // Requires InMemoryGraph to maintain a Vec<VertexId> alongside HashMap
-    index: AtomicU64,
-}
-
-impl Iterator for VertexCursor {
-    type Item = VertexId;
     
-    fn next(&mut self) -> Option<VertexId> {
-        // Implementation depends on InMemoryGraph internal structure
-        // See "InMemoryGraph Structure Changes" below
-        todo!()
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Use RoaringTreemap for efficient iteration
+        let label_id = self.string_table.lookup(label);
+        let ids: Vec<VertexId> = label_id
+            .and_then(|id| self.vertex_labels.get(&id))
+            .into_iter()
+            .flat_map(|bitmap| bitmap.iter())
+            .map(VertexId)
+            .collect();
+        Box::new(ids.into_iter())
     }
+    
+    fn stream_out_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+        let neighbors: Vec<VertexId> = self
+            .nodes
+            .get(&vertex)
+            .into_iter()
+            .flat_map(|node| node.out_edges.iter())
+            .filter_map(|&edge_id| self.edges.get(&edge_id))
+            .filter(move |edge| {
+                label_ids_owned.is_empty() || label_ids_owned.contains(&edge.label_id)
+            })
+            .map(|edge| edge.dst)
+            .collect();
+        Box::new(neighbors.into_iter())
+    }
+    
+    // ... similar for other methods
 }
 ```
 
-### InMemoryGraph Structure Changes
+### Note on True O(1) Streaming
 
-To support true cursor-based streaming, `InMemoryGraph` needs an ordered list of vertex IDs:
+The current `InMemoryGraph` implementation collects IDs from HashMap keys, which is still O(V).
+For true O(1) streaming, `InMemoryGraph` would need an ordered list of vertex IDs:
 
 ```rust
 pub struct InMemoryGraph {
     // Existing
-    vertices: HashMap<VertexId, VertexData>,
+    nodes: HashMap<VertexId, NodeData>,
     edges: HashMap<EdgeId, EdgeData>,
     
     // New: ordered list for streaming iteration
@@ -379,18 +361,17 @@ pub struct InMemoryGraph {
 - (-) Extra memory: 8 bytes per vertex/edge
 - (-) Slightly slower removal (need to update vec or use tombstones)
 
+This optimization is deferred to future work. The initial implementation provides
+the correct API with a collecting fallback.
+
 ### Alternative: RoaringTreemap Iteration
 
-If `InMemoryGraph` uses `RoaringTreemap` for vertex ID allocation:
+If `InMemoryGraph` uses `RoaringTreemap` for vertex ID tracking (future optimization):
 
 ```rust
-fn stream_all_vertices(
-    storage: Arc<dyn StreamableStorage>,
-) -> Box<dyn Iterator<Item = VertexId> + Send> {
-    let inmem = storage.as_any().downcast_ref::<InMemoryGraph>().unwrap();
-    
+fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
     // RoaringTreemap iter is owned after clone
-    let bitmap = inmem.active_vertices.clone();
+    let bitmap = self.active_vertices.clone();
     Box::new(bitmap.iter().map(VertexId))
 }
 ```
@@ -399,88 +380,87 @@ This provides O(active_vertices / 64) memory for the bitmap clone, much better t
 
 ---
 
-### Chunk 3: MmapGraph Implementation
+### Chunk 3: GraphSnapshot Implementation
 
-**Files:** `src/storage/mmap.rs`  
-**Effort:** 1 day
+**Files:** `src/storage/cow.rs`  
+**Effort:** 0.5 days
+
+`GraphSnapshot` is an ideal candidate because it's already cheap to clone (just `Arc<GraphState>`):
 
 ```rust
-impl StreamableStorage for MmapGraph {
-    fn stream_all_vertices(
-        storage: Arc<dyn StreamableStorage>,
-    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
-        let mmap = storage.as_any().downcast_ref::<MmapGraph>().unwrap();
-        
-        // Mmap can iterate by file position
-        Box::new(MmapVertexIter {
-            storage: storage.clone(),
-            position: 0,
-            count: mmap.vertex_count(),
-        })
+impl StreamableStorage for GraphSnapshot {
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Clone is cheap - just Arc increment
+        let ids: Vec<VertexId> = self.state.vertices.keys().copied().collect();
+        Box::new(ids.into_iter())
     }
-}
-
-struct MmapVertexIter {
-    storage: Arc<dyn StreamableStorage>,
-    position: u64,
-    count: u64,
-}
-
-impl Iterator for MmapVertexIter {
-    type Item = VertexId;
     
-    fn next(&mut self) -> Option<VertexId> {
-        if self.position >= self.count {
-            return None;
-        }
-        
-        let mmap = self.storage.as_any().downcast_ref::<MmapGraph>().unwrap();
-        
-        // Read vertex ID at current file position
-        // Skip deleted records (tombstones)
-        loop {
-            if self.position >= self.count {
-                return None;
-            }
-            
-            let id = VertexId(self.position);
-            self.position += 1;
-            
-            if mmap.get_vertex(id).is_some() {
-                return Some(id);
-            }
-        }
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        let ids: Vec<EdgeId> = self.state.edges.keys().copied().collect();
+        Box::new(ids.into_iter())
     }
+    
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let label_id = self.interner_snapshot.lookup(label);
+        let ids: Vec<VertexId> = label_id
+            .and_then(|id| self.state.vertex_labels.get(&id))
+            .into_iter()
+            .flat_map(|bitmap| bitmap.iter())
+            .map(|id| VertexId(id as u64))
+            .collect();
+        Box::new(ids.into_iter())
+    }
+    
+    fn stream_out_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+        let neighbors: Vec<VertexId> = self
+            .state
+            .vertices
+            .get(&vertex)
+            .into_iter()
+            .flat_map(|node| node.out_edges.iter())
+            .filter_map(|&edge_id| self.state.edges.get(&edge_id))
+            .filter(move |edge| {
+                label_ids_owned.is_empty() || label_ids_owned.contains(&edge.label_id)
+            })
+            .map(|edge| edge.dst)
+            .collect();
+        Box::new(neighbors.into_iter())
+    }
+    
+    // ... similar for other methods
 }
 ```
 
 ---
 
-### Chunk 4: as_any() Support
+### Chunk 4: MmapGraph Implementation (Optional)
 
-**Files:** `src/storage/mod.rs`  
-**Effort:** 0.5 days
+**Files:** `src/storage/mmap.rs`  
+**Effort:** 1 day
 
-Add `as_any()` method to enable downcasting:
+MmapGraph can use cursor-based iteration over file positions:
 
 ```rust
-pub trait GraphStorage: Send + Sync {
-    // ... existing methods ...
-    
-    /// Returns self as `Any` for downcasting.
-    ///
-    /// Used by `StreamableStorage` implementations to access backend-specific
-    /// internals for optimized streaming.
-    fn as_any(&self) -> &dyn std::any::Any;
-}
-
-impl GraphStorage for InMemoryGraph {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+impl StreamableStorage for MmapGraph {
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Collect vertex IDs - mmap can iterate sequentially through file
+        let count = self.vertex_count();
+        let ids: Vec<VertexId> = (0..count)
+            .map(VertexId)
+            .filter(|&id| self.get_vertex(id).is_some())
+            .collect();
+        Box::new(ids.into_iter())
     }
-    // ... rest unchanged
 }
 ```
+
+For true streaming without collection, a cursor-based iterator can be added
+in future work.
 
 ---
 
@@ -489,58 +469,69 @@ impl GraphStorage for InMemoryGraph {
 **Files:** `src/traversal/streaming.rs`  
 **Effort:** 0.5 days
 
-Update `StreamingExecutor::build_source` to use streaming methods:
+Update `StreamingExecutor` to accept `Arc<dyn StreamableStorage>` and use streaming methods:
 
 ```rust
 impl StreamingExecutor {
-    fn build_source(
+    /// Create a new streaming executor with true O(1) streaming source iteration.
+    pub fn new_streaming(
+        storage: Arc<dyn StreamableStorage>,
+        interner: Arc<StringInterner>,
+        steps: Vec<Box<dyn DynStep>>,
+        source: Option<TraversalSource>,
+        track_paths: bool,
+    ) -> Self {
+        let side_effects = SideEffects::new();
+        let ctx = StreamingContext::new(
+            storage.clone() as Arc<dyn GraphStorage + Send + Sync>,
+            interner.clone(),
+        )
+        .with_side_effects(side_effects.clone())
+        .with_path_tracking(track_paths);
+
+        // Build streaming source iterator
+        let source_iter = Self::build_streaming_source(storage, source, track_paths);
+
+        // Chain adapters
+        let iter = steps.into_iter().fold(
+            source_iter,
+            |input, step| -> Box<dyn Iterator<Item = Traverser> + Send> {
+                Box::new(StreamingAdapter::new(step, ctx.clone(), input))
+            },
+        );
+
+        Self { iter, side_effects }
+    }
+
+    fn build_streaming_source(
         storage: Arc<dyn StreamableStorage>,
         source: Option<TraversalSource>,
         track_paths: bool,
     ) -> Box<dyn Iterator<Item = Traverser> + Send> {
         match source {
             Some(TraversalSource::AllVertices) => {
-                // True streaming - no collection!
-                let iter = StreamableStorage::stream_all_vertices(storage);
+                // True streaming via StreamableStorage
+                let iter = storage.stream_all_vertices();
                 Box::new(iter.map(move |id| {
-                    let mut t = Traverser::new(Value::VertexId(id));
-                    if track_paths { t.init_path(); }
+                    let mut t = Traverser::new(Value::Vertex(id));
+                    if track_paths { t.extend_path_unlabeled(); }
                     t
                 }))
             }
             Some(TraversalSource::AllEdges) => {
-                let iter = StreamableStorage::stream_all_edges(storage);
+                let iter = storage.stream_all_edges();
                 Box::new(iter.map(move |id| {
-                    let mut t = Traverser::new(Value::EdgeId(id));
-                    if track_paths { t.init_path(); }
-                    t
-                }))
-            }
-            Some(TraversalSource::VerticesWithLabel(labels)) => {
-                // Stream each label, chain results
-                let iters: Vec<_> = labels.into_iter()
-                    .map(|label| {
-                        StreamableStorage::stream_vertices_with_label(
-                            storage.clone(), 
-                            label
-                        )
-                    })
-                    .collect();
-                
-                let iter = iters.into_iter().flatten();
-                Box::new(iter.map(move |id| {
-                    let mut t = Traverser::new(Value::VertexId(id));
-                    if track_paths { t.init_path(); }
+                    let mut t = Traverser::new(Value::Edge(id));
+                    if track_paths { t.extend_path_unlabeled(); }
                     t
                 }))
             }
             Some(TraversalSource::Vertices(ids)) => {
                 // Already owned, just validate existence
-                let storage_clone = storage.clone();
                 Box::new(ids.into_iter().filter_map(move |id| {
-                    storage_clone.get_vertex(id).map(|_| {
-                        let mut t = Traverser::new(Value::VertexId(id));
-                        if track_paths { t.init_path(); }
+                    storage.get_vertex(id).map(|_| {
+                        let mut t = Traverser::new(Value::Vertex(id));
+                        if track_paths { t.extend_path_unlabeled(); }
                         t
                     })
                 }))
@@ -554,24 +545,27 @@ impl StreamingExecutor {
 
 ---
 
-### Chunk 6: GraphSnapshot with StreamableStorage
+### Chunk 6: GraphSnapshot arc_streamable Method
 
-**Files:** `src/graph.rs`  
+**Files:** `src/storage/cow.rs`  
 **Effort:** 0.5 days
 
-Ensure `GraphSnapshot` can provide `Arc<dyn StreamableStorage>`:
+Add `arc_streamable()` method to `GraphSnapshot`:
 
 ```rust
 impl GraphSnapshot {
-    /// Get Arc-wrapped storage for streaming execution.
+    /// Get Arc-wrapped streamable storage for true O(1) streaming execution.
+    ///
+    /// Returns a clone of self wrapped in Arc as `dyn StreamableStorage`.
     pub fn arc_streamable(&self) -> Arc<dyn StreamableStorage> {
-        // Storage must implement StreamableStorage
-        self.storage.clone() as Arc<dyn StreamableStorage>
+        Arc::new(self.clone())
     }
 }
 ```
 
-This requires `GraphSnapshot` to store `Arc<dyn StreamableStorage>` instead of `Arc<dyn GraphStorage>`, or use a separate field.
+Since `GraphSnapshot` implements `StreamableStorage` and is cheap to clone
+(internally just `Arc<GraphState>`), this provides an efficient way to get
+owned storage for streaming pipelines.
 
 ---
 
@@ -579,16 +573,14 @@ This requires `GraphSnapshot` to store `Arc<dyn StreamableStorage>` instead of `
 
 | Chunk | Effort | Description |
 |-------|--------|-------------|
-| 1. StreamableStorage trait | 0.5 days | New trait with default impls (including neighbor streaming) |
-| 2. InMemoryGraph impl | 1 day | True streaming for inmemory backend |
-| 3. MmapGraph impl | 1 day | Cursor-based mmap iteration |
-| 4. as_any() support | 0.5 days | Enable downcasting in trait |
-| 5. StreamingExecutor update | 0.5 days | Use new streaming methods |
-| 6. Navigation steps update | 0.5 days | Use `stream_*_neighbors` methods |
-| 7. GraphSnapshot update | 0.5 days | Provide Arc<dyn StreamableStorage> |
-| 8. Tests | 0.5 days | Verify streaming behavior |
+| 1. StreamableStorage trait | 0.5 days | New trait with default impls |
+| 2. InMemoryGraph impl | 0.5 days | StreamableStorage for inmemory backend |
+| 3. GraphSnapshot impl | 0.5 days | StreamableStorage for COW snapshot |
+| 4. StreamingExecutor update | 0.5 days | Add new_streaming constructor |
+| 5. arc_streamable method | 0.25 days | Helper on GraphSnapshot |
+| 6. Tests | 0.5 days | Verify streaming behavior |
 
-**Total: ~5 days**
+**Total: ~2.75 days**
 
 ---
 

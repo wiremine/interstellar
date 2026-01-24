@@ -495,8 +495,7 @@ impl Step for SideEffectStep {
         use crate::traversal::step::execute_traversal_streaming;
 
         // Execute side-effect traversal (discard results)
-        let _ =
-            execute_traversal_streaming(&ctx, &self.side_traversal, input.clone()).for_each(drop);
+        execute_traversal_streaming(&ctx, &self.side_traversal, input.clone()).for_each(drop);
 
         // Pass through the original traverser unchanged
         Box::new(std::iter::once(input))
