@@ -74,6 +74,16 @@ impl crate::traversal::step::Step for ConstantStep {
     fn name(&self) -> &'static str {
         "constant"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Replace the traverser's value with the constant value
+        let value = self.value.clone();
+        Box::new(std::iter::once(input.with_value(value)))
+    }
 }
 
 #[cfg(test)]

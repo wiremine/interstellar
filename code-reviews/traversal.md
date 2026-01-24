@@ -90,6 +90,8 @@ fn expand<'a>(&'a self, ctx: &'a ExecutionContext<'a>, t: Traverser) -> impl Ite
 
 This requires careful lifetime management but preserves streaming behavior.
 
+**Spec:** See `specs/005-streaming-executor.md` for the comprehensive solution using `apply_streaming` and `StreamingContext`.
+
 **Priority:** HIGH
 
 ---

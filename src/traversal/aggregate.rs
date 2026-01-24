@@ -311,6 +311,19 @@ impl Step for GroupStep {
     fn name(&self) -> &'static str {
         "group"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: GroupStep cannot truly stream because it must collect ALL inputs
+        // before producing any output. Grouping requires seeing every value to know which
+        // group it belongs to. The output is a single Map containing all groups.
+        // This is fundamentally incompatible with O(1) streaming semantics.
+        // Current behavior: pass-through (incorrect but safe for pipeline compatibility).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -426,8 +439,7 @@ impl<In> GroupBuilder<In> {
 ///     .next();
 /// ```
 pub struct BoundGroupBuilder<'g, In> {
-    storage: &'g dyn crate::storage::GraphStorage,
-    interner: &'g crate::storage::interner::StringInterner,
+    snapshot: &'g dyn crate::traversal::SnapshotLike,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn DynStep>>,
     key_selector: Option<GroupKey>,
@@ -439,15 +451,13 @@ pub struct BoundGroupBuilder<'g, In> {
 impl<'g, In> BoundGroupBuilder<'g, In> {
     /// Create a new BoundGroupBuilder with existing steps and graph references.
     pub(crate) fn new(
-        storage: &'g dyn crate::storage::GraphStorage,
-        interner: &'g crate::storage::interner::StringInterner,
+        snapshot: &'g dyn crate::traversal::SnapshotLike,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn DynStep>>,
         track_paths: bool,
     ) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             source,
             steps,
             key_selector: None,
@@ -508,8 +518,7 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
             _phantom: PhantomData,
         };
 
-        let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
+        let mut bound = crate::traversal::source::BoundTraversal::new(self.snapshot, traversal);
 
         // Preserve track_paths by conditionally calling with_path()
         if self.track_paths {
@@ -669,6 +678,18 @@ impl Step for GroupCountStep {
     fn name(&self) -> &'static str {
         "groupCount"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: GroupCountStep cannot truly stream because it must count ALL inputs
+        // before producing any output. The output is a single Map of group -> count pairs.
+        // This is fundamentally incompatible with O(1) streaming semantics.
+        // Current behavior: pass-through (incorrect but safe for pipeline compatibility).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -753,8 +774,7 @@ impl<In> GroupCountBuilder<In> {
 /// This builder preserves the graph snapshot reference and path tracking state
 /// when building the final `BoundTraversal`.
 pub struct BoundGroupCountBuilder<'g, In> {
-    storage: &'g dyn crate::storage::GraphStorage,
-    interner: &'g crate::storage::interner::StringInterner,
+    snapshot: &'g dyn crate::traversal::SnapshotLike,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn DynStep>>,
     key_selector: Option<GroupKey>,
@@ -765,15 +785,13 @@ pub struct BoundGroupCountBuilder<'g, In> {
 impl<'g, In> BoundGroupCountBuilder<'g, In> {
     /// Create a new BoundGroupCountBuilder.
     pub(crate) fn new(
-        storage: &'g dyn crate::storage::GraphStorage,
-        interner: &'g crate::storage::interner::StringInterner,
+        snapshot: &'g dyn crate::traversal::SnapshotLike,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn DynStep>>,
         track_paths: bool,
     ) -> Self {
         BoundGroupCountBuilder {
-            storage,
-            interner,
+            snapshot,
             source,
             steps,
             key_selector: None,
@@ -812,8 +830,7 @@ impl<'g, In> BoundGroupCountBuilder<'g, In> {
             _phantom: PhantomData,
         };
 
-        let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
+        let mut bound = crate::traversal::source::BoundTraversal::new(self.snapshot, traversal);
 
         // Preserve track_paths by conditionally calling with_path()
         if self.track_paths {

@@ -12,7 +12,7 @@
 //! - `impl_filter_step!` for 1:1 filter steps
 //! - `impl_flatmap_step!` for 1:N expansion steps
 
-use crate::traversal::{ExecutionContext, Traverser};
+use crate::traversal::{ExecutionContext, StreamingContext, Traverser};
 
 // =============================================================================
 // Step Trait (GAT-based, concrete iterator types)
@@ -84,6 +84,39 @@ pub trait Step: Clone + Send + Sync + 'static {
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Self::Iter<'a>;
 
+    /// Apply step to a single input traverser, returning an owned iterator.
+    ///
+    /// This method is the key enabler for true streaming execution. Unlike
+    /// `apply`, which returns an iterator tied to borrowed lifetimes, this
+    /// method returns an iterator that owns all its data via cloning/Arc.
+    ///
+    /// The returned iterator has a `'static` lifetime, meaning it can be:
+    /// - Stored in structs without lifetime parameters
+    /// - Returned from functions
+    /// - Used in streaming pipelines that outlive the execution context
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Owned streaming context (cheaply cloneable via Arc)
+    /// * `input` - Single input traverser to process
+    ///
+    /// # Returns
+    ///
+    /// A boxed iterator that owns all its data. The iterator must be
+    /// `Send` for thread-safe streaming.
+    ///
+    /// # Implementation Notes
+    ///
+    /// Steps should:
+    /// 1. Clone themselves if needed for the iterator closure
+    /// 2. Clone the context's Arc references if storage/interner access is needed
+    /// 3. Pre-resolve label strings to IDs before creating the iterator
+    fn apply_streaming(
+        &self,
+        ctx: StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static>;
+
     /// Step name for debugging and profiling.
     fn name(&self) -> &'static str;
 }
@@ -115,6 +148,16 @@ pub trait DynStep: Send + Sync {
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a>;
 
+    /// Apply step to a single traverser, returning an owned iterator.
+    ///
+    /// Like `Step::apply_streaming` but callable through dynamic dispatch.
+    /// This is the key method for building streaming pipelines.
+    fn apply_streaming(
+        &self,
+        ctx: StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static>;
+
     /// Clone this step into a boxed trait object.
     ///
     /// Required for cloning traversals (e.g., for branching operations
@@ -137,6 +180,14 @@ impl<S: Step> DynStep for S {
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
         Box::new(self.apply(ctx, input))
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        <Self as Step>::apply_streaming(self, ctx, input)
     }
 
     fn clone_box(&self) -> Box<dyn DynStep> {
@@ -176,6 +227,13 @@ impl Clone for Box<dyn DynStep> {
 ///
 /// impl_filter_step!(IsPositiveStep, "isPositive");
 /// ```
+///
+/// # Streaming Support
+///
+/// For streaming execution, filter steps using this macro must also implement
+/// `matches_streaming(&self, ctx: &StreamingContext, traverser: &Traverser) -> bool`.
+/// If you don't need streaming support yet, the macro provides a default pass-through
+/// that can be overridden by also implementing `matches_streaming`.
 #[macro_export]
 macro_rules! impl_filter_step {
     ($step:ty, $name:literal) => {
@@ -194,6 +252,20 @@ macro_rules! impl_filter_step {
                 input.filter(move |t| step.matches(ctx, t))
             }
 
+            fn apply_streaming(
+                &self,
+                ctx: $crate::traversal::StreamingContext,
+                input: $crate::traversal::Traverser,
+            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + Send + 'static> {
+                // Use matches_streaming if available on the type
+                let step = self.clone();
+                if step.matches_streaming(&ctx, &input) {
+                    Box::new(std::iter::once(input))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+
             fn name(&self) -> &'static str {
                 $name
             }
@@ -207,6 +279,7 @@ macro_rules! impl_filter_step {
 /// The step struct must:
 /// - Implement `Clone`
 /// - Have an `expand(&self, ctx: &ExecutionContext, traverser: Traverser) -> impl Iterator<Item = Traverser>` method
+/// - Have an `expand_streaming(&self, ctx: &StreamingContext, traverser: Traverser) -> Box<dyn Iterator<Item = Traverser> + Send + 'static>` method
 ///
 /// # Example
 ///
@@ -219,6 +292,11 @@ macro_rules! impl_filter_step {
 /// impl DuplicateStep {
 ///     fn expand(&self, _ctx: &ExecutionContext, traverser: Traverser) -> impl Iterator<Item = Traverser> {
 ///         (0..self.count).map(move |_| traverser.clone())
+///     }
+///
+///     fn expand_streaming(&self, _ctx: &StreamingContext, traverser: Traverser) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+///         let count = self.count;
+///         Box::new((0..count).map(move |_| traverser.clone()))
 ///     }
 /// }
 ///
@@ -240,6 +318,14 @@ macro_rules! impl_flatmap_step {
             ) -> Self::Iter<'a> {
                 let step = self.clone();
                 input.flat_map(move |t| step.expand(ctx, t))
+            }
+
+            fn apply_streaming(
+                &self,
+                ctx: $crate::traversal::StreamingContext,
+                input: $crate::traversal::Traverser,
+            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + Send + 'static> {
+                self.expand_streaming(&ctx, input)
             }
 
             fn name(&self) -> &'static str {
@@ -293,6 +379,15 @@ impl Step for IdentityStep {
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Self::Iter<'a> {
         input // Pass through unchanged
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Identity step simply yields the input traverser unchanged
+        Box::new(std::iter::once(input))
     }
 
     fn name(&self) -> &'static str {
@@ -440,6 +535,76 @@ impl Step for StartStep {
         }
     }
 
+    fn apply_streaming(
+        &self,
+        ctx: StreamingContext,
+        _input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // StartStep ignores input and produces traversers from its source.
+        // For streaming, we return all source elements as a 'static iterator.
+        let track_paths = ctx.is_tracking_paths();
+        let storage = ctx.arc_storage();
+
+        match &self.source {
+            TraversalSource::AllVertices => {
+                // Collect vertex IDs to own them (storage iterator is not 'static)
+                let ids: Vec<_> = storage.all_vertices().map(|v| v.id).collect();
+                Box::new(ids.into_iter().map(move |id| {
+                    let mut t = Traverser::from_vertex(id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
+            }
+            TraversalSource::Vertices(ids) => {
+                let ids = ids.clone();
+                Box::new(ids.into_iter().filter_map(move |id| {
+                    storage.get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            TraversalSource::AllEdges => {
+                // Collect edge IDs to own them
+                let ids: Vec<_> = storage.all_edges().map(|e| e.id).collect();
+                Box::new(ids.into_iter().map(move |id| {
+                    let mut t = Traverser::from_edge(id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
+            }
+            TraversalSource::Edges(ids) => {
+                let ids = ids.clone();
+                Box::new(ids.into_iter().filter_map(move |id| {
+                    storage.get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            TraversalSource::Inject(values) => {
+                let values = values.clone();
+                Box::new(values.into_iter().map(move |v| {
+                    let mut t = Traverser::new(v);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
+            }
+        }
+    }
+
     fn name(&self) -> &'static str {
         "start"
     }
@@ -541,6 +706,45 @@ pub fn execute_traversal_from<'a, In, Out>(
     input: Box<dyn Iterator<Item = Traverser> + 'a>,
 ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
     execute_traversal(ctx, traversal.steps(), input)
+}
+
+/// Execute a sub-traversal in streaming mode with the given context and input.
+///
+/// This is similar to `execute_traversal_from` but uses `StreamingContext` for
+/// streaming execution. The sub-traversal's steps are applied using `apply_streaming`
+/// which returns `'static` iterators.
+///
+/// # Arguments
+///
+/// * `ctx` - The streaming context (Arc-wrapped storage/interner)
+/// * `traversal` - The sub-traversal to execute
+/// * `input` - Single input traverser
+///
+/// # Returns
+///
+/// An iterator over the results of executing the sub-traversal on the input.
+pub fn execute_traversal_streaming<In, Out>(
+    ctx: &crate::traversal::context::StreamingContext,
+    traversal: &crate::traversal::Traversal<In, Out>,
+    input: Traverser,
+) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+    let steps = traversal.steps();
+    if steps.is_empty() {
+        return Box::new(std::iter::once(input));
+    }
+
+    // Chain all steps together using apply_streaming
+    let mut current: Box<dyn Iterator<Item = Traverser> + Send + 'static> =
+        Box::new(std::iter::once(input));
+
+    for step in steps {
+        let step_clone = step.clone_box();
+        let ctx_clone = ctx.clone();
+        current =
+            Box::new(current.flat_map(move |t| step_clone.apply_streaming(ctx_clone.clone(), t)));
+    }
+
+    current
 }
 
 // =============================================================================
@@ -859,6 +1063,17 @@ mod tests {
                     _ => false,
                 }
             }
+
+            fn matches_streaming(
+                &self,
+                _ctx: &crate::traversal::context::StreamingContext,
+                traverser: &Traverser,
+            ) -> bool {
+                match &traverser.value {
+                    Value::Int(n) => *n >= self.min_value,
+                    _ => false,
+                }
+            }
         }
 
         impl_filter_step!(TestFilterStep, "testFilter");
@@ -918,6 +1133,20 @@ mod tests {
             ) -> impl Iterator<Item = Traverser> {
                 let count = self.repeat_count;
                 (0..count).map(move |i| traverser.split(Value::Int(i as i64)))
+            }
+
+            fn expand_streaming(
+                &self,
+                _ctx: &crate::traversal::context::StreamingContext,
+                traverser: Traverser,
+            ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+                let count = self.repeat_count;
+                Box::new(
+                    (0..count)
+                        .map(move |i| traverser.split(Value::Int(i as i64)))
+                        .collect::<Vec<_>>()
+                        .into_iter(),
+                )
             }
         }
 
@@ -1028,6 +1257,19 @@ mod tests {
                 };
                 result.into_iter()
             }
+
+            fn expand_streaming(
+                &self,
+                _ctx: &crate::traversal::context::StreamingContext,
+                traverser: Traverser,
+            ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+                let factor = self.factor;
+                let result = match traverser.value {
+                    Value::Int(n) => Some(traverser.with_value(Value::Int(n * factor))),
+                    _ => None,
+                };
+                Box::new(result.into_iter())
+            }
         }
 
         impl_flatmap_step!(MultiplyStep, "multiply");
@@ -1037,6 +1279,14 @@ mod tests {
 
         impl IsEvenStep {
             fn matches(&self, _ctx: &ExecutionContext, traverser: &Traverser) -> bool {
+                matches!(&traverser.value, Value::Int(n) if n % 2 == 0)
+            }
+
+            fn matches_streaming(
+                &self,
+                _ctx: &crate::traversal::context::StreamingContext,
+                traverser: &Traverser,
+            ) -> bool {
                 matches!(&traverser.value, Value::Int(n) if n % 2 == 0)
             }
         }

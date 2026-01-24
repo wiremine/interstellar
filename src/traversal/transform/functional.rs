@@ -88,6 +88,19 @@ where
     fn name(&self) -> &'static str {
         "map"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // CLOSURE STEP: MapStep holds a closure that requires ExecutionContext (not StreamingContext).
+        // The closure signature is: Fn(&ExecutionContext, &Value) -> Value
+        // StreamingContext cannot be converted to ExecutionContext without graph mutation access.
+        // For streaming transforms, use built-in steps (values, properties, etc.) instead.
+        // Current behavior: pass-through (no transformation).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // Implement Debug manually since we can't derive it for closures
@@ -186,6 +199,19 @@ where
 
     fn name(&self) -> &'static str {
         "flatMap"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // CLOSURE STEP: FlatMapStep holds a closure that requires ExecutionContext (not StreamingContext).
+        // The closure signature is: Fn(&ExecutionContext, &Value) -> Vec<Value>
+        // StreamingContext cannot be converted to ExecutionContext without graph mutation access.
+        // For streaming transforms, use built-in steps (out, in_, values, etc.) instead.
+        // Current behavior: pass-through (no transformation).
+        Box::new(std::iter::once(input))
     }
 }
 
@@ -842,6 +868,70 @@ impl crate::traversal::step::Step for ProjectStep {
     fn name(&self) -> &'static str {
         "project"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Build the projected map
+        let mut result = HashMap::new();
+
+        for (key, proj) in self.keys.iter().zip(self.projections.iter()) {
+            let value = match proj {
+                Projection::Key(prop_key) => {
+                    // Get property value from element using streaming context
+                    self.get_property_streaming(&ctx, &input, prop_key)
+                }
+                Projection::Traversal(sub) => {
+                    // Execute sub-traversal and collect results
+                    let results: Vec<_> =
+                        execute_traversal_streaming(&ctx, sub, input.clone()).collect();
+
+                    if results.is_empty() {
+                        None
+                    } else if results.len() == 1 {
+                        // Single result - return the value directly
+                        Some(results.into_iter().next().unwrap().value)
+                    } else {
+                        // Multiple results - return as list
+                        Some(crate::value::Value::List(
+                            results.into_iter().map(|t| t.value).collect(),
+                        ))
+                    }
+                }
+            };
+
+            result.insert(key.clone(), value.unwrap_or(crate::value::Value::Null));
+        }
+
+        let projected_value = crate::value::Value::Map(result);
+        Box::new(std::iter::once(input.with_value(projected_value)))
+    }
+}
+
+impl ProjectStep {
+    /// Get a property value from a traverser's element using streaming context.
+    fn get_property_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        t: &Traverser,
+        key: &str,
+    ) -> Option<crate::value::Value> {
+        match &t.value {
+            crate::value::Value::Vertex(id) => ctx
+                .storage()
+                .get_vertex(*id)
+                .and_then(|v| v.properties.get(key).cloned()),
+            crate::value::Value::Edge(id) => ctx
+                .storage()
+                .get_edge(*id)
+                .and_then(|e| e.properties.get(key).cloned()),
+            _ => None,
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -963,8 +1053,7 @@ impl<In> ProjectBuilder<In> {
 ///     .to_list();
 /// ```
 pub struct BoundProjectBuilder<'g, In> {
-    storage: &'g dyn crate::storage::GraphStorage,
-    interner: &'g crate::storage::interner::StringInterner,
+    snapshot: &'g dyn crate::traversal::SnapshotLike,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     keys: Vec<String>,
@@ -978,23 +1067,20 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
     ///
     /// # Arguments
     ///
-    /// * `storage` - Graph storage reference
-    /// * `interner` - String interner reference
+    /// * `snapshot` - Snapshot reference for graph access
     /// * `source` - Optional traversal source
     /// * `steps` - Existing traversal steps
     /// * `keys` - The keys for the projection map
     /// * `track_paths` - Whether path tracking is enabled
     pub(crate) fn new(
-        storage: &'g dyn crate::storage::GraphStorage,
-        interner: &'g crate::storage::interner::StringInterner,
+        snapshot: &'g dyn crate::traversal::SnapshotLike,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
         keys: Vec<String>,
         track_paths: bool,
     ) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             source,
             steps,
             keys,
@@ -1054,8 +1140,7 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
             _phantom: PhantomData,
         };
 
-        let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
+        let mut bound = crate::traversal::source::BoundTraversal::new(self.snapshot, traversal);
 
         if self.track_paths {
             bound = bound.with_path();
@@ -1262,6 +1347,94 @@ impl crate::traversal::step::Step for MathStep {
     fn name(&self) -> &'static str {
         "math"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Evaluate the expression using streaming context
+        match self.evaluate_streaming(&ctx, &input) {
+            Some(value) => Box::new(std::iter::once(input.with_value(value))),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+}
+
+impl MathStep {
+    /// Evaluate the expression for a given traverser using streaming context.
+    fn evaluate_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        traverser: &Traverser,
+    ) -> Option<Value> {
+        // Collect variable names and values in order
+        let mut var_names: Vec<String> = Vec::new();
+        let mut var_values: Vec<f64> = Vec::new();
+
+        for (var, prop_key) in &self.variable_keys {
+            var_names.push(var.clone());
+            let value = self.get_labeled_value_streaming(ctx, traverser, var, prop_key)?;
+            var_values.push(value);
+        }
+
+        // Try to get current value as f64 (may be None if current value is not numeric)
+        let current_value = self.value_to_f64(&traverser.value);
+
+        // Evaluate using the existing helper (it doesn't need ExecutionContext)
+        let result = self.evaluate_expression(current_value, &var_names, &var_values)?;
+
+        Some(Value::Float(result))
+    }
+
+    /// Get a labeled value from the path using streaming context.
+    fn get_labeled_value_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        traverser: &Traverser,
+        label: &str,
+        prop_key: &str,
+    ) -> Option<f64> {
+        // Get the first value with this label from the path
+        let path_values = traverser.path.get(label)?;
+        let path_value = path_values.first()?;
+
+        // Convert PathValue to Value
+        let value = path_value.to_value();
+
+        // Extract the property from the element
+        self.extract_number_streaming(ctx, &value, prop_key)
+    }
+
+    /// Extract a numeric value from an element's property using streaming context.
+    fn extract_number_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        value: &Value,
+        key: &str,
+    ) -> Option<f64> {
+        match value {
+            Value::Int(n) => Some(*n as f64),
+            Value::Float(f) => Some(*f),
+            Value::Vertex(id) => {
+                let vertex = ctx.storage().get_vertex(*id)?;
+                match vertex.properties.get(key)? {
+                    Value::Int(n) => Some(*n as f64),
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                }
+            }
+            Value::Edge(id) => {
+                let edge = ctx.storage().get_edge(*id)?;
+                match edge.properties.get(key)? {
+                    Value::Int(n) => Some(*n as f64),
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for MathStep {
@@ -1360,8 +1533,7 @@ impl<In> MathBuilder<In> {
 /// This builder is returned from `BoundTraversal::math()` and allows chaining
 /// `by()` clauses before calling `build()` to get back a `BoundTraversal`.
 pub struct BoundMathBuilder<'g, In> {
-    storage: &'g dyn crate::storage::GraphStorage,
-    interner: &'g crate::storage::interner::StringInterner,
+    snapshot: &'g dyn crate::traversal::SnapshotLike,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     expression: String,
@@ -1373,16 +1545,14 @@ pub struct BoundMathBuilder<'g, In> {
 impl<'g, In> BoundMathBuilder<'g, In> {
     /// Create a new BoundMathBuilder with existing steps, graph references, and expression.
     pub(crate) fn new(
-        storage: &'g dyn crate::storage::GraphStorage,
-        interner: &'g crate::storage::interner::StringInterner,
+        snapshot: &'g dyn crate::traversal::SnapshotLike,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
         expression: impl Into<String>,
         track_paths: bool,
     ) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             source,
             steps,
             expression: expression.into(),
@@ -1415,8 +1585,7 @@ impl<'g, In> BoundMathBuilder<'g, In> {
             _phantom: PhantomData,
         };
 
-        let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
+        let mut bound = crate::traversal::source::BoundTraversal::new(self.snapshot, traversal);
 
         if self.track_paths {
             bound = bound.with_path();

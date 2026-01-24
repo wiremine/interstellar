@@ -126,6 +126,59 @@ impl Step for OutStep {
     fn name(&self) -> &'static str {
         "out"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let vertex_id = match input.as_vertex_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Pre-resolve labels once for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            self.labels
+                .iter()
+                .filter_map(|label| ctx.interner().lookup(label))
+                .collect()
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Collect edges to owned Vec (required for 'static lifetime)
+        let edges: Vec<_> = ctx
+            .storage()
+            .out_edges(vertex_id)
+            .filter_map(|edge| {
+                // Filter by label if specified
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.dst)
+            })
+            .collect();
+
+        // Return owned iterator over collected target vertices
+        Box::new(edges.into_iter().map(move |dst| {
+            let mut new_t = input.split(Value::Vertex(dst));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            new_t
+        }))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -227,6 +280,59 @@ impl Step for InStep {
 
     fn name(&self) -> &'static str {
         "in"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let vertex_id = match input.as_vertex_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Pre-resolve labels once for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            self.labels
+                .iter()
+                .filter_map(|label| ctx.interner().lookup(label))
+                .collect()
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Collect edges to owned Vec (required for 'static lifetime)
+        let edges: Vec<_> = ctx
+            .storage()
+            .in_edges(vertex_id)
+            .filter_map(|edge| {
+                // Filter by label if specified
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.src)
+            })
+            .collect();
+
+        // Return owned iterator over collected source vertices
+        Box::new(edges.into_iter().map(move |src| {
+            let mut new_t = input.split(Value::Vertex(src));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            new_t
+        }))
     }
 }
 
@@ -349,6 +455,79 @@ impl Step for BothStep {
     fn name(&self) -> &'static str {
         "both"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let vertex_id = match input.as_vertex_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Pre-resolve labels once for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            self.labels
+                .iter()
+                .filter_map(|label| ctx.interner().lookup(label))
+                .collect()
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+        let label_ids_in = label_ids.clone();
+
+        // Collect out vertices
+        let out_vertices: Vec<_> = ctx
+            .storage()
+            .out_edges(vertex_id)
+            .filter_map(|edge| {
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.dst)
+            })
+            .collect();
+
+        // Collect in vertices
+        let in_vertices: Vec<_> = ctx
+            .storage()
+            .in_edges(vertex_id)
+            .filter_map(|edge| {
+                if !label_ids_in.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids_in.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.src)
+            })
+            .collect();
+
+        // Chain both direction results
+        Box::new(
+            out_vertices
+                .into_iter()
+                .chain(in_vertices)
+                .map(move |neighbor| {
+                    let mut new_t = input.split(Value::Vertex(neighbor));
+                    if track_paths {
+                        new_t.extend_path_unlabeled();
+                    }
+                    new_t
+                }),
+        )
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -447,6 +626,57 @@ impl Step for OutEStep {
     fn name(&self) -> &'static str {
         "outE"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let vertex_id = match input.as_vertex_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Pre-resolve labels once for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            self.labels
+                .iter()
+                .filter_map(|label| ctx.interner().lookup(label))
+                .collect()
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Collect edge IDs to owned Vec
+        let edges: Vec<_> = ctx
+            .storage()
+            .out_edges(vertex_id)
+            .filter_map(|edge| {
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.id)
+            })
+            .collect();
+
+        Box::new(edges.into_iter().map(move |edge_id| {
+            let mut new_t = input.split(Value::Edge(edge_id));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            new_t
+        }))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -544,6 +774,57 @@ impl Step for InEStep {
 
     fn name(&self) -> &'static str {
         "inE"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let vertex_id = match input.as_vertex_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Pre-resolve labels once for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            self.labels
+                .iter()
+                .filter_map(|label| ctx.interner().lookup(label))
+                .collect()
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+
+        // Collect edge IDs to owned Vec
+        let edges: Vec<_> = ctx
+            .storage()
+            .in_edges(vertex_id)
+            .filter_map(|edge| {
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.id)
+            })
+            .collect();
+
+        Box::new(edges.into_iter().map(move |edge_id| {
+            let mut new_t = input.split(Value::Edge(edge_id));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            new_t
+        }))
     }
 }
 
@@ -664,6 +945,73 @@ impl Step for BothEStep {
     fn name(&self) -> &'static str {
         "bothE"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let vertex_id = match input.as_vertex_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Pre-resolve labels once for efficiency
+        let label_ids: Vec<u32> = if self.labels.is_empty() {
+            Vec::new()
+        } else {
+            self.labels
+                .iter()
+                .filter_map(|label| ctx.interner().lookup(label))
+                .collect()
+        };
+
+        // If labels were specified but none resolved, return empty iterator
+        if !self.labels.is_empty() && label_ids.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
+        let track_paths = ctx.is_tracking_paths();
+        let label_ids_in = label_ids.clone();
+
+        // Collect out edge IDs
+        let out_edges: Vec<_> = ctx
+            .storage()
+            .out_edges(vertex_id)
+            .filter_map(|edge| {
+                if !label_ids.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.id)
+            })
+            .collect();
+
+        // Collect in edge IDs
+        let in_edges: Vec<_> = ctx
+            .storage()
+            .in_edges(vertex_id)
+            .filter_map(|edge| {
+                if !label_ids_in.is_empty() {
+                    let edge_label_id = ctx.interner().lookup(&edge.label)?;
+                    if !label_ids_in.contains(&edge_label_id) {
+                        return None;
+                    }
+                }
+                Some(edge.id)
+            })
+            .collect();
+
+        Box::new(out_edges.into_iter().chain(in_edges).map(move |edge_id| {
+            let mut new_t = input.split(Value::Edge(edge_id));
+            if track_paths {
+                new_t.extend_path_unlabeled();
+            }
+            new_t
+        }))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -727,6 +1075,30 @@ impl Step for OutVStep {
     fn name(&self) -> &'static str {
         "outV"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let edge_id = match input.as_edge_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let edge = match ctx.storage().get_edge(edge_id) {
+            Some(e) => e,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let track_paths = ctx.is_tracking_paths();
+        let mut new_t = input.split(Value::Vertex(edge.src));
+        if track_paths {
+            new_t.extend_path_unlabeled();
+        }
+
+        Box::new(std::iter::once(new_t))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -789,6 +1161,30 @@ impl Step for InVStep {
 
     fn name(&self) -> &'static str {
         "inV"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let edge_id = match input.as_edge_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let edge = match ctx.storage().get_edge(edge_id) {
+            Some(e) => e,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let track_paths = ctx.is_tracking_paths();
+        let mut new_t = input.split(Value::Vertex(edge.dst));
+        if track_paths {
+            new_t.extend_path_unlabeled();
+        }
+
+        Box::new(std::iter::once(new_t))
     }
 }
 
@@ -864,6 +1260,32 @@ impl Step for BothVStep {
 
     fn name(&self) -> &'static str {
         "bothV"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let edge_id = match input.as_edge_id() {
+            Some(id) => id,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let edge = match ctx.storage().get_edge(edge_id) {
+            Some(e) => e,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let track_paths = ctx.is_tracking_paths();
+        let mut src = input.split(Value::Vertex(edge.src));
+        let mut dst = input.split(Value::Vertex(edge.dst));
+        if track_paths {
+            src.extend_path_unlabeled();
+            dst.extend_path_unlabeled();
+        }
+
+        Box::new([src, dst].into_iter())
     }
 }
 
@@ -971,6 +1393,58 @@ impl Step for OtherVStep {
 
     fn name(&self) -> &'static str {
         "otherV"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::PathValue;
+
+        // Current value must be an edge
+        let edge_id = match &input.value {
+            Value::Edge(id) => *id,
+            _ => return Box::new(std::iter::empty()),
+        };
+
+        // Get the edge to find its endpoints
+        let edge = match ctx.storage().get_edge(edge_id) {
+            Some(e) => e,
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Find the vertex we came from by looking at the path
+        let path_len = input.path.len();
+        let other_vid = if path_len >= 2 {
+            let path_elements: Vec<_> = input.path.elements().collect();
+            let prev_element = &path_elements[path_len - 2];
+
+            match &prev_element.value {
+                PathValue::Vertex(prev_id) => {
+                    if *prev_id == edge.src {
+                        edge.dst
+                    } else if *prev_id == edge.dst {
+                        edge.src
+                    } else {
+                        // Previous vertex isn't an endpoint - fall back to dst
+                        edge.dst
+                    }
+                }
+                _ => edge.dst, // Fall back if previous isn't a vertex
+            }
+        } else {
+            // No previous element, fall back to dst
+            edge.dst
+        };
+
+        let track_paths = ctx.is_tracking_paths();
+        let mut new_t = input.with_value(Value::Vertex(other_vid));
+        if track_paths {
+            new_t.extend_path_unlabeled();
+        }
+
+        Box::new(std::iter::once(new_t))
     }
 }
 

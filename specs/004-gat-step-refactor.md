@@ -3,7 +3,8 @@
 **Status:** Implemented  
 **Priority:** High (Long-term architectural fix)  
 **Depends on:** Rust 1.65+ (GATs stabilized)  
-**Related:** `perf-improvements/002-eager-collection-lazy-evaluation.md`
+**Related:** `code-reviews/traversal.md` (Section 1: Navigation Steps Collect to Vec)  
+**Follow-up:** `005-streaming-executor.md` (completes lazy evaluation at executor level)
 
 ## Executive Summary
 

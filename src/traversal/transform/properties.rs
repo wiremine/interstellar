@@ -201,6 +201,59 @@ impl crate::traversal::step::Step for PropertiesStep {
     fn name(&self) -> &'static str {
         "properties"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let keys = self.keys.clone();
+
+        let props: Vec<Value> = match &input.value {
+            Value::Vertex(id) => ctx
+                .storage()
+                .get_vertex(*id)
+                .map(|vertex| match &keys {
+                    None => vertex
+                        .properties
+                        .iter()
+                        .map(|(k, v)| Self::make_property_map(k.clone(), v.clone()))
+                        .collect(),
+                    Some(key_list) => key_list
+                        .iter()
+                        .filter_map(|key| {
+                            vertex
+                                .properties
+                                .get(key)
+                                .map(|v| Self::make_property_map(key.clone(), v.clone()))
+                        })
+                        .collect(),
+                })
+                .unwrap_or_default(),
+            Value::Edge(id) => ctx
+                .storage()
+                .get_edge(*id)
+                .map(|edge| match &keys {
+                    None => edge
+                        .properties
+                        .iter()
+                        .map(|(k, v)| Self::make_property_map(k.clone(), v.clone()))
+                        .collect(),
+                    Some(key_list) => key_list
+                        .iter()
+                        .filter_map(|key| {
+                            edge.properties
+                                .get(key)
+                                .map(|v| Self::make_property_map(key.clone(), v.clone()))
+                        })
+                        .collect(),
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+
+        Box::new(props.into_iter().map(move |val| input.split(val)))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -392,6 +445,78 @@ impl crate::traversal::step::Step for ValueMapStep {
     fn name(&self) -> &'static str {
         "valueMap"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let result = self.transform_streaming(&ctx, &input);
+        Box::new(std::iter::once(input.with_value(result)))
+    }
+}
+
+impl ValueMapStep {
+    /// Streaming version of transform using StreamingContext.
+    fn transform_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        traverser: &Traverser,
+    ) -> Value {
+        let mut map = std::collections::HashMap::new();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
+                    if self.include_tokens {
+                        map.insert("id".to_string(), Value::Int(id.0 as i64));
+                        map.insert("label".to_string(), Value::String(vertex.label.clone()));
+                    }
+
+                    match &self.keys {
+                        None => {
+                            for (key, value) in &vertex.properties {
+                                map.insert(key.clone(), Value::List(vec![value.clone()]));
+                            }
+                        }
+                        Some(key_list) => {
+                            for key in key_list {
+                                if let Some(value) = vertex.properties.get(key) {
+                                    map.insert(key.clone(), Value::List(vec![value.clone()]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
+                    if self.include_tokens {
+                        map.insert("id".to_string(), Value::Int(id.0 as i64));
+                        map.insert("label".to_string(), Value::String(edge.label.clone()));
+                    }
+
+                    match &self.keys {
+                        None => {
+                            for (key, value) in &edge.properties {
+                                map.insert(key.clone(), Value::List(vec![value.clone()]));
+                            }
+                        }
+                        Some(key_list) => {
+                            for key in key_list {
+                                if let Some(value) = edge.properties.get(key) {
+                                    map.insert(key.clone(), Value::List(vec![value.clone()]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Value::Map(map)
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -580,6 +705,98 @@ impl crate::traversal::step::Step for ElementMapStep {
     fn name(&self) -> &'static str {
         "elementMap"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let result = self.transform_streaming(&ctx, &input);
+        Box::new(std::iter::once(input.with_value(result)))
+    }
+}
+
+impl ElementMapStep {
+    /// Streaming version of transform using StreamingContext.
+    fn transform_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        traverser: &Traverser,
+    ) -> Value {
+        let mut map = std::collections::HashMap::new();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
+                    map.insert("id".to_string(), Value::Int(id.0 as i64));
+                    map.insert("label".to_string(), Value::String(vertex.label.clone()));
+
+                    match &self.keys {
+                        None => {
+                            for (key, value) in &vertex.properties {
+                                map.insert(key.clone(), value.clone());
+                            }
+                        }
+                        Some(key_list) => {
+                            for key in key_list {
+                                if let Some(value) = vertex.properties.get(key) {
+                                    map.insert(key.clone(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
+                    map.insert("id".to_string(), Value::Int(id.0 as i64));
+                    map.insert("label".to_string(), Value::String(edge.label.clone()));
+
+                    // Include IN vertex reference (the destination vertex)
+                    let in_ref = self.make_vertex_reference_streaming(ctx, edge.dst);
+                    map.insert("IN".to_string(), in_ref);
+
+                    // Include OUT vertex reference (the source vertex)
+                    let out_ref = self.make_vertex_reference_streaming(ctx, edge.src);
+                    map.insert("OUT".to_string(), out_ref);
+
+                    match &self.keys {
+                        None => {
+                            for (key, value) in &edge.properties {
+                                map.insert(key.clone(), value.clone());
+                            }
+                        }
+                        Some(key_list) => {
+                            for key in key_list {
+                                if let Some(value) = edge.properties.get(key) {
+                                    map.insert(key.clone(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Value::Map(map)
+    }
+
+    /// Streaming version of make_vertex_reference.
+    fn make_vertex_reference_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        id: crate::value::VertexId,
+    ) -> Value {
+        let mut map = std::collections::HashMap::new();
+        map.insert("id".to_string(), Value::Int(id.0 as i64));
+
+        if let Some(vertex) = ctx.storage().get_vertex(id) {
+            map.insert("label".to_string(), Value::String(vertex.label.clone()));
+        }
+
+        Value::Map(map)
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -754,6 +971,80 @@ impl crate::traversal::step::Step for PropertyMapStep {
 
     fn name(&self) -> &'static str {
         "propertyMap"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let result = self.transform_streaming(&ctx, &input);
+        Box::new(std::iter::once(input.with_value(result)))
+    }
+}
+
+impl PropertyMapStep {
+    /// Streaming version of transform using StreamingContext.
+    fn transform_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        traverser: &Traverser,
+    ) -> Value {
+        let mut map = std::collections::HashMap::new();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
+                    match &self.keys {
+                        None => {
+                            for (key, value) in &vertex.properties {
+                                let prop_obj =
+                                    PropertiesStep::make_property_map(key.clone(), value.clone());
+                                map.insert(key.clone(), Value::List(vec![prop_obj]));
+                            }
+                        }
+                        Some(key_list) => {
+                            for key in key_list {
+                                if let Some(value) = vertex.properties.get(key) {
+                                    let prop_obj = PropertiesStep::make_property_map(
+                                        key.clone(),
+                                        value.clone(),
+                                    );
+                                    map.insert(key.clone(), Value::List(vec![prop_obj]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
+                    match &self.keys {
+                        None => {
+                            for (key, value) in &edge.properties {
+                                let prop_obj =
+                                    PropertiesStep::make_property_map(key.clone(), value.clone());
+                                map.insert(key.clone(), Value::List(vec![prop_obj]));
+                            }
+                        }
+                        Some(key_list) => {
+                            for key in key_list {
+                                if let Some(value) = edge.properties.get(key) {
+                                    let prop_obj = PropertiesStep::make_property_map(
+                                        key.clone(),
+                                        value.clone(),
+                                    );
+                                    map.insert(key.clone(), Value::List(vec![prop_obj]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Value::Map(map)
     }
 }
 

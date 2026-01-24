@@ -75,6 +75,32 @@ impl crate::traversal::step::Step for IdStep {
     fn name(&self) -> &'static str {
         "id"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        match &input.value {
+            Value::Vertex(id) => {
+                let new_t = input.split(Value::Int(id.0 as i64));
+                Box::new(std::iter::once(new_t))
+            }
+            Value::Edge(id) => {
+                let new_t = input.split(Value::Int(id.0 as i64));
+                Box::new(std::iter::once(new_t))
+            }
+            Value::Map(map)
+                if map.contains_key("__pending_add_v") || map.contains_key("__pending_add_e") =>
+            {
+                let mut new_map = map.clone();
+                new_map.insert("__extract_id".to_string(), Value::Bool(true));
+                let new_t = input.split(Value::Map(new_map));
+                Box::new(std::iter::once(new_t))
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -144,6 +170,32 @@ impl crate::traversal::step::Step for LabelStep {
     fn name(&self) -> &'static str {
         "label"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        match &input.value {
+            Value::Vertex(id) => {
+                if let Some(vertex) = ctx.storage().get_vertex(*id) {
+                    let new_t = input.split(Value::String(vertex.label.clone()));
+                    Box::new(std::iter::once(new_t))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            Value::Edge(id) => {
+                if let Some(edge) = ctx.storage().get_edge(*id) {
+                    let new_t = input.split(Value::String(edge.label.clone()));
+                    Box::new(std::iter::once(new_t))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -207,6 +259,24 @@ impl crate::traversal::step::Step for KeyStep {
     fn name(&self) -> &'static str {
         "key"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        match &input.value {
+            Value::Map(map) => {
+                if let Some(key) = map.get("key").cloned() {
+                    let new_t = input.split(key);
+                    Box::new(std::iter::once(new_t))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -269,6 +339,24 @@ impl crate::traversal::step::Step for ValueStep {
 
     fn name(&self) -> &'static str {
         "value"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        match &input.value {
+            Value::Map(map) => {
+                if let Some(val) = map.get("value").cloned() {
+                    let new_t = input.split(val);
+                    Box::new(std::iter::once(new_t))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            _ => Box::new(std::iter::empty()),
+        }
     }
 }
 
@@ -342,6 +430,16 @@ impl crate::traversal::step::Step for LoopsStep {
 
     fn name(&self) -> &'static str {
         "loops"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let loops = input.loops as i64;
+        let new_t = input.split(Value::Int(loops));
+        Box::new(std::iter::once(new_t))
     }
 }
 
@@ -422,6 +520,19 @@ impl crate::traversal::step::Step for IndexStep {
 
     fn name(&self) -> &'static str {
         "index"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // STATEFUL STEP: IndexStep cannot truly stream because it requires a sequential counter
+        // to assign indices 0, 1, 2, ... to each traverser. In a true streaming model,
+        // traversers may be processed out of order or in parallel, making consistent
+        // index assignment impossible without coordination.
+        // Current behavior: pass-through (no indexing).
+        Box::new(std::iter::once(input))
     }
 }
 

@@ -2825,6 +2825,24 @@ impl GraphSnapshot {
         &self.interner_snapshot
     }
 
+    /// Get Arc-wrapped storage for streaming execution.
+    ///
+    /// Returns a clone of self wrapped in Arc. Since `GraphSnapshot`
+    /// implements `GraphStorage`, this enables streaming pipelines
+    /// to own the storage without lifetime constraints.
+    #[inline]
+    pub fn arc_storage(&self) -> Arc<dyn GraphStorage + Send + Sync> {
+        Arc::new(self.clone())
+    }
+
+    /// Get Arc-wrapped interner for streaming execution.
+    ///
+    /// Returns a clone of the internal Arc reference.
+    #[inline]
+    pub fn arc_interner(&self) -> Arc<StringInterner> {
+        Arc::clone(&self.interner_snapshot)
+    }
+
     /// Create a Gremlin traversal source for this snapshot.
     ///
     /// This provides the full Gremlin-style fluent API for querying the graph.
@@ -2862,6 +2880,18 @@ impl crate::traversal::SnapshotLike for GraphSnapshot {
 
     fn interner(&self) -> &StringInterner {
         &self.interner_snapshot
+    }
+
+    fn as_dyn(&self) -> &dyn crate::traversal::SnapshotLike {
+        self
+    }
+
+    fn arc_storage(&self) -> std::sync::Arc<dyn GraphStorage + Send + Sync> {
+        self.arc_storage()
+    }
+
+    fn arc_interner(&self) -> std::sync::Arc<StringInterner> {
+        self.arc_interner()
     }
 }
 

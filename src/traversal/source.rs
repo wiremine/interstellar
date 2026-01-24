@@ -34,6 +34,7 @@ use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
 use crate::traversal::context::SnapshotLike;
 use crate::traversal::step::{execute_traversal, DynStep, Step};
+use crate::traversal::streaming::StreamingExecutor;
 use crate::traversal::{ExecutionContext, Traversal, TraversalSource, Traverser};
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -60,8 +61,7 @@ use crate::value::{EdgeId, Value, VertexId};
 /// let count = g.v().count();
 /// ```
 pub struct GraphTraversalSource<'g> {
-    storage: &'g dyn GraphStorage,
-    interner: &'g StringInterner,
+    snapshot: &'g dyn SnapshotLike,
 }
 
 impl<'g> GraphTraversalSource<'g> {
@@ -80,8 +80,7 @@ impl<'g> GraphTraversalSource<'g> {
     /// ```
     pub fn from_snapshot<S: SnapshotLike + ?Sized>(snapshot: &'g S) -> Self {
         Self {
-            storage: snapshot.storage(),
-            interner: snapshot.interner(),
+            snapshot: snapshot.as_dyn(),
         }
     }
 
@@ -94,8 +93,7 @@ impl<'g> GraphTraversalSource<'g> {
     /// ```
     pub fn v(&self) -> BoundTraversal<'g, (), Value> {
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::AllVertices),
         )
     }
@@ -114,8 +112,7 @@ impl<'g> GraphTraversalSource<'g> {
         I: IntoIterator<Item = VertexId>,
     {
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::Vertices(ids.into_iter().collect())),
         )
     }
@@ -129,8 +126,7 @@ impl<'g> GraphTraversalSource<'g> {
     /// ```
     pub fn e(&self) -> BoundTraversal<'g, (), Value> {
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::AllEdges),
         )
     }
@@ -149,8 +145,7 @@ impl<'g> GraphTraversalSource<'g> {
         I: IntoIterator<Item = EdgeId>,
     {
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::Edges(ids.into_iter().collect())),
         )
     }
@@ -173,8 +168,7 @@ impl<'g> GraphTraversalSource<'g> {
     {
         let values: Vec<Value> = values.into_iter().map(Into::into).collect();
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::Inject(values)),
         )
     }
@@ -182,13 +176,13 @@ impl<'g> GraphTraversalSource<'g> {
     /// Get the underlying graph storage reference.
     #[inline]
     pub fn storage(&self) -> &'g dyn GraphStorage {
-        self.storage
+        self.snapshot.storage()
     }
 
     /// Get the interner reference.
     #[inline]
     pub fn interner(&self) -> &'g StringInterner {
-        self.interner
+        self.snapshot.interner()
     }
 
     // -------------------------------------------------------------------------
@@ -230,14 +224,14 @@ impl<'g> GraphTraversalSource<'g> {
         let value = value.into();
         // Use the storage's indexed lookup method
         let vertex_ids: Vec<VertexId> = self
-            .storage
+            .snapshot
+            .storage()
             .vertices_by_property(label, property, &value)
             .map(|v| v.id)
             .collect();
 
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::Vertices(vertex_ids)),
         )
     }
@@ -289,14 +283,14 @@ impl<'g> GraphTraversalSource<'g> {
     ) -> BoundTraversal<'g, (), Value> {
         // Use the storage's indexed range lookup method
         let vertex_ids: Vec<VertexId> = self
-            .storage
+            .snapshot
+            .storage()
             .vertices_by_property_range(label, property, start, end)
             .map(|v| v.id)
             .collect();
 
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::Vertices(vertex_ids)),
         )
     }
@@ -336,14 +330,14 @@ impl<'g> GraphTraversalSource<'g> {
         let value = value.into();
         // Use the storage's indexed lookup method
         let edge_ids: Vec<EdgeId> = self
-            .storage
+            .snapshot
+            .storage()
             .edges_by_property(label, property, &value)
             .map(|e| e.id)
             .collect();
 
         BoundTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             Traversal::with_source(TraversalSource::Edges(edge_ids)),
         )
     }
@@ -373,7 +367,7 @@ impl<'g> GraphTraversalSource<'g> {
         // Create a traversal that starts with add_v step
         let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
         traversal = traversal.add_step(AddVStep::new(label));
-        BoundTraversal::new(self.storage, self.interner, traversal)
+        BoundTraversal::new(self.snapshot, traversal)
     }
 
     /// Start a traversal that creates a new edge.
@@ -393,7 +387,7 @@ impl<'g> GraphTraversalSource<'g> {
     ///     .next();
     /// ```
     pub fn add_e(&self, label: impl Into<String>) -> AddEdgeBuilder<'g> {
-        AddEdgeBuilder::new(self.storage, self.interner, label.into())
+        AddEdgeBuilder::new(self.snapshot, label.into())
     }
 }
 
@@ -419,8 +413,7 @@ impl<'g> GraphTraversalSource<'g> {
 /// let results: Vec<Value> = traversal.to_list();
 /// ```
 pub struct BoundTraversal<'g, In, Out> {
-    storage: &'g dyn GraphStorage,
-    interner: &'g StringInterner,
+    snapshot: &'g dyn SnapshotLike,
     traversal: Traversal<In, Out>,
     /// Whether to automatically track paths for navigation steps
     track_paths: bool,
@@ -428,19 +421,21 @@ pub struct BoundTraversal<'g, In, Out> {
 
 impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// Create a new bound traversal.
-    pub(crate) fn new(
-        storage: &'g dyn GraphStorage,
-        interner: &'g StringInterner,
-        traversal: Traversal<In, Out>,
-    ) -> Self {
+    pub(crate) fn new(snapshot: &'g dyn SnapshotLike, traversal: Traversal<In, Out>) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             traversal,
             track_paths: false,
         }
     }
 
+    /// Create a new bound traversal from raw storage and interner references.
+    ///
+    /// This is used internally by builder types that hold storage/interner separately.
+    /// The references must be valid for the lifetime 'g.
+    ///
+    /// # Safety (conceptual)
+    ///
     /// Enable automatic path tracking for this traversal.
     ///
     /// When path tracking is enabled, navigation steps automatically
@@ -479,8 +474,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// ```
     pub fn add_step<NewOut>(self, step: impl Step + 'static) -> BoundTraversal<'g, In, NewOut> {
         BoundTraversal {
-            storage: self.storage,
-            interner: self.interner,
+            snapshot: self.snapshot,
             traversal: self.traversal.add_step(step),
             track_paths: self.track_paths,
         }
@@ -499,8 +493,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// ```
     pub fn append<Mid>(self, anon: Traversal<Out, Mid>) -> BoundTraversal<'g, In, Mid> {
         BoundTraversal {
-            storage: self.storage,
-            interner: self.interner,
+            snapshot: self.snapshot,
             traversal: self.traversal.append(anon),
             track_paths: self.track_paths,
         }
@@ -509,7 +502,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// Create an execution context for this traversal.
     #[allow(dead_code)] // Will be used in future phases for lazy execution
     fn create_context(&self) -> ExecutionContext<'g> {
-        ExecutionContext::new(self.storage, self.interner)
+        ExecutionContext::new(self.snapshot.storage(), self.snapshot.interner())
     }
 
     /// Execute the traversal and return an executor that produces traversers.
@@ -526,23 +519,95 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// ```
     pub fn execute(self) -> TraversalExecutor<'g> {
         TraversalExecutor::new(
-            self.storage,
-            self.interner,
+            self.snapshot.storage(),
+            self.snapshot.interner(),
             self.traversal,
             self.track_paths,
         )
     }
 
+    /// Execute with true O(1) streaming evaluation.
+    ///
+    /// Unlike `execute()` which may collect intermediate results, this method
+    /// returns a `StreamingExecutor` that pulls traversers through the pipeline
+    /// one at a time with no eager collection.
+    ///
+    /// # Memory Model
+    ///
+    /// - **Per step**: O(1) memory overhead
+    /// - **Total**: O(steps + max_degree) constant regardless of result set size
+    /// - **Early termination**: `iter().take(n)` processes exactly n items per step
+    ///
+    /// # Requirements
+    ///
+    /// The snapshot must support Arc access (via `arc_storage()` and `arc_interner()`).
+    /// `GraphSnapshot` from `Graph::snapshot()` supports this.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Lazy streaming - only processes items as needed
+    /// let first = g.v().out().out().streaming_execute().next();
+    ///
+    /// // Early termination - stops after 10 items
+    /// let sample: Vec<_> = g.v().out("knows").streaming_execute().take(10).collect();
+    /// ```
+    pub fn streaming_execute(self) -> StreamingExecutor {
+        let (source, steps) = self.traversal.into_steps();
+        StreamingExecutor::new(
+            self.snapshot.arc_storage(),
+            self.snapshot.arc_interner(),
+            steps,
+            source,
+            self.track_paths,
+        )
+    }
+
+    /// Stream results lazily with O(1) memory per step.
+    ///
+    /// This is the streaming equivalent of `iter()`. Results are pulled through
+    /// the pipeline one at a time, enabling early termination and constant memory
+    /// usage regardless of total result count.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Stops after finding first match
+    /// let first = g.v().has_label("person").streaming_iter().next();
+    ///
+    /// // Only processes ~10 items through pipeline
+    /// let sample: Vec<_> = g.v().out("knows").streaming_iter().take(10).collect();
+    /// ```
+    pub fn streaming_iter(self) -> impl Iterator<Item = Value> + Send {
+        self.streaming_execute().map(|t| t.value)
+    }
+
+    /// Stream traversers with metadata using O(1) memory per step.
+    ///
+    /// This is the streaming equivalent of `traversers()`. Includes full
+    /// traverser metadata (path, bulk, sacks, loops) for each result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// for traverser in g.v().with_path().streaming_traversers() {
+    ///     println!("Path: {:?}", traverser.path);
+    /// }
+    /// ```
+    pub fn streaming_traversers(self) -> impl Iterator<Item = Traverser> + Send {
+        self.streaming_execute()
+    }
+
     /// Get the underlying graph storage reference.
     #[inline]
     pub fn storage(&self) -> &'g dyn GraphStorage {
-        self.storage
+        self.snapshot.storage()
     }
 
     /// Get the interner reference for label resolution.
     #[inline]
     pub fn interner(&self) -> &'g StringInterner {
-        self.interner
+        self.snapshot.interner()
     }
 
     /// Get the number of steps in the traversal.
@@ -2061,7 +2126,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         let (source, steps) = self.traversal.into_steps();
 
         // Create and return the builder with graph references
-        BoundOrderBuilder::new(self.storage, self.interner, source, steps, track_paths)
+        BoundOrderBuilder::new(self.snapshot, source, steps, track_paths)
     }
 
     /// Evaluate a mathematical expression.
@@ -2102,14 +2167,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         let (source, steps) = self.traversal.into_steps();
 
         // Create and return the builder with graph references
-        BoundMathBuilder::new(
-            self.storage,
-            self.interner,
-            source,
-            steps,
-            expression,
-            track_paths,
-        )
+        BoundMathBuilder::new(self.snapshot, source, steps, expression, track_paths)
     }
 
     /// Create a projection with named keys.
@@ -2163,14 +2221,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         let key_strings: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
 
         // Create and return the builder with graph references
-        BoundProjectBuilder::new(
-            self.storage,
-            self.interner,
-            source,
-            steps,
-            key_strings,
-            track_paths,
-        )
+        BoundProjectBuilder::new(self.snapshot, source, steps, key_strings, track_paths)
     }
 
     /// Group traversers by a key and collect values.
@@ -2217,7 +2268,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         let (source, steps) = self.traversal.into_steps();
 
         // Create and return the builder with graph references
-        BoundGroupBuilder::new(self.storage, self.interner, source, steps, track_paths)
+        BoundGroupBuilder::new(self.snapshot, source, steps, track_paths)
     }
 
     /// Count traversers grouped by a key.
@@ -2251,7 +2302,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         let (source, steps) = self.traversal.into_steps();
 
         // Create and return the builder with graph references
-        BoundGroupCountBuilder::new(self.storage, self.interner, source, steps, track_paths)
+        BoundGroupCountBuilder::new(self.snapshot, source, steps, track_paths)
     }
 
     // -------------------------------------------------------------------------
@@ -2785,8 +2836,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         sub: crate::traversal::Traversal<Value, Value>,
     ) -> crate::traversal::repeat::RepeatTraversal<'g, In> {
         crate::traversal::repeat::RepeatTraversal::new(
-            self.storage,
-            self.interner,
+            self.snapshot,
             self.traversal,
             sub,
             self.track_paths,
@@ -2797,8 +2847,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
 impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
     fn clone(&self) -> Self {
         Self {
-            storage: self.storage,
-            interner: self.interner,
+            snapshot: self.snapshot,
             traversal: self.traversal.clone(),
             track_paths: self.track_paths,
         }
@@ -3201,14 +3250,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
         let track_paths = self.track_paths;
         let (source, steps) = self.traversal.into_steps();
 
-        BranchBuilder::new(
-            self.storage,
-            self.interner,
-            source,
-            steps,
-            branch_traversal,
-            track_paths,
-        )
+        BranchBuilder::new(self.snapshot, source, steps, branch_traversal, track_paths)
     }
 
     /// Start a choose-option step with the given branch traversal.
@@ -3574,8 +3616,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
 ///     .to_list();
 /// ```
 pub struct BranchBuilder<'g, In> {
-    storage: &'g dyn GraphStorage,
-    interner: &'g StringInterner,
+    snapshot: &'g dyn SnapshotLike,
     source: Option<TraversalSource>,
     steps: Vec<Box<dyn DynStep>>,
     branch_traversal: Traversal<Value, Value>,
@@ -3591,16 +3632,14 @@ pub struct BranchBuilder<'g, In> {
 impl<'g, In> BranchBuilder<'g, In> {
     /// Create a new BranchBuilder with existing steps and graph references.
     pub(crate) fn new(
-        storage: &'g dyn GraphStorage,
-        interner: &'g StringInterner,
+        snapshot: &'g dyn SnapshotLike,
         source: Option<TraversalSource>,
         steps: Vec<Box<dyn DynStep>>,
         branch_traversal: Traversal<Value, Value>,
         track_paths: bool,
     ) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             source,
             steps,
             branch_traversal,
@@ -3692,7 +3731,7 @@ impl<'g, In> BranchBuilder<'g, In> {
             _phantom: PhantomData,
         };
 
-        let mut bound = BoundTraversal::new(self.storage, self.interner, traversal);
+        let mut bound = BoundTraversal::new(self.snapshot, traversal);
 
         if self.track_paths {
             bound = bound.with_path();
@@ -3921,8 +3960,7 @@ impl<'g, In> BranchBuilder<'g, In> {
 ///     .next();
 /// ```
 pub struct AddEdgeBuilder<'g> {
-    storage: &'g dyn GraphStorage,
-    interner: &'g StringInterner,
+    snapshot: &'g dyn SnapshotLike,
     label: String,
     from: Option<crate::traversal::EdgeEndpoint>,
     to: Option<crate::traversal::EdgeEndpoint>,
@@ -3931,10 +3969,9 @@ pub struct AddEdgeBuilder<'g> {
 
 impl<'g> AddEdgeBuilder<'g> {
     /// Create a new edge builder.
-    fn new(storage: &'g dyn GraphStorage, interner: &'g StringInterner, label: String) -> Self {
+    fn new(snapshot: &'g dyn SnapshotLike, label: String) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             label,
             from: None,
             to: None,
@@ -4004,7 +4041,7 @@ impl<'g> AddEdgeBuilder<'g> {
         // Create a traversal that starts with inject to provide input
         let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
         traversal = traversal.add_step(step);
-        BoundTraversal::new(self.storage, self.interner, traversal)
+        BoundTraversal::new(self.snapshot, traversal)
     }
 
     // Terminal methods
@@ -4045,8 +4082,7 @@ impl<'g> AddEdgeBuilder<'g> {
 ///     .to_list();
 /// ```
 pub struct BoundAddEdgeBuilder<'g, In> {
-    storage: &'g dyn GraphStorage,
-    interner: &'g StringInterner,
+    snapshot: &'g dyn SnapshotLike,
     traversal: Traversal<In, Value>,
     track_paths: bool,
     label: String,
@@ -4059,8 +4095,7 @@ impl<'g, In> BoundAddEdgeBuilder<'g, In> {
     /// Create a builder from an existing traversal.
     fn from_traversal(bound: BoundTraversal<'g, In, Value>, label: String) -> Self {
         Self {
-            storage: bound.storage,
-            interner: bound.interner,
+            snapshot: bound.snapshot,
             traversal: bound.traversal,
             track_paths: bound.track_paths,
             label,
@@ -4130,8 +4165,7 @@ impl<'g, In> BoundAddEdgeBuilder<'g, In> {
         }
 
         BoundTraversal {
-            storage: self.storage,
-            interner: self.interner,
+            snapshot: self.snapshot,
             traversal: self.traversal.add_step(step),
             track_paths: self.track_paths,
         }
@@ -5381,6 +5415,190 @@ mod tests {
             for target in &targets {
                 assert!(target.is_vertex());
             }
+        }
+    }
+
+    mod streaming_tests {
+        use super::*;
+
+        #[test]
+        fn streaming_iter_matches_eager_to_list() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Eager execution
+            let eager: Vec<_> = g.v().to_list();
+
+            // Streaming execution
+            let g = snapshot.gremlin();
+            let streaming: Vec<_> = g.v().streaming_iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+            // Note: Order may differ, so we check contents
+            for value in &eager {
+                assert!(streaming.contains(value));
+            }
+        }
+
+        #[test]
+        fn streaming_with_filter_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let eager: Vec<_> = g.v().has_label("person").to_list();
+
+            let g = snapshot.gremlin();
+            let streaming: Vec<_> = g.v().has_label("person").streaming_iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+        }
+
+        #[test]
+        fn streaming_with_navigation_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let eager: Vec<_> = g.v().out().to_list();
+
+            let g = snapshot.gremlin();
+            let streaming: Vec<_> = g.v().out().streaming_iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+        }
+
+        #[test]
+        fn streaming_early_termination() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Take only 2 from a traversal that would return 4
+            let results: Vec<_> = g.v().streaming_iter().take(2).collect();
+
+            assert_eq!(results.len(), 2);
+        }
+
+        #[test]
+        fn streaming_next_returns_single() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let first = g.v().streaming_iter().next();
+
+            assert!(first.is_some());
+            assert!(first.unwrap().is_vertex());
+        }
+
+        #[test]
+        fn streaming_execute_provides_traversers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let mut executor = g.v().streaming_execute();
+
+            let first = executor.next();
+            assert!(first.is_some());
+            let traverser = first.unwrap();
+            assert!(traverser.value.is_vertex());
+        }
+
+        #[test]
+        fn streaming_traversers_includes_path() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let results: Vec<_> = g.v().with_path().streaming_traversers().collect();
+
+            assert_eq!(results.len(), 4);
+            for t in &results {
+                // With path tracking, each traverser should have path entry
+                assert_eq!(t.path.len(), 1);
+            }
+        }
+
+        #[test]
+        fn streaming_multi_hop_navigation() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            // Multi-hop navigation chain
+            let eager: Vec<_> = g.v().out().out().to_list();
+
+            let g = snapshot.gremlin();
+            let streaming: Vec<_> = g.v().out().out().streaming_iter().collect();
+
+            assert_eq!(eager.len(), streaming.len());
+        }
+
+        #[test]
+        fn streaming_with_values_step() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let eager: Vec<_> = g.v().has_label("person").values("name").to_list();
+
+            let g = snapshot.gremlin();
+            let streaming: Vec<_> = g
+                .v()
+                .has_label("person")
+                .values("name")
+                .streaming_iter()
+                .collect();
+
+            assert_eq!(eager.len(), streaming.len());
+            // All should be strings
+            for value in &streaming {
+                assert!(matches!(value, Value::String(_)));
+            }
+        }
+
+        #[test]
+        fn streaming_inject_source() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let eager: Vec<_> = g
+                .inject([Value::Int(1), Value::Int(2), Value::Int(3)])
+                .to_list();
+
+            let g = snapshot.gremlin();
+            let streaming: Vec<_> = g
+                .inject([Value::Int(1), Value::Int(2), Value::Int(3)])
+                .streaming_iter()
+                .collect();
+
+            assert_eq!(eager, streaming);
+        }
+
+        #[test]
+        fn streaming_empty_result() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let results: Vec<_> = g.v().has_label("nonexistent").streaming_iter().collect();
+
+            assert!(results.is_empty());
+        }
+
+        #[test]
+        fn streaming_count_via_iterator() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+
+            let count = g.v().streaming_iter().count();
+
+            assert_eq!(count, 4);
         }
     }
 }

@@ -200,6 +200,22 @@ impl Step for WhereStep {
     fn name(&self) -> &'static str {
         "where"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Execute sub-traversal and check if it produces any result
+        let mut results = execute_traversal_streaming(&ctx, &self.sub, input.clone());
+        if results.next().is_some() {
+            Box::new(std::iter::once(input))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
 }
 
 /// Filter by sub-traversal non-existence.
@@ -246,6 +262,22 @@ impl Step for NotStep {
 
     fn name(&self) -> &'static str {
         "not"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Execute sub-traversal and check if it produces NO results
+        let mut results = execute_traversal_streaming(&ctx, &self.sub, input.clone());
+        if results.next().is_none() {
+            Box::new(std::iter::once(input))
+        } else {
+            Box::new(std::iter::empty())
+        }
     }
 }
 
@@ -297,6 +329,23 @@ impl Step for AndStep {
     fn name(&self) -> &'static str {
         "and"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // All sub-traversals must produce at least one result
+        for sub in &self.subs {
+            let mut results = execute_traversal_streaming(&ctx, sub, input.clone());
+            if results.next().is_none() {
+                return Box::new(std::iter::empty());
+            }
+        }
+        Box::new(std::iter::once(input))
+    }
 }
 
 /// Filter by multiple sub-traversals (OR logic).
@@ -346,6 +395,23 @@ impl Step for OrStep {
 
     fn name(&self) -> &'static str {
         "or"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // At least one sub-traversal must produce a result
+        for sub in &self.subs {
+            let mut results = execute_traversal_streaming(&ctx, sub, input.clone());
+            if results.next().is_some() {
+                return Box::new(std::iter::once(input));
+            }
+        }
+        Box::new(std::iter::empty())
     }
 }
 
@@ -403,6 +469,21 @@ impl Step for UnionStep {
     fn name(&self) -> &'static str {
         "union"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Execute all branches and collect results
+        let mut results = Vec::new();
+        for branch in &self.branches {
+            results.extend(execute_traversal_streaming(&ctx, branch, input.clone()));
+        }
+        Box::new(results.into_iter())
+    }
 }
 
 /// Try branches in order, return first non-empty result.
@@ -458,6 +539,24 @@ impl Step for CoalesceStep {
 
     fn name(&self) -> &'static str {
         "coalesce"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Try each branch in order, return first non-empty
+        for branch in &self.branches {
+            let results: Vec<_> =
+                execute_traversal_streaming(&ctx, branch, input.clone()).collect();
+            if !results.is_empty() {
+                return Box::new(results.into_iter());
+            }
+        }
+        Box::new(std::iter::empty())
     }
 }
 
@@ -530,6 +629,28 @@ impl Step for ChooseStep {
     fn name(&self) -> &'static str {
         "choose"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Evaluate condition traversal to determine which branch to take
+        let mut cond_result = execute_traversal_streaming(&ctx, &self.condition, input.clone());
+
+        // Select branch based on whether condition produced any results
+        let branch = if cond_result.next().is_some() {
+            &self.if_true
+        } else {
+            &self.if_false
+        };
+
+        // Execute selected branch with original input
+        let results: Vec<_> = execute_traversal_streaming(&ctx, branch, input).collect();
+        Box::new(results.into_iter())
+    }
 }
 
 /// Optional traversal with fallback to input.
@@ -584,6 +705,25 @@ impl Step for OptionalStep {
     fn name(&self) -> &'static str {
         "optional"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Execute sub-traversal
+        let results: Vec<_> = execute_traversal_streaming(&ctx, &self.sub, input.clone()).collect();
+
+        if results.is_empty() {
+            // No results from sub-traversal, emit original input as fallback
+            Box::new(std::iter::once(input))
+        } else {
+            // Sub-traversal produced results, emit those
+            Box::new(results.into_iter())
+        }
+    }
 }
 
 /// Execute sub-traversal in isolated scope.
@@ -633,6 +773,19 @@ impl Step for LocalStep {
 
     fn name(&self) -> &'static str {
         "local"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Execute sub-traversal in local (isolated) scope for this input
+        // Aggregations in the sub-traversal operate on just this input
+        let results: Vec<_> = execute_traversal_streaming(&ctx, &self.sub, input).collect();
+        Box::new(results.into_iter())
     }
 }
 
@@ -812,6 +965,38 @@ impl Step for BranchStep {
 
     fn name(&self) -> &'static str {
         "branch"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Evaluate branch traversal to get the key value
+        let mut branch_results =
+            execute_traversal_streaming(&ctx, &self.branch_traversal, input.clone());
+
+        // Get the first result as the branch key
+        let key_value = branch_results.next().map(|t| t.value);
+
+        // Find matching option branch
+        let branch = match key_value {
+            Some(key) => {
+                let option_key = OptionKeyWrapper(OptionKey::Value(key));
+                self.options.get(&option_key).or(self.none_branch.as_ref())
+            }
+            None => self.none_branch.as_ref(),
+        };
+
+        match branch {
+            Some(branch) => {
+                let results: Vec<_> = execute_traversal_streaming(&ctx, branch, input).collect();
+                Box::new(results.into_iter())
+            }
+            None => Box::new(std::iter::empty()),
+        }
     }
 }
 

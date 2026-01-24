@@ -137,6 +137,57 @@ impl ValuesStep {
             _ => Vec::new().into_iter(),
         }
     }
+
+    /// Streaming version of expand.
+    fn expand_streaming(
+        &self,
+        ctx: &crate::traversal::context::StreamingContext,
+        traverser: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let keys = self.keys.clone();
+
+        match &traverser.value {
+            Value::Vertex(id) => {
+                let props: Vec<Value> = ctx
+                    .storage()
+                    .get_vertex(*id)
+                    .map(|vertex| {
+                        keys.iter()
+                            .filter_map(|key| vertex.properties.get(key).cloned())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                Box::new(
+                    props
+                        .into_iter()
+                        .map(move |value| traverser.split(value))
+                        .collect::<Vec<_>>()
+                        .into_iter(),
+                )
+            }
+            Value::Edge(id) => {
+                let props: Vec<Value> = ctx
+                    .storage()
+                    .get_edge(*id)
+                    .map(|edge| {
+                        keys.iter()
+                            .filter_map(|key| edge.properties.get(key).cloned())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                Box::new(
+                    props
+                        .into_iter()
+                        .map(move |value| traverser.split(value))
+                        .collect::<Vec<_>>()
+                        .into_iter(),
+                )
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 
 // Use the macro to implement Step for ValuesStep (DynStep is provided via blanket impl)

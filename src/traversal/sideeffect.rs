@@ -123,6 +123,17 @@ impl Step for StoreStep {
     fn name(&self) -> &'static str {
         "store"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Store the value in the side effects collection
+        ctx.side_effects().store(&self.key, input.value.clone());
+        // Pass through unchanged
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -220,6 +231,19 @@ impl Step for AggregateStep {
 
     fn name(&self) -> &'static str {
         "aggregate"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Note: AggregateStep is a barrier step in batch mode, but in streaming mode
+        // we can only store each value as it passes through (like StoreStep).
+        // True barrier semantics require collecting all inputs first, which
+        // cannot be done in a per-traverser streaming model.
+        ctx.side_effects().store(&self.key, input.value.clone());
+        Box::new(std::iter::once(input))
     }
 }
 
@@ -347,6 +371,30 @@ impl Step for CapStep {
     fn name(&self) -> &'static str {
         "cap"
     }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        _input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // CapStep retrieves accumulated side-effect data
+        // In streaming mode, we return the current state of the side effects
+        let result = if self.keys.len() == 1 {
+            // Single key: return list
+            let values = ctx.side_effects().get(&self.keys[0]).unwrap_or_default();
+            Value::List(values)
+        } else {
+            // Multiple keys: return map
+            let mut map = HashMap::new();
+            for key in &self.keys {
+                let values = ctx.side_effects().get(key).unwrap_or_default();
+                map.insert(key.clone(), Value::List(values));
+            }
+            Value::Map(map)
+        };
+
+        Box::new(std::iter::once(Traverser::new(result)))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -437,6 +485,21 @@ impl Step for SideEffectStep {
 
     fn name(&self) -> &'static str {
         "sideEffect"
+    }
+
+    fn apply_streaming(
+        &self,
+        ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        // Execute side-effect traversal (discard results)
+        let _ =
+            execute_traversal_streaming(&ctx, &self.side_traversal, input.clone()).for_each(drop);
+
+        // Pass through the original traverser unchanged
+        Box::new(std::iter::once(input))
     }
 }
 
@@ -538,6 +601,18 @@ impl Step for ProfileStep {
 
     fn name(&self) -> &'static str {
         "profile"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Note: ProfileStep requires collecting count and timing across all traversers,
+        // which cannot be done in a per-traverser streaming model without shared state.
+        // In streaming mode, we simply pass through the traverser without profiling.
+        // Full profiling requires the batch execution path.
+        Box::new(std::iter::once(input))
     }
 }
 

@@ -61,6 +61,16 @@ impl crate::traversal::step::Step for PathStep {
     fn name(&self) -> &'static str {
         "path"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Convert the path to a list value
+        let path_values = input.path.to_list();
+        Box::new(std::iter::once(input.with_value(path_values)))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -140,6 +150,16 @@ impl crate::traversal::step::Step for AsStep {
 
     fn name(&self) -> &'static str {
         "as"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        mut input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Label the current path position
+        input.label_path_position(&self.label);
+        Box::new(std::iter::once(input))
     }
 }
 
@@ -275,6 +295,50 @@ impl crate::traversal::step::Step for SelectStep {
 
     fn name(&self) -> &'static str {
         "select"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        if self.labels.len() == 1 {
+            // Single label: return value directly (get last value for label)
+            let val = input
+                .path
+                .get(&self.labels[0])
+                .and_then(|values| values.last().cloned())
+                .map(|pv| pv.to_value());
+
+            match val {
+                Some(v) => Box::new(std::iter::once(input.with_value(v))),
+                None => Box::new(std::iter::empty()),
+            }
+        } else {
+            // Multiple labels: return Map
+            let mut map = std::collections::HashMap::new();
+            let mut found_any = false;
+            let mut missing_any = false;
+
+            for label in &self.labels {
+                if let Some(values) = input.path.get(label) {
+                    if let Some(last_val) = values.last() {
+                        map.insert(label.clone(), last_val.to_value());
+                        found_any = true;
+                    } else {
+                        missing_any = true;
+                    }
+                } else {
+                    missing_any = true;
+                }
+            }
+
+            if !missing_any && found_any {
+                Box::new(std::iter::once(input.with_value(Value::Map(map))))
+            } else {
+                Box::new(std::iter::empty())
+            }
+        }
     }
 }
 

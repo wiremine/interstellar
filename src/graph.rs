@@ -171,6 +171,10 @@ impl<'g> crate::traversal::SnapshotLike for LegacyGraphSnapshot<'g> {
     fn interner(&self) -> &StringInterner {
         self.graph.storage.interner()
     }
+
+    fn as_dyn(&self) -> &dyn crate::traversal::SnapshotLike {
+        self
+    }
 }
 
 /// **DEPRECATED**: Use the direct mutation API on [`Graph`](crate::storage::Graph) instead.

@@ -149,6 +149,18 @@ impl Step for AddVStep {
     fn name(&self) -> &'static str {
         "addV"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // MUTATION STEP: AddVStep requires mutable graph access to create vertices.
+        // StreamingContext only provides read-only GraphSnapshot access.
+        // Mutations must be deferred and executed via BoundTraversal with graph lock.
+        // Current behavior: pass-through (no mutation).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -265,6 +277,18 @@ impl Step for PropertyStep {
     fn name(&self) -> &'static str {
         "property"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // MUTATION STEP: PropertyStep requires mutable graph access to update properties.
+        // StreamingContext only provides read-only GraphSnapshot access.
+        // Mutations must be deferred and executed via BoundTraversal with graph lock.
+        // Current behavior: pass-through (no mutation).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -335,6 +359,18 @@ impl Step for DropStep {
 
     fn name(&self) -> &'static str {
         "drop"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // MUTATION STEP: DropStep requires mutable graph access to delete elements.
+        // StreamingContext only provides read-only GraphSnapshot access.
+        // Mutations must be deferred and executed via BoundTraversal with graph lock.
+        // Current behavior: pass-through (no mutation).
+        Box::new(std::iter::once(input))
     }
 }
 
@@ -569,6 +605,18 @@ impl Step for AddEStep {
 
     fn name(&self) -> &'static str {
         "addE"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // MUTATION STEP: AddEStep requires mutable graph access to create edges.
+        // StreamingContext only provides read-only GraphSnapshot access.
+        // Mutations must be deferred and executed via BoundTraversal with graph lock.
+        // Current behavior: pass-through (no mutation).
+        Box::new(std::iter::once(input))
     }
 }
 

@@ -402,6 +402,22 @@ impl Step for RepeatStep {
     fn name(&self) -> &'static str {
         "repeat"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // COMPLEX ITERATION: RepeatStep manages iterative graph traversal with:
+        // - BFS frontier queue with loop counters per traverser
+        // - Termination conditions (times, until)
+        // - Conditional emission (emit, emit_if)
+        // - Sub-traversal execution per iteration
+        // True streaming would require tracking iteration state across traversers,
+        // which conflicts with the stateless single-traverser streaming model.
+        // Current behavior: pass-through (no iteration).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -582,8 +598,6 @@ impl<'a> Iterator for RepeatIterator<'a> {
 // RepeatTraversal - Builder for configuring repeat behavior
 // -----------------------------------------------------------------------------
 
-use crate::storage::interner::StringInterner;
-use crate::storage::GraphStorage;
 use crate::traversal::source::BoundTraversal;
 
 /// Builder for configuring repeat step behavior.
@@ -618,10 +632,8 @@ use crate::traversal::source::BoundTraversal;
 ///     .to_list();
 /// ```
 pub struct RepeatTraversal<'g, In> {
-    /// Graph storage for execution
-    storage: &'g dyn GraphStorage,
-    /// String interner for label resolution
-    interner: &'g StringInterner,
+    /// Snapshot for graph access
+    snapshot: &'g dyn crate::traversal::SnapshotLike,
     /// Base traversal before the repeat step
     base: Traversal<In, Value>,
     /// Sub-traversal to repeat each iteration
@@ -639,21 +651,18 @@ impl<'g, In> RepeatTraversal<'g, In> {
     ///
     /// # Arguments
     ///
-    /// * `storage` - Graph storage for execution
-    /// * `interner` - String interner for label resolution
+    /// * `snapshot` - Snapshot for graph access
     /// * `base` - The base traversal before the repeat step
     /// * `sub` - The sub-traversal to repeat
     /// * `track_paths` - Whether path tracking is enabled
     pub(crate) fn new(
-        storage: &'g dyn GraphStorage,
-        interner: &'g StringInterner,
+        snapshot: &'g dyn crate::traversal::SnapshotLike,
         base: Traversal<In, Value>,
         sub: Traversal<Value, Value>,
         track_paths: bool,
     ) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             base,
             sub,
             config: RepeatConfig::default(),
@@ -780,8 +789,7 @@ impl<'g, In> RepeatTraversal<'g, In> {
     /// is invoked on the builder.
     fn finalize(self) -> BoundTraversal<'g, In, Value> {
         let repeat_step = RepeatStep::with_config(self.sub, self.config);
-        let mut bound =
-            BoundTraversal::new(self.storage, self.interner, self.base.add_step(repeat_step));
+        let mut bound = BoundTraversal::new(self.snapshot, self.base.add_step(repeat_step));
         if self.track_paths {
             bound = bound.with_path();
         }
@@ -1859,8 +1867,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // Configure with times(2)
             let builder = builder.times(2);
@@ -1878,8 +1885,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // Configure with emit()
             let builder = builder.emit();
@@ -1898,8 +1904,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let builder = builder.emit().emit_first();
             assert!(builder.config.emit);
@@ -1920,8 +1925,7 @@ mod tests {
             let until_cond =
                 Traversal::<Value, Value>::new().add_step(HasLabelStep::single("company"));
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let builder = builder.until(until_cond);
             assert!(builder.config.until.is_some());
@@ -1941,8 +1945,7 @@ mod tests {
             let emit_cond =
                 Traversal::<Value, Value>::new().add_step(HasLabelStep::single("person"));
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let builder = builder.emit_if(emit_cond);
             assert!(builder.config.emit);
@@ -1960,8 +1963,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // Chain multiple configurations
             let builder = builder.times(3).emit().emit_first();
@@ -1981,8 +1983,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) from Alice should reach Bob
             let results = builder.times(1).to_list();
@@ -2001,8 +2002,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(2) from Alice should reach TechCorp (1 result)
             let count = builder.times(2).count();
@@ -2020,8 +2020,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let result = builder.times(1).next();
             assert!(result.is_some());
@@ -2039,8 +2038,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(2).has_label("company") - should match TechCorp
             let results = builder.times(2).has_label("company").to_list();
@@ -2059,8 +2057,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(2).dedup() - result is already unique
             let results = builder.times(2).dedup().to_list();
@@ -2078,10 +2075,9 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false)
-                    .times(2)
-                    .emit();
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false)
+                .times(2)
+                .emit();
 
             let debug_str = format!("{:?}", builder);
             assert!(debug_str.contains("RepeatTraversal"));
@@ -2105,8 +2101,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let results = builder.times(2).emit().to_set();
             // Should contain Bob (VertexId(1)) and TechCorp (VertexId(2))
@@ -2126,8 +2121,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             assert!(builder.times(1).has_next());
         }
@@ -2145,8 +2139,7 @@ mod tests {
                 .add_step(crate::traversal::navigation::OutStep::new());
 
             // Filter to non-existent label after repeat
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let result = builder.times(1).has_label("nonexistent").has_next();
             assert!(!result);
@@ -2163,8 +2156,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // emit() produces 2 results, take(1) should return just 1
             let results = builder.times(2).emit().take(1);
@@ -2182,8 +2174,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // iterate() should not panic and consume the traversal
             builder.times(2).iterate();
@@ -2204,8 +2195,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let results = builder
                 .times(2)
@@ -2227,8 +2217,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // All vertices have "name" property
             let results = builder.times(1).has("name").to_list();
@@ -2246,8 +2235,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let results = builder.times(1).has_value("name", "Bob").to_list();
             assert_eq!(results.len(), 1);
@@ -2265,8 +2253,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // emit() produces 2 results, limit(1) keeps only first
             let results = builder.times(2).emit().limit(1).to_list();
@@ -2284,8 +2271,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // emit() produces 2 results (Bob, TechCorp), skip(1) skips first
             let results = builder.times(2).emit().skip(1).to_list();
@@ -2304,8 +2290,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let results = builder.times(1).id().to_list();
             assert_eq!(results.len(), 1);
@@ -2323,8 +2308,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let results = builder.times(2).label().to_list();
             assert_eq!(results.len(), 1);
@@ -2347,8 +2331,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> Bob, then .out() -> TechCorp
             let results = builder.times(1).out().to_list();
@@ -2367,8 +2350,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> Bob, then out_labels(["works_at"]) -> TechCorp
             let results = builder.times(1).out_labels(&["works_at"]).to_list();
@@ -2388,8 +2370,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::InStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> Bob, then .in_() -> Alice
             let results = builder.times(1).in_().to_list();
@@ -2409,8 +2390,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::InStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> Bob, then in_labels(["knows"]) -> Alice
             let results = builder.times(1).in_labels(&["knows"]).to_list();
@@ -2430,8 +2410,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> TechCorp, then both() -> Bob (the only neighbor)
             let results = builder.times(1).both().to_list();
@@ -2451,8 +2430,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> TechCorp, then both_labels(["works_at"]) -> Bob
             let results = builder.times(1).both_labels(&["works_at"]).to_list();
@@ -2474,8 +2452,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> Bob, then out_e() -> edge Bob->TechCorp
             let results = builder.times(1).out_e().to_list();
@@ -2494,8 +2471,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::InStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> Bob, then in_e() -> edge Alice->Bob
             let results = builder.times(1).in_e().to_list();
@@ -2514,8 +2490,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // times(1) -> TechCorp, then both_e() -> edge Bob->TechCorp
             let results = builder.times(1).both_e().to_list();
@@ -2538,8 +2513,7 @@ mod tests {
                 .add_step(crate::traversal::navigation::OutStep::new());
 
             // Enable path tracking
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, true);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, true);
 
             let results = builder.times(2).path().to_list();
             assert_eq!(results.len(), 1);
@@ -2562,8 +2536,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, true);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, true);
 
             // times(1).as_("end").select(["end"])
             let results = builder.times(1).as_("end").select(&["end"]).to_list();
@@ -2581,8 +2554,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, true);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, true);
 
             let results = builder
                 .times(1)
@@ -2608,8 +2580,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // where_ with a condition that filters to person label
             let where_cond =
@@ -2632,8 +2603,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // not(has_label("person")) - should filter OUT persons, keep companies
             let not_cond =
@@ -2660,8 +2630,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // union of id() and label() on Bob
             let id_branch = Traversal::<Value, Value>::new()
@@ -2687,8 +2656,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // coalesce: try values("nonexistent"), then values("name")
             let first_branch = Traversal::<Value, Value>::new().add_step(
@@ -2716,8 +2684,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // choose(has_label("person"), id(), label())
             let condition =
@@ -2747,8 +2714,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // optional(out()) from Bob - should go to TechCorp
             let optional_sub = Traversal::<Value, Value>::new()
@@ -2770,8 +2736,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // local(identity()) - should just pass through
             let local_sub = Traversal::<Value, Value>::new()
@@ -2797,8 +2762,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // identity() just passes through
             let results = builder.times(1).identity().to_list();
@@ -2817,8 +2781,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             // loops() returns the loop count for each traverser
             let results = builder.times(2).emit().loops().to_list();
@@ -2839,8 +2802,7 @@ mod tests {
             let sub = Traversal::<Value, Value>::new()
                 .add_step(crate::traversal::navigation::OutStep::new());
 
-            let builder =
-                RepeatTraversal::new(snapshot.storage(), snapshot.interner(), base, sub, false);
+            let builder = RepeatTraversal::new(snapshot.as_dyn(), base, sub, false);
 
             let results = builder.times(1).values("name").to_list();
             assert_eq!(results.len(), 1);

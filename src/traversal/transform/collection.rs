@@ -80,6 +80,34 @@ impl UnfoldStep {
             .collect::<Vec<_>>()
             .into_iter()
     }
+
+    /// Streaming version of expand.
+    fn expand_streaming(
+        &self,
+        _ctx: &crate::traversal::context::StreamingContext,
+        traverser: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        let values: Vec<crate::value::Value> = match &traverser.value {
+            crate::value::Value::List(items) => items.clone(),
+            crate::value::Value::Map(map) => map
+                .iter()
+                .map(|(k, v)| {
+                    let mut entry = std::collections::HashMap::new();
+                    entry.insert(k.clone(), v.clone());
+                    crate::value::Value::Map(entry)
+                })
+                .collect(),
+            other => vec![other.clone()],
+        };
+
+        Box::new(
+            values
+                .into_iter()
+                .map(move |value| traverser.split(value))
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
+    }
 }
 
 // Use the macro to implement Step for UnfoldStep
@@ -180,6 +208,19 @@ impl crate::traversal::step::Step for MeanStep {
 
     fn name(&self) -> &'static str {
         "mean"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: MeanStep cannot truly stream because computing the arithmetic mean
+        // requires summing ALL values and dividing by the count. The result is a single
+        // value that depends on every input element.
+        // This is fundamentally incompatible with O(1) streaming semantics.
+        // Current behavior: pass-through (incorrect but safe for pipeline compatibility).
+        Box::new(std::iter::once(input))
     }
 }
 

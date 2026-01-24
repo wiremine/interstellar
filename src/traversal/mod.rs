@@ -82,6 +82,7 @@ pub mod repeat;
 pub mod sideeffect;
 pub mod source;
 pub mod step;
+pub mod streaming;
 pub mod transform;
 pub mod traverser;
 pub mod typed;
@@ -124,7 +125,7 @@ pub use branch::{
 };
 
 // Re-export context types
-pub use context::{ExecutionContext, SideEffects, SnapshotLike};
+pub use context::{ExecutionContext, SideEffects, SnapshotLike, StreamingContext};
 
 // Re-export filter types
 pub use filter::{
@@ -154,6 +155,9 @@ pub use sideeffect::{AggregateStep, CapStep, ProfileStep, SideEffectStep, StoreS
 
 // Re-export source types
 pub use source::{BoundTraversal, BranchBuilder, GraphTraversalSource, TraversalExecutor};
+
+// Re-export streaming types
+pub use streaming::{StreamingAdapter, StreamingExecutor};
 
 // Re-export step types
 pub use step::{

@@ -1678,6 +1678,19 @@ impl crate::traversal::SnapshotLike for CowMmapSnapshot {
     fn interner(&self) -> &StringInterner {
         &self.interner_snapshot
     }
+
+    fn as_dyn(&self) -> &dyn crate::traversal::SnapshotLike {
+        self
+    }
+
+    fn arc_storage(&self) -> std::sync::Arc<dyn GraphStorage + Send + Sync> {
+        // CowMmapSnapshot is Clone, Send, Sync, and implements GraphStorage
+        std::sync::Arc::new(self.clone())
+    }
+
+    fn arc_interner(&self) -> std::sync::Arc<StringInterner> {
+        std::sync::Arc::clone(&self.interner_snapshot)
+    }
 }
 
 impl Clone for CowMmapSnapshot {

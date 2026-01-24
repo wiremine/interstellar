@@ -237,6 +237,19 @@ impl Step for OrderStep {
     fn name(&self) -> &'static str {
         "order"
     }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: OrderStep cannot truly stream because sorting requires seeing ALL inputs
+        // before any output can be produced. The first output element depends on knowing
+        // the entire input set to determine what belongs first in sorted order.
+        // This is fundamentally incompatible with O(1) streaming semantics.
+        // Current behavior: pass-through (unsorted).
+        Box::new(std::iter::once(input))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -346,8 +359,7 @@ impl<In> OrderBuilder<In> {
 ///     .to_list();
 /// ```
 pub struct BoundOrderBuilder<'g, In> {
-    storage: &'g dyn crate::storage::GraphStorage,
-    interner: &'g crate::storage::interner::StringInterner,
+    snapshot: &'g dyn crate::traversal::SnapshotLike,
     source: Option<crate::traversal::TraversalSource>,
     steps: Vec<Box<dyn DynStep>>,
     order_keys: Vec<OrderKey>,
@@ -358,15 +370,13 @@ pub struct BoundOrderBuilder<'g, In> {
 impl<'g, In> BoundOrderBuilder<'g, In> {
     /// Create a new BoundOrderBuilder with existing steps and graph references.
     pub(crate) fn new(
-        storage: &'g dyn crate::storage::GraphStorage,
-        interner: &'g crate::storage::interner::StringInterner,
+        snapshot: &'g dyn crate::traversal::SnapshotLike,
         source: Option<crate::traversal::TraversalSource>,
         steps: Vec<Box<dyn DynStep>>,
         track_paths: bool,
     ) -> Self {
         Self {
-            storage,
-            interner,
+            snapshot,
             source,
             steps,
             order_keys: vec![],
@@ -424,10 +434,7 @@ impl<'g, In> BoundOrderBuilder<'g, In> {
             _phantom: PhantomData,
         };
 
-        // We need to preserve track_paths, so we'll add a helper to BoundTraversal
-        // For now, use the private field constructor directly since we're in the same crate
-        let mut bound =
-            crate::traversal::source::BoundTraversal::new(self.storage, self.interner, traversal);
+        let mut bound = crate::traversal::source::BoundTraversal::new(self.snapshot, traversal);
 
         // Preserve track_paths by conditionally calling with_path()
         if self.track_paths {

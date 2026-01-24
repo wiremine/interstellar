@@ -13,6 +13,7 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use parking_lot::RwLock;
 
@@ -47,6 +48,39 @@ pub trait SnapshotLike {
 
     /// Get a reference to the string interner for label resolution.
     fn interner(&self) -> &StringInterner;
+
+    /// Get a reference to self as a trait object.
+    ///
+    /// This enables coercion from generic `&S where S: SnapshotLike` to
+    /// `&dyn SnapshotLike` for storage in structures that need trait object references.
+    fn as_dyn(&self) -> &dyn SnapshotLike;
+
+    /// Get Arc-wrapped storage for streaming execution.
+    ///
+    /// This enables streaming pipelines to own the storage without lifetime
+    /// constraints. The default implementation clones `self` into an Arc if
+    /// the type supports it.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Types that support streaming must
+    /// override this method.
+    fn arc_storage(&self) -> Arc<dyn GraphStorage + Send + Sync> {
+        panic!("arc_storage() not implemented for this snapshot type - streaming not supported")
+    }
+
+    /// Get Arc-wrapped interner for streaming execution.
+    ///
+    /// This enables streaming pipelines to own the interner without lifetime
+    /// constraints.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Types that support streaming must
+    /// override this method.
+    fn arc_interner(&self) -> Arc<StringInterner> {
+        panic!("arc_interner() not implemented for this snapshot type - streaming not supported")
+    }
 }
 
 /// Execution context passed to steps at runtime.
@@ -168,6 +202,12 @@ impl<'g, S: GraphStorage + ?Sized + 'g> ExecutionContext<'g, S> {
 /// shared references (since `ExecutionContext` is passed as `&'a`).
 /// This enables side-effect steps to accumulate data during traversal.
 ///
+/// # Cloning
+///
+/// `SideEffects` uses internal `Arc` wrapping for cheap cloning.
+/// All clones share the same underlying data, enabling streaming
+/// pipelines to share side effect state.
+///
 /// # Example
 ///
 /// ```ignore
@@ -175,8 +215,15 @@ impl<'g, S: GraphStorage + ?Sized + 'g> ExecutionContext<'g, S> {
 /// side_effects.store("collected", Value::Int(42));
 /// let values = side_effects.get("collected");
 /// ```
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SideEffects {
+    /// Internal state wrapped in Arc for cheap cloning.
+    inner: Arc<SideEffectsInner>,
+}
+
+/// Internal state for SideEffects.
+#[derive(Default)]
+struct SideEffectsInner {
     /// Named collections of values
     collections: RwLock<HashMap<String, Vec<Value>>>,
     /// Arbitrary side effect data
@@ -187,8 +234,7 @@ impl SideEffects {
     /// Create a new empty side effects store.
     pub fn new() -> Self {
         Self {
-            collections: RwLock::new(HashMap::new()),
-            data: RwLock::new(HashMap::new()),
+            inner: Arc::new(SideEffectsInner::default()),
         }
     }
 
@@ -196,7 +242,8 @@ impl SideEffects {
     ///
     /// Values are appended to the collection (multiple values per key).
     pub fn store(&self, key: &str, value: Value) {
-        self.collections
+        self.inner
+            .collections
             .write()
             .entry(key.to_string())
             .or_default()
@@ -207,7 +254,7 @@ impl SideEffects {
     ///
     /// Returns `None` if the key doesn't exist.
     pub fn get(&self, key: &str) -> Option<Vec<Value>> {
-        self.collections.read().get(key).cloned()
+        self.inner.collections.read().get(key).cloned()
     }
 
     /// Get values from a named collection by reference (for iteration).
@@ -219,7 +266,7 @@ impl SideEffects {
     /// The returned guard holds the read lock. Use sparingly and drop
     /// the guard as soon as possible to avoid blocking other operations.
     pub fn get_ref(&self, key: &str) -> Option<parking_lot::MappedRwLockReadGuard<'_, Vec<Value>>> {
-        let guard = self.collections.read();
+        let guard = self.inner.collections.read();
         if guard.contains_key(key) {
             Some(parking_lot::RwLockReadGuard::map(guard, |m| {
                 m.get(key).unwrap()
@@ -233,14 +280,18 @@ impl SideEffects {
     ///
     /// Overwrites any existing value with the same key.
     pub fn set_data<T: Any + Send + Sync>(&self, key: &str, value: T) {
-        self.data.write().insert(key.to_string(), Box::new(value));
+        self.inner
+            .data
+            .write()
+            .insert(key.to_string(), Box::new(value));
     }
 
     /// Get arbitrary typed data (clones if `T: Clone`).
     ///
     /// Returns `None` if the key doesn't exist or the type doesn't match.
     pub fn get_data<T: Any + Clone>(&self, key: &str) -> Option<T> {
-        self.data
+        self.inner
+            .data
             .read()
             .get(key)
             .and_then(|v| v.downcast_ref::<T>())
@@ -249,12 +300,13 @@ impl SideEffects {
 
     /// Check if a collection key exists.
     pub fn contains_key(&self, key: &str) -> bool {
-        self.collections.read().contains_key(key)
+        self.inner.collections.read().contains_key(key)
     }
 
     /// Get the number of values in a collection.
     pub fn collection_len(&self, key: &str) -> usize {
-        self.collections
+        self.inner
+            .collections
             .read()
             .get(key)
             .map(|v| v.len())
@@ -263,13 +315,145 @@ impl SideEffects {
 
     /// Clear all side effects.
     pub fn clear(&self) {
-        self.collections.write().clear();
-        self.data.write().clear();
+        self.inner.collections.write().clear();
+        self.inner.data.write().clear();
     }
 
     /// Get all collection keys.
     pub fn keys(&self) -> Vec<String> {
-        self.collections.read().keys().cloned().collect()
+        self.inner.collections.read().keys().cloned().collect()
+    }
+}
+
+// =============================================================================
+// StreamingContext - Owned context for streaming pipelines
+// =============================================================================
+
+/// Owned execution context for streaming pipelines.
+///
+/// Unlike [`ExecutionContext`] which borrows storage and interner,
+/// `StreamingContext` owns Arc references that can be cloned into
+/// iterator closures for `'static` lifetimes.
+///
+/// This is the key enabler for true O(1) streaming: steps can clone
+/// this context into their returned iterators without lifetime constraints.
+///
+/// # Cloning
+///
+/// `StreamingContext` is designed for cheap cloning. All internal state
+/// is `Arc`-wrapped, so cloning only increments reference counts.
+///
+/// # Example
+///
+/// ```ignore
+/// let ctx = StreamingContext::new(storage, interner);
+/// let iter = step.apply_streaming(ctx.clone(), traverser);
+/// // `iter` is 'static - can be stored, returned, etc.
+/// ```
+#[derive(Clone)]
+pub struct StreamingContext {
+    /// Graph storage (shared ownership)
+    storage: Arc<dyn GraphStorage + Send + Sync>,
+    /// String interner (shared ownership)
+    interner: Arc<StringInterner>,
+    /// Side effects (already Arc-wrapped internally)
+    side_effects: SideEffects,
+    /// Whether to track traversal paths
+    track_paths: bool,
+}
+
+impl StreamingContext {
+    /// Create a new streaming context.
+    ///
+    /// # Arguments
+    ///
+    /// * `storage` - Arc-wrapped graph storage
+    /// * `interner` - Arc-wrapped string interner
+    pub fn new(
+        storage: Arc<dyn GraphStorage + Send + Sync>,
+        interner: Arc<StringInterner>,
+    ) -> Self {
+        Self {
+            storage,
+            interner,
+            side_effects: SideEffects::new(),
+            track_paths: false,
+        }
+    }
+
+    /// Enable or disable path tracking.
+    pub fn with_path_tracking(mut self, enabled: bool) -> Self {
+        self.track_paths = enabled;
+        self
+    }
+
+    /// Set the side effects store.
+    ///
+    /// Use this to share side effects across the streaming pipeline.
+    pub fn with_side_effects(mut self, side_effects: SideEffects) -> Self {
+        self.side_effects = side_effects;
+        self
+    }
+
+    /// Check if path tracking is enabled.
+    #[inline]
+    pub fn is_tracking_paths(&self) -> bool {
+        self.track_paths
+    }
+
+    /// Get a reference to the graph storage.
+    #[inline]
+    pub fn storage(&self) -> &dyn GraphStorage {
+        &*self.storage
+    }
+
+    /// Get the Arc-wrapped storage for cloning into iterators.
+    #[inline]
+    pub fn arc_storage(&self) -> Arc<dyn GraphStorage + Send + Sync> {
+        Arc::clone(&self.storage)
+    }
+
+    /// Get a reference to the string interner.
+    #[inline]
+    pub fn interner(&self) -> &StringInterner {
+        &self.interner
+    }
+
+    /// Get the Arc-wrapped interner for cloning into iterators.
+    #[inline]
+    pub fn arc_interner(&self) -> Arc<StringInterner> {
+        Arc::clone(&self.interner)
+    }
+
+    /// Get a reference to the side effects store.
+    #[inline]
+    pub fn side_effects(&self) -> &SideEffects {
+        &self.side_effects
+    }
+
+    /// Resolve a label string to its interned ID.
+    ///
+    /// Returns `None` if the label has not been interned (i.e., doesn't exist
+    /// in the graph).
+    #[inline]
+    pub fn resolve_label(&self, label: &str) -> Option<u32> {
+        self.interner.lookup(label)
+    }
+
+    /// Resolve multiple labels to their interned IDs.
+    ///
+    /// Labels that don't exist are filtered out.
+    pub fn resolve_labels(&self, labels: &[&str]) -> Vec<u32> {
+        labels
+            .iter()
+            .filter_map(|l| self.interner.lookup(l))
+            .collect()
+    }
+
+    /// Get label string from ID.
+    #[inline]
+    pub fn get_label(&self, id: u32) -> Option<&str> {
+        self.interner.resolve(id)
     }
 }
 
@@ -571,6 +755,149 @@ mod tests {
             ctx.side_effects.store("test", Value::Int(42));
             let values = ctx.side_effects.get("test");
             assert_eq!(values, Some(vec![Value::Int(42)]));
+        }
+    }
+
+    #[test]
+    fn side_effects_clone_shares_data() {
+        let se1 = SideEffects::new();
+        se1.store("key", Value::Int(1));
+
+        // Clone and verify shared data
+        let se2 = se1.clone();
+        assert_eq!(se2.get("key"), Some(vec![Value::Int(1)]));
+
+        // Modify through clone
+        se2.store("key", Value::Int(2));
+
+        // Original should see the change
+        assert_eq!(se1.get("key"), Some(vec![Value::Int(1), Value::Int(2)]));
+    }
+
+    mod streaming_context_tests {
+        use super::*;
+        use crate::storage::Graph;
+        use std::collections::HashMap;
+
+        fn create_test_graph() -> Graph {
+            let graph = Graph::new();
+
+            graph.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props
+            });
+            graph.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props
+            });
+            graph.add_vertex("software", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Graph DB".to_string()));
+                props
+            });
+
+            graph
+        }
+
+        #[test]
+        fn streaming_context_new_compiles() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let _ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            // If this compiles and doesn't panic, the test passes
+        }
+
+        #[test]
+        fn streaming_context_is_cloneable() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx1 = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+            let ctx2 = ctx1.clone();
+
+            // Both should resolve the same label
+            assert_eq!(ctx1.resolve_label("person"), ctx2.resolve_label("person"));
+        }
+
+        #[test]
+        fn streaming_context_with_path_tracking() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner())
+                .with_path_tracking(true);
+
+            assert!(ctx.is_tracking_paths());
+        }
+
+        #[test]
+        fn streaming_context_with_side_effects() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let side_effects = SideEffects::new();
+            side_effects.store("test", Value::Int(42));
+
+            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner())
+                .with_side_effects(side_effects);
+
+            assert_eq!(ctx.side_effects().get("test"), Some(vec![Value::Int(42)]));
+        }
+
+        #[test]
+        fn streaming_context_resolve_label() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+
+            assert!(ctx.resolve_label("person").is_some());
+            assert!(ctx.resolve_label("software").is_some());
+            assert!(ctx.resolve_label("unknown").is_none());
+        }
+
+        #[test]
+        fn streaming_context_resolve_labels() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+
+            let ids = ctx.resolve_labels(&["person", "software", "unknown"]);
+            assert_eq!(ids.len(), 2); // unknown filtered out
+        }
+
+        #[test]
+        fn streaming_context_storage_accessor() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+
+            assert_eq!(ctx.storage().vertex_count(), 3);
+        }
+
+        #[test]
+        fn streaming_context_arc_accessors() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+
+            // Arc accessors should return cloneable Arc references
+            let _storage = ctx.arc_storage();
+            let _interner = ctx.arc_interner();
+        }
+
+        #[test]
+        fn streaming_context_clones_share_side_effects() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx1 = StreamingContext::new(snapshot.arc_storage(), snapshot.arc_interner());
+
+            // Clone the context
+            let ctx2 = ctx1.clone();
+
+            // Store through one clone
+            ctx1.side_effects().store("shared", Value::Int(1));
+
+            // Other clone should see the change
+            assert_eq!(ctx2.side_effects().get("shared"), Some(vec![Value::Int(1)]));
         }
     }
 }
