@@ -73,10 +73,10 @@ The review is organized into 8 areas, each with specific items to examine:
 | Item | Check | Priority |
 |------|-------|----------|
 | Iterator boxing | All iterators are boxed - performance impact vs design simplicity tradeoff | Medium |
-| Missing methods | No `remove_vertex`/`remove_edge` on trait - only on `InMemoryGraph` | Medium |
+| Missing methods | No `remove_vertex`/`remove_edge` on trait - only on `Graph` | Medium |
 | Label resolution | `interner()` returns reference - verify lifetime safety | Medium |
 
-### 2.2 InMemoryGraph Implementation
+### 2.2 Graph Implementation
 
 | Item | Check | Priority |
 |------|-------|----------|

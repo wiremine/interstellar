@@ -788,4 +788,60 @@ mod tests {
         assert_eq!(streamable.vertex_count(), 4);
         assert_eq!(streamable.edge_count(), 4);
     }
+
+    #[test]
+    fn streamable_storage_stream_vertices_with_label() {
+        use crate::storage::StreamableStorage;
+
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+
+        // Test stream_vertices_with_label
+        let people: Vec<_> = snapshot.stream_vertices_with_label("person").collect();
+        assert_eq!(people.len(), 3);
+
+        let software: Vec<_> = snapshot.stream_vertices_with_label("software").collect();
+        assert_eq!(software.len(), 1);
+
+        let unknown: Vec<_> = snapshot.stream_vertices_with_label("unknown").collect();
+        assert_eq!(unknown.len(), 0);
+    }
+
+    #[test]
+    fn streamable_storage_stream_edges_with_label() {
+        use crate::storage::StreamableStorage;
+
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+
+        // Test stream_edges_with_label
+        let knows: Vec<_> = snapshot.stream_edges_with_label("knows").collect();
+        assert_eq!(knows.len(), 3);
+
+        let created: Vec<_> = snapshot.stream_edges_with_label("created").collect();
+        assert_eq!(created.len(), 1);
+
+        let unknown: Vec<_> = snapshot.stream_edges_with_label("unknown").collect();
+        assert_eq!(unknown.len(), 0);
+    }
+
+    #[test]
+    fn streamable_storage_stream_neighbors() {
+        use crate::storage::StreamableStorage;
+
+        let graph = create_test_graph();
+        let snapshot = graph.snapshot();
+
+        // Alice (VertexId(0)) has outgoing edges to bob, charlie, software
+        let alice_out: Vec<_> = snapshot.stream_out_neighbors(VertexId(0), &[]).collect();
+        assert_eq!(alice_out.len(), 3);
+
+        // Alice has no incoming edges
+        let alice_in: Vec<_> = snapshot.stream_in_neighbors(VertexId(0), &[]).collect();
+        assert_eq!(alice_in.len(), 0);
+
+        // Charlie (VertexId(2)) has incoming edges from alice and bob
+        let charlie_in: Vec<_> = snapshot.stream_in_neighbors(VertexId(2), &[]).collect();
+        assert_eq!(charlie_in.len(), 2);
+    }
 }

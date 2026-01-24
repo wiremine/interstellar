@@ -321,7 +321,7 @@ pub struct Histogram {
 ### 4.1 Creating Indexes
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     /// Create a new property index
     pub fn create_index(&mut self, spec: IndexSpec) -> Result<(), IndexError> {
         // Validate spec
@@ -586,7 +586,7 @@ impl<'g> QueryPlanner<'g> {
 ### 6.1 Insert Operations
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     pub fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId {
         let id = self.allocate_vertex_id();
         let label_id = self.string_table.intern(label);
@@ -646,7 +646,7 @@ impl InMemoryGraph {
 ### 6.2 Delete Operations
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     pub fn remove_vertex(&mut self, id: VertexId) -> Result<(), StorageError> {
         let node = self.nodes.remove(&id)
             .ok_or(StorageError::VertexNotFound(id))?;
@@ -676,7 +676,7 @@ impl InMemoryGraph {
 ### 6.3 Update Operations
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     pub fn set_vertex_property(
         &mut self,
         id: VertexId,
@@ -907,7 +907,7 @@ proptest! {
 ```rust
 #[test]
 fn integration_index_accelerates_has_value() {
-    let mut graph = InMemoryGraph::new();
+    let mut graph = Graph::new();
     
     // Add 10,000 vertices
     for i in 0..10_000 {

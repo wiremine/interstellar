@@ -32,7 +32,7 @@ Phase 6 implements **persistent graph storage** using memory-mapped files, enabl
 - **ACID transactions**: Write-ahead logging for atomicity and recovery
 - **Zero-copy reads**: Direct memory mapping for efficient data access
 
-The memory-mapped backend will implement the same `GraphStorage` trait as `InMemoryGraph`, ensuring **API compatibility** and allowing seamless migration between storage modes.
+The memory-mapped backend will implement the same `GraphStorage` trait as `Graph`, ensuring **API compatibility** and allowing seamless migration between storage modes.
 
 ### Key Design Goals
 
@@ -2004,7 +2004,7 @@ Based on similar systems:
 | Label scan (1M nodes) | 5-10 ms | 50-100 ms |
 | BFS (10 hops) | 100-200 ms | 500 ms-1s |
 
-**Comparison to InMemoryGraph:**
+**Comparison to Graph:**
 
 | Operation | InMemory | Mmap (Hot) | Mmap (Cold) | Mmap (Batch) |
 |-----------|----------|------------|-------------|--------------|
@@ -2018,13 +2018,13 @@ Based on similar systems:
 
 ## Migration Guide
 
-### InMemoryGraph → MmapGraph
+### Graph → MmapGraph
 
 ```rust
-use interstellar::storage::{InMemoryGraph, MmapGraph};
+use interstellar::storage::{Graph, MmapGraph};
 
 fn export_to_disk(
-    memory: &InMemoryGraph,
+    memory: &Graph,
     path: &Path,
 ) -> Result<(), StorageError> {
     let mut disk = MmapGraph::open(path)?;
@@ -2060,13 +2060,13 @@ fn export_to_disk(
 }
 ```
 
-### MmapGraph → InMemoryGraph
+### MmapGraph → Graph
 
 ```rust
 fn load_into_memory(
     disk: &MmapGraph,
-) -> Result<InMemoryGraph, StorageError> {
-    let mut memory = InMemoryGraph::new();
+) -> Result<Graph, StorageError> {
+    let mut memory = Graph::new();
     
     // Load all vertices
     for vertex in disk.all_vertices() {
@@ -2228,7 +2228,7 @@ Phase 6 delivers persistent graph storage with:
 ✅ **Portability**: Single-file database format  
 ✅ **Performance**: Near-memory speeds with page cache  
 ✅ **Safety**: Crash recovery and atomicity  
-✅ **Compatibility**: Same `GraphStorage` trait as InMemoryGraph  
+✅ **Compatibility**: Same `GraphStorage` trait as Graph  
 
 The mmap backend enables production use cases with persistent, large-scale graph storage while maintaining the same fluent traversal API.
 

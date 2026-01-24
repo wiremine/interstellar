@@ -246,7 +246,7 @@ pub trait GraphStorage: Send + Sync {
 
 ### 3.2 In-Memory Storage
 
-For `InMemoryGraph`:
+For `Graph`:
 - Mutations modify the internal `HashMap`/`Vec` structures
 - Use `RwLock` for thread-safe concurrent access
 - Vertex deletion cascades to edge deletion
@@ -456,7 +456,7 @@ g.v_id(alice.id())
 use interstellar::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     let g = graph.traversal();
     
     // Create a social network

@@ -24,8 +24,8 @@ Interstellar is a high-performance graph database library for Rust. This documen
 │              ┌─────────────┴─────────────┐                      │
 │              ▼                           ▼                      │
 │    ┌─────────────────┐         ┌─────────────────┐             │
-│    │  InMemoryGraph  │         │    MmapGraph    │             │
-│    │  (HashMap)      │         │  (Persistent)   │             │
+│    │      Graph      │         │    MmapGraph    │             │
+│    │   (In-Memory)   │         │  (Persistent)   │             │
 │    └─────────────────┘         └─────────────────┘             │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -69,7 +69,7 @@ pub trait GraphStorage: Send + Sync {
 
 Two implementations are provided:
 
-- **InMemoryGraph**: HashMap-based, fast, non-persistent
+- **Graph**: COW-based with interior mutability, fast, non-persistent
 - **MmapGraph**: Memory-mapped files, persistent, larger capacity
 
 ---
@@ -206,7 +206,7 @@ interstellar/
 │   ├── error.rs            # Error types
 │   ├── storage/
 │   │   ├── mod.rs          # GraphStorage trait
-│   │   ├── inmemory.rs     # InMemoryGraph
+│   │   ├── cow_graph.rs    # Graph (COW-based in-memory)
 │   │   └── mmap.rs         # MmapGraph (feature-gated)
 │   ├── traversal/
 │   │   ├── mod.rs          # Traversal types

@@ -10,7 +10,7 @@ use interstellar::gql::{
     MutationError,
 };
 use interstellar::schema::{PropertyType, SchemaBuilder, ValidationMode};
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphMutWrapper, GraphStorage, GraphStorageMut};
 use interstellar::value::Value;
 
 // =============================================================================
@@ -18,10 +18,10 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with vertices and edges.
-fn create_test_graph() -> InMemoryGraph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
-    let alice_id = storage.add_vertex(
+    let alice_id = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -29,7 +29,7 @@ fn create_test_graph() -> InMemoryGraph {
         ]),
     );
 
-    let bob_id = storage.add_vertex(
+    let bob_id = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -37,7 +37,7 @@ fn create_test_graph() -> InMemoryGraph {
         ]),
     );
 
-    let charlie_id = storage.add_vertex(
+    let charlie_id = graph.add_vertex(
         "Person",
         HashMap::from([
             ("name".to_string(), Value::String("Charlie".to_string())),
@@ -46,7 +46,7 @@ fn create_test_graph() -> InMemoryGraph {
     );
 
     // Create edges
-    storage
+    graph
         .add_edge(
             alice_id,
             bob_id,
@@ -55,7 +55,7 @@ fn create_test_graph() -> InMemoryGraph {
         )
         .unwrap();
 
-    storage
+    graph
         .add_edge(
             bob_id,
             charlie_id,
@@ -64,11 +64,14 @@ fn create_test_graph() -> InMemoryGraph {
         )
         .unwrap();
 
-    storage
+    graph
 }
 
 /// Execute a GQL mutation query against storage.
-fn execute_gql(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, MutationError> {
+fn execute_gql(
+    storage: &mut GraphMutWrapper<'_>,
+    query: &str,
+) -> Result<Vec<Value>, MutationError> {
     let stmt = parse_statement(query).map_err(|e| {
         MutationError::Compile(CompileError::UnsupportedFeature(format!(
             "Parse error: {}",
@@ -84,7 +87,8 @@ fn execute_gql(storage: &mut InMemoryGraph, query: &str) -> Result<Vec<Value>, M
 
 #[test]
 fn test_execute_mutation_with_query_statement_error() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Parse a read query (not a mutation)
     let query = parse("MATCH (n:Person) RETURN n").unwrap();
@@ -106,7 +110,8 @@ fn test_execute_mutation_with_query_statement_error() {
 
 #[test]
 fn test_execute_mutation_with_ddl_statement_error() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Parse a DDL statement (must have parentheses for properties)
     let stmt = parse_statement("CREATE NODE TYPE Person ()").unwrap();
@@ -125,7 +130,8 @@ fn test_execute_mutation_with_ddl_statement_error() {
 
 #[test]
 fn test_execute_mutation_with_schema_ddl_error() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
         .vertex("Person")
@@ -153,7 +159,8 @@ fn test_execute_mutation_with_schema_ddl_error() {
 
 #[test]
 fn test_create_vertex_with_schema_validation() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
         .vertex("Person")
@@ -171,7 +178,8 @@ fn test_create_vertex_with_schema_validation() {
 
 #[test]
 fn test_set_edge_property_with_schema() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
         .edge("KNOWS")
@@ -190,7 +198,8 @@ fn test_set_edge_property_with_schema() {
 
 #[test]
 fn test_create_edge_with_schema_validation() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
         .vertex("Person")
@@ -219,7 +228,8 @@ fn test_create_edge_with_schema_validation() {
 
 #[test]
 fn test_match_incoming_edge() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match incoming edges (Bob receives KNOWS from Alice)
     let result = execute_gql(
@@ -232,7 +242,8 @@ fn test_match_incoming_edge() {
 
 #[test]
 fn test_match_bidirectional_edge() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match edges in both directions
     let result = execute_gql(
@@ -249,7 +260,8 @@ fn test_match_bidirectional_edge() {
 
 #[test]
 fn test_match_with_is_null_expression() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Create vertex with and without a property
     storage.add_vertex(
@@ -281,7 +293,8 @@ fn test_match_with_is_null_expression() {
 
 #[test]
 fn test_match_with_is_not_null_expression() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Person",
@@ -309,7 +322,8 @@ fn test_match_with_is_not_null_expression() {
 
 #[test]
 fn test_match_with_in_list_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match where name IN list
     let result = execute_gql(
@@ -322,7 +336,8 @@ fn test_match_with_in_list_expression() {
 
 #[test]
 fn test_match_with_not_in_list_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match where name NOT IN list
     let result = execute_gql(
@@ -335,7 +350,8 @@ fn test_match_with_not_in_list_expression() {
 
 #[test]
 fn test_match_with_not_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match with NOT expression
     let result = execute_gql(
@@ -348,7 +364,8 @@ fn test_match_with_not_expression() {
 
 #[test]
 fn test_match_with_or_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match with OR expression
     let result = execute_gql(
@@ -361,7 +378,8 @@ fn test_match_with_or_expression() {
 
 #[test]
 fn test_match_with_arithmetic_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // SET with arithmetic expression
     let result = execute_gql(
@@ -384,7 +402,8 @@ fn test_match_with_arithmetic_expression() {
 
 #[test]
 fn test_match_with_subtraction_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(
         &mut storage,
@@ -396,7 +415,8 @@ fn test_match_with_subtraction_expression() {
 
 #[test]
 fn test_match_with_division_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(&mut storage, "MATCH (n:Person) SET n.half_age = n.age / 2");
 
@@ -405,7 +425,8 @@ fn test_match_with_division_expression() {
 
 #[test]
 fn test_match_with_modulo_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(&mut storage, "MATCH (n:Person) SET n.age_mod = n.age % 10");
 
@@ -414,7 +435,8 @@ fn test_match_with_modulo_expression() {
 
 #[test]
 fn test_match_with_negation_expression() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(&mut storage, "MATCH (n:Person) SET n.neg_age = -n.age");
 
@@ -427,7 +449,8 @@ fn test_match_with_negation_expression() {
 
 #[test]
 fn test_match_with_less_than_or_equal() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(
         &mut storage,
@@ -439,7 +462,8 @@ fn test_match_with_less_than_or_equal() {
 
 #[test]
 fn test_match_with_greater_than_or_equal() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(
         &mut storage,
@@ -451,7 +475,8 @@ fn test_match_with_greater_than_or_equal() {
 
 #[test]
 fn test_match_with_not_equal() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(
         &mut storage,
@@ -467,7 +492,8 @@ fn test_match_with_not_equal() {
 
 #[test]
 fn test_return_multiple_items() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let results = execute_gql(
         &mut storage,
@@ -489,7 +515,8 @@ fn test_return_multiple_items() {
 
 #[test]
 fn test_return_with_alias() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let results = execute_gql(
         &mut storage,
@@ -509,7 +536,8 @@ fn test_return_with_alias() {
 
 #[test]
 fn test_return_empty_items() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Create without return clause
     let results = execute_gql(&mut storage, "CREATE (n:Person {name: 'Alice'})");
@@ -524,7 +552,8 @@ fn test_return_empty_items() {
 
 #[test]
 fn test_match_edge_and_set_property() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match edge and set new property
     let result = execute_gql(
@@ -542,7 +571,8 @@ fn test_match_edge_and_set_property() {
 
 #[test]
 fn test_match_edge_property_filter() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match edge with property filter
     let result = execute_gql(
@@ -555,7 +585,8 @@ fn test_match_edge_property_filter() {
 
 #[test]
 fn test_remove_edge_property() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Remove edge property
     let result = execute_gql(
@@ -577,7 +608,8 @@ fn test_remove_edge_property() {
 
 #[test]
 fn test_merge_creates_when_no_match() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(
         &mut storage,
@@ -593,7 +625,8 @@ fn test_merge_creates_when_no_match() {
 
 #[test]
 fn test_merge_matches_existing() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let initial_count = storage.vertex_count();
 
     let result = execute_gql(
@@ -618,7 +651,8 @@ fn test_merge_matches_existing() {
 
 #[test]
 fn test_set_unbound_variable_error() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Try to set property on unbound variable
     let result = execute_gql(&mut storage, "MATCH (n:Person) SET x.prop = 1");
@@ -628,7 +662,8 @@ fn test_set_unbound_variable_error() {
 
 #[test]
 fn test_delete_unbound_variable_error() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(&mut storage, "MATCH (n:Person) DELETE x");
 
@@ -637,7 +672,8 @@ fn test_delete_unbound_variable_error() {
 
 #[test]
 fn test_remove_unbound_variable_error() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(&mut storage, "MATCH (n:Person) REMOVE x.prop");
 
@@ -646,7 +682,8 @@ fn test_remove_unbound_variable_error() {
 
 #[test]
 fn test_detach_delete_unbound_variable_error() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(&mut storage, "MATCH (n:Person) DETACH DELETE x");
 
@@ -655,7 +692,8 @@ fn test_detach_delete_unbound_variable_error() {
 
 #[test]
 fn test_create_vertex_missing_label_error() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // This should fail because anonymous vertex needs a label
     // But our parser likely won't allow this syntax anyway
@@ -668,7 +706,8 @@ fn test_create_vertex_missing_label_error() {
 
 #[test]
 fn test_delete_vertex_with_edges_error() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Try to delete vertex with edges
     let result = execute_gql(&mut storage, "MATCH (n:Person {name: 'Alice'}) DELETE n");
@@ -678,7 +717,8 @@ fn test_delete_vertex_with_edges_error() {
 
 #[test]
 fn test_match_no_results() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Match that finds nothing
     let result = execute_gql(
@@ -696,7 +736,8 @@ fn test_match_no_results() {
 
 #[test]
 fn test_create_edge_between_matched_vertices() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let initial_edge_count = storage.edge_count();
 
     // Match existing vertices via a path and create new edge
@@ -712,7 +753,8 @@ fn test_create_edge_between_matched_vertices() {
 
 #[test]
 fn test_create_incoming_edge() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Create vertices and incoming edge
     let result = execute_gql(
@@ -731,7 +773,8 @@ fn test_create_incoming_edge() {
 
 #[test]
 fn test_create_with_edge_variable() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Create edge with variable and return it
     let results = execute_gql(
@@ -751,7 +794,8 @@ fn test_create_with_edge_variable() {
 
 #[test]
 fn test_detach_delete_edge() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let initial_edge_count = storage.edge_count();
 
     // Delete an edge using DETACH DELETE
@@ -766,7 +810,8 @@ fn test_detach_delete_edge() {
 
 #[test]
 fn test_detach_delete_removes_all_edges() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // DETACH DELETE vertex should remove its edges too
     let result = execute_gql(
@@ -786,7 +831,8 @@ fn test_detach_delete_removes_all_edges() {
 
 #[test]
 fn test_match_with_float_comparison() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Item",
@@ -813,7 +859,8 @@ fn test_match_with_float_comparison() {
 
 #[test]
 fn test_float_arithmetic() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Item",
@@ -836,7 +883,8 @@ fn test_float_arithmetic() {
 
 #[test]
 fn test_int_float_mixed_comparison() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Item",
@@ -857,7 +905,8 @@ fn test_int_float_mixed_comparison() {
 
 #[test]
 fn test_int_float_mixed_arithmetic() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Item",
@@ -876,7 +925,8 @@ fn test_int_float_mixed_arithmetic() {
 
 #[test]
 fn test_string_comparison() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // String less than comparison
     let result = execute_gql(
@@ -900,7 +950,8 @@ fn test_string_comparison() {
 
 #[test]
 fn test_division_by_zero_int() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Item",
@@ -918,7 +969,8 @@ fn test_division_by_zero_int() {
 
 #[test]
 fn test_modulo_by_zero() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
         "Item",

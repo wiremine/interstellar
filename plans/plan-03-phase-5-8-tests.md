@@ -1184,7 +1184,7 @@ fn test_coexistence_vertex_edge_traversal() {
 
 ```rust
 use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use interstellar::value::{Value, VertexId, EdgeId};
 use interstellar::error::TraversalError;
 use interstellar::traversal::{Traversal, __};
@@ -1205,7 +1205,7 @@ struct TestGraph {
 
 /// Create the standard test graph
 fn create_test_graph() -> TestGraph {
-    let mut storage = InMemoryGraph::new();
+    let mut storage = Graph::new();
 
     // Add person vertices
     let alice = storage.add_vertex("person", {
@@ -1298,7 +1298,7 @@ Phase 5.8 is complete when:
 
 ## Notes
 
-- Tests use the `InMemoryGraph` storage backend
+- Tests use the `Graph` storage backend
 - All tests should be independent and not rely on external state
 - Test names follow the pattern `test_<category>_<specific_behavior>`
 - Each test validates a single behavior where possible

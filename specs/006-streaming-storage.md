@@ -282,13 +282,13 @@ pub trait StreamableStorage: GraphStorage + 'static {
 }
 ```
 
-### Chunk 2: InMemoryGraph Implementation
+### Chunk 2: Graph Implementation
 
 **Files:** `src/storage/inmemory.rs`  
 **Effort:** 1 day
 
 ```rust
-impl StreamableStorage for InMemoryGraph {
+impl StreamableStorage for Graph {
     fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
         // Clone the vertex ID list (just u64s, cheap)
         let ids: Vec<VertexId> = self.nodes.keys().copied().collect();
@@ -338,11 +338,11 @@ impl StreamableStorage for InMemoryGraph {
 
 ### Note on True O(1) Streaming
 
-The current `InMemoryGraph` implementation collects IDs from HashMap keys, which is still O(V).
-For true O(1) streaming, `InMemoryGraph` would need an ordered list of vertex IDs:
+The current `Graph` implementation collects IDs from HashMap keys, which is still O(V).
+For true O(1) streaming, `Graph` would need an ordered list of vertex IDs:
 
 ```rust
-pub struct InMemoryGraph {
+pub struct Graph {
     // Existing
     nodes: HashMap<VertexId, NodeData>,
     edges: HashMap<EdgeId, EdgeData>,
@@ -366,7 +366,7 @@ the correct API with a collecting fallback.
 
 ### Alternative: RoaringTreemap Iteration
 
-If `InMemoryGraph` uses `RoaringTreemap` for vertex ID tracking (future optimization):
+If `Graph` uses `RoaringTreemap` for vertex ID tracking (future optimization):
 
 ```rust
 fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
@@ -574,7 +574,7 @@ owned storage for streaming pipelines.
 | Chunk | Effort | Description |
 |-------|--------|-------------|
 | 1. StreamableStorage trait | 0.5 days | New trait with default impls |
-| 2. InMemoryGraph impl | 0.5 days | StreamableStorage for inmemory backend |
+| 2. Graph impl | 0.5 days | StreamableStorage for inmemory backend |
 | 3. GraphSnapshot impl | 0.5 days | StreamableStorage for COW snapshot |
 | 4. StreamingExecutor update | 0.5 days | Add new_streaming constructor |
 | 5. arc_streamable method | 0.25 days | Helper on GraphSnapshot |

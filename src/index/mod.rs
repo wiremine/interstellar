@@ -14,9 +14,9 @@
 //!
 //! ```rust,ignore
 //! use interstellar::index::IndexBuilder;
-//! use interstellar::storage::InMemoryGraph;
+//! use interstellar::storage::Graph;
 //!
-//! let mut graph = InMemoryGraph::new();
+//! let graph = Graph::new();
 //!
 //! // Create a B+ tree index for range queries
 //! graph.create_index(

@@ -358,12 +358,12 @@ pub trait QuadStorage: RdfStorage {
 
 **Option A: Graph partitioning**
 
-Store each named graph as a separate `InMemoryGraph` instance:
+Store each named graph as a separate `Graph` instance:
 
 ```rust
 pub struct RdfDatasetStorage {
-    default_graph: InMemoryGraph,
-    named_graphs: HashMap<Iri, InMemoryGraph>,
+    default_graph: Graph,
+    named_graphs: HashMap<Iri, Graph>,
 }
 ```
 

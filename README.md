@@ -31,29 +31,26 @@ interstellar = "0.1"
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
-use std::sync::Arc;
 
 fn main() {
     // Create an in-memory graph
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add vertices using the props! macro
-    let alice = storage.add_vertex("person", props! {
+    let alice = graph.add_vertex("person", props! {
         "name" => "Alice",
         "age" => 30i64
     });
 
-    let bob = storage.add_vertex("person", props! {
+    let bob = graph.add_vertex("person", props! {
         "name" => "Bob",
         "age" => 25i64
     });
 
     // Add edge
-    storage.add_edge(alice, bob, "knows", props! {}).unwrap();
+    graph.add_edge(alice, bob, "knows", props! {}).unwrap();
 
-    // Wrap in Graph for traversal API
-    let graph = Graph::new(Arc::new(storage));
+    // Get a snapshot for traversal
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
 
@@ -69,14 +66,16 @@ fn main() {
 
 ## Storage Backends
 
-### InMemoryGraph (Default)
+### Graph (Default)
 
-HashMap-based storage for development and small graphs:
+In-memory graph with copy-on-write snapshots. Uses interior mutability for thread-safe mutations:
 
 ```rust
-use interstellar::storage::InMemoryGraph;
+use interstellar::prelude::*;
 
-let graph = InMemoryGraph::new();
+let graph = Graph::new();  // No mut needed - interior mutability
+let id = graph.add_vertex("person", props! { "name" => "Alice" });
+let snapshot = graph.snapshot();  // Immutable point-in-time view
 ```
 
 ### MmapGraph (Persistent Storage)

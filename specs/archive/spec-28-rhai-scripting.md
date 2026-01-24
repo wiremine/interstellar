@@ -1203,7 +1203,7 @@ mod tests {
     use interstellar::prelude::*;
     use interstellar::rhai::RhaiEngine;
 
-    fn create_test_graph() -> Graph<InMemoryGraph> {
+    fn create_test_graph() -> Graph<Graph> {
         let graph = Graph::in_memory();
         {
             let mut g = graph.mutate();
@@ -1298,7 +1298,7 @@ mod tests {
     use interstellar::prelude::*;
     use interstellar::rhai::RhaiEngine;
 
-    fn create_social_graph() -> Graph<InMemoryGraph> {
+    fn create_social_graph() -> Graph<Graph> {
         let graph = Graph::in_memory();
         {
             let mut g = graph.mutate();
@@ -1652,7 +1652,7 @@ use interstellar::rhai::RhaiEngine;
 /// A query service that executes user-provided scripts
 pub struct QueryService {
     engine: RhaiEngine,
-    graph: Graph<InMemoryGraph>,
+    graph: Graph<Graph>,
 }
 
 impl QueryService {

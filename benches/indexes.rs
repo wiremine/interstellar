@@ -7,7 +7,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use interstellar::index::IndexBuilder;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use interstellar::value::Value;
 use std::collections::HashMap;
 use std::ops::Bound;
@@ -18,8 +18,8 @@ use std::ops::Bound;
 /// - "name": String
 /// - "age": Int (distributed 0-99)
 /// - "email": String (unique per vertex)
-fn create_graph(num_vertices: usize) -> InMemoryGraph {
-    let mut graph = InMemoryGraph::new();
+fn create_graph(num_vertices: usize) -> Graph {
+    let graph = Graph::new();
 
     for i in 0..num_vertices {
         graph.add_vertex(
@@ -39,8 +39,8 @@ fn create_graph(num_vertices: usize) -> InMemoryGraph {
 }
 
 /// Create a graph with BTree index on age.
-fn create_graph_with_age_index(num_vertices: usize) -> InMemoryGraph {
-    let mut graph = create_graph(num_vertices);
+fn create_graph_with_age_index(num_vertices: usize) -> Graph {
+    let graph = create_graph(num_vertices);
     graph
         .create_index(
             IndexBuilder::vertex()
@@ -55,8 +55,8 @@ fn create_graph_with_age_index(num_vertices: usize) -> InMemoryGraph {
 }
 
 /// Create a graph with unique index on email.
-fn create_graph_with_email_index(num_vertices: usize) -> InMemoryGraph {
-    let mut graph = create_graph(num_vertices);
+fn create_graph_with_email_index(num_vertices: usize) -> Graph {
+    let graph = create_graph(num_vertices);
     graph
         .create_index(
             IndexBuilder::vertex()
@@ -234,7 +234,7 @@ fn bench_index_creation(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("btree", size), size, |b, &size| {
             b.iter_with_setup(
                 || create_graph(size),
-                |mut graph| {
+                |graph| {
                     graph
                         .create_index(
                             IndexBuilder::vertex()
@@ -254,7 +254,7 @@ fn bench_index_creation(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("unique", size), size, |b, &size| {
             b.iter_with_setup(
                 || create_graph(size),
-                |mut graph| {
+                |graph| {
                     graph
                         .create_index(
                             IndexBuilder::vertex()
@@ -288,7 +288,7 @@ fn bench_insert_with_index(c: &mut Criterion) {
     group.bench_function("without_index", |b| {
         b.iter_with_setup(
             || create_graph(base_size),
-            |mut graph| {
+            |graph| {
                 for i in 0..100 {
                     graph.add_vertex(
                         "person",
@@ -313,7 +313,7 @@ fn bench_insert_with_index(c: &mut Criterion) {
     group.bench_function("with_btree_index", |b| {
         b.iter_with_setup(
             || create_graph_with_age_index(base_size),
-            |mut graph| {
+            |graph| {
                 for i in 0..100 {
                     graph.add_vertex(
                         "person",
@@ -338,7 +338,7 @@ fn bench_insert_with_index(c: &mut Criterion) {
     group.bench_function("with_unique_index", |b| {
         b.iter_with_setup(
             || create_graph_with_email_index(base_size),
-            |mut graph| {
+            |graph| {
                 for i in 0..100 {
                     graph.add_vertex(
                         "person",

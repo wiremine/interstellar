@@ -391,19 +391,19 @@ impl PropertyIndex for UniqueIndex {
 
 ## Phase 4: Storage Integration (4-6 hours)
 
-### 4.1 InMemoryGraph Index Storage
+### 4.1 Graph Index Storage
 
 Update `src/storage/inmemory.rs`:
 
 ```rust
-pub struct InMemoryGraph {
+pub struct Graph {
     // ... existing fields ...
     
     /// Property indexes
     indexes: HashMap<String, Box<dyn PropertyIndex>>,
 }
 
-impl InMemoryGraph {
+impl Graph {
     /// Create a new index
     pub fn create_index(&mut self, spec: IndexSpec) -> Result<(), IndexError> {
         if self.indexes.contains_key(&spec.name) {
@@ -469,10 +469,10 @@ impl InMemoryGraph {
 
 ### 4.2 Automatic Index Maintenance
 
-Update mutation methods in `InMemoryGraph`:
+Update mutation methods in `Graph`:
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     pub fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId {
         let id = /* ... existing logic ... */;
         
@@ -578,7 +578,7 @@ impl InMemoryGraph {
 
 ### Deliverables
 
-- [ ] Index storage in `InMemoryGraph`
+- [ ] Index storage in `Graph`
 - [ ] `create_index`, `drop_index`, `list_indexes` methods
 - [ ] Automatic index maintenance on mutations
 - [ ] Integration tests

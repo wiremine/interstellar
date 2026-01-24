@@ -256,8 +256,8 @@ let props: HashMap<String, Value> = HashMap::from([
 ]);
 
 // Add vertex with properties
-let mut storage = InMemoryGraph::new();
-let alice = storage.add_vertex("person", props);
+let graph = Graph::new();
+let alice = graph.add_vertex("person", props);
 ```
 
 ## See Also

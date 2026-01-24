@@ -72,7 +72,7 @@
 //! | Module | Description |
 //! |--------|-------------|
 //! | [`graph`] | Graph container with snapshot-based concurrency ([`Graph`], [`GraphSnapshot`]) |
-//! | [`storage`] | Storage backends ([`InMemoryGraph`](storage::InMemoryGraph), [`MmapGraph`](storage::mmap::MmapGraph)) |
+//! | [`storage`] | Storage backends ([`Graph`](storage::Graph), [`MmapGraph`](storage::mmap::MmapGraph)) |
 //! | [`traversal`] | Fluent traversal API, steps, predicates ([`p`]), anonymous traversals ([`__`]) |
 //! | [`value`] | Core value types ([`Value`], [`VertexId`], [`EdgeId`]) |
 //! | [`error`] | Error types ([`StorageError`], [`TraversalError`], [`MutationError`](error::MutationError)) |
@@ -219,13 +219,13 @@
 //!
 //! ### In-Memory (Default)
 //!
-//! Fast HashMap-based storage for development and small graphs:
+//! The COW (Copy-on-Write) graph for development and small graphs:
 //!
 //! ```rust
-//! use interstellar::storage::InMemoryGraph;
+//! use interstellar::storage::Graph;
 //!
-//! let storage = InMemoryGraph::new();
-//! // Use directly or wrap in Graph for traversal
+//! let graph = Graph::new();
+//! // Use directly with traversal API
 //! ```
 //!
 //! ### Memory-Mapped (Persistent)
@@ -303,8 +303,8 @@
 /// Creates a property map for vertices and edges.
 ///
 /// This macro provides a convenient way to construct `HashMap<String, Value>`
-/// for use with [`InMemoryGraph::add_vertex`](storage::InMemoryGraph::add_vertex)
-/// and [`InMemoryGraph::add_edge`](storage::InMemoryGraph::add_edge).
+/// for use with [`Graph::add_vertex`](storage::Graph::add_vertex)
+/// and [`Graph::add_edge`](storage::Graph::add_edge).
 ///
 /// Values are automatically converted using [`Into<Value>`](Value), so you can
 /// use native Rust types directly.
@@ -313,22 +313,22 @@
 ///
 /// ```rust
 /// use interstellar::prelude::*;
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
 ///
 /// // Create a vertex with properties
-/// let alice = storage.add_vertex("person", props! {
+/// let alice = graph.add_vertex("person", props! {
 ///     "name" => "Alice",
 ///     "age" => 30i64,
 ///     "active" => true,
 /// });
 ///
 /// // Empty properties
-/// let bob = storage.add_vertex("person", props! {});
+/// let bob = graph.add_vertex("person", props! {});
 ///
 /// // Edge with properties
-/// storage.add_edge(alice, bob, "knows", props! {
+/// graph.add_edge(alice, bob, "knows", props! {
 ///     "since" => 2020i64,
 ///     "weight" => 0.95,
 /// }).unwrap();
@@ -366,7 +366,6 @@ macro_rules! props {
 pub mod algorithms;
 pub mod error;
 pub mod gql;
-pub mod graph;
 pub mod graph_access;
 pub mod graph_elements;
 pub mod index;

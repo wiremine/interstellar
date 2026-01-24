@@ -389,11 +389,11 @@ Add to `src/traversal/transform/functional.rs`:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::inmemory::InMemoryGraph;
+    use crate::storage::inmemory::Graph;
     use std::collections::HashMap;
 
-    fn create_test_graph() -> InMemoryGraph {
-        let graph = InMemoryGraph::new();
+    fn create_test_graph() -> Graph {
+        let graph = Graph::new();
         let mut props_a = HashMap::new();
         props_a.insert("name".to_string(), Value::String("Alice".into()));
         props_a.insert("age".to_string(), Value::Integer(30));

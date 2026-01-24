@@ -1222,11 +1222,11 @@ fn parse_merge_snapshot() {
 
 ```rust
 use interstellar::gql::{parse, compile, execute};
-use interstellar::InMemoryGraph;
+use interstellar::Graph;
 
 #[test]
 fn test_create_vertex() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
     
@@ -1238,7 +1238,7 @@ fn test_create_vertex() {
 
 #[test]
 fn test_create_edge() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "CREATE (a:Person {name: 'Alice'})").unwrap();
     execute(&graph, "CREATE (b:Person {name: 'Bob'})").unwrap();
@@ -1260,7 +1260,7 @@ fn test_create_edge() {
 
 #[test]
 fn test_set_property() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
     execute(&graph, "MATCH (n:Person {name: 'Alice'}) SET n.age = 31").unwrap();
@@ -1271,7 +1271,7 @@ fn test_set_property() {
 
 #[test]
 fn test_delete_fails_with_edges() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})").unwrap();
     
@@ -1283,7 +1283,7 @@ fn test_delete_fails_with_edges() {
 
 #[test]
 fn test_detach_delete_succeeds() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})").unwrap();
     execute(&graph, "MATCH (n:Person {name: 'Alice'}) DETACH DELETE n").unwrap();
@@ -1299,7 +1299,7 @@ fn test_detach_delete_succeeds() {
 
 #[test]
 fn test_merge_creates_when_not_exists() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = 123").unwrap();
     
@@ -1310,7 +1310,7 @@ fn test_merge_creates_when_not_exists() {
 
 #[test]
 fn test_merge_matches_when_exists() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     execute(&graph, "CREATE (n:Person {name: 'Alice', created: 100})").unwrap();
     execute(&graph, "MERGE (n:Person {name: 'Alice'}) ON MATCH SET n.updated = 200").unwrap();
@@ -1340,7 +1340,7 @@ fn test_merge_matches_when_exists() {
 ```rust
 #[test]
 fn test_set_without_match_fails() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     // SET requires MATCH - this should be a parse error
     let result = parse("SET n.age = 31");
     assert!(result.is_err());
@@ -1348,7 +1348,7 @@ fn test_set_without_match_fails() {
 
 #[test]
 fn test_delete_unbound_variable_fails() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     execute(&graph, "CREATE (n:Person {name: 'Alice'})").unwrap();
     
     let result = execute(&graph, "MATCH (n:Person) DELETE m");
@@ -1357,7 +1357,7 @@ fn test_delete_unbound_variable_fails() {
 
 #[test]
 fn test_create_edge_to_nonexistent_fails() {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     execute(&graph, "CREATE (a:Person {name: 'Alice'})").unwrap();
     
     // b doesn't exist

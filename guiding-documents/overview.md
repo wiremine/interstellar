@@ -200,7 +200,7 @@ interstellar/
 └── Cargo.toml
 ```
 
-**Note**: Label indexes are implemented inline within storage backends (`InMemoryGraph` and future `MmapGraph`) using `HashMap<u32, RoaringBitmap>`. Optional property indexes will be added as separate modules in future phases for advanced query optimization.
+**Note**: Label indexes are implemented inline within storage backends (`Graph` and future `MmapGraph`) using `HashMap<u32, RoaringBitmap>`. Optional property indexes will be added as separate modules in future phases for advanced query optimization.
 
 ---
 
@@ -915,7 +915,7 @@ let people_who_know_bob: Vec<Value> = g.v()
 - ✅ RwLock-based concurrency with `try_mutate()`
 
 ### Phase 2: In-Memory Storage ✅ Complete
-- ✅ HashMap-based `InMemoryGraph`
+- ✅ HashMap-based `Graph`
 - ✅ O(1) vertex/edge lookup
 - ✅ Inline label indexes (`HashMap<u32, RoaringBitmap>`)
 - ✅ Adjacency list traversal

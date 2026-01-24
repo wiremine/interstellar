@@ -12,8 +12,8 @@
 //!
 //! | Backend | Description | Use Case |
 //! |---------|-------------|----------|
-//! | [`InMemoryGraph`] | HashMap-based storage | Development, small graphs |
-//! | `MmapGraph` | Memory-mapped persistent storage | Production, large graphs (requires `mmap` feature) |
+//! | [`Graph`] | COW graph with structural sharing | Development, production in-memory |
+//! | [`PersistentGraph`] | Memory-mapped persistent storage | Production, large graphs (requires `mmap` feature) |
 //!
 //! # Architecture
 //!
@@ -34,39 +34,37 @@
 //!          ┌────────────┴────────────┐
 //!          ▼                         ▼
 //! ┌─────────────────┐      ┌─────────────────┐
-//! │  InMemoryGraph  │      │   MmapGraph     │
+//! │ GraphSnapshot   │      │ PersistentGraph │
 //! └─────────────────┘      └─────────────────┘
 //! ```
 //!
 //! # Example
 //!
 //! ```
-//! use interstellar::storage::{GraphStorage, InMemoryGraph};
+//! use interstellar::storage::{Graph, GraphStorage};
 //! use std::collections::HashMap;
 //!
-//! let mut graph = InMemoryGraph::new();
+//! let graph = Graph::new();
 //!
-//! // Add vertices
+//! // Add vertices via Graph methods
 //! let alice = graph.add_vertex("person", HashMap::from([
 //!     ("name".to_string(), "Alice".into()),
 //! ]));
 //! let bob = graph.add_vertex("person", HashMap::from([
 //!     ("name".to_string(), "Bob".into()),
 //! ]));
-//!
-//! // Add edge
 //! graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
 //!
-//! // Query via GraphStorage trait
-//! assert_eq!(graph.vertex_count(), 2);
-//! assert_eq!(graph.edge_count(), 1);
+//! // Query via snapshot
+//! let snapshot = graph.snapshot();
+//! assert_eq!(snapshot.vertex_count(), 2);
+//! assert_eq!(snapshot.edge_count(), 1);
 //! ```
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub mod cow;
-pub mod inmemory;
 pub mod interner;
 
 #[cfg(feature = "mmap")]
@@ -76,9 +74,8 @@ pub mod mmap;
 pub mod cow_mmap;
 
 // Re-export primary types (new names)
-pub use cow::{BatchContext, BatchError, Graph, GraphSnapshot, GraphState};
+pub use cow::{BatchContext, BatchError, Graph, GraphMutWrapper, GraphSnapshot, GraphState};
 
-pub use inmemory::InMemoryGraph;
 pub use interner::StringInterner;
 
 #[cfg(feature = "mmap")]
@@ -127,16 +124,17 @@ use crate::value::{EdgeId, Value, VertexId};
 /// # Example
 ///
 /// ```
-/// use interstellar::storage::{GraphStorage, InMemoryGraph, Vertex};
+/// use interstellar::storage::{Graph, GraphStorage, Vertex};
 /// use std::collections::HashMap;
 ///
-/// let mut graph = InMemoryGraph::new();
+/// let graph = Graph::new();
 /// let id = graph.add_vertex("person", HashMap::from([
 ///     ("name".to_string(), "Alice".into()),
-///     ("age".to_string(), 30.into()),
+///     ("age".to_string(), 30i64.into()),
 /// ]));
 ///
-/// let vertex: Vertex = graph.get_vertex(id).unwrap();
+/// let snapshot = graph.snapshot();
+/// let vertex: Vertex = snapshot.get_vertex(id).unwrap();
 /// assert_eq!(vertex.label, "person");
 /// assert_eq!(vertex.properties.get("name").unwrap().as_str(), Some("Alice"));
 /// ```
@@ -166,17 +164,18 @@ pub struct Vertex {
 /// # Example
 ///
 /// ```
-/// use interstellar::storage::{GraphStorage, InMemoryGraph, Edge};
+/// use interstellar::storage::{Graph, GraphStorage, Edge};
 /// use std::collections::HashMap;
 ///
-/// let mut graph = InMemoryGraph::new();
+/// let graph = Graph::new();
 /// let alice = graph.add_vertex("person", HashMap::new());
 /// let bob = graph.add_vertex("person", HashMap::new());
 /// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::from([
-///     ("since".to_string(), 2020.into()),
+///     ("since".to_string(), 2020i64.into()),
 /// ])).unwrap();
 ///
-/// let edge: Edge = graph.get_edge(edge_id).unwrap();
+/// let snapshot = graph.snapshot();
+/// let edge: Edge = snapshot.get_edge(edge_id).unwrap();
 /// assert_eq!(edge.label, "knows");
 /// assert_eq!(edge.src, alice);
 /// assert_eq!(edge.dst, bob);
@@ -198,35 +197,36 @@ pub struct Edge {
 /// Trait for graph storage backends.
 ///
 /// This trait defines the interface that all storage backends must implement.
-/// It provides read-only access to graph data; mutation is handled separately
-/// by each backend's specific methods (e.g., [`InMemoryGraph::add_vertex`]).
+/// It provides read-only access to graph data; mutation is handled through
+/// the [`Graph`] container's mutation API.
 ///
 /// # Thread Safety
 ///
 /// All implementations must be `Send + Sync` to allow concurrent read access.
-/// Write access requires external synchronization (provided by [`Graph`](crate::Graph)).
+/// Write access requires using [`Graph`] methods directly or [`GraphMutWrapper`].
 ///
 /// # Implementors
 ///
-/// - [`InMemoryGraph`]: HashMap-based in-memory storage
-/// - `MmapGraph`: Memory-mapped persistent storage (requires `mmap` feature)
+/// - [`GraphSnapshot`]: In-memory COW snapshot
+/// - `PersistentSnapshot`: Memory-mapped persistent storage (requires `mmap` feature)
 ///
 /// # Example
 ///
 /// ```
-/// use interstellar::storage::{GraphStorage, InMemoryGraph};
+/// use interstellar::storage::{Graph, GraphStorage};
 /// use std::collections::HashMap;
 ///
 /// fn count_friends<S: GraphStorage>(storage: &S, person_label: &str) -> usize {
 ///     storage.vertices_with_label(person_label).count()
 /// }
 ///
-/// let mut graph = InMemoryGraph::new();
+/// let graph = Graph::new();
 /// graph.add_vertex("person", HashMap::new());
 /// graph.add_vertex("person", HashMap::new());
 /// graph.add_vertex("software", HashMap::new());
 ///
-/// assert_eq!(count_friends(&graph, "person"), 2);
+/// let snapshot = graph.snapshot();
+/// assert_eq!(count_friends(&snapshot, "person"), 2);
 /// ```
 pub trait GraphStorage: Send + Sync {
     /// Retrieves a vertex by its ID.
@@ -235,7 +235,7 @@ pub trait GraphStorage: Send + Sync {
     ///
     /// # Complexity
     ///
-    /// O(1) for [`InMemoryGraph`].
+    /// O(1) for all backends.
     fn get_vertex(&self, id: VertexId) -> Option<Vertex>;
 
     /// Returns the total number of vertices in the graph.
@@ -251,7 +251,7 @@ pub trait GraphStorage: Send + Sync {
     ///
     /// # Complexity
     ///
-    /// O(1) for [`InMemoryGraph`].
+    /// O(1) for all backends.
     fn get_edge(&self, id: EdgeId) -> Option<Edge>;
 
     /// Returns the total number of edges in the graph.
@@ -276,7 +276,7 @@ pub trait GraphStorage: Send + Sync {
     ///
     /// # Complexity
     ///
-    /// O(out_degree) for [`InMemoryGraph`].
+    /// O(out_degree) for all backends.
     fn out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = Edge> + '_>;
 
     /// Returns an iterator over all incoming edges to a vertex.
@@ -294,7 +294,7 @@ pub trait GraphStorage: Send + Sync {
     ///
     /// # Complexity
     ///
-    /// O(in_degree) for [`InMemoryGraph`].
+    /// O(in_degree) for all backends.
     fn in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = Edge> + '_>;
 
     /// Returns an iterator over all vertices with a given label.
@@ -358,13 +358,14 @@ pub trait GraphStorage: Send + Sync {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorage, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorage};
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
+    /// let graph = Graph::new();
     /// graph.add_vertex("person", HashMap::new());
     ///
-    /// let interner = graph.interner();
+    /// let snapshot = graph.snapshot();
+    /// let interner = snapshot.interner();
     /// assert_eq!(interner.lookup("person"), Some(0));
     /// assert_eq!(interner.lookup("unknown"), None);
     /// ```
@@ -537,22 +538,23 @@ pub trait GraphStorage: Send + Sync {
 /// # Example
 ///
 /// ```
-/// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+/// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
 /// use interstellar::Value;
 /// use std::collections::HashMap;
 ///
-/// let mut graph = InMemoryGraph::new();
+/// let graph = Graph::new();
+/// let mut storage = graph.as_storage_mut();
 ///
 /// // Create a vertex
-/// let id = graph.add_vertex("person", HashMap::from([
+/// let id = storage.add_vertex("person", HashMap::from([
 ///     ("name".to_string(), Value::String("Alice".into())),
 /// ]));
 ///
 /// // Update a property
-/// graph.set_vertex_property(id, "age", Value::Int(30)).unwrap();
+/// storage.set_vertex_property(id, "age", Value::Int(30)).unwrap();
 ///
 /// // Verify the update
-/// let vertex = graph.get_vertex(id).unwrap();
+/// let vertex = storage.get_vertex(id).unwrap();
 /// assert_eq!(vertex.properties.get("age"), Some(&Value::Int(30)));
 /// ```
 pub trait GraphStorageMut: GraphStorage {
@@ -570,12 +572,13 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
-    /// let id = graph.add_vertex("person", HashMap::new());
-    /// assert!(graph.get_vertex(id).is_some());
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
+    /// let id = storage.add_vertex("person", HashMap::new());
+    /// assert!(storage.get_vertex(id).is_some());
     /// ```
     fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId;
 
@@ -600,13 +603,14 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorageMut};
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    /// let edge = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
+    /// let alice = storage.add_vertex("person", HashMap::new());
+    /// let bob = storage.add_vertex("person", HashMap::new());
+    /// let edge = storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
     /// ```
     fn add_edge(
         &mut self,
@@ -634,20 +638,21 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
     /// use interstellar::Value;
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
-    /// let id = graph.add_vertex("person", HashMap::new());
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
+    /// let id = storage.add_vertex("person", HashMap::new());
     ///
     /// // Add a new property
-    /// graph.set_vertex_property(id, "name", Value::String("Alice".into())).unwrap();
+    /// storage.set_vertex_property(id, "name", Value::String("Alice".into())).unwrap();
     ///
     /// // Update existing property
-    /// graph.set_vertex_property(id, "name", Value::String("Alicia".into())).unwrap();
+    /// storage.set_vertex_property(id, "name", Value::String("Alicia".into())).unwrap();
     ///
-    /// let vertex = graph.get_vertex(id).unwrap();
+    /// let vertex = storage.get_vertex(id).unwrap();
     /// assert_eq!(vertex.properties.get("name"), Some(&Value::String("Alicia".into())));
     /// ```
     fn set_vertex_property(
@@ -675,18 +680,19 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
     /// use interstellar::Value;
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    /// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
+    /// let alice = storage.add_vertex("person", HashMap::new());
+    /// let bob = storage.add_vertex("person", HashMap::new());
+    /// let edge_id = storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
     ///
-    /// graph.set_edge_property(edge_id, "since", Value::Int(2020)).unwrap();
+    /// storage.set_edge_property(edge_id, "since", Value::Int(2020)).unwrap();
     ///
-    /// let edge = graph.get_edge(edge_id).unwrap();
+    /// let edge = storage.get_edge(edge_id).unwrap();
     /// assert_eq!(edge.properties.get("since"), Some(&Value::Int(2020)));
     /// ```
     fn set_edge_property(
@@ -712,19 +718,20 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    /// graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
+    /// let alice = storage.add_vertex("person", HashMap::new());
+    /// let bob = storage.add_vertex("person", HashMap::new());
+    /// storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
     ///
     /// // Removing alice also removes the "knows" edge
-    /// graph.remove_vertex(alice).unwrap();
+    /// storage.remove_vertex(alice).unwrap();
     ///
-    /// assert_eq!(graph.vertex_count(), 1);
-    /// assert_eq!(graph.edge_count(), 0);
+    /// assert_eq!(storage.vertex_count(), 1);
+    /// assert_eq!(storage.edge_count(), 0);
     /// ```
     fn remove_vertex(&mut self, id: VertexId) -> Result<(), StorageError>;
 
@@ -744,17 +751,18 @@ pub trait GraphStorageMut: GraphStorage {
     /// # Example
     ///
     /// ```
-    /// use interstellar::storage::{GraphStorage, GraphStorageMut, InMemoryGraph};
+    /// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
     /// use std::collections::HashMap;
     ///
-    /// let mut graph = InMemoryGraph::new();
-    /// let alice = graph.add_vertex("person", HashMap::new());
-    /// let bob = graph.add_vertex("person", HashMap::new());
-    /// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
+    /// let alice = storage.add_vertex("person", HashMap::new());
+    /// let bob = storage.add_vertex("person", HashMap::new());
+    /// let edge_id = storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
     ///
-    /// graph.remove_edge(edge_id).unwrap();
+    /// storage.remove_edge(edge_id).unwrap();
     ///
-    /// assert_eq!(graph.edge_count(), 0);
+    /// assert_eq!(storage.edge_count(), 0);
     /// ```
     fn remove_edge(&mut self, id: EdgeId) -> Result<(), StorageError>;
 }

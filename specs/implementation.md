@@ -234,13 +234,13 @@ Implements the fast, non-persistent storage backend.
 
 | File | Description |
 |------|-------------|
-| `src/storage/inmemory.rs` | `InMemoryGraph` implementation |
+| `src/storage/inmemory.rs` | `Graph` implementation |
 
 #### Detailed Specifications
 
 **`src/storage/inmemory.rs`**
 ```rust
-pub struct InMemoryGraph {
+pub struct Graph {
     nodes: HashMap<VertexId, NodeData>,
     edges: HashMap<EdgeId, EdgeData>,
     next_vertex_id: AtomicU64,
@@ -270,13 +270,13 @@ struct EdgeData {
     properties: HashMap<String, Value>,
 }
 
-impl GraphStorage for InMemoryGraph {
+impl GraphStorage for Graph {
     // O(1) vertex/edge lookup
     // O(degree) adjacency traversal
     // O(n) label scans via RoaringBitmap
 }
 
-impl InMemoryGraph {
+impl Graph {
     pub fn new() -> Self;
     pub fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId;
     pub fn add_edge(&mut self, src: VertexId, dst: VertexId, label: &str, properties: HashMap<String, Value>) -> Result<EdgeId, StorageError>;
@@ -286,7 +286,7 @@ impl InMemoryGraph {
 ```
 
 #### Exit Criteria
-- [x] InMemoryGraph implements GraphStorage
+- [x] Graph implements GraphStorage
 - [x] O(1) vertex/edge lookup verified
 - [x] Label indexes work correctly (inline implementation)
 - [x] Add/remove operations update indexes
@@ -950,7 +950,7 @@ pub struct MmapGraph {
     file: File,
     wal: WriteAheadLog,
     
-    // Label indexes (inline, same as InMemoryGraph)
+    // Label indexes (inline, same as Graph)
     vertex_labels: HashMap<u32, RoaringBitmap>,
     edge_labels: HashMap<u32, RoaringBitmap>,
     

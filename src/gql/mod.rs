@@ -45,9 +45,10 @@
 //!
 //! ```rust
 //! use interstellar::gql::{parse_statement, execute_mutation};
-//! use interstellar::storage::{GraphStorage, InMemoryGraph};
+//! use interstellar::storage::{Graph, GraphStorage};
 //!
-//! let mut storage = InMemoryGraph::new();
+//! let graph = Graph::new();
+//! let mut storage = graph.as_storage_mut();
 //!
 //! // CREATE a new vertex
 //! let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();

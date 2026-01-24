@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::ops::Bound;
 
 use interstellar::index::IndexBuilder;
-use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage};
 use interstellar::value::{Value, VertexId};
 
 // =============================================================================
@@ -15,14 +15,14 @@ use interstellar::value::{Value, VertexId};
 // =============================================================================
 
 #[test]
-fn supports_indexes_returns_true_for_inmemory() {
-    let storage = InMemoryGraph::new();
-    assert!(storage.supports_indexes());
+fn supports_indexes_returns_true_for_graph() {
+    let graph = Graph::new();
+    assert!(graph.supports_indexes());
 }
 
 #[test]
 fn vertices_by_property_uses_index_for_equality() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with age property
     for age in 20..30 {
@@ -44,7 +44,8 @@ fn vertices_by_property_uses_index_for_equality() {
         .unwrap();
 
     // Use GraphStorage trait method to find vertices with age=25
-    let results: Vec<_> = graph
+    let snapshot = graph.snapshot();
+    let results: Vec<_> = snapshot
         .vertices_by_property(Some("person"), "age", &Value::Int(25))
         .collect();
 
@@ -54,7 +55,7 @@ fn vertices_by_property_uses_index_for_equality() {
 
 #[test]
 fn vertices_by_property_without_index_falls_back_to_scan() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with age property (no index)
     for age in 20..30 {
@@ -64,7 +65,8 @@ fn vertices_by_property_without_index_falls_back_to_scan() {
     }
 
     // No index created - should still work via fallback scan
-    let results: Vec<_> = graph
+    let snapshot = graph.snapshot();
+    let results: Vec<_> = snapshot
         .vertices_by_property(Some("person"), "age", &Value::Int(25))
         .collect();
 
@@ -73,7 +75,7 @@ fn vertices_by_property_without_index_falls_back_to_scan() {
 
 #[test]
 fn edges_by_property_uses_index() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add vertices
     let v1 = graph.add_vertex("person", HashMap::new());
@@ -112,7 +114,7 @@ fn edges_by_property_uses_index() {
 
 #[test]
 fn vertices_by_property_range_uses_btree_index() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with age property
     for age in 18..65 {
@@ -152,7 +154,7 @@ fn vertices_by_property_range_uses_btree_index() {
 
 #[test]
 fn vertices_by_property_range_without_index_falls_back_to_scan() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add vertices with age property (no index)
     for age in 18..65 {
@@ -264,7 +266,7 @@ fn index_maintained_with_graph() {
 
 #[test]
 fn range_query_unbounded_start() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     for value in 1..=10 {
         let mut props = HashMap::new();
@@ -297,7 +299,7 @@ fn range_query_unbounded_start() {
 
 #[test]
 fn range_query_unbounded_end() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     for value in 1..=10 {
         let mut props = HashMap::new();
@@ -330,7 +332,7 @@ fn range_query_unbounded_end() {
 
 #[test]
 fn range_query_excluded_bounds() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     for value in 1..=10 {
         let mut props = HashMap::new();
@@ -367,7 +369,7 @@ fn range_query_excluded_bounds() {
 
 #[test]
 fn property_lookup_respects_label_filter() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add people and robots with same age property
     for age in 20..25 {
@@ -405,7 +407,7 @@ fn property_lookup_respects_label_filter() {
 
 #[test]
 fn property_lookup_without_label_uses_all_labels_index() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Add items with mixed labels
     for i in 1..=5 {
@@ -435,7 +437,7 @@ fn property_lookup_without_label_uses_all_labels_index() {
 
 #[test]
 fn unique_index_provides_fast_single_lookup() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create unique index first
     graph
@@ -482,7 +484,7 @@ fn unique_index_provides_fast_single_lookup() {
 
 #[test]
 fn indexed_lookup_on_large_graph() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create 10,000 vertices
     for i in 0..10_000 {
@@ -526,7 +528,7 @@ fn indexed_lookup_on_large_graph() {
 
 #[test]
 fn range_query_on_large_graph() {
-    let mut graph = InMemoryGraph::new();
+    let graph = Graph::new();
 
     // Create 10,000 vertices with timestamps
     for i in 0..10_000i64 {

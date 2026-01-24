@@ -42,7 +42,7 @@ Introduce property indexes that transform O(n) scans into O(log n) or O(1) looku
 1. **10-100x speedup** for indexed property lookups on large graphs
 2. **Transparent integration** - Existing traversal and GQL APIs unchanged
 3. **Automatic index selection** - Filter steps use indexes when applicable
-4. **Both backends** - Support `InMemoryGraph` and `MmapGraph`
+4. **Both backends** - Support `Graph` and `MmapGraph`
 5. **Constraint enforcement** - Unique indexes reject duplicate values
 6. **Incremental updates** - Indexes maintained on insert/update/delete
 
@@ -750,17 +750,17 @@ pub trait IndexedStorageMut: IndexedStorage + GraphStorageMut {
 }
 ```
 
-### 6.2 InMemoryGraph Index Storage
+### 6.2 Graph Index Storage
 
 ```rust
-pub struct InMemoryGraph {
+pub struct Graph {
     // ... existing fields ...
     
     /// Property indexes by name.
     indexes: HashMap<String, Box<dyn PropertyIndex>>,
 }
 
-impl InMemoryGraph {
+impl Graph {
     /// Create a new index and populate it with existing data.
     pub fn create_index(&mut self, spec: IndexSpec) -> Result<(), IndexError> {
         // Check for duplicate name
@@ -830,7 +830,7 @@ impl InMemoryGraph {
 Update mutation methods to maintain indexes:
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     pub fn add_vertex(&mut self, label: &str, properties: HashMap<String, Value>) -> VertexId {
         let id = /* allocate ID */;
         
@@ -1215,7 +1215,7 @@ mod tests {
 ```rust
 #[test]
 fn traversal_uses_btree_index_for_has_value() {
-    let mut graph = InMemoryGraph::new();
+    let mut graph = Graph::new();
     
     // Add 10,000 vertices
     for i in 0..10_000 {
@@ -1249,7 +1249,7 @@ fn traversal_uses_btree_index_for_range() {
 
 #[test]
 fn traversal_uses_unique_index_for_has_value() {
-    let mut graph = InMemoryGraph::new();
+    let mut graph = Graph::new();
     
     // Add users with unique emails
     for i in 0..1000 {
@@ -1279,7 +1279,7 @@ fn traversal_uses_unique_index_for_has_value() {
 
 #[test]
 fn unique_index_rejects_duplicate() {
-    let mut graph = InMemoryGraph::new();
+    let mut graph = Graph::new();
     
     graph.create_index(
         IndexBuilder::vertex()
@@ -1378,8 +1378,8 @@ fn bench_has_value_with_index(b: &mut Bencher) {
 3. Implement reverse lookup for efficient removal
 4. Unit tests for unique index operations
 
-### Phase 4: InMemoryGraph Integration (2-3 days)
-1. Add `indexes` field to `InMemoryGraph`
+### Phase 4: Graph Integration (2-3 days)
+1. Add `indexes` field to `Graph`
 2. Implement `create_index`, `drop_index`, `list_indexes`
 3. Implement `populate_index` for existing data
 4. Update `add_vertex`, `add_edge` to maintain indexes

@@ -21,12 +21,11 @@ Use the `props!` macro for concise property maps:
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
 
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
 
 // Add a vertex with properties using the props! macro
-let alice = storage.add_vertex("person", props! {
+let alice = graph.add_vertex("person", props! {
     "name" => "Alice",
     "age" => 30i64,
     "email" => "alice@example.com"
@@ -44,50 +43,50 @@ println!("Created vertex: {:?}", alice);
 // ])
 
 // For vertices without properties, use an empty props! or HashMap::new()
-let anonymous = storage.add_vertex("person", props! {});
+let anonymous = graph.add_vertex("person", props! {});
 ```
 
 ### Adding Edges
 
 ```rust
 // Add edge with properties using props! macro
-storage.add_edge(alice, bob, "knows", props! {
+graph.add_edge(alice, bob, "knows", props! {
     "since" => 2020i64,
     "strength" => 0.9f64
 })?;
 
 // Add edge without properties
-storage.add_edge(alice, project, "created", props! {})?;
+graph.add_edge(alice, project, "created", props! {})?;
 ```
 
 ### Updating Properties
 
 ```rust
 // Update a vertex property
-storage.set_vertex_property(alice, "age", Value::Int(31))?;
+graph.set_vertex_property(alice, "age", Value::Int(31))?;
 
 // Update an edge property
-storage.set_edge_property(edge_id, "strength", Value::Float(0.95))?;
+graph.set_edge_property(edge_id, "strength", Value::Float(0.95))?;
 ```
 
 ### Removing Properties
 
 ```rust
 // Remove a property
-storage.remove_vertex_property(alice, "temporary_field")?;
+graph.remove_vertex_property(alice, "temporary_field")?;
 ```
 
 ### Deleting Elements
 
 ```rust
 // Delete an edge
-storage.remove_edge(edge_id)?;
+graph.remove_edge(edge_id)?;
 
 // Delete a vertex (must remove edges first)
-storage.remove_vertex(vertex_id)?;
+graph.remove_vertex(vertex_id)?;
 
 // Delete a vertex and all connected edges
-storage.remove_vertex_with_edges(vertex_id)?;
+graph.remove_vertex_with_edges(vertex_id)?;
 ```
 
 ---
@@ -217,14 +216,14 @@ execute_mutation(&stmt, &mut storage)?;
 
 For loading large amounts of data, use batch mode:
 
-### InMemoryGraph
+### Graph (In-Memory)
 
 ```rust
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
 
 // Just add everything directly - it's already in-memory
 for i in 0..100_000 {
-    storage.add_vertex("node", props! {
+    graph.add_vertex("node", props! {
         "index" => i as i64
     });
 }

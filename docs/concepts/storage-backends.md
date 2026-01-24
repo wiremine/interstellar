@@ -1,11 +1,11 @@
 # Storage Backends
 
-Interstellar provides two storage backends: **InMemoryGraph** for development and small graphs, and **MmapGraph** for persistent production databases.
+Interstellar provides two storage backends: **Graph** (in-memory with COW snapshots) for development and small graphs, and **MmapGraph** for persistent production databases.
 
 ## Quick Comparison
 
-| Feature | InMemoryGraph | MmapGraph |
-|---------|---------------|-----------|
+| Feature | Graph | MmapGraph |
+|---------|-------|-----------|
 | Persistence | No | Yes |
 | Capacity | Limited by RAM | Limited by disk |
 | Startup time | Instant | Fast (mmap) |
@@ -15,9 +15,9 @@ Interstellar provides two storage backends: **InMemoryGraph** for development an
 
 ---
 
-## InMemoryGraph
+## Graph (In-Memory)
 
-HashMap-based storage that exists only in memory.
+Copy-on-write graph with interior mutability, ideal for development and testing.
 
 ### When to Use
 
@@ -29,20 +29,18 @@ HashMap-based storage that exists only in memory.
 ### Usage
 
 ```rust
-use interstellar::storage::InMemoryGraph;
-use interstellar::graph::Graph;
-use std::sync::Arc;
+use interstellar::prelude::*;
 
-// Create storage
-let mut storage = InMemoryGraph::new();
+// Create graph with interior mutability
+let graph = Graph::new();
 
-// Add data
-let alice = storage.add_vertex("person", HashMap::from([
-    ("name".to_string(), Value::String("Alice".to_string())),
-]));
+// Add data (no mut needed)
+let alice = graph.add_vertex("person", props! {
+    "name" => "Alice"
+});
 
-// Wrap for traversal API
-let graph = Graph::new(Arc::new(storage));
+// Get snapshot for reading
+let snapshot = graph.snapshot();
 ```
 
 ### Characteristics
@@ -51,6 +49,7 @@ let graph = Graph::new(Arc::new(storage));
 - **No persistence**: Data lost on process exit
 - **Full RAM usage**: All data in memory
 - **Fast iteration**: Direct collection iteration
+- **Interior mutability**: Thread-safe writes without `mut`
 
 ---
 
@@ -132,11 +131,11 @@ Batch mode is ~500x faster for bulk inserts.
               │                                 │
               ▼                                 ▼
     ┌─────────────────┐               ┌─────────────────┐
-    │ InMemoryGraph   │               │    MmapGraph    │
+    │     Graph       │               │    MmapGraph    │
     └─────────────────┘               └─────────────────┘
 ```
 
-### Use InMemoryGraph when:
+### Use Graph when:
 
 - Running tests or development
 - Data is temporary/regeneratable  
@@ -160,8 +159,8 @@ Batch mode is ~500x faster for bulk inserts.
 
 Both backends have similar read performance for data in memory:
 
-| Operation | InMemoryGraph | MmapGraph |
-|-----------|---------------|-----------|
+| Operation | Graph | MmapGraph |
+|-----------|-------|-----------|
 | Vertex by ID | O(1) | O(1) |
 | Edge by ID | O(1) | O(1) |
 | Label scan | O(n) | O(n) |
@@ -171,13 +170,13 @@ MmapGraph may have cold-start latency if data isn't in page cache.
 
 ### Write Performance
 
-| Mode | InMemoryGraph | MmapGraph |
-|------|---------------|-----------|
+| Mode | Graph | MmapGraph |
+|------|-------|-----------|
 | Single write | ~100ns | ~1ms (fsync) |
 | Batch write | ~100ns | ~100ns |
 | Batch commit | N/A | ~1ms (fsync) |
 
-MmapGraph in batch mode approaches InMemoryGraph performance.
+MmapGraph in batch mode approaches Graph performance.
 
 ---
 
@@ -206,7 +205,7 @@ graph.compact()?;
 
 ## Memory Usage
 
-### InMemoryGraph
+### Graph
 
 All data lives in Rust heap allocations:
 
@@ -234,17 +233,16 @@ Monitor with system tools (`htop`, `vmstat`).
 The traversal API is identical for both backends:
 
 ```rust
-// InMemoryGraph
-let storage = InMemoryGraph::new();
-let graph = Graph::new(Arc::new(storage));
+// Graph (in-memory)
+let graph = Graph::new();
+// ... add data ...
 let snapshot = graph.snapshot();
 let g = snapshot.traversal();
 let results = g.v().has_label("person").to_list();
 
 // MmapGraph - same traversal code
-let storage = MmapGraph::open("data.db")?;
-let graph = Graph::new(Arc::new(storage));
-let snapshot = graph.snapshot();
+let mmap_graph = MmapGraph::open("data.db")?;
+let snapshot = mmap_graph.snapshot();
 let g = snapshot.traversal();
 let results = g.v().has_label("person").to_list();
 ```

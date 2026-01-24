@@ -477,7 +477,7 @@ fn test_delete_unbound_variable_fails() {
 
 use interstellar::gql::execute_mutation_with_schema;
 use interstellar::schema::{PropertyType, SchemaBuilder, SchemaError, ValidationMode};
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::{GraphMutWrapper, GraphStorageMut};
 
 /// Create a test schema for validation tests.
 fn create_test_schema(mode: ValidationMode) -> interstellar::schema::GraphSchema {
@@ -505,10 +505,8 @@ fn create_test_schema(mode: ValidationMode) -> interstellar::schema::GraphSchema
 }
 
 /// Execute a GQL mutation with schema validation.
-/// Note: This still uses InMemoryGraph for schema validation tests that need
-/// to test specific MutationError variants.
 fn execute_gql_with_schema(
-    storage: &mut InMemoryGraph,
+    storage: &mut GraphMutWrapper<'_>,
     query: &str,
     schema: &interstellar::schema::GraphSchema,
 ) -> Result<Vec<Value>, MutationError> {
@@ -520,7 +518,8 @@ fn execute_gql_with_schema(
 
 #[test]
 fn test_create_vertex_valid_schema() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     let result = execute_gql_with_schema(
@@ -535,7 +534,8 @@ fn test_create_vertex_valid_schema() {
 
 #[test]
 fn test_create_vertex_missing_required_property_strict() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Person requires 'name' property
@@ -553,7 +553,8 @@ fn test_create_vertex_missing_required_property_strict() {
 
 #[test]
 fn test_create_vertex_wrong_property_type_strict() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // age should be Int, not String
@@ -574,7 +575,8 @@ fn test_create_vertex_wrong_property_type_strict() {
 
 #[test]
 fn test_create_vertex_unknown_label_closed() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Closed);
 
     // 'Animal' is not defined in the schema
@@ -592,7 +594,8 @@ fn test_create_vertex_unknown_label_closed() {
 
 #[test]
 fn test_create_vertex_unknown_label_strict_allowed() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Unknown labels are allowed in Strict mode
@@ -605,7 +608,8 @@ fn test_create_vertex_unknown_label_strict_allowed() {
 
 #[test]
 fn test_create_vertex_validation_mode_none() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::None);
 
     // All validation is skipped in None mode
@@ -620,7 +624,8 @@ fn test_create_vertex_validation_mode_none() {
 
 #[test]
 fn test_create_edge_valid_schema() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Create two Person vertices and a KNOWS edge between them
@@ -637,7 +642,8 @@ fn test_create_edge_valid_schema() {
 
 #[test]
 fn test_create_edge_invalid_source_label() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // WORKS_AT only allows Person -> Company, not Company -> Company
@@ -666,7 +672,8 @@ fn test_create_edge_invalid_source_label() {
 
 #[test]
 fn test_create_edge_invalid_target_label() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // WORKS_AT requires Company as target, not Person
@@ -686,7 +693,8 @@ fn test_create_edge_invalid_target_label() {
 
 #[test]
 fn test_create_edge_missing_required_property() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // WORKS_AT requires 'role' property
@@ -708,7 +716,8 @@ fn test_create_edge_missing_required_property() {
 
 #[test]
 fn test_set_property_valid_type() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Create a Person
@@ -722,7 +731,8 @@ fn test_set_property_valid_type() {
 
 #[test]
 fn test_set_property_wrong_type() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Create a Person
@@ -745,7 +755,8 @@ fn test_set_property_wrong_type() {
 
 #[test]
 fn test_set_required_property_to_null() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Create a Person
@@ -767,7 +778,8 @@ fn test_set_required_property_to_null() {
 
 #[test]
 fn test_merge_create_with_validation() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // MERGE creates when pattern doesn't exist, should validate
@@ -783,7 +795,8 @@ fn test_merge_create_with_validation() {
 
 #[test]
 fn test_merge_create_fails_validation() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // MERGE creates, but missing required 'name' property
@@ -799,7 +812,8 @@ fn test_merge_create_fails_validation() {
 
 #[test]
 fn test_merge_match_with_set_validation() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Create a person first
@@ -817,7 +831,8 @@ fn test_merge_match_with_set_validation() {
 
 #[test]
 fn test_merge_match_set_wrong_type() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
     // Create a person first
@@ -852,7 +867,8 @@ fn test_mutation_without_schema() {
 
 #[test]
 fn test_mutation_with_none_schema() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Passing None as schema should behave the same as no schema
     let stmt = parse_statement("CREATE (n:Person {name: 42})").unwrap();

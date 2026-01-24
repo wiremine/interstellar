@@ -2772,8 +2772,8 @@ Create reusable test graph factories:
 
 ```rust
 /// The "modern" TinkerPop graph for compatibility testing
-fn create_modern_graph() -> InMemoryGraph {
-    let mut graph = InMemoryGraph::new();
+fn create_modern_graph() -> Graph {
+    let mut graph = Graph::new();
     
     // Vertices
     let marko = graph.add_vertex("person", props! {
@@ -2790,10 +2790,10 @@ fn create_modern_graph() -> InMemoryGraph {
 }
 
 /// A graph with cycles for simplePath/cyclicPath tests
-fn create_cycle_graph() -> InMemoryGraph { ... }
+fn create_cycle_graph() -> Graph { ... }
 
 /// A linear graph (no branches) for path tests
-fn create_linear_graph() -> InMemoryGraph { ... }
+fn create_linear_graph() -> Graph { ... }
 ```
 
 ### 6.3 Coverage Goals

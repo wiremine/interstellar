@@ -27,13 +27,13 @@
 //! [`execute_ddl`] because they require graph storage access. Instead, use
 //! the helper function [`create_index_spec`] to convert a parsed `CreateIndex`
 //! to an [`IndexSpec`](crate::index::IndexSpec), then call
-//! [`InMemoryGraph::create_index()`](crate::storage::InMemoryGraph::create_index).
+//! [`Graph::create_index()`](crate::storage::Graph::create_index).
 //!
 //! ```ignore
 //! use interstellar::gql::{parse_statement, create_index_spec, Statement, DdlStatement};
-//! use interstellar::storage::InMemoryGraph;
+//! use interstellar::storage::Graph;
 //!
-//! let mut graph = InMemoryGraph::new();
+//! let graph = Graph::new();
 //!
 //! let stmt = parse_statement("CREATE INDEX idx_age ON :Person(age)").unwrap();
 //! if let Statement::Ddl(ddl) = stmt {
@@ -110,7 +110,7 @@ pub fn execute_ddl(schema: &mut GraphSchema, stmt: &DdlStatement) -> SchemaResul
         DdlStatement::SetValidation(set) => execute_set_validation(schema, set),
         DdlStatement::CreateIndex(_) | DdlStatement::DropIndex(_) => {
             // Index DDL operates on graph storage, not schema.
-            // Use InMemoryGraph::create_index() / drop_index() directly.
+            // Use Graph::create_index() / drop_index() directly.
             Err(SchemaError::IndexDdlNotSupported)
         }
     }
@@ -123,7 +123,7 @@ pub fn execute_ddl(schema: &mut GraphSchema, stmt: &DdlStatement) -> SchemaResul
 /// Convert a parsed [`CreateIndex`] AST node to an [`IndexSpec`].
 ///
 /// This function allows you to use the GQL parser to define indexes,
-/// then create them using [`InMemoryGraph::create_index()`](crate::storage::InMemoryGraph::create_index).
+/// then create them using [`Graph::create_index()`](crate::storage::Graph::create_index).
 ///
 /// # GQL Syntax Limitation
 ///
@@ -136,9 +136,9 @@ pub fn execute_ddl(schema: &mut GraphSchema, stmt: &DdlStatement) -> SchemaResul
 ///
 /// ```rust,ignore
 /// use interstellar::gql::{parse_statement, create_index_spec, Statement, DdlStatement};
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 ///
-/// let mut graph = InMemoryGraph::new();
+/// let graph = Graph::new();
 ///
 /// let stmt = parse_statement("CREATE INDEX idx_age ON :Person(age)").unwrap();
 /// if let Statement::Ddl(ddl) = stmt {
@@ -165,9 +165,9 @@ pub fn create_index_spec(create: &CreateIndex) -> Result<IndexSpec, crate::index
 ///
 /// ```rust,ignore
 /// use interstellar::gql::{parse_statement, create_index_spec_for_edge, Statement, DdlStatement};
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 ///
-/// let mut graph = InMemoryGraph::new();
+/// let graph = Graph::new();
 ///
 /// let stmt = parse_statement("CREATE INDEX idx_since ON :KNOWS(since)").unwrap();
 /// if let Statement::Ddl(ddl) = stmt {

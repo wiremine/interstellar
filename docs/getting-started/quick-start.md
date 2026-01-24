@@ -8,18 +8,16 @@ Start by creating an in-memory graph:
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
-use std::sync::Arc;
 
 fn main() {
-    // Create storage backend
-    let mut storage = InMemoryGraph::new();
+    // Create an in-memory graph with interior mutability
+    let graph = Graph::new();
     
     // Add some data (we'll cover this next)
     // ...
     
-    // Wrap in Graph for the traversal API
-    let graph = Graph::new(Arc::new(storage));
+    // Get a snapshot for querying
+    let snapshot = graph.snapshot();
 }
 ```
 
@@ -29,17 +27,17 @@ Vertices (nodes) represent entities in your graph. Use the `props!` macro for co
 
 ```rust
 // Create a person vertex with the props! macro
-let alice = storage.add_vertex("person", props! {
+let alice = graph.add_vertex("person", props! {
     "name" => "Alice",
     "age" => 30i64
 });
 
-let bob = storage.add_vertex("person", props! {
+let bob = graph.add_vertex("person", props! {
     "name" => "Bob",
     "age" => 25i64
 });
 
-let rust_lang = storage.add_vertex("language", props! {
+let rust_lang = graph.add_vertex("language", props! {
     "name" => "Rust"
 });
 ```
@@ -54,14 +52,14 @@ Edges represent relationships between vertices:
 
 ```rust
 // Alice knows Bob (no properties)
-storage.add_edge(alice, bob, "knows", props! {}).unwrap();
+graph.add_edge(alice, bob, "knows", props! {}).unwrap();
 
 // Alice and Bob both program in Rust (with properties)
-storage.add_edge(alice, rust_lang, "programs_in", props! {
+graph.add_edge(alice, rust_lang, "programs_in", props! {
     "skill_level" => "expert"
 }).unwrap();
 
-storage.add_edge(bob, rust_lang, "programs_in", props! {
+graph.add_edge(bob, rust_lang, "programs_in", props! {
     "skill_level" => "intermediate"
 }).unwrap();
 ```
@@ -71,8 +69,7 @@ storage.add_edge(bob, rust_lang, "programs_in", props! {
 Now let's query the graph using the fluent traversal API:
 
 ```rust
-// Create a graph handle and get a snapshot
-let graph = Graph::new(Arc::new(storage));
+// Get a snapshot for querying
 let snapshot = graph.snapshot();
 let g = snapshot.traversal();
 
@@ -137,27 +134,24 @@ Here's a complete runnable example:
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
-use std::sync::Arc;
 
 fn main() {
     // Create and populate graph
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     
-    let alice = storage.add_vertex("person", props! {
+    let alice = graph.add_vertex("person", props! {
         "name" => "Alice",
         "age" => 30i64
     });
     
-    let bob = storage.add_vertex("person", props! {
+    let bob = graph.add_vertex("person", props! {
         "name" => "Bob",
         "age" => 25i64
     });
     
-    storage.add_edge(alice, bob, "knows", props! {}).unwrap();
+    graph.add_edge(alice, bob, "knows", props! {}).unwrap();
     
     // Query the graph
-    let graph = Graph::new(Arc::new(storage));
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
     
@@ -170,6 +164,7 @@ fn main() {
     println!("Alice's friends: {:?}", friends);
     // Output: Alice's friends: [String("Bob")]
 }
+```
 ```
 
 ## Next Steps

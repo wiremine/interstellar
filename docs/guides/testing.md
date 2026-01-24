@@ -6,21 +6,16 @@ Best practices for testing graph-based applications with Interstellar.
 
 ### In-Memory Graphs for Tests
 
-Always use `InMemoryGraph` for tests - it's fast and isolated:
+Always use `Graph` for tests - it's fast and isolated:
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use interstellar::storage::InMemoryGraph;
-    use interstellar::graph::Graph;
-    use interstellar::value::Value;
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use interstellar::prelude::*;
 
     fn create_test_graph() -> Graph {
-        let storage = InMemoryGraph::new();
-        Graph::new(Arc::new(storage))
+        Graph::new()
     }
 
     #[test]
@@ -36,34 +31,33 @@ mod tests {
 Create reusable fixtures for common test data:
 
 ```rust
-fn create_social_network() -> (InMemoryGraph, VertexId, VertexId, VertexId) {
-    let mut storage = InMemoryGraph::new();
+fn create_social_network() -> (Graph, VertexId, VertexId, VertexId) {
+    let graph = Graph::new();
     
-    let alice = storage.add_vertex("person", HashMap::from([
-        ("name".into(), Value::String("Alice".into())),
-        ("age".into(), Value::Int(30)),
-    ]));
+    let alice = graph.add_vertex("person", props! {
+        "name" => "Alice",
+        "age" => 30i64
+    });
     
-    let bob = storage.add_vertex("person", HashMap::from([
-        ("name".into(), Value::String("Bob".into())),
-        ("age".into(), Value::Int(25)),
-    ]));
+    let bob = graph.add_vertex("person", props! {
+        "name" => "Bob",
+        "age" => 25i64
+    });
     
-    let carol = storage.add_vertex("person", HashMap::from([
-        ("name".into(), Value::String("Carol".into())),
-        ("age".into(), Value::Int(35)),
-    ]));
+    let carol = graph.add_vertex("person", props! {
+        "name" => "Carol",
+        "age" => 35i64
+    });
     
-    storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
-    storage.add_edge(bob, carol, "knows", HashMap::new()).unwrap();
+    graph.add_edge(alice, bob, "knows", props! {}).unwrap();
+    graph.add_edge(bob, carol, "knows", props! {}).unwrap();
     
-    (storage, alice, bob, carol)
+    (graph, alice, bob, carol)
 }
 
 #[test]
 fn test_friend_of_friend() {
-    let (storage, alice, _, carol) = create_social_network();
-    let graph = Graph::new(Arc::new(storage));
+    let (graph, alice, _, carol) = create_social_network();
     let snap = graph.snapshot();
     let g = snap.traversal();
     
@@ -86,8 +80,7 @@ fn test_friend_of_friend() {
 ```rust
 #[test]
 fn test_filter_by_age() {
-    let (storage, _, _, _) = create_social_network();
-    let graph = Graph::new(Arc::new(storage));
+    let (graph, _, _, _) = create_social_network();
     let snap = graph.snapshot();
     let g = snap.traversal();
     
@@ -117,8 +110,7 @@ fn test_filter_by_age() {
 ```rust
 #[test]
 fn test_vertex_count() {
-    let (storage, _, _, _) = create_social_network();
-    let graph = Graph::new(Arc::new(storage));
+    let (graph, _, _, _) = create_social_network();
     let snap = graph.snapshot();
     let g = snap.traversal();
     
@@ -132,8 +124,7 @@ fn test_vertex_count() {
 ```rust
 #[test]
 fn test_no_matches() {
-    let (storage, _, _, _) = create_social_network();
-    let graph = Graph::new(Arc::new(storage));
+    let (graph, _, _, _) = create_social_network();
     let snap = graph.snapshot();
     let g = snap.traversal();
     
@@ -154,13 +145,14 @@ fn test_no_matches() {
 ```rust
 #[test]
 fn test_add_vertex() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     
-    let id = storage.add_vertex("person", HashMap::from([
-        ("name".into(), Value::String("Test".into())),
-    ]));
+    let id = graph.add_vertex("person", props! {
+        "name" => "Test"
+    });
     
-    let vertex = storage.get_vertex(id).unwrap();
+    let snapshot = graph.snapshot();
+    let vertex = snapshot.get_vertex(id).unwrap();
     assert_eq!(vertex.label(), "person");
     assert_eq!(
         vertex.property("name"),
@@ -174,14 +166,15 @@ fn test_add_vertex() {
 ```rust
 #[test]
 fn test_add_edge() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     
-    let v1 = storage.add_vertex("person", HashMap::new());
-    let v2 = storage.add_vertex("person", HashMap::new());
+    let v1 = graph.add_vertex("person", props! {});
+    let v2 = graph.add_vertex("person", props! {});
     
-    let edge_id = storage.add_edge(v1, v2, "knows", HashMap::new()).unwrap();
+    let edge_id = graph.add_edge(v1, v2, "knows", props! {}).unwrap();
     
-    let edge = storage.get_edge(edge_id).unwrap();
+    let snapshot = graph.snapshot();
+    let edge = snapshot.get_edge(edge_id).unwrap();
     assert_eq!(edge.label(), "knows");
     assert_eq!(edge.from_id(), v1);
     assert_eq!(edge.to_id(), v2);
@@ -193,20 +186,21 @@ fn test_add_edge() {
 ```rust
 #[test]
 fn test_gql_create() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     
     let stmt = parse_statement(
         "CREATE (n:person {name: 'Alice', age: 30})"
     ).unwrap();
     execute_mutation(&stmt, &mut storage).unwrap();
     
-    assert_eq!(storage.vertex_count(), 1);
+    drop(storage);  // Release mutable borrow
+    
+    let snapshot = graph.snapshot();
+    assert_eq!(snapshot.vertex_count(), 1);
     
     // Verify the created vertex
-    let graph = Graph::new(Arc::new(storage));
-    let snap = graph.snapshot();
-    let g = snap.traversal();
-    
+    let g = snapshot.traversal();
     let names = g.v().values("name").to_list();
     assert_eq!(names, vec![Value::String("Alice".into())]);
 }
@@ -219,8 +213,7 @@ fn test_gql_create() {
 ```rust
 #[test]
 fn test_gql_query() {
-    let (storage, _, _, _) = create_social_network();
-    let graph = Graph::new(Arc::new(storage));
+    let (graph, _, _, _) = create_social_network();
     let snap = graph.snapshot();
     
     let results = snap.gql("
@@ -243,14 +236,14 @@ fn test_gql_query() {
 ```rust
 #[test]
 fn test_edge_to_nonexistent_vertex() {
-    let mut storage = InMemoryGraph::new();
-    let v1 = storage.add_vertex("person", HashMap::new());
+    let graph = Graph::new();
+    let v1 = graph.add_vertex("person", props! {});
     
-    let result = storage.add_edge(
+    let result = graph.add_edge(
         v1,
         VertexId(9999),  // Doesn't exist
         "knows",
-        HashMap::new(),
+        props! {},
     );
     
     assert!(result.is_err());
@@ -280,13 +273,10 @@ use interstellar::prelude::*;
 #[test]
 fn test_full_workflow() {
     // Create graph
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     
     // Load test data
-    load_test_fixtures(&mut storage);
-    
-    // Create graph handle
-    let graph = Graph::new(Arc::new(storage));
+    load_test_fixtures(&graph);
     
     // Run queries
     let snap = graph.snapshot();
@@ -310,13 +300,14 @@ proptest! {
     #[test]
     fn test_value_roundtrip(i: i64) {
         let value = Value::Int(i);
-        let storage = InMemoryGraph::new();
+        let graph = Graph::new();
         
-        let id = storage.add_vertex("test", HashMap::from([
-            ("num".into(), value.clone()),
-        ]));
+        let id = graph.add_vertex("test", props! {
+            "num" => i
+        });
         
-        let vertex = storage.get_vertex(id).unwrap();
+        let snapshot = graph.snapshot();
+        let vertex = snapshot.get_vertex(id).unwrap();
         assert_eq!(vertex.property("num"), Some(&value));
     }
 }
@@ -350,10 +341,10 @@ src/
 use interstellar::prelude::*;
 
 pub fn create_test_graph() -> Graph {
-    // Shared setup
+    Graph::new()
 }
 
-pub fn load_test_fixtures(storage: &mut InMemoryGraph) {
+pub fn load_test_fixtures(graph: &Graph) {
     // Load standard test data
 }
 ```
@@ -362,7 +353,7 @@ pub fn load_test_fixtures(storage: &mut InMemoryGraph) {
 
 ## Best Practices
 
-1. **Use InMemoryGraph for tests** - Fast, isolated, no cleanup needed
+1. **Use Graph for tests** - Fast, isolated, no cleanup needed
 2. **Create fixture functions** - Reusable test data setup
 3. **Test both positive and negative cases** - Include error scenarios
 4. **Keep tests focused** - One assertion per concept

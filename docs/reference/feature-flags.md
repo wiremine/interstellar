@@ -23,7 +23,7 @@ interstellar = "0.1"
 ```
 
 **Provides:**
-- `InMemoryGraph` storage backend
+- `Graph` storage backend (in-memory with COW snapshots)
 - Fast read/write access
 - Ideal for development and testing
 - No persistence (data lost on process exit)
@@ -31,9 +31,9 @@ interstellar = "0.1"
 **Example:**
 
 ```rust
-use interstellar::storage::InMemoryGraph;
+use interstellar::prelude::*;
 
-let graph = InMemoryGraph::new();
+let graph = Graph::new();
 ```
 
 ### mmap
@@ -236,7 +236,7 @@ fn main() {
     
     #[cfg(not(feature = "mmap"))]
     {
-        let graph = InMemoryGraph::new();
+        let graph = Graph::new();
         // Use in-memory storage
     }
 }
@@ -246,7 +246,7 @@ fn main() {
 
 | Capability | inmemory | mmap | rhai | full-text |
 |------------|----------|------|------|-----------|
-| `InMemoryGraph` | Yes | - | - | - |
+| `Graph` | Yes | - | - | - |
 | `MmapGraph` | - | Yes | - | - |
 | `RhaiEngine` | - | - | Yes | - |
 | Text indexes | - | - | - | Yes |

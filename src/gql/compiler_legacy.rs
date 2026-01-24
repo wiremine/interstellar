@@ -237,17 +237,14 @@ fn id_to_value(id: u64) -> Value {
 ///
 /// ```ignore
 /// use interstellar::gql::{parse, compile};
-/// use interstellar::graph::Graph;  // Legacy graph
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 /// use interstellar::value::Value;
-/// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
-/// let mut props = HashMap::new();
-/// props.insert("name".to_string(), Value::from("Alice"));
-/// storage.add_vertex("Person", props);
+/// let graph = Graph::new();
+/// graph.mutate(|g| {
+///     g.add_v("Person").property("name", "Alice").exec()
+/// }).unwrap();
 ///
-/// let graph = Graph::new(storage);
 /// let snapshot = graph.snapshot();
 /// let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
 /// let results = compile(&query, &snapshot).unwrap();
@@ -258,18 +255,14 @@ fn id_to_value(id: u64) -> Value {
 ///
 /// ```ignore
 /// use interstellar::gql::{parse, compile};
-/// use interstellar::graph::Graph;  // Legacy graph
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 /// use interstellar::value::Value;
-/// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
-/// let mut props = HashMap::new();
-/// props.insert("name".to_string(), Value::from("Alice"));
-/// props.insert("age".to_string(), Value::from(30));
-/// storage.add_vertex("Person", props);
+/// let graph = Graph::new();
+/// graph.mutate(|g| {
+///     g.add_v("Person").property("name", "Alice").property("age", 30).exec()
+/// }).unwrap();
 ///
-/// let graph = Graph::new(storage);
 /// let snapshot = graph.snapshot();
 /// let query = parse("MATCH (n:Person) WHERE n.age > 25 RETURN n.name").unwrap();
 /// let results = compile(&query, &snapshot).unwrap();
@@ -279,9 +272,9 @@ fn id_to_value(id: u64) -> Value {
 ///
 /// ```ignore
 /// use interstellar::gql::{parse, compile};
-/// use interstellar::graph::Graph;  // Legacy graph
+/// use interstellar::storage::Graph;
 ///
-/// let graph = Graph::in_memory();
+/// let graph = Graph::new();
 /// let snapshot = graph.snapshot();
 /// let query = parse("MATCH (n:Person) RETURN COUNT(*)").unwrap();
 /// let results = compile(&query, &snapshot).unwrap();
@@ -332,18 +325,14 @@ pub fn compile<S: SnapshotLike + ?Sized>(
 ///
 /// ```ignore
 /// use interstellar::gql::{parse, compile_with_params, Parameters};
-/// use interstellar::graph::Graph;  // Legacy graph
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 /// use interstellar::value::Value;
-/// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
-/// let mut props = HashMap::new();
-/// props.insert("name".to_string(), Value::from("Alice"));
-/// props.insert("age".to_string(), Value::from(30));
-/// storage.add_vertex("Person", props);
+/// let graph = Graph::new();
+/// graph.mutate(|g| {
+///     g.add_v("Person").property("name", "Alice").property("age", 30).exec()
+/// }).unwrap();
 ///
-/// let graph = Graph::new(storage);
 /// let snapshot = graph.snapshot();
 /// let query = parse("MATCH (n:Person) WHERE n.age >= $minAge RETURN n.name").unwrap();
 ///

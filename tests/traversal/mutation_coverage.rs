@@ -5,7 +5,7 @@
 #![allow(unused_variables)]
 use std::collections::HashMap;
 
-use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
 use interstellar::traversal::mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
     PropertyStep,
@@ -18,10 +18,10 @@ use interstellar::value::{EdgeId, Value, VertexId};
 // Helper Functions
 // =============================================================================
 
-fn create_test_graph() -> InMemoryGraph {
-    let mut storage = InMemoryGraph::new();
+fn create_test_graph() -> Graph {
+    let graph = Graph::new();
 
-    let alice_id = storage.add_vertex(
+    let alice_id = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -29,7 +29,7 @@ fn create_test_graph() -> InMemoryGraph {
         ]),
     );
 
-    let bob_id = storage.add_vertex(
+    let bob_id = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -37,7 +37,7 @@ fn create_test_graph() -> InMemoryGraph {
         ]),
     );
 
-    storage
+    graph
         .add_edge(
             alice_id,
             bob_id,
@@ -46,7 +46,7 @@ fn create_test_graph() -> InMemoryGraph {
         )
         .unwrap();
 
-    storage
+    graph
 }
 
 // =============================================================================
@@ -365,7 +365,8 @@ fn mutation_result_default() {
 
 #[test]
 fn mutation_executor_execute_add_edge_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to add edge with non-existent vertices
     let traverser = Traverser::new(Value::Map(HashMap::from([
@@ -385,7 +386,8 @@ fn mutation_executor_execute_add_edge_failure() {
 
 #[test]
 fn mutation_executor_execute_set_vertex_property_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to set property on non-existent vertex
     let traverser = Traverser::new(Value::Map(HashMap::from([
@@ -403,7 +405,8 @@ fn mutation_executor_execute_set_vertex_property_failure() {
 
 #[test]
 fn mutation_executor_execute_set_edge_property() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
 
     // Get an edge ID
     let edge_id = storage.all_edges().next().unwrap().id;
@@ -428,7 +431,8 @@ fn mutation_executor_execute_set_edge_property() {
 
 #[test]
 fn mutation_executor_execute_set_edge_property_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to set property on non-existent edge
     let traverser = Traverser::new(Value::Map(HashMap::from([
@@ -446,7 +450,8 @@ fn mutation_executor_execute_set_edge_property_failure() {
 
 #[test]
 fn mutation_executor_execute_drop_vertex() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Create a vertex without edges
     let id = storage.add_vertex("item", HashMap::new());
@@ -465,7 +470,8 @@ fn mutation_executor_execute_drop_vertex() {
 
 #[test]
 fn mutation_executor_execute_drop_vertex_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to drop non-existent vertex
     let traverser = Traverser::new(Value::Map(HashMap::from([
@@ -481,7 +487,8 @@ fn mutation_executor_execute_drop_vertex_failure() {
 
 #[test]
 fn mutation_executor_execute_drop_edge() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let initial_count = storage.edge_count();
 
     // Get an edge ID
@@ -501,7 +508,8 @@ fn mutation_executor_execute_drop_edge() {
 
 #[test]
 fn mutation_executor_execute_drop_edge_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to drop non-existent edge
     let traverser = Traverser::new(Value::Map(HashMap::from([
@@ -517,7 +525,8 @@ fn mutation_executor_execute_drop_edge_failure() {
 
 #[test]
 fn mutation_executor_execute_non_mutation_value() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Pass through a regular value
     let traverser = Traverser::new(Value::String("hello".to_string()));
@@ -532,7 +541,8 @@ fn mutation_executor_execute_non_mutation_value() {
 
 #[test]
 fn mutation_executor_execute_mutation_add_vertex() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::AddVertex {
         label: "test".to_string(),
@@ -548,7 +558,8 @@ fn mutation_executor_execute_mutation_add_vertex() {
 
 #[test]
 fn mutation_executor_execute_mutation_add_edge_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::AddEdge {
         label: "test".to_string(),
@@ -565,7 +576,8 @@ fn mutation_executor_execute_mutation_add_edge_failure() {
 
 #[test]
 fn mutation_executor_execute_mutation_set_vertex_property_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::SetVertexProperty {
         id: VertexId(999),
@@ -581,7 +593,8 @@ fn mutation_executor_execute_mutation_set_vertex_property_failure() {
 
 #[test]
 fn mutation_executor_execute_mutation_set_edge_property() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let edge_id = storage.all_edges().next().unwrap().id;
 
     let mutation = PendingMutation::SetEdgeProperty {
@@ -598,7 +611,8 @@ fn mutation_executor_execute_mutation_set_edge_property() {
 
 #[test]
 fn mutation_executor_execute_mutation_set_edge_property_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::SetEdgeProperty {
         id: EdgeId(999),
@@ -614,7 +628,8 @@ fn mutation_executor_execute_mutation_set_edge_property_failure() {
 
 #[test]
 fn mutation_executor_execute_mutation_drop_vertex() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let id = storage.add_vertex("item", HashMap::new());
 
     let mutation = PendingMutation::DropVertex { id };
@@ -629,7 +644,8 @@ fn mutation_executor_execute_mutation_drop_vertex() {
 
 #[test]
 fn mutation_executor_execute_mutation_drop_vertex_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::DropVertex { id: VertexId(999) };
 
@@ -641,7 +657,8 @@ fn mutation_executor_execute_mutation_drop_vertex_failure() {
 
 #[test]
 fn mutation_executor_execute_mutation_drop_edge() {
-    let mut storage = create_test_graph();
+    let graph = create_test_graph();
+    let mut storage = graph.as_storage_mut();
     let edge_id = storage.all_edges().next().unwrap().id;
 
     let mutation = PendingMutation::DropEdge { id: edge_id };
@@ -656,7 +673,8 @@ fn mutation_executor_execute_mutation_drop_edge() {
 
 #[test]
 fn mutation_executor_execute_mutation_drop_edge_failure() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::DropEdge { id: EdgeId(999) };
 

@@ -360,6 +360,32 @@ impl Graph {
         }
     }
 
+    /// Create a mutable storage wrapper for this graph.
+    ///
+    /// Returns a [`GraphMutWrapper`] that implements both [`GraphStorage`] and
+    /// [`GraphStorageMut`], allowing use with APIs that require mutable storage
+    /// access (like the GQL mutation engine).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Graph::new();
+    /// let mut wrapper = graph.as_storage_mut();
+    ///
+    /// // Use with APIs requiring GraphStorageMut
+    /// let id = wrapper.add_vertex("person", HashMap::new());
+    /// assert!(wrapper.get_vertex(id).is_some());
+    /// ```
+    ///
+    /// [`GraphStorage`]: crate::storage::GraphStorage
+    /// [`GraphStorageMut`]: crate::storage::GraphStorageMut
+    pub fn as_storage_mut(&self) -> GraphMutWrapper<'_> {
+        GraphMutWrapper { graph: self }
+    }
+
     /// Create a Gremlin traversal source for this graph.
     ///
     /// The returned [`CowTraversalSource`] provides a fluent Gremlin-style API
@@ -1980,16 +2006,16 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
             matches!(&source, Some(TraversalSource::Inject(values)) if values.is_empty());
 
         let results: Vec<Traverser> = if is_mutation_only {
-            // For mutation-only traversals, execute steps directly without
-            // needing a full ExecutionContext. We create a minimal dummy context.
-            let dummy_storage = crate::storage::InMemoryGraph::new();
-            let dummy_interner = dummy_storage.interner();
-            let storage_ref: &dyn GraphStorage = &dummy_storage;
+            // For mutation-only traversals, we still need an ExecutionContext.
+            // Use a snapshot from the actual graph (O(1) clone due to structural sharing).
+            let snapshot = self.graph.snapshot();
+            let interner = snapshot.interner();
+            let storage_ref: &dyn GraphStorage = &snapshot;
 
             let ctx = if self.track_paths {
-                ExecutionContext::with_path_tracking(storage_ref, dummy_interner)
+                ExecutionContext::with_path_tracking(storage_ref, interner)
             } else {
-                ExecutionContext::new(storage_ref, dummy_interner)
+                ExecutionContext::new(storage_ref, interner)
             };
 
             // Start with empty input (since source is Inject([]))
@@ -3135,10 +3161,121 @@ unsafe impl Sync for GraphSnapshot {}
 // can be cheaply cloned into returned iterators. This enables true O(1) streaming
 // where the iterator holds its own reference to the graph state.
 //
-// For now we use the default implementations which collect upfront. A future
-// optimization can override these to return custom iterators that stream directly
-// from the im::HashMap internals.
-impl StreamableStorage for GraphSnapshot {}
+// The im::HashMap can be cloned in O(1) via structural sharing, so we clone it
+// into each iterator to get owned ('static) iteration.
+impl StreamableStorage for GraphSnapshot {
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Clone the im::HashMap - O(1) due to structural sharing
+        let vertices = self.state.vertices.clone();
+        Box::new(vertices.into_iter().map(|(id, _)| id))
+    }
+
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        // Clone the im::HashMap - O(1) due to structural sharing
+        let edges = self.state.edges.clone();
+        Box::new(edges.into_iter().map(|(id, _)| id))
+    }
+
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Look up label ID and get the RoaringBitmap
+        let label_id = self.interner_snapshot.lookup(label);
+        if let Some(lid) = label_id {
+            if let Some(bitmap) = self.state.vertex_labels.get(&lid) {
+                // Clone the RoaringBitmap to get owned iteration
+                // RoaringBitmap::clone is O(n) but into_iter is lazy
+                let bitmap_owned: RoaringBitmap = (**bitmap).clone();
+                return Box::new(bitmap_owned.into_iter().map(|id| VertexId(id as u64)));
+            }
+        }
+        Box::new(std::iter::empty())
+    }
+
+    fn stream_edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        // Look up label ID and get the RoaringBitmap
+        let label_id = self.interner_snapshot.lookup(label);
+        if let Some(lid) = label_id {
+            if let Some(bitmap) = self.state.edge_labels.get(&lid) {
+                // Clone the RoaringBitmap to get owned iteration
+                // RoaringBitmap::clone is O(n) but into_iter is lazy
+                let bitmap_owned: RoaringBitmap = (**bitmap).clone();
+                return Box::new(bitmap_owned.into_iter().map(|id| EdgeId(id as u64)));
+            }
+        }
+        Box::new(std::iter::empty())
+    }
+
+    fn stream_out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        if let Some(node) = self.state.vertices.get(&vertex) {
+            // Clone the adjacency list - this is O(degree) but necessary for 'static
+            let out_edges = node.out_edges.clone();
+            Box::new(out_edges.into_iter())
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn stream_in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        if let Some(node) = self.state.vertices.get(&vertex) {
+            // Clone the adjacency list - this is O(degree) but necessary for 'static
+            let in_edges = node.in_edges.clone();
+            Box::new(in_edges.into_iter())
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn stream_out_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let state = Arc::clone(&self.state);
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+
+        if let Some(node) = state.vertices.get(&vertex) {
+            let out_edges = node.out_edges.clone();
+            let state_for_iter = Arc::clone(&state);
+
+            Box::new(out_edges.into_iter().filter_map(move |edge_id| {
+                state_for_iter.edges.get(&edge_id).and_then(|edge| {
+                    if label_ids_owned.is_empty() || label_ids_owned.contains(&edge.label_id) {
+                        Some(edge.dst)
+                    } else {
+                        None
+                    }
+                })
+            }))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn stream_in_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let state = Arc::clone(&self.state);
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+
+        if let Some(node) = state.vertices.get(&vertex) {
+            let in_edges = node.in_edges.clone();
+            let state_for_iter = Arc::clone(&state);
+
+            Box::new(in_edges.into_iter().filter_map(move |edge_id| {
+                state_for_iter.edges.get(&edge_id).and_then(|edge| {
+                    if label_ids_owned.is_empty() || label_ids_owned.contains(&edge.label_id) {
+                        Some(edge.src)
+                    } else {
+                        None
+                    }
+                })
+            }))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+}
 
 impl GraphSnapshot {
     /// Returns an Arc<dyn StreamableStorage> for use with StreamingExecutor.
@@ -3306,10 +3443,24 @@ impl<'a> BatchContext<'a> {
 // GraphMutWrapper - Implements GraphStorageMut for Graph
 // =============================================================================
 
-/// Wrapper that provides GraphStorageMut implementation for Graph.
+/// Wrapper that provides [`GraphStorageMut`] implementation for [`Graph`].
 ///
-/// This is used internally by the GQL execution engine.
-struct GraphMutWrapper<'a> {
+/// This wrapper allows using the COW-based `Graph` with APIs that require
+/// mutable storage access, such as the GQL mutation engine.
+///
+/// # Example
+///
+/// ```
+/// use interstellar::storage::{Graph, GraphStorage, GraphStorageMut};
+///
+/// let graph = Graph::new();
+/// let mut wrapper = graph.as_storage_mut();
+///
+/// // Use wrapper with APIs requiring GraphStorageMut
+/// let id = wrapper.add_vertex("person", std::collections::HashMap::new());
+/// assert!(wrapper.get_vertex(id).is_some());
+/// ```
+pub struct GraphMutWrapper<'a> {
     graph: &'a Graph,
 }
 

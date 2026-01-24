@@ -858,13 +858,13 @@ impl<'g> Iterator for OutEdgeIterator<'g> {
 4. Benchmark vertex lookup
 5. Benchmark edge traversal (degree 10, 100)
 6. Benchmark label scan
-7. Compare with `InMemoryGraph` performance
+7. Compare with `Graph` performance
 
 **Acceptance Criteria**:
 - [ ] Benchmarks run successfully
 - [ ] Insert performance reasonable (< 10µs per vertex)
 - [ ] Lookup performance reasonable (< 1µs hot cache)
-- [ ] Within 10x of InMemoryGraph for hot cache
+- [ ] Within 10x of Graph for hot cache
 - [ ] Results documented
 
 ---

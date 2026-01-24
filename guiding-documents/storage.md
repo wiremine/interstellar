@@ -76,7 +76,7 @@ In-memory storage uses native Rust data structures for maximum performance when 
 
 ```rust
 /// In-memory graph storage
-pub struct InMemoryGraph {
+pub struct Graph {
     nodes: HashMap<VertexId, NodeData>,
     edges: HashMap<EdgeId, EdgeData>,
     next_vertex_id: AtomicU64,
@@ -121,7 +121,7 @@ struct PropertyIndexKey {
 ### 2.3 Operations
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     /// Create new in-memory graph
     pub fn new() -> Self {
         Self {
@@ -590,7 +590,7 @@ Combine in-memory and on-disk storage for optimal performance:
 ```rust
 /// Hybrid storage with hot/cold separation
 pub struct HybridGraph {
-    hot: InMemoryGraph,      // Recently accessed nodes/edges
+    hot: Graph,      // Recently accessed nodes/edges
     cold: MmapGraph,         // Full persistent storage
     cache_size: usize,       // Max hot set size
     eviction_policy: LRU,
@@ -630,7 +630,7 @@ impl HybridGraph {
 ```rust
 /// In-memory cache with lazy write-back
 pub struct WriteCachedGraph {
-    memory: InMemoryGraph,
+    memory: Graph,
     disk: MmapGraph,
     dirty: HashSet<ElementId>,
     flush_interval: Duration,
@@ -746,7 +746,7 @@ impl Graph {
     /// Create in-memory graph
     pub fn in_memory() -> Self {
         Self {
-            storage: Box::new(InMemoryGraph::new()),
+            storage: Box::new(Graph::new()),
         }
     }
     
@@ -798,7 +798,7 @@ impl Graph {
 ### 8.1 Export In-Memory to Disk
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     /// Export to memory-mapped format
     pub fn export_to_disk<P: AsRef<Path>>(&self, path: P) -> Result<(), StorageError> {
         let mut disk_graph = MmapGraph::create(path)?;
@@ -829,8 +829,8 @@ impl InMemoryGraph {
 ```rust
 impl MmapGraph {
     /// Load entire graph into memory
-    pub fn load_into_memory(&self) -> Result<InMemoryGraph, StorageError> {
-        let mut memory_graph = InMemoryGraph::new();
+    pub fn load_into_memory(&self) -> Result<Graph, StorageError> {
+        let mut memory_graph = Graph::new();
         
         // Load all vertices
         for i in 0..self.header().node_count {

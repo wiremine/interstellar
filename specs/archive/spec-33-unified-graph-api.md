@@ -13,9 +13,9 @@ The codebase currently has **three parallel graph APIs**:
 │                         Current Architecture                             │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  Legacy Path (graph.rs + InMemoryGraph):                                │
+│  Legacy Path (graph.rs + Graph):                                │
 │  ┌──────────────┐    ┌────────────────┐    ┌───────────────────────┐   │
-│  │ InMemoryGraph│───▶│     Graph      │───▶│   GraphSnapshot<'g>   │   │
+│  │ Graph│───▶│     Graph      │───▶│   GraphSnapshot<'g>   │   │
 │  │  (storage)   │    │  (RwLock wrap) │    │  (borrows from Graph) │   │
 │  └──────────────┘    └────────────────┘    └───────────────────────┘   │
 │         │                                             │                  │
@@ -82,7 +82,7 @@ The codebase currently has **three parallel graph APIs**:
 │                    │                             │                       │
 │                    ▼                             ▼                       │
 │         ┌──────────────────┐          ┌──────────────────┐             │
-│         │  InMemoryGraph   │          │  PersistentGraph │             │
+│         │  Graph   │          │  PersistentGraph │             │
 │         │  (im crate COW)  │          │  (mmap + COW)    │             │
 │         │  "Graph::new()"  │          │  requires "mmap" │             │
 │         └──────────────────┘          └──────────────────┘             │
@@ -260,7 +260,7 @@ pub trait Snapshot: GraphStorage + Send + Sync + Clone {
 
 ### 2.2 Concrete Types
 
-#### 2.2.1 `InMemoryGraph` (renamed from `CowGraph`)
+#### 2.2.1 `Graph` (renamed from `CowGraph`)
 
 ```rust
 /// In-memory graph with COW snapshot semantics.
@@ -275,7 +275,7 @@ pub trait Snapshot: GraphStorage + Send + Sync + Clone {
 /// ```rust
 /// use interstellar::Graph;
 /// 
-/// let graph = Graph::new();  // Returns InMemoryGraph
+/// let graph = Graph::new();  // Returns Graph
 /// let g = graph.traversal();
 /// 
 /// let alice = g.add_v("Person").property("name", "Alice").next();
@@ -285,12 +285,12 @@ pub trait Snapshot: GraphStorage + Send + Sync + Clone {
 /// let count = g.v().has_label("Person").count();
 /// assert_eq!(count, 2);
 /// ```
-pub struct InMemoryGraph {
+pub struct Graph {
     state: RwLock<CowGraphState>,
     schema: RwLock<Option<GraphSchema>>,
 }
 
-impl Graph for InMemoryGraph { ... }
+impl Graph for Graph { ... }
 ```
 
 #### 2.2.2 `PersistentGraph` (renamed from `CowMmapGraph`)
@@ -485,7 +485,7 @@ pub fn compile<'g, S: Snapshot>(query: &Query, snapshot: &'g S) -> ...
 
 | Old Name | New Name | Notes |
 |----------|----------|-------|
-| `CowGraph` | `InMemoryGraph` | Primary in-memory type |
+| `CowGraph` | `Graph` | Primary in-memory type |
 | `CowSnapshot` | `InMemorySnapshot` | Snapshot for in-memory |
 | `CowMmapGraph` | `PersistentGraph` | Primary persistent type |
 | `CowMmapSnapshot` | `PersistentSnapshot` | Snapshot for persistent |
@@ -497,9 +497,9 @@ pub fn compile<'g, S: Snapshot>(query: &Query, snapshot: &'g S) -> ...
 ```rust
 // In lib.rs or prelude
 /// Alias for the default in-memory graph.
-pub type Graph = InMemoryGraph;
+pub type Graph = Graph;
 
-impl InMemoryGraph {
+impl Graph {
     /// Create a new in-memory graph.
     pub fn new() -> Self { ... }
 }
@@ -517,7 +517,7 @@ impl PersistentGraph {
 
 **Files to delete or gut**:
 - `src/graph.rs` - Delete `Graph`, `GraphSnapshot`, `GraphMut` structs
-- `src/storage/inmemory.rs` - Delete (functionality in `InMemoryGraph`)
+- `src/storage/inmemory.rs` - Delete (functionality in `Graph`)
 - `src/traversal/source.rs` - Remove legacy `BoundTraversal` (if not already unified)
 
 **Files to modify**:
@@ -529,14 +529,14 @@ impl PersistentGraph {
 **Goal**: Update all tests to use new API.
 
 **Files to modify**:
-- `tests/common/graphs.rs` - Update `TestGraph` to use `InMemoryGraph`
+- `tests/common/graphs.rs` - Update `TestGraph` to use `Graph`
 - `tests/**/*.rs` - Bulk update (mostly mechanical find-replace)
 
 **Migration patterns**:
 
 ```rust
 // Before
-let mut storage = InMemoryGraph::new();
+let mut storage = Graph::new();
 storage.add_vertex("Person", props);
 let graph = Graph::new(storage);
 let snapshot = graph.snapshot();
@@ -864,7 +864,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [x] Add type aliases: `UnifiedGraph = CowGraph`, `PersistentGraph = CowMmapGraph`
 - [x] Add `CowGraph::new()` and `CowMmapGraph::open()` convenience methods
 - [x] Keep legacy `Graph`, `GraphSnapshot` for backward compatibility (deferred cleanup)
-- [x] Keep `InMemoryGraph` for low-level storage tests (deferred cleanup)
+- [x] Keep `Graph` for low-level storage tests (deferred cleanup)
 - [x] Update `lib.rs` exports and prelude with unified types
 
 ### For Tests
@@ -917,9 +917,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The implementation took a pragmatic approach that differs slightly from the original spec:
 
-1. **Kept `CowGraph` name** instead of renaming to `InMemoryGraph` - provides clearer semantics about COW behavior
+1. **Kept `CowGraph` name** instead of renaming to `Graph` - provides clearer semantics about COW behavior
 2. **Added type aliases** (`UnifiedGraph = CowGraph`) rather than renaming - allows gradual migration
-3. **Kept legacy types** (`Graph`, `InMemoryGraph`) for backward compatibility - can be removed in future cleanup phase
+3. **Kept legacy types** (`Graph`, `Graph`) for backward compatibility - can be removed in future cleanup phase
 4. **Created `SnapshotLike` trait** instead of `Snapshot` to avoid naming conflicts with existing `CowSnapshot` types
 5. **Made GQL compiler generic** over `SnapshotLike` - works with any snapshot implementation
 
@@ -927,5 +927,5 @@ The implementation took a pragmatic approach that differs slightly from the orig
 
 - [ ] Migrate remaining examples to unified API
 - [ ] Remove legacy `Graph`/`GraphSnapshot`/`GraphMut` types
-- [ ] Remove old `InMemoryGraph` type
+- [ ] Remove old `Graph` type
 - [ ] Rename `CowGraph` to `Graph` as the primary type name

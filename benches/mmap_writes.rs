@@ -4,7 +4,7 @@
 //!
 //! These benchmarks measure write performance comparing:
 //! - MmapGraph in batch mode (deferred fsync)
-//! - InMemoryGraph (baseline, no persistence)
+//! - Graph (COW-based in-memory, baseline, no persistence)
 //!
 //! Note: Per-operation durable writes (~5ms per fsync) are not benchmarked
 //! as they would dominate the results. For ACID durability without batching,
@@ -13,7 +13,7 @@
 #![cfg(feature = "mmap")]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use interstellar::storage::{InMemoryGraph, MmapGraph};
+use interstellar::storage::{Graph, MmapGraph};
 use interstellar::value::VertexId;
 use std::collections::HashMap;
 use tempfile::TempDir;
@@ -50,8 +50,8 @@ fn bench_vertex_writes_mmap_batch(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("inmemory", size), &size, |b, &size| {
             b.iter_with_setup(
-                || InMemoryGraph::new(),
-                |mut graph| {
+                || Graph::new(),
+                |graph| {
                     for i in 0..size {
                         let props = HashMap::from([("i".to_string(), (i as i64).into())]);
                         black_box(graph.add_vertex("person", props));
@@ -109,7 +109,7 @@ fn bench_edge_writes_mmap_batch(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("inmemory", size), &size, |b, &size| {
             b.iter_with_setup(
                 || {
-                    let mut graph = InMemoryGraph::new();
+                    let graph = Graph::new();
                     let mut vertex_ids = Vec::with_capacity(1000);
                     for i in 0..1000 {
                         let props = HashMap::from([("i".to_string(), (i as i64).into())]);
@@ -117,7 +117,7 @@ fn bench_edge_writes_mmap_batch(c: &mut Criterion) {
                     }
                     (graph, vertex_ids)
                 },
-                |(mut graph, vertex_ids)| {
+                |(graph, vertex_ids)| {
                     for i in 0..size {
                         let src = vertex_ids[i % 1000];
                         let dst = vertex_ids[(i + 1) % 1000];
@@ -175,8 +175,8 @@ fn bench_mixed_writes(c: &mut Criterion) {
 
     group.bench_function("inmemory", |b| {
         b.iter_with_setup(
-            || InMemoryGraph::new(),
-            |mut graph| {
+            || Graph::new(),
+            |graph| {
                 let mut vertex_ids = Vec::with_capacity(num_vertices);
                 for i in 0..num_vertices {
                     let props = HashMap::from([("i".to_string(), (i as i64).into())]);

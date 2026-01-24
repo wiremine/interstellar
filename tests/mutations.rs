@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use interstellar::storage::{Graph, GraphStorage, InMemoryGraph};
+use interstellar::storage::{Graph, GraphMutWrapper, GraphStorage};
 use interstellar::traversal::{MutationExecutor, MutationResult, PendingMutation};
 use interstellar::value::{EdgeId, Value, VertexId};
 
@@ -14,11 +14,11 @@ use interstellar::value::{EdgeId, Value, VertexId};
 
 /// Creates a mutable test storage with some initial data.
 /// Used for tests that need direct mutation access.
-fn create_mutable_test_storage() -> InMemoryGraph {
-    let mut storage = InMemoryGraph::new();
+fn create_mutable_test_storage() -> Graph {
+    let graph = Graph::new();
 
     // Add vertices
-    let alice_id = storage.add_vertex(
+    let alice_id = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Alice".to_string())),
@@ -26,7 +26,7 @@ fn create_mutable_test_storage() -> InMemoryGraph {
         ]),
     );
 
-    let bob_id = storage.add_vertex(
+    let bob_id = graph.add_vertex(
         "person",
         HashMap::from([
             ("name".to_string(), Value::String("Bob".to_string())),
@@ -34,13 +34,13 @@ fn create_mutable_test_storage() -> InMemoryGraph {
         ]),
     );
 
-    let _software_id = storage.add_vertex(
+    let _software_id = graph.add_vertex(
         "software",
         HashMap::from([("name".to_string(), Value::String("Gremlin".to_string()))]),
     );
 
     // Add edges
-    storage
+    graph
         .add_edge(
             alice_id,
             bob_id,
@@ -49,7 +49,7 @@ fn create_mutable_test_storage() -> InMemoryGraph {
         )
         .unwrap();
 
-    storage
+    graph
 }
 
 /// Creates a test graph with some initial data using the unified API.
@@ -93,7 +93,7 @@ fn create_test_graph() -> Graph {
 
 /// Executes pending mutations from traversal results.
 fn execute_mutations(
-    storage: &mut InMemoryGraph,
+    storage: &mut GraphMutWrapper<'_>,
     traversers: impl Iterator<Item = interstellar::traversal::Traverser>,
 ) -> MutationResult {
     let mut executor = MutationExecutor::new(storage);
@@ -158,7 +158,8 @@ fn add_v_with_properties_creates_pending_vertex() {
 
 #[test]
 fn mutation_executor_creates_vertex() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
     let initial_count = storage.vertex_count();
 
     // Create pending add_v mutation
@@ -191,11 +192,11 @@ fn mutation_executor_creates_vertex() {
 
 #[test]
 fn mutation_executor_from_traversal() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // First run the traversal to get pending mutations
     {
-        let graph = Graph::new();
         let snapshot = graph.snapshot();
         let g = snapshot.gremlin();
 
@@ -305,7 +306,8 @@ fn add_e_from_bound_traversal() {
 
 #[test]
 fn mutation_executor_creates_edge() {
-    let mut storage = create_mutable_test_storage();
+    let graph = create_mutable_test_storage();
+    let mut storage = graph.as_storage_mut();
     let initial_edge_count = storage.edge_count();
 
     // Get two vertex IDs
@@ -369,7 +371,8 @@ fn property_on_vertex_creates_pending_update() {
 
 #[test]
 fn mutation_executor_sets_vertex_property() {
-    let mut storage = create_mutable_test_storage();
+    let graph = create_mutable_test_storage();
+    let mut storage = graph.as_storage_mut();
 
     // Find Alice's vertex ID
     let alice_id = storage
@@ -398,7 +401,8 @@ fn mutation_executor_sets_vertex_property() {
 
 #[test]
 fn mutation_executor_sets_edge_property() {
-    let mut storage = create_mutable_test_storage();
+    let graph = create_mutable_test_storage();
+    let mut storage = graph.as_storage_mut();
 
     // Get Alice's vertex (she has the outgoing edge)
     let alice = storage
@@ -449,7 +453,8 @@ fn drop_vertex_creates_pending_deletion() {
 
 #[test]
 fn mutation_executor_removes_vertex() {
-    let mut storage = create_mutable_test_storage();
+    let graph = create_mutable_test_storage();
+    let mut storage = graph.as_storage_mut();
     let initial_count = storage.vertex_count();
 
     // Find a vertex to remove
@@ -471,7 +476,8 @@ fn mutation_executor_removes_vertex() {
 
 #[test]
 fn mutation_executor_removes_edge() {
-    let mut storage = create_mutable_test_storage();
+    let graph = create_mutable_test_storage();
+    let mut storage = graph.as_storage_mut();
     let initial_count = storage.edge_count();
 
     // Find an edge to remove - Alice has the outgoing edge
@@ -501,7 +507,8 @@ fn mutation_executor_removes_edge() {
 
 #[test]
 fn mutation_result_tracks_statistics() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Create multiple pending mutations
     let traversers = vec![
@@ -525,7 +532,8 @@ fn mutation_result_tracks_statistics() {
 
 #[test]
 fn mutation_result_passes_through_non_mutations() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Mix of pending mutations and regular values
     let traversers = vec![
@@ -555,7 +563,8 @@ fn mutation_result_passes_through_non_mutations() {
 
 #[test]
 fn drop_non_existent_vertex_is_silent() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to drop a vertex that doesn't exist
     let mutation = PendingMutation::DropVertex { id: VertexId(9999) };
@@ -569,7 +578,8 @@ fn drop_non_existent_vertex_is_silent() {
 
 #[test]
 fn add_edge_to_non_existent_vertex_is_silent() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     // Try to add edge between non-existent vertices
     let mutation = PendingMutation::AddEdge {
@@ -589,7 +599,8 @@ fn add_edge_to_non_existent_vertex_is_silent() {
 
 #[test]
 fn property_on_non_existent_vertex_is_silent() {
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
+    let mut storage = graph.as_storage_mut();
 
     let mutation = PendingMutation::SetVertexProperty {
         id: VertexId(9999),

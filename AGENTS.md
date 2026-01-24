@@ -130,9 +130,10 @@ mod tests {
     
     #[test]
     fn test_add_vertex() {
-        let graph = InMemoryGraph::new();
+        let graph = Graph::new();
         let id = graph.add_vertex("person", HashMap::new());
-        assert!(graph.get_vertex(id).is_some());
+        let snapshot = graph.snapshot();
+        assert!(snapshot.get_vertex(id).is_some());
     }
 }
 

@@ -50,13 +50,10 @@ Create a simple test to verify Interstellar is working:
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
-use std::sync::Arc;
 
 fn main() {
     // Create an in-memory graph
-    let storage = InMemoryGraph::new();
-    let graph = Graph::new(Arc::new(storage));
+    let graph = Graph::new();
     
     // Get a snapshot for querying
     let snapshot = graph.snapshot();

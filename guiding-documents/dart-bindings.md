@@ -535,7 +535,7 @@ use crate::api::traversal::TraversalSource;
 use anyhow::{anyhow, Result};
 use flutter_rust_bridge::frb;
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -590,14 +590,14 @@ impl Graph {
         let props = dart_to_properties(properties);
         let storage = self.inner.storage();
 
-        // For InMemoryGraph, we need mutable access
+        // For Graph, we need mutable access
         // This is a simplified example - actual implementation needs interior mutability
         let inmem = storage
             .as_any()
-            .downcast_ref::<InMemoryGraph>()
+            .downcast_ref::<Graph>()
             .ok_or_else(|| anyhow!("Storage does not support add_vertex"))?;
 
-        // Note: InMemoryGraph needs to use interior mutability (RwLock)
+        // Note: Graph needs to use interior mutability (RwLock)
         // for this to work. See implementation notes.
         let id = inmem.add_vertex(&label, props);
         Ok(id.0)
@@ -620,7 +620,7 @@ impl Graph {
         let storage = self.inner.storage();
         let inmem = storage
             .as_any()
-            .downcast_ref::<InMemoryGraph>()
+            .downcast_ref::<Graph>()
             .ok_or_else(|| anyhow!("Storage does not support add_edge"))?;
 
         let id = inmem

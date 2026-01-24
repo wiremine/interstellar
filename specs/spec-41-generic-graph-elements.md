@@ -87,7 +87,7 @@ use crate::value::{EdgeId, Value, VertexId};
 ///
 /// The methods use interior mutability patterns (like `RwLock`) internally,
 /// so they take `&self` even for mutation operations. This matches the
-/// design of `Graph` which uses `RwLock<InMemoryGraph>` internally.
+/// design of `Graph` which uses `RwLock<Graph>` internally.
 pub trait GraphAccess: Send + Sync + Clone + 'static {
     // =========================================================================
     // Read Operations

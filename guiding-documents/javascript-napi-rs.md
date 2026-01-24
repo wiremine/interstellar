@@ -287,7 +287,7 @@ pub fn init() {
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use interstellar::{Graph, Value, VertexId, EdgeId};
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use std::sync::Arc;
 use std::collections::HashMap;
 
@@ -317,10 +317,10 @@ impl JsGraph {
         let storage = self.inner.storage();
         let storage = storage
             .as_any()
-            .downcast_ref::<InMemoryGraph>()
+            .downcast_ref::<Graph>()
             .ok_or_else(|| Error::new(Status::GenericFailure, "Invalid storage type"))?;
         
-        // Note: This requires InMemoryGraph to have interior mutability
+        // Note: This requires Graph to have interior mutability
         // or we need a different approach
         let id = storage.add_vertex(&label, props);
         Ok(id.0 as i64)
@@ -342,7 +342,7 @@ impl JsGraph {
         let storage = self.inner.storage();
         let storage = storage
             .as_any()
-            .downcast_ref::<InMemoryGraph>()
+            .downcast_ref::<Graph>()
             .ok_or_else(|| Error::new(Status::GenericFailure, "Invalid storage type"))?;
         
         let id = storage

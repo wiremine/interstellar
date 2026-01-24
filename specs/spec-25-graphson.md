@@ -862,27 +862,27 @@ fn json_to_value(json: &JsonValue) -> Result<Value> {
 ### 7.3 Graph Deserialization
 
 ```rust
-use crate::storage::InMemoryGraph;
+use crate::storage::Graph;
 use crate::value::{VertexId, EdgeId};
 use super::types::*;
 use super::error::{GraphSONError, Result};
 use std::collections::HashMap;
 
-/// Deserialize a GraphSON string into an InMemoryGraph.
-pub fn from_json_str(json: &str) -> Result<InMemoryGraph> {
+/// Deserialize a GraphSON string into an Graph.
+pub fn from_json_str(json: &str) -> Result<Graph> {
     let typed_graph: TypedGraph = serde_json::from_str(json)?;
     deserialize_graph(typed_graph.value)
 }
 
 /// Deserialize from a reader.
-pub fn from_reader<R: std::io::Read>(reader: R) -> Result<InMemoryGraph> {
+pub fn from_reader<R: std::io::Read>(reader: R) -> Result<Graph> {
     let typed_graph: TypedGraph = serde_json::from_reader(reader)?;
     deserialize_graph(typed_graph.value)
 }
 
-/// Deserialize a GraphSONGraph into an InMemoryGraph.
-fn deserialize_graph(gs_graph: GraphSONGraph) -> Result<InMemoryGraph> {
-    let mut graph = InMemoryGraph::new();
+/// Deserialize a GraphSONGraph into an Graph.
+fn deserialize_graph(gs_graph: GraphSONGraph) -> Result<Graph> {
+    let mut graph = Graph::new();
     
     // Map from GraphSON vertex ID to our VertexId
     let mut vertex_id_map: HashMap<u64, VertexId> = HashMap::new();
@@ -1242,9 +1242,9 @@ When `include_schema: true`, the output includes schema:
 //!
 //! ```rust
 //! use interstellar::graphson;
-//! use interstellar::storage::InMemoryGraph;
+//! use interstellar::storage::Graph;
 //!
-//! let graph = InMemoryGraph::new();
+//! let graph = Graph::new();
 //! // ... populate graph ...
 //!
 //! let json = graphson::to_string(&graph).unwrap();
@@ -1287,7 +1287,7 @@ pub fn to_string_pretty<S: GraphStorage>(storage: &S) -> std::result::Result<Str
 }
 
 /// Deserialize a graph from a JSON string.
-pub fn from_str(json: &str) -> Result<crate::storage::InMemoryGraph> {
+pub fn from_str(json: &str) -> Result<crate::storage::Graph> {
     from_json_str(json)
 }
 
@@ -1318,12 +1318,12 @@ pub fn to_string_with_schema<S: GraphStorage>(
 ```rust
 use interstellar::prelude::*;
 use interstellar::graphson;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
 use std::collections::HashMap;
 
 // Create a graph
-let mut graph = InMemoryGraph::new();
+let mut graph = Graph::new();
 let alice = graph.add_vertex("Person", HashMap::from([
     ("name".to_string(), Value::String("Alice".to_string())),
     ("age".to_string(), Value::Int(30)),
@@ -1371,7 +1371,7 @@ Add convenience methods to `Graph` types:
 ```rust
 // In src/graph.rs or as extension trait
 
-impl InMemoryGraph {
+impl Graph {
     /// Export this graph to GraphSON format.
     #[cfg(feature = "graphson")]
     pub fn to_graphson(&self) -> Result<String, serde_json::Error> {
@@ -1411,7 +1411,7 @@ pub fn export_to_file<S: GraphStorage, P: AsRef<Path>>(
 }
 
 /// Import a graph from a file.
-pub fn import_from_file<P: AsRef<Path>>(path: P) -> Result<crate::storage::InMemoryGraph> {
+pub fn import_from_file<P: AsRef<Path>>(path: P) -> Result<crate::storage::Graph> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     from_reader(reader)
@@ -1484,7 +1484,7 @@ mod tests {
     // Graph serialization tests
     #[test]
     fn test_empty_graph_roundtrip() {
-        let graph = InMemoryGraph::new();
+        let graph = Graph::new();
         let json = to_string(&graph).unwrap();
         let imported = from_str(&json).unwrap();
         assert_eq!(imported.vertex_count(), 0);
@@ -1493,7 +1493,7 @@ mod tests {
 
     #[test]
     fn test_simple_graph_roundtrip() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::from([
             ("name".into(), Value::String("Alice".into())),
         ]));
@@ -1547,12 +1547,12 @@ mod tests {
 // tests/graphson.rs
 
 use interstellar::graphson;
-use interstellar::storage::InMemoryGraph;
+use interstellar::storage::Graph;
 use std::fs;
 
 #[test]
 fn test_export_import_file() {
-    let mut graph = InMemoryGraph::new();
+    let mut graph = Graph::new();
     // ... populate ...
     
     let temp_path = "/tmp/test_graph.json";
@@ -1623,7 +1623,7 @@ proptest! {
 
 ### Phase 5: Integration and Polish (1 day)
 
-1. Add convenience methods to `InMemoryGraph`
+1. Add convenience methods to `Graph`
 2. Add file I/O helpers
 3. Update `Cargo.toml` with feature flag
 4. Add integration tests

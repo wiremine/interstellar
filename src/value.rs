@@ -74,14 +74,14 @@ use std::collections::{BTreeMap, HashMap};
 ///
 /// ```rust
 /// use interstellar::prelude::*;
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 /// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
 ///
 /// // Adding a vertex returns its ID
-/// let alice_id = storage.add_vertex("person", HashMap::new());
-/// let bob_id = storage.add_vertex("person", HashMap::new());
+/// let alice_id = graph.add_vertex("person", HashMap::new());
+/// let bob_id = graph.add_vertex("person", HashMap::new());
 ///
 /// // IDs can be compared and sorted
 /// assert_ne!(alice_id, bob_id);
@@ -108,15 +108,15 @@ pub struct VertexId(pub u64);
 ///
 /// ```rust
 /// use interstellar::prelude::*;
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 /// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
-/// let alice = storage.add_vertex("person", HashMap::new());
-/// let bob = storage.add_vertex("person", HashMap::new());
+/// let graph = Graph::new();
+/// let alice = graph.add_vertex("person", HashMap::new());
+/// let bob = graph.add_vertex("person", HashMap::new());
 ///
 /// // Adding an edge returns its ID
-/// let edge_id = storage.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
+/// let edge_id = graph.add_edge(alice, bob, "knows", HashMap::new()).unwrap();
 ///
 /// // Edge IDs are distinct from vertex IDs
 /// println!("Edge {:?} connects {:?} to {:?}", edge_id, alice, bob);

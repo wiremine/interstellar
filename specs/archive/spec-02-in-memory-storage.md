@@ -3,7 +3,7 @@
 **Status**: ✅ **IMPLEMENTED** (with deviations from original spec)
 
 **Implementation Notes**:
-- Label indexing is implemented **inline** within `InMemoryGraph` using `HashMap<u32, RoaringBitmap>`
+- Label indexing is implemented **inline** within `Graph` using `HashMap<u32, RoaringBitmap>`
 - No separate `src/index/` module was created (that abstraction was removed as unnecessary)
 - The `try_mutate()` method was added to `Graph` for non-blocking write lock acquisition
 - `traversal()` method was moved from `Graph` to `GraphSnapshot` for proper lock semantics
@@ -18,7 +18,7 @@ Implements the fast, non-persistent HashMap-based storage backend. Builds on Pha
 
 ## Goals
 
-- Implement `InMemoryGraph` as a complete `GraphStorage` backend
+- Implement `Graph` as a complete `GraphStorage` backend
 - Provide O(1) vertex/edge lookup by ID
 - Maintain label indexes using `RoaringBitmap` for efficient label-based queries
 - Support adjacency list traversal with O(degree) complexity
@@ -29,11 +29,11 @@ Implements the fast, non-persistent HashMap-based storage backend. Builds on Pha
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/storage/inmemory.rs` | **Create** | `InMemoryGraph` implementation |
+| `src/storage/inmemory.rs` | **Create** | `Graph` implementation |
 | `src/index/mod.rs` | **Update** | Add `LabelIndexTrait` and re-export `LabelIndex` |
 | `src/index/label.rs` | **Create** | `RoaringBitmap`-based label index |
 | `src/graph.rs` | **Update** | Add `Graph::in_memory()` and `Graph::storage()` |
-| `src/storage/mod.rs` | **Update** | Add `pub mod inmemory` and re-export `InMemoryGraph` |
+| `src/storage/mod.rs` | **Update** | Add `pub mod inmemory` and re-export `Graph` |
 | `src/storage/interner.rs` | **Update** | Add `lookup()`, `len()`, `is_empty()`, `Default` impl |
 
 ## Dependencies
@@ -76,7 +76,7 @@ use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::value::{EdgeId, Value, VertexId};
 
 /// In-memory graph storage with HashMap-based lookups
-pub struct InMemoryGraph {
+pub struct Graph {
     /// Vertex data keyed by ID
     nodes: HashMap<VertexId, NodeData>,
     
@@ -141,7 +141,7 @@ struct EdgeData {
 #### Constructor
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     /// Create a new empty in-memory graph
     pub fn new() -> Self {
         Self {
@@ -156,7 +156,7 @@ impl InMemoryGraph {
     }
 }
 
-impl Default for InMemoryGraph {
+impl Default for Graph {
     fn default() -> Self {
         Self::new()
     }
@@ -166,7 +166,7 @@ impl Default for InMemoryGraph {
 #### Mutation Methods
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     /// Add a vertex with the given label and properties
     /// Returns the new vertex's ID
     /// 
@@ -316,7 +316,7 @@ impl InMemoryGraph {
 #### GraphStorage Implementation
 
 ```rust
-impl GraphStorage for InMemoryGraph {
+impl GraphStorage for Graph {
     /// O(1) vertex lookup
     fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
         let node = self.nodes.get(&id)?;
@@ -424,16 +424,16 @@ impl GraphStorage for InMemoryGraph {
 #### Thread Safety
 
 ```rust
-// SAFETY: InMemoryGraph is Send + Sync because:
+// SAFETY: Graph is Send + Sync because:
 // - HashMap is Send + Sync when K, V are Send + Sync
 // - AtomicU64 is Send + Sync  
 // - RoaringBitmap is Send + Sync
 // - StringInterner is Send + Sync (HashMap-based)
 //
-// Note: InMemoryGraph itself does NOT provide interior mutability.
+// Note: Graph itself does NOT provide interior mutability.
 // Thread-safe mutation requires external synchronization (via Graph wrapper).
-unsafe impl Send for InMemoryGraph {}
-unsafe impl Sync for InMemoryGraph {}
+unsafe impl Send for Graph {}
+unsafe impl Sync for Graph {}
 ```
 
 ---
@@ -675,13 +675,13 @@ mod tests {
 }
 ```
 
-**Note**: The `forward` field remains private. The `lookup()` method provides the read-only access needed by `InMemoryGraph::vertices_with_label()` and `edges_with_label()`.
+**Note**: The `forward` field remains private. The `lookup()` method provides the read-only access needed by `Graph::vertices_with_label()` and `edges_with_label()`.
 
 ---
 
 ### `src/storage/mod.rs` (Update)
 
-**Purpose**: Add `inmemory` module and re-export `InMemoryGraph`.
+**Purpose**: Add `inmemory` module and re-export `Graph`.
 
 Add the following to the existing file (existing `Vertex`, `Edge`, `GraphStorage` definitions remain unchanged):
 
@@ -690,7 +690,7 @@ Add the following to the existing file (existing `Vertex`, `Edge`, `GraphStorage
 pub mod inmemory;
 
 // Add re-export after module declarations
-pub use inmemory::InMemoryGraph;
+pub use inmemory::Graph;
 ```
 
 The existing definitions (`Vertex`, `Edge`, `GraphStorage` trait) remain as-is from Phase 1.
@@ -704,14 +704,14 @@ The existing definitions (`Vertex`, `Edge`, `GraphStorage` trait) remain as-is f
 Add the following methods to the existing `Graph` impl block:
 
 ```rust
-use crate::storage::InMemoryGraph;  // Add to imports
+use crate::storage::Graph;  // Add to imports
 
 impl Graph {
     // ... existing new(), traversal(), snapshot(), mutate() methods remain unchanged ...
     
     /// Create a new in-memory graph (no persistence)
     pub fn in_memory() -> Self {
-        Self::new(Arc::new(InMemoryGraph::new()))
+        Self::new(Arc::new(Graph::new()))
     }
     
     /// Get the underlying storage (for advanced use cases)
@@ -736,14 +736,14 @@ mod tests {
     
     #[test]
     fn new_graph_is_empty() {
-        let graph = InMemoryGraph::new();
+        let graph = Graph::new();
         assert_eq!(graph.vertex_count(), 0);
         assert_eq!(graph.edge_count(), 0);
     }
     
     #[test]
     fn add_vertex_returns_unique_ids() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("software", HashMap::new());
@@ -755,7 +755,7 @@ mod tests {
     
     #[test]
     fn add_vertex_with_properties() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let mut props = HashMap::new();
         props.insert("name".to_string(), Value::String("Alice".to_string()));
         props.insert("age".to_string(), Value::Int(30));
@@ -770,13 +770,13 @@ mod tests {
     
     #[test]
     fn get_vertex_returns_none_for_missing() {
-        let graph = InMemoryGraph::new();
+        let graph = Graph::new();
         assert!(graph.get_vertex(VertexId(999)).is_none());
     }
     
     #[test]
     fn add_edge_connects_vertices() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         
@@ -791,7 +791,7 @@ mod tests {
     
     #[test]
     fn add_edge_fails_for_missing_source() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         
         let result = graph.add_edge(VertexId(999), v1, "knows", HashMap::new());
@@ -800,7 +800,7 @@ mod tests {
     
     #[test]
     fn add_edge_fails_for_missing_destination() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         
         let result = graph.add_edge(v1, VertexId(999), "knows", HashMap::new());
@@ -809,7 +809,7 @@ mod tests {
     
     #[test]
     fn out_edges_returns_outgoing() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("person", HashMap::new());
@@ -825,7 +825,7 @@ mod tests {
     
     #[test]
     fn in_edges_returns_incoming() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("person", HashMap::new());
@@ -841,7 +841,7 @@ mod tests {
     
     #[test]
     fn vertices_with_label_filters_correctly() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         graph.add_vertex("person", HashMap::new());
         graph.add_vertex("person", HashMap::new());
         graph.add_vertex("software", HashMap::new());
@@ -857,7 +857,7 @@ mod tests {
     
     #[test]
     fn edges_with_label_filters_correctly() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("software", HashMap::new());
@@ -874,7 +874,7 @@ mod tests {
     
     #[test]
     fn remove_vertex_removes_incident_edges() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         let v3 = graph.add_vertex("person", HashMap::new());
@@ -892,7 +892,7 @@ mod tests {
     
     #[test]
     fn remove_edge_updates_adjacency() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         let v2 = graph.add_vertex("person", HashMap::new());
         
@@ -912,7 +912,7 @@ mod tests {
     
     #[test]
     fn all_vertices_iterates_all() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         graph.add_vertex("a", HashMap::new());
         graph.add_vertex("b", HashMap::new());
         graph.add_vertex("c", HashMap::new());
@@ -923,7 +923,7 @@ mod tests {
     
     #[test]
     fn all_edges_iterates_all() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("a", HashMap::new());
         let v2 = graph.add_vertex("b", HashMap::new());
         
@@ -936,7 +936,7 @@ mod tests {
     
     #[test]
     fn self_loop_edge() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         
         let e = graph.add_edge(v1, v1, "self", HashMap::new()).unwrap();
@@ -952,7 +952,7 @@ mod tests {
     
     #[test]
     fn remove_vertex_with_self_loop() {
-        let mut graph = InMemoryGraph::new();
+        let mut graph = Graph::new();
         let v1 = graph.add_vertex("person", HashMap::new());
         graph.add_edge(v1, v1, "self", HashMap::new()).unwrap();
         
@@ -981,7 +981,7 @@ fn graph_in_memory_basic_usage() {
 
 #[test]
 fn scale_test_10k_vertices_100k_edges() {
-    let mut storage = interstellar::storage::InMemoryGraph::new();
+    let mut storage = interstellar::storage::Graph::new();
     
     // Add 10,000 vertices
     let vertex_ids: Vec<_> = (0..10_000)
@@ -1022,7 +1022,7 @@ fn scale_test_10k_vertices_100k_edges() {
 
 #[test]
 fn label_index_performance() {
-    let mut storage = interstellar::storage::InMemoryGraph::new();
+    let mut storage = interstellar::storage::Graph::new();
     
     // Add mixed labels
     for _ in 0..1000 {
@@ -1074,10 +1074,10 @@ Where n = vertex count, m = edge count.
 ## Exit Criteria
 
 ### Code Deliverables
-- [ ] `src/storage/inmemory.rs` created with `InMemoryGraph` implementing `GraphStorage`
+- [ ] `src/storage/inmemory.rs` created with `Graph` implementing `GraphStorage`
 - [ ] `src/index/label.rs` created with `LabelIndex` implementing `LabelIndexTrait`
 - [ ] `src/index/mod.rs` updated with `LabelIndexTrait` and `LabelIndex` re-export
-- [ ] `src/storage/mod.rs` updated with `inmemory` module and `InMemoryGraph` re-export
+- [ ] `src/storage/mod.rs` updated with `inmemory` module and `Graph` re-export
 - [ ] `src/storage/interner.rs` updated with `lookup()`, `len()`, `is_empty()`, `Default`
 - [ ] `src/graph.rs` updated with `in_memory()` and `storage()` methods
 

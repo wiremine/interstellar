@@ -93,7 +93,7 @@ g.v().as_("a").out("knows").as_("b").select_multi(["a", "b"])
 ### Storage Backend
 
 The underlying implementation that stores graph data. Interstellar provides:
-- **InMemoryGraph**: HashMap-based, non-persistent
+- **Graph**: COW-based in-memory storage with interior mutability
 - **MmapGraph**: Memory-mapped, persistent
 
 ### Snapshot

@@ -154,23 +154,18 @@ Use this template to create a new example:
 ```rust
 // examples/my_example.rs
 
-use interstellar::graph::Graph;
-use interstellar::storage::InMemoryGraph;
-use interstellar::value::Value;
-use std::collections::HashMap;
-use std::sync::Arc;
+use interstellar::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup
-    let mut storage = InMemoryGraph::new();
+    let graph = Graph::new();
     
     // Add your data
-    let v1 = storage.add_vertex("label", HashMap::from([
-        ("prop".to_string(), Value::String("value".to_string())),
-    ]));
+    let v1 = graph.add_vertex("label", props! {
+        "prop" => "value"
+    });
     
-    // Create graph and query
-    let graph = Graph::new(Arc::new(storage));
+    // Query the graph
     let snapshot = graph.snapshot();
     let g = snapshot.traversal();
     

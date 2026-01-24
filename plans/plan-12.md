@@ -41,7 +41,7 @@ pub trait GraphStorage: Send + Sync {
 - [ ] Add `MutationError` variants to `StorageError`
 - [ ] Update trait documentation
 
-### 1.2 Implement for InMemoryGraph
+### 1.2 Implement for Graph
 
 **File:** `src/storage/inmemory.rs`
 
@@ -228,7 +228,7 @@ Create the mutation steps module:
 
 **Tasks:**
 - [ ] Create integration test file
-- [ ] Test mutations with InMemoryGraph
+- [ ] Test mutations with Graph
 - [ ] Test mutations with MmapGraph
 - [ ] Test complex traversals mixing reads and writes
 - [ ] Test concurrent mutations (thread safety)
@@ -238,14 +238,14 @@ Create the mutation steps module:
 ## Testing Checklist
 
 ### Unit Tests
-- [ ] `InMemoryGraph::add_vertex()` creates vertex correctly
-- [ ] `InMemoryGraph::add_edge()` creates edge correctly
-- [ ] `InMemoryGraph::add_edge()` fails if vertices don't exist
-- [ ] `InMemoryGraph::set_vertex_property()` updates property
-- [ ] `InMemoryGraph::set_edge_property()` updates property
-- [ ] `InMemoryGraph::remove_vertex()` removes vertex
-- [ ] `InMemoryGraph::remove_vertex()` cascades to edges
-- [ ] `InMemoryGraph::remove_edge()` removes edge
+- [ ] `Graph::add_vertex()` creates vertex correctly
+- [ ] `Graph::add_edge()` creates edge correctly
+- [ ] `Graph::add_edge()` fails if vertices don't exist
+- [ ] `Graph::set_vertex_property()` updates property
+- [ ] `Graph::set_edge_property()` updates property
+- [ ] `Graph::remove_vertex()` removes vertex
+- [ ] `Graph::remove_vertex()` cascades to edges
+- [ ] `Graph::remove_edge()` removes edge
 - [ ] Same tests for `MmapGraph`
 
 ### Integration Tests
@@ -289,7 +289,7 @@ Create the mutation steps module:
 ## Success Criteria
 
 1. All mutation steps (`addV`, `addE`, `property`, `drop`) are implemented
-2. Both storage backends (InMemoryGraph, MmapGraph) support mutations
+2. Both storage backends (Graph, MmapGraph) support mutations
 3. All tests pass with >90% branch coverage on new code
 4. API is ergonomic and consistent with existing traversal API
 5. Documentation is complete with examples

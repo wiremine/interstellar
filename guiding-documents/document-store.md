@@ -95,7 +95,7 @@ pub trait IndexStorage {
 #### 1.4 API Extensions
 
 ```rust
-impl InMemoryGraph {
+impl Graph {
     /// Create an index on a property path
     pub fn create_index(
         &mut self,
@@ -454,7 +454,7 @@ graph.add_edge(user_id, addr_id, "lives_at", HashMap::new())?;
 ```rust
 use interstellar::prelude::*;
 
-let mut graph = InMemoryGraph::new();
+let mut graph = Graph::new();
 
 // Create index for efficient queries
 graph.create_index("users_email", "email", IndexType::Hash)?;

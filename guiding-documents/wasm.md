@@ -15,7 +15,7 @@ This document outlines the plan for compiling Interstellar to WebAssembly with f
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| InMemoryGraph | Ready | Pure Rust HashMaps |
+| Graph | Ready | Pure Rust HashMaps |
 | Traversal engine | Ready | Pure iterators |
 | Value types | Ready | No system dependencies |
 | StringInterner | Ready | Pure Rust |
@@ -306,7 +306,7 @@ pub fn init() {
 **`interstellar-wasm/src/graph.rs`:**
 ```rust
 use wasm_bindgen::prelude::*;
-use interstellar::{Graph, InMemoryGraph, VertexId, EdgeId, Value};
+use interstellar::{Graph, Graph, VertexId, EdgeId, Value};
 use std::collections::HashMap;
 
 #[wasm_bindgen]
@@ -319,7 +319,7 @@ impl JsGraph {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
-            inner: Graph::new(InMemoryGraph::new()),
+            inner: Graph::new(Graph::new()),
         }
     }
 

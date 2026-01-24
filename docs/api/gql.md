@@ -91,17 +91,14 @@ The simplest way to execute a GQL query:
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
-use std::sync::Arc;
 
 // Create a graph with data
-let mut storage = InMemoryGraph::new();
-let mut props = std::collections::HashMap::new();
-props.insert("name".to_string(), Value::from("Alice"));
-props.insert("age".to_string(), Value::from(30i64));
-storage.add_vertex("Person", props);
+let graph = Graph::new();
+graph.add_vertex("Person", props! {
+    "name" => "Alice",
+    "age" => 30i64
+});
 
-let graph = Graph::new(Arc::new(storage));
 let snapshot = graph.snapshot();
 
 // Execute GQL query
@@ -115,17 +112,21 @@ For mutations (CREATE, SET, DELETE, etc.), use `execute_mutation` with mutable s
 
 ```rust
 use interstellar::gql::{parse_statement, execute_mutation};
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::prelude::*;
 
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
+let mut storage = graph.as_storage_mut();
 
 // CREATE a new vertex
 let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
 execute_mutation(&stmt, &mut storage).unwrap();
 
-assert_eq!(storage.vertex_count(), 1);
+drop(storage);  // Release mutable borrow
+
+assert_eq!(graph.snapshot().vertex_count(), 1);
 
 // UPDATE with SET
+let mut storage = graph.as_storage_mut();
 let stmt = parse_statement("MATCH (n:Person {name: 'Alice'}) SET n.age = 31").unwrap();
 execute_mutation(&stmt, &mut storage).unwrap();
 
@@ -1525,14 +1526,16 @@ CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
 
 ```rust
 use interstellar::gql::{parse_statement, execute_mutation};
-use interstellar::storage::InMemoryGraph;
+use interstellar::prelude::*;
 
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
+let mut storage = graph.as_storage_mut();
 
 let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
 execute_mutation(&stmt, &mut storage).unwrap();
 
-assert_eq!(storage.vertex_count(), 1);
+drop(storage);
+assert_eq!(graph.snapshot().vertex_count(), 1);
 ```
 
 ### SET Clause
@@ -1633,9 +1636,10 @@ RETURN n
 
 ```rust
 use interstellar::gql::{parse_statement, execute_mutation};
-use interstellar::storage::{GraphStorage, InMemoryGraph};
+use interstellar::prelude::*;
 
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
+let mut storage = graph.as_storage_mut();
 
 // Create initial data
 let stmt = parse_statement(r#"
@@ -1758,9 +1762,10 @@ Errors during mutation execution.
 
 ```rust
 use interstellar::gql::{parse_statement, execute_mutation, MutationError};
-use interstellar::storage::InMemoryGraph;
+use interstellar::prelude::*;
 
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
+let mut storage = graph.as_storage_mut();
 
 // Create vertex with an edge
 parse_statement("CREATE (a:Person)-[:KNOWS]->(b:Person)").map(|s| execute_mutation(&s, &mut storage));

@@ -31,7 +31,7 @@ This specification extends Copy-on-Write (COW) snapshot support to the memory-ma
           │                    │                    │
           ▼                    ▼                    ▼
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│  InMemoryGraph  │   │   MmapGraph     │   │    CowGraph     │
+│  Graph  │   │   MmapGraph     │   │    CowGraph     │
 │  (HashMap)      │   │  (mmap files)   │   │  (im crate)     │
 │  No snapshots   │   │  WAL + batch    │   │  O(1) snapshots │
 │  No persistence │   │  No snapshots   │   │  No persistence │
@@ -47,7 +47,7 @@ This specification extends Copy-on-Write (COW) snapshot support to the memory-ma
           │                    │                    │
           ▼                    ▼                    ▼
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│ InMemoryGraph   │   │  CowMmapGraph   │   │    CowGraph     │
+│ Graph   │   │  CowMmapGraph   │   │    CowGraph     │
 │ (deprecated)    │   │  (mmap + COW)   │   │  (im crate)     │
 │                 │   │  O(1) snapshots │   │  O(1) snapshots │
 │                 │   │  Persistent     │   │  No persistence │
@@ -723,9 +723,9 @@ impl CowMmapSnapshot {
 }
 ```
 
-### 14.3 Deprecation of InMemoryGraph
+### 14.3 Deprecation of Graph
 
 Once `CowMmapGraph` is stable:
-1. Add `#[deprecated]` to `InMemoryGraph`
+1. Add `#[deprecated]` to `Graph`
 2. Update all examples to use `CowGraph` or `CowMmapGraph`
 3. Remove in next major version

@@ -52,10 +52,11 @@
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
+//! use interstellar::storage::{Graph, GraphStorageMut};
 //! use std::collections::HashMap;
 //!
-//! let mut storage = InMemoryGraph::new();
+//! let graph = Graph::new();
+//! let mut storage = graph.as_storage_mut();
 //!
 //! // Attempting to create an edge with invalid vertices
 //! let result = storage.add_edge(
@@ -200,7 +201,6 @@
 //!
 //! ```rust
 //! use interstellar::prelude::*;
-//! use interstellar::storage::InMemoryGraph;
 //! use std::collections::HashMap;
 //! use std::sync::Arc;
 //!
@@ -310,10 +310,11 @@ use crate::value::{EdgeId, VertexId};
 ///
 /// ```rust
 /// use interstellar::prelude::*;
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::{Graph, GraphStorageMut};
 /// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
+/// let mut storage = graph.as_storage_mut();
 /// let alice = storage.add_vertex("person", HashMap::new());
 ///
 /// // Try to create an edge to a non-existent vertex
@@ -346,10 +347,11 @@ pub enum StorageError {
     ///
     /// ```rust
     /// use interstellar::prelude::*;
-    /// use interstellar::storage::InMemoryGraph;
+    /// use interstellar::storage::{Graph, GraphStorageMut};
     /// use std::collections::HashMap;
     ///
-    /// let mut storage = InMemoryGraph::new();
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
     ///
     /// // This vertex doesn't exist
     /// let result = storage.add_edge(
@@ -689,10 +691,11 @@ pub enum TraversalError {
 /// ```rust
 /// use interstellar::prelude::*;
 /// use interstellar::error::MutationError;
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::{Graph, GraphStorageMut};
 /// use std::collections::HashMap;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
+/// let mut storage = graph.as_storage_mut();
 /// let alice = storage.add_vertex("person", HashMap::new());
 ///
 /// // Try to create edge to non-existent vertex
@@ -718,11 +721,12 @@ pub enum MutationError {
     /// Create the source vertex before creating the edge:
     ///
     /// ```rust
-    /// use interstellar::storage::InMemoryGraph;
+    /// use interstellar::storage::{Graph, GraphStorageMut};
     /// use interstellar::prelude::*;
     /// use std::collections::HashMap;
     ///
-    /// let mut storage = InMemoryGraph::new();
+    /// let graph = Graph::new();
+    /// let mut storage = graph.as_storage_mut();
     ///
     /// // Create both vertices first
     /// let alice = storage.add_vertex("person", HashMap::new());

@@ -18,9 +18,10 @@
 //!
 //! ```ignore
 //! use interstellar::gql::{parse_statement, execute_mutation};
-//! use interstellar::storage::InMemoryGraph;
+//! use interstellar::storage::Graph;
 //!
-//! let mut storage = InMemoryGraph::new();
+//! let graph = Graph::new();
+//! let mut storage = graph.as_storage_mut();
 //!
 //! // Parse and execute a CREATE statement
 //! let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30}) RETURN n").unwrap();
@@ -281,9 +282,10 @@ pub enum Element {
 ///
 /// ```ignore
 /// use interstellar::gql::{parse_statement, execute_mutation};
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
+/// let mut storage = graph.as_storage_mut();
 /// let stmt = parse_statement("CREATE (n:Person {name: 'Alice'})").unwrap();
 /// execute_mutation(&stmt, &mut storage).unwrap();
 ///
@@ -330,9 +332,10 @@ pub fn execute_mutation<S: GraphStorage + GraphStorageMut>(
 /// ```ignore
 /// use interstellar::gql::{parse_statement, execute_mutation_with_schema};
 /// use interstellar::schema::{SchemaBuilder, PropertyType, ValidationMode};
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
+/// let mut storage = graph.as_storage_mut();
 /// let schema = SchemaBuilder::new()
 ///     .mode(ValidationMode::Strict)
 ///     .vertex("Person")
@@ -1140,7 +1143,7 @@ fn execute_detach_delete<S: GraphStorage + GraphStorageMut>(
 
         match element {
             Element::Vertex(vid) => {
-                // remove_vertex in InMemoryGraph already removes incident edges
+                // remove_vertex already removes incident edges
                 ctx.storage_mut().remove_vertex(vid)?;
             }
             Element::Edge(eid) => {
@@ -1384,11 +1387,12 @@ fn evaluate_return_item<S: GraphStorage + GraphStorageMut>(
 mod tests {
     use super::*;
     use crate::gql::parse_statement;
-    use crate::storage::InMemoryGraph;
+    use crate::storage::Graph;
 
     #[test]
     fn test_create_single_vertex() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
         execute_mutation(&stmt, &mut storage).unwrap();
@@ -1406,7 +1410,8 @@ mod tests {
 
     #[test]
     fn test_create_multiple_vertices() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         let stmt =
             parse_statement("CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})").unwrap();
@@ -1417,7 +1422,8 @@ mod tests {
 
     #[test]
     fn test_create_edge() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         let stmt = parse_statement(
             "CREATE (a:Person {name: 'Alice'})-[:KNOWS {since: 2020}]->(b:Person {name: 'Bob'})",
@@ -1435,7 +1441,8 @@ mod tests {
 
     #[test]
     fn test_create_with_return() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         let stmt = parse_statement("CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
         let results = execute_mutation(&stmt, &mut storage).unwrap();
@@ -1446,7 +1453,8 @@ mod tests {
 
     #[test]
     fn test_match_set() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create a vertex first
         let stmt = parse_statement("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
@@ -1462,7 +1470,8 @@ mod tests {
 
     #[test]
     fn test_match_delete_edge() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create vertices and edge
         let stmt =
@@ -1482,7 +1491,8 @@ mod tests {
 
     #[test]
     fn test_delete_vertex_with_edges_fails() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create vertices and edge
         let stmt =
@@ -1499,7 +1509,8 @@ mod tests {
 
     #[test]
     fn test_detach_delete_vertex() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create vertices and edge
         let stmt =
@@ -1520,7 +1531,8 @@ mod tests {
 
     #[test]
     fn test_merge_creates_when_not_exists() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         let stmt =
             parse_statement("MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = true")
@@ -1539,7 +1551,8 @@ mod tests {
 
     #[test]
     fn test_merge_matches_when_exists() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create existing vertex
         let stmt = parse_statement("CREATE (n:Person {name: 'Alice', version: 1})").unwrap();
@@ -1558,7 +1571,8 @@ mod tests {
 
     #[test]
     fn test_remove_property() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create vertex with property
         let stmt = parse_statement("CREATE (n:Person {name: 'Alice', temp: 'value'})").unwrap();
@@ -1575,7 +1589,8 @@ mod tests {
 
     #[test]
     fn test_match_with_where() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create multiple vertices
         let stmt = parse_statement("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
@@ -1607,7 +1622,8 @@ mod tests {
 
     #[test]
     fn test_foreach_basic_set() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create some vertices
         let stmt = parse_statement("CREATE (a:Person {name: 'Alice'})").unwrap();
@@ -1636,7 +1652,8 @@ mod tests {
 
     #[test]
     fn test_foreach_with_vertex_list() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create vertices
         let stmt = parse_statement("CREATE (a:Person {name: 'Alice', visited: false})").unwrap();
@@ -1668,7 +1685,8 @@ mod tests {
 
     #[test]
     fn test_foreach_not_list_error() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create a FOREACH clause with a non-list expression
         let foreach_clause = ForeachClause {
@@ -1688,7 +1706,8 @@ mod tests {
 
     #[test]
     fn test_foreach_null_list_is_noop() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create a FOREACH clause with a null expression (should be a no-op)
         let foreach_clause = ForeachClause {
@@ -1704,7 +1723,8 @@ mod tests {
 
     #[test]
     fn test_foreach_empty_list() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create a FOREACH clause with an empty list
         let foreach_clause = ForeachClause {
@@ -1720,7 +1740,8 @@ mod tests {
 
     #[test]
     fn test_foreach_nested() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create a nested FOREACH clause
         let inner_foreach = ForeachClause {
@@ -1748,7 +1769,8 @@ mod tests {
 
     #[test]
     fn test_foreach_set_with_iteration_variable() {
-        let mut storage = InMemoryGraph::new();
+        let graph = Graph::new();
+        let mut storage = graph.as_storage_mut();
 
         // Create a vertex
         let stmt = parse_statement("CREATE (a:Person {name: 'Alice'})").unwrap();

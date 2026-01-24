@@ -800,10 +800,11 @@ impl Default for MutationResult {
 /// # Example
 ///
 /// ```ignore
-/// use interstellar::storage::InMemoryGraph;
+/// use interstellar::storage::Graph;
 /// use interstellar::traversal::mutation::MutationExecutor;
 ///
-/// let mut storage = InMemoryGraph::new();
+/// let graph = Graph::new();
+/// let mut storage = graph.as_storage_mut();
 /// let mut executor = MutationExecutor::new(&mut storage);
 ///
 /// // Execute pending mutations from traversal

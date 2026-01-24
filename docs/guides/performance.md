@@ -115,10 +115,10 @@ Batch mode provides **~500x speedup** for bulk operations.
 
 | Scenario | Recommended |
 |----------|-------------|
-| < 100K elements | InMemoryGraph |
+| < 100K elements | Graph |
 | > 100K elements | MmapGraph |
 | Need persistence | MmapGraph |
-| Maximum query speed | InMemoryGraph |
+| Maximum query speed | Graph |
 | Limited RAM | MmapGraph |
 
 ### Compact MmapGraph

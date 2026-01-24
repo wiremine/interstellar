@@ -287,7 +287,7 @@ Keep `PendingMutation::from_value()` working for `add_v()`/`add_e()` which still
 ```rust
 #[test]
 fn property_then_out_chaining() {
-    let mut graph = InMemoryGraph::new();
+    let mut graph = Graph::new();
     let alice = graph.add_vertex("person", HashMap::from([
         ("name".to_string(), "Alice".into()),
     ]));

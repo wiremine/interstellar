@@ -640,10 +640,10 @@ Note: No ORDER BY, GROUP BY, or LIMIT for mutations (these are read-only feature
 
 ```rust
 use interstellar::gql::{parse, compile, execute};
-use interstellar::InMemoryGraph;
+use interstellar::Graph;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let graph = InMemoryGraph::new();
+    let graph = Graph::new();
     
     // Create vertices
     execute(&graph, "CREATE (a:Person {name: 'Alice', age: 30})")?;

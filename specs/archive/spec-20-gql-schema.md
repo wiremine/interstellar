@@ -1789,19 +1789,19 @@ fn replay_entry(entry: &WalEntry, file: &File, header: &FileHeader) -> Result<()
 
 ### 8.9 In-Memory Backend
 
-For `InMemoryGraph`, schema is stored as a field on the graph struct:
+For `Graph`, schema is stored as a field on the graph struct:
 
 ```rust
 // In src/storage/inmemory.rs
 
-pub struct InMemoryGraph {
+pub struct Graph {
     // ... existing fields ...
     
     /// Optional schema for validation
     schema: Option<GraphSchema>,
 }
 
-impl InMemoryGraph {
+impl Graph {
     pub fn schema(&self) -> Option<&GraphSchema> {
         self.schema.as_ref()
     }
@@ -2337,7 +2337,7 @@ Implement schema persistence for the mmap backend.
 - [ ] `MmapGraph::save_schema` method
 - [ ] WAL entry for schema updates
 - [ ] Schema recovery during crash recovery
-- [ ] `InMemoryGraph` schema field and methods
+- [ ] `Graph` schema field and methods
 
 **Exit Criteria:**
 ```rust

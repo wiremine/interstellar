@@ -83,16 +83,15 @@ Use pattern matching when you need to handle different error cases differently:
 
 ```rust
 use interstellar::prelude::*;
-use interstellar::storage::InMemoryGraph;
-use std::collections::HashMap;
 
-let mut storage = InMemoryGraph::new();
+let graph = Graph::new();
+let v1 = graph.add_vertex("person", props! {});
 
-let result = storage.add_edge(
-    VertexId(999),  // doesn't exist
-    VertexId(888),  // doesn't exist
+let result = graph.add_edge(
+    v1,
+    VertexId(9999),  // doesn't exist
     "knows",
-    HashMap::new(),
+    props! {},
 );
 
 match result {
@@ -315,7 +314,7 @@ println!("Debug: {:?}", error);
 | `add_vertex()` | `VertexId` |
 | `get_vertex()` | `Option<Vertex>` |
 | `get_edge()` | `Option<Edge>` |
-| `InMemoryGraph::new()` | `InMemoryGraph` |
+| `Graph::new()` | `Graph` |
 
 ## See Also
 

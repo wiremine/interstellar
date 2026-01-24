@@ -773,7 +773,7 @@ impl Graph {
     /// Create in-memory graph with no schema (current behavior)
     pub fn in_memory() -> Self {
         Self {
-            storage: Box::new(InMemoryGraph::new()),
+            storage: Box::new(Graph::new()),
             schema: GraphSchema::default(),
         }
     }
@@ -781,7 +781,7 @@ impl Graph {
     /// Create in-memory graph with schema
     pub fn in_memory_with_schema(schema: GraphSchema) -> Self {
         Self {
-            storage: Box::new(InMemoryGraph::new()),
+            storage: Box::new(Graph::new()),
             schema,
         }
     }

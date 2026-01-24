@@ -72,7 +72,7 @@ use crate::schema::GraphSchema;
 use crate::storage::cow::{EdgeData, GraphState, NodeData};
 use crate::storage::interner::StringInterner;
 use crate::storage::mmap::MmapGraph;
-use crate::storage::{Edge, GraphStorage, Vertex};
+use crate::storage::{Edge, GraphStorage, StreamableStorage, Vertex};
 use crate::traversal::markers::{Edge as EdgeMarker, OutputMarker, Scalar, Vertex as VertexMarker};
 use crate::traversal::mutation::{DropStep, PendingMutation, PropertyStep};
 use crate::traversal::step::Step;
@@ -1706,6 +1706,135 @@ impl Clone for CowMmapSnapshot {
 unsafe impl Send for CowMmapSnapshot {}
 unsafe impl Sync for CowMmapSnapshot {}
 
+// StreamableStorage implementation for CowMmapSnapshot.
+//
+// CowMmapSnapshot uses the same GraphState as GraphSnapshot, so we can use
+// the same streaming implementation. The im::HashMap clones in O(1) via
+// structural sharing, enabling true lazy iteration.
+impl StreamableStorage for CowMmapSnapshot {
+    fn stream_all_vertices(&self) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Clone the im::HashMap - O(1) due to structural sharing
+        let vertices = self.state.vertices.clone();
+        Box::new(vertices.into_iter().map(|(id, _)| id))
+    }
+
+    fn stream_all_edges(&self) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        // Clone the im::HashMap - O(1) due to structural sharing
+        let edges = self.state.edges.clone();
+        Box::new(edges.into_iter().map(|(id, _)| id))
+    }
+
+    fn stream_vertices_with_label(&self, label: &str) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        // Look up label ID and get the RoaringBitmap
+        let label_id = self.interner_snapshot.lookup(label);
+        if let Some(lid) = label_id {
+            if let Some(bitmap) = self.state.vertex_labels.get(&lid) {
+                // Clone the RoaringBitmap to get owned iteration
+                let bitmap_owned: RoaringBitmap = (**bitmap).clone();
+                return Box::new(bitmap_owned.into_iter().map(|id| VertexId(id as u64)));
+            }
+        }
+        Box::new(std::iter::empty())
+    }
+
+    fn stream_edges_with_label(&self, label: &str) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        // Look up label ID and get the RoaringBitmap
+        let label_id = self.interner_snapshot.lookup(label);
+        if let Some(lid) = label_id {
+            if let Some(bitmap) = self.state.edge_labels.get(&lid) {
+                // Clone the RoaringBitmap to get owned iteration
+                let bitmap_owned: RoaringBitmap = (**bitmap).clone();
+                return Box::new(bitmap_owned.into_iter().map(|id| EdgeId(id as u64)));
+            }
+        }
+        Box::new(std::iter::empty())
+    }
+
+    fn stream_out_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        if let Some(node) = self.state.vertices.get(&vertex) {
+            // Clone the adjacency list - O(degree)
+            let out_edges = node.out_edges.clone();
+            Box::new(out_edges.into_iter())
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn stream_in_edges(&self, vertex: VertexId) -> Box<dyn Iterator<Item = EdgeId> + Send> {
+        if let Some(node) = self.state.vertices.get(&vertex) {
+            // Clone the adjacency list - O(degree)
+            let in_edges = node.in_edges.clone();
+            Box::new(in_edges.into_iter())
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn stream_out_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let state = Arc::clone(&self.state);
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+
+        if let Some(node) = state.vertices.get(&vertex) {
+            let out_edges = node.out_edges.clone();
+            let state_for_iter = Arc::clone(&state);
+
+            Box::new(out_edges.into_iter().filter_map(move |edge_id| {
+                state_for_iter.edges.get(&edge_id).and_then(|edge| {
+                    if label_ids_owned.is_empty() || label_ids_owned.contains(&edge.label_id) {
+                        Some(edge.dst)
+                    } else {
+                        None
+                    }
+                })
+            }))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn stream_in_neighbors(
+        &self,
+        vertex: VertexId,
+        label_ids: &[u32],
+    ) -> Box<dyn Iterator<Item = VertexId> + Send> {
+        let state = Arc::clone(&self.state);
+        let label_ids_owned: Vec<u32> = label_ids.to_vec();
+
+        if let Some(node) = state.vertices.get(&vertex) {
+            let in_edges = node.in_edges.clone();
+            let state_for_iter = Arc::clone(&state);
+
+            Box::new(in_edges.into_iter().filter_map(move |edge_id| {
+                state_for_iter.edges.get(&edge_id).and_then(|edge| {
+                    if label_ids_owned.is_empty() || label_ids_owned.contains(&edge.label_id) {
+                        Some(edge.src)
+                    } else {
+                        None
+                    }
+                })
+            }))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+}
+
+impl CowMmapSnapshot {
+    /// Returns an Arc<dyn StreamableStorage> for use with StreamingExecutor.
+    ///
+    /// This enables the traversal engine to hold an owned reference to the
+    /// storage that can be used to create streaming iterators. The clone is
+    /// cheap since `CowMmapSnapshot` is internally Arc-based.
+    #[inline]
+    pub fn arc_streamable(&self) -> Arc<dyn StreamableStorage> {
+        Arc::new(self.clone())
+    }
+}
+
 impl GraphStorage for CowMmapSnapshot {
     fn get_vertex(&self, id: VertexId) -> Option<Vertex> {
         self.state.vertices.get(&id).map(|node| {
@@ -2641,16 +2770,16 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
             matches!(&source, Some(TraversalSource::Inject(values)) if values.is_empty());
 
         let results: Vec<Traverser> = if is_mutation_only {
-            // For mutation-only traversals, execute steps directly without
-            // needing a full ExecutionContext. We create a minimal dummy context.
-            let dummy_storage = crate::storage::InMemoryGraph::new();
-            let dummy_interner = dummy_storage.interner();
-            let storage_ref: &dyn GraphStorage = &dummy_storage;
+            // For mutation-only traversals, we still need an ExecutionContext.
+            // Use a snapshot from the actual graph (O(1) clone due to structural sharing).
+            let snapshot = self.graph.snapshot();
+            let interner = snapshot.interner();
+            let storage_ref: &dyn GraphStorage = &snapshot;
 
             let ctx = if self.track_paths {
-                ExecutionContext::with_path_tracking(storage_ref, dummy_interner)
+                ExecutionContext::with_path_tracking(storage_ref, interner)
             } else {
-                ExecutionContext::new(storage_ref, dummy_interner)
+                ExecutionContext::new(storage_ref, interner)
             };
 
             // Start with empty input (since source is Inject([]))
