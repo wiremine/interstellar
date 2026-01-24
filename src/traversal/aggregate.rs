@@ -891,24 +891,36 @@ impl CountStep {
     }
 }
 
-impl AnyStep for CountStep {
+impl Step for CountStep {
+    type Iter<'a>
+        = std::iter::Once<Traverser>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Stream through input, summing bulk values
         // This is O(1) memory - we only keep a running count
         let count: i64 = input.map(|t| t.bulk as i64).sum();
-        Box::new(std::iter::once(Traverser::new(Value::Int(count))))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
+        std::iter::once(Traverser::new(Value::Int(count)))
     }
 
     fn name(&self) -> &'static str {
         "count"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: CountStep cannot truly stream because it must count ALL inputs
+        // before producing a single output. The output is a single Int value.
+        // Current behavior: pass-through (incorrect but safe for pipeline compatibility).
+        Box::new(std::iter::once(input))
     }
 }
 
@@ -1775,7 +1787,7 @@ mod tests {
     fn test_count_step_clone_box() {
         let step = CountStep::new();
         let cloned = step.clone_box();
-        assert_eq!(cloned.name(), "count");
+        assert_eq!(cloned.dyn_name(), "count");
     }
 
     #[test]

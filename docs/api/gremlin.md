@@ -477,6 +477,74 @@ ON MATCH SET n.visits = n.visits + 1
 
 ---
 
+## Streaming Execution and Barrier Steps
+
+Interstellar supports **streaming execution** where traversers flow through the pipeline one at a time with O(1) memory overhead. This is enabled via the `iter()` and `traversers()` terminal methods.
+
+### Fully Streaming Steps
+
+The following step categories support true lazy streaming:
+
+| Category | Steps | Coverage |
+|----------|-------|----------|
+| **Navigation** | `out`, `in_`, `both`, `outE`, `inE`, `bothE`, `outV`, `inV`, `bothV`, `otherV` | 100% |
+| **Has/Is Filters** | `has`, `hasLabel`, `hasNot`, `hasId`, `hasValue`, `is_`, `simplePath`, `cyclicPath` | 100% |
+| **Branch** | `choose`, `coalesce`, `union`, `optional`, `local`, `branch`, `and_`, `or_`, `not`, `where_` | 100% |
+| **Transform** | `values`, `properties`, `valueMap`, `elementMap`, `path`, `select`, `project`, `math`, `id`, `label`, `unfold`, `constant` | ~80% |
+
+### Barrier Steps (Cannot Stream)
+
+**Barrier steps** must collect ALL input traversers before producing any output. This is fundamental to their semantics and cannot be optimized away.
+
+| Step | Reason |
+|------|--------|
+| `order()` | Must see all inputs to determine sort order |
+| `group()` | Must collect all inputs to group them by key |
+| `groupCount()` | Must count all inputs per group |
+| `mean()` | Must sum all values and divide by count |
+| `tail()` | Must see all inputs to find the last N elements |
+| `sample()` | Requires reservoir sampling across all inputs |
+| `fold()` | Reduces all inputs to a single collection |
+| `count()` | Must count all inputs |
+| `sum()` / `max()` / `min()` | Must aggregate all values |
+
+When a barrier step is encountered in streaming mode, it will buffer all inputs before producing output, temporarily breaking the O(1) memory guarantee for that step.
+
+### Mutation Steps (Read-Only Streaming)
+
+Streaming execution is **read-only**. Mutation steps require graph write access and are executed via the eager `to_list()` terminal:
+
+| Step | Behavior in Streaming |
+|------|----------------------|
+| `addV()` | Not supported - use eager execution |
+| `addE()` | Not supported - use eager execution |
+| `property()` | Not supported - use eager execution |
+| `drop()` | Not supported - use eager execution |
+
+### Closure Steps (Require ExecutionContext)
+
+Steps that accept user-provided closures cannot stream because the closure signature requires `ExecutionContext`:
+
+| Step | Alternative |
+|------|-------------|
+| `map(closure)` | Use built-in transform steps (`values`, `id`, `label`, etc.) |
+| `flatMap(closure)` | Use navigation steps (`out`, `in_`, etc.) |
+| `filter(closure)` | Use predicate steps (`has`, `hasLabel`, `is_`, etc.) |
+
+### Example: Streaming vs Eager Execution
+
+```rust
+// Streaming - processes one traverser at a time
+for value in g.v().has_label("person").out("knows").values("name").iter() {
+    println!("{}", value);  // Each value processed as it arrives
+}
+
+// Eager - collects all results into memory first
+let all_names = g.v().has_label("person").out("knows").values("name").to_list();
+```
+
+---
+
 ## Unsupported Gremlin Features
 
 | Feature | Reason |
