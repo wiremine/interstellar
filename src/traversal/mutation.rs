@@ -38,7 +38,7 @@
 use std::collections::HashMap;
 
 use crate::error::MutationError;
-use crate::traversal::step::AnyStep;
+use crate::traversal::step::Step;
 use crate::traversal::{ExecutionContext, Traverser};
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -97,12 +97,17 @@ impl AddVStep {
     }
 }
 
-impl AnyStep for AddVStep {
+impl Step for AddVStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         _input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Note: This is a placeholder. In a real implementation,
         // we need mutable access to the graph storage.
         // For now, we'll create a traverser that represents the "pending" vertex.
@@ -118,7 +123,7 @@ impl AnyStep for AddVStep {
 
         // Create a placeholder traverser with the intent to create a vertex
         // The actual vertex ID will be assigned during execution
-        Box::new(std::iter::once_with(move || {
+        std::iter::once_with(move || {
             // Create a traverser with a placeholder value indicating pending vertex
             // This will be replaced with the actual vertex ID during mutation execution
             let mut t = Traverser::new(Value::Map(HashMap::from([
@@ -138,11 +143,7 @@ impl AnyStep for AddVStep {
                 t.extend_path_unlabeled();
             }
             t
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -199,16 +200,21 @@ impl PropertyStep {
     }
 }
 
-impl AnyStep for PropertyStep {
+impl Step for PropertyStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let key = self.key.clone();
         let value = self.value.clone();
 
-        Box::new(input.map(move |mut t| {
+        input.map(move |mut t| {
             // Check if this is a pending add_v operation
             if let Value::Map(ref mut map) = t.value {
                 if map.get("__pending_add_v").is_some() {
@@ -253,11 +259,7 @@ impl AnyStep for PropertyStep {
                 }
             }
             t
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -295,14 +297,19 @@ impl DropStep {
     }
 }
 
-impl AnyStep for DropStep {
+impl Step for DropStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Drop step marks elements for deletion and produces no output
-        Box::new(input.filter_map(move |t| {
+        input.filter_map(move |t| {
             match &t.value {
                 Value::Vertex(id) => {
                     // Mark as pending vertex deletion
@@ -323,11 +330,7 @@ impl AnyStep for DropStep {
                     None
                 }
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -471,12 +474,17 @@ impl AddEStep {
     }
 }
 
-impl AnyStep for AddEStep {
+impl Step for AddEStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let label = self.label.clone();
         let from = self.from.clone();
         let to = self.to.clone();
@@ -484,32 +492,47 @@ impl AnyStep for AddEStep {
         let track_paths = ctx.is_tracking_paths();
 
         // Check if both endpoints are explicit VertexIds - in this case we don't need input traversers
-        if let (Some(EdgeEndpoint::VertexId(from_id)), Some(EdgeEndpoint::VertexId(to_id))) =
-            (&from, &to)
-        {
-            let from_id = *from_id;
-            let to_id = *to_id;
-            return Box::new(std::iter::once_with(move || {
-                let mut new_t = Traverser::new(Value::Map(HashMap::from([
-                    ("__pending_add_e".to_string(), Value::Bool(true)),
-                    ("label".to_string(), Value::String(label.clone())),
-                    ("from".to_string(), Value::Vertex(from_id)),
-                    ("to".to_string(), Value::Vertex(to_id)),
-                    (
-                        "properties".to_string(),
-                        Value::Map(
-                            properties
-                                .iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect(),
+        let explicit_endpoints = matches!(
+            (&from, &to),
+            (
+                Some(EdgeEndpoint::VertexId(_)),
+                Some(EdgeEndpoint::VertexId(_))
+            )
+        );
+
+        if explicit_endpoints {
+            let from_id = match &from {
+                Some(EdgeEndpoint::VertexId(id)) => *id,
+                _ => unreachable!(),
+            };
+            let to_id = match &to {
+                Some(EdgeEndpoint::VertexId(id)) => *id,
+                _ => unreachable!(),
+            };
+            // Return iterator for explicit endpoints case
+            let iter: Box<dyn Iterator<Item = Traverser> + 'a> =
+                Box::new(std::iter::once_with(move || {
+                    let mut new_t = Traverser::new(Value::Map(HashMap::from([
+                        ("__pending_add_e".to_string(), Value::Bool(true)),
+                        ("label".to_string(), Value::String(label.clone())),
+                        ("from".to_string(), Value::Vertex(from_id)),
+                        ("to".to_string(), Value::Vertex(to_id)),
+                        (
+                            "properties".to_string(),
+                            Value::Map(
+                                properties
+                                    .iter()
+                                    .map(|(k, v)| (k.clone(), v.clone()))
+                                    .collect(),
+                            ),
                         ),
-                    ),
-                ])));
-                if track_paths {
-                    new_t.extend_path_unlabeled();
-                }
-                new_t
-            }));
+                    ])));
+                    if track_paths {
+                        new_t.extend_path_unlabeled();
+                    }
+                    new_t
+                }));
+            return iter;
         }
 
         // Otherwise, we need input traversers to resolve endpoints
@@ -542,10 +565,6 @@ impl AnyStep for AddEStep {
             }
             Some(new_t)
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
     }
 
     fn name(&self) -> &'static str {
@@ -860,6 +879,7 @@ impl<'s, S: crate::storage::GraphStorageMut> MutationExecutor<'s, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traversal::step::DynStep;
 
     #[test]
     fn add_v_step_new() {
@@ -881,6 +901,13 @@ mod tests {
     }
 
     #[test]
+    fn add_v_step_clone_box() {
+        let step = AddVStep::new("person");
+        let cloned = DynStep::clone_box(&step);
+        assert_eq!(cloned.dyn_name(), "addV");
+    }
+
+    #[test]
     fn property_step_new() {
         let step = PropertyStep::new("name", "Alice");
         assert_eq!(step.key(), "name");
@@ -889,9 +916,23 @@ mod tests {
     }
 
     #[test]
+    fn property_step_clone_box() {
+        let step = PropertyStep::new("name", "Alice");
+        let cloned = DynStep::clone_box(&step);
+        assert_eq!(cloned.dyn_name(), "property");
+    }
+
+    #[test]
     fn drop_step_new() {
         let step = DropStep::new();
         assert_eq!(step.name(), "drop");
+    }
+
+    #[test]
+    fn drop_step_clone_box() {
+        let step = DropStep::new();
+        let cloned = DynStep::clone_box(&step);
+        assert_eq!(cloned.dyn_name(), "drop");
     }
 
     #[test]
@@ -937,6 +978,13 @@ mod tests {
             step.to_endpoint(),
             Some(EdgeEndpoint::StepLabel(ref s)) if s == "end"
         ));
+    }
+
+    #[test]
+    fn add_e_step_clone_box() {
+        let step = AddEStep::new("knows");
+        let cloned = DynStep::clone_box(&step);
+        assert_eq!(cloned.dyn_name(), "addE");
     }
 
     #[test]

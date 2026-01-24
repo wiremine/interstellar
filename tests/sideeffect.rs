@@ -208,12 +208,11 @@ fn test_store_is_lazy() {
 
     assert_eq!(results.len(), 1);
     if let Value::List(stored) = &results[0] {
-        // All 3 values are stored because the executor collects after each step,
-        // meaning store() processes all 3 vertices before limit() filters.
-        // The "lazy" aspect of store is that it uses .inspect() rather than
-        // collecting all values first - but since the executor is eager per step,
-        // all values pass through store before limit stops the pipeline.
-        assert_eq!(stored.len(), 3);
+        // With true lazy evaluation, limit(2) short-circuits the pipeline
+        // after 2 values, so store() only sees 2 values. This is the correct
+        // lazy evaluation behavior - traversers flow through one at a time,
+        // and limit stops pulling after it has enough.
+        assert_eq!(stored.len(), 2);
     } else {
         panic!("Expected Value::List");
     }

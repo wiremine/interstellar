@@ -64,24 +64,25 @@ where
     }
 }
 
-impl<F> crate::traversal::step::AnyStep for MapStep<F>
+impl<F> crate::traversal::step::Step for MapStep<F>
 where
     F: Fn(&ExecutionContext, &Value) -> Value + Clone + Send + Sync + 'static,
 {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let f = self.f.clone();
-        Box::new(input.map(move |t| {
+        input.map(move |t| {
             let new_value = f(ctx, &t.value);
             t.with_value(new_value)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -162,24 +163,25 @@ where
     }
 }
 
-impl<F> crate::traversal::step::AnyStep for FlatMapStep<F>
+impl<F> crate::traversal::step::Step for FlatMapStep<F>
 where
     F: Fn(&ExecutionContext, &Value) -> Vec<Value> + Clone + Send + Sync + 'static,
 {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let f = self.f.clone();
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             let values = f(ctx, &t.value);
             values.into_iter().map(move |v| t.split(v))
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -201,7 +203,7 @@ where
 mod tests {
     use super::*;
     use crate::storage::Graph;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::{DynStep, Step};
     use crate::traversal::SnapshotLike;
     use crate::value::VertexId;
     use std::collections::HashMap;
@@ -236,8 +238,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = MapStep::new(|_ctx, v| v.clone());
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "map");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "map");
         }
 
         #[test]
@@ -448,8 +450,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = FlatMapStep::new(|_ctx, v| vec![v.clone()]);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "flatMap");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "flatMap");
         }
 
         #[test]
@@ -820,20 +822,21 @@ impl ProjectStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for ProjectStep {
+impl crate::traversal::step::Step for ProjectStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.map(move |t| {
+    ) -> Self::Iter<'a> {
+        input.map(move |t| {
             let value = self.transform(ctx, &t);
             t.with_value(value)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -864,7 +867,7 @@ use std::marker::PhantomData;
 ///     .to_list();
 /// ```
 pub struct ProjectBuilder<In> {
-    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     keys: Vec<String>,
     projections: Vec<Projection>,
     _phantom: PhantomData<In>,
@@ -878,7 +881,7 @@ impl<In> ProjectBuilder<In> {
     /// * `steps` - Existing traversal steps
     /// * `keys` - The keys for the projection map
     pub(crate) fn new(
-        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
         keys: Vec<String>,
     ) -> Self {
         Self {
@@ -963,7 +966,7 @@ pub struct BoundProjectBuilder<'g, In> {
     storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
-    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     keys: Vec<String>,
     projections: Vec<Projection>,
     track_paths: bool,
@@ -985,7 +988,7 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
         storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
-        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
         keys: Vec<String>,
         track_paths: bool,
     ) -> Self {
@@ -1242,17 +1245,18 @@ impl MathStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for MathStep {
+impl crate::traversal::step::Step for MathStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.filter_map(move |t| self.evaluate(ctx, &t).map(|value| t.with_value(value))))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+    ) -> Self::Iter<'a> {
+        input.filter_map(move |t| self.evaluate(ctx, &t).map(|value| t.with_value(value)))
     }
 
     fn name(&self) -> &'static str {
@@ -1288,7 +1292,7 @@ impl std::fmt::Debug for MathStep {
 ///     .build()
 /// ```
 pub struct MathBuilder<In> {
-    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     expression: String,
     variable_bindings: HashMap<String, String>,
     _phantom: PhantomData<In>,
@@ -1302,7 +1306,7 @@ impl<In> MathBuilder<In> {
     /// * `steps` - Existing traversal steps
     /// * `expression` - The mathematical expression to evaluate
     pub(crate) fn new(
-        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
         expression: impl Into<String>,
     ) -> Self {
         Self {
@@ -1359,7 +1363,7 @@ pub struct BoundMathBuilder<'g, In> {
     storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
-    steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+    steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     expression: String,
     variable_bindings: HashMap<String, String>,
     track_paths: bool,
@@ -1372,7 +1376,7 @@ impl<'g, In> BoundMathBuilder<'g, In> {
         storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
-        steps: Vec<Box<dyn crate::traversal::step::AnyStep>>,
+        steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
         expression: impl Into<String>,
         track_paths: bool,
     ) -> Self {
@@ -1427,7 +1431,7 @@ mod project_tests {
     use super::*;
     use crate::storage::Graph;
     use crate::traversal::context::ExecutionContext;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::{DynStep, Step};
     use crate::traversal::SnapshotLike;
     use crate::traversal::{Traversal, Traverser};
     use crate::value::{Value, VertexId};
@@ -1494,8 +1498,8 @@ mod project_tests {
             let keys = vec!["name".to_string()];
             let projections = vec![Projection::Key("name".to_string())];
             let step = ProjectStep::new(keys, projections);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "project");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "project");
         }
     }
 
@@ -1730,7 +1734,7 @@ mod math_tests {
     use super::*;
     use crate::storage::Graph;
     use crate::traversal::context::{ExecutionContext, SnapshotLike};
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::{DynStep, Step};
     use crate::traversal::Traverser;
     use crate::value::Value;
     use std::collections::HashMap;
@@ -1778,8 +1782,8 @@ mod math_tests {
         #[test]
         fn clone_box_works() {
             let step = MathStep::new("_ + 1");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "math");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "math");
         }
 
         #[test]

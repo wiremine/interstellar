@@ -6,7 +6,7 @@
 
 use std::marker::PhantomData;
 
-use crate::traversal::step::AnyStep;
+use crate::traversal::step::{DynStep, Step};
 use crate::traversal::traverser::TraversalSource;
 
 // -----------------------------------------------------------------------------
@@ -21,12 +21,12 @@ use crate::traversal::traverser::TraversalSource;
 /// - `Out`: The output type this traversal produces (phantom)
 ///
 /// Both parameters are "phantom" - used only for compile-time checking.
-/// Internally, all values flow as `Value` enum through `Box<dyn AnyStep>`.
+/// Internally, all values flow as `Value` enum through `Box<dyn DynStep>`.
 ///
 /// # Design Notes
 ///
 /// - Same type for bound and anonymous traversals
-/// - Steps are stored as `Vec<Box<dyn AnyStep>>` for type erasure
+/// - Steps are stored as `Vec<Box<dyn DynStep>>` for type erasure
 /// - `In = ()` for traversals that start from a source (bound)
 /// - `In = SomeType` for traversals that expect input (anonymous)
 ///
@@ -42,7 +42,7 @@ use crate::traversal::traverser::TraversalSource;
 /// ```
 pub struct Traversal<In, Out> {
     /// The steps in this traversal (type-erased)
-    pub(crate) steps: Vec<Box<dyn AnyStep>>,
+    pub(crate) steps: Vec<Box<dyn DynStep>>,
     /// Optional reference to source (for bound traversals)
     pub(crate) source: Option<TraversalSource>,
     /// Phantom data for input/output types
@@ -66,7 +66,7 @@ impl<In, Out> std::fmt::Debug for Traversal<In, Out> {
             .field("steps_count", &self.steps.len())
             .field(
                 "step_names",
-                &self.steps.iter().map(|s| s.name()).collect::<Vec<_>>(),
+                &self.steps.iter().map(|s| s.dyn_name()).collect::<Vec<_>>(),
             )
             .finish()
     }
@@ -121,7 +121,7 @@ impl<In, Out> Traversal<In, Out> {
     /// let t: Traversal<(), Value> = Traversal::with_source(TraversalSource::AllVertices)
     ///     .add_step(HasLabelStep::single("person"));
     /// ```
-    pub fn add_step<NewOut>(mut self, step: impl AnyStep + 'static) -> Traversal<In, NewOut> {
+    pub fn add_step<NewOut>(mut self, step: impl Step) -> Traversal<In, NewOut> {
         self.steps.push(Box::new(step));
         Traversal {
             steps: self.steps,
@@ -160,7 +160,7 @@ impl<In, Out> Traversal<In, Out> {
     /// Returns the optional source and the list of steps. This is used
     /// by `TraversalExecutor` to execute the traversal.
     #[allow(dead_code)] // Will be used by TraversalExecutor in upcoming phases
-    pub(crate) fn into_steps(self) -> (Option<TraversalSource>, Vec<Box<dyn AnyStep>>) {
+    pub(crate) fn into_steps(self) -> (Option<TraversalSource>, Vec<Box<dyn DynStep>>) {
         (self.source, self.steps)
     }
 
@@ -183,7 +183,7 @@ impl<In, Out> Traversal<In, Out> {
 
     /// Get step names for debugging/profiling.
     pub fn step_names(&self) -> Vec<&'static str> {
-        self.steps.iter().map(|s| s.name()).collect()
+        self.steps.iter().map(|s| s.dyn_name()).collect()
     }
 
     /// Get a reference to the steps (for sub-traversal execution).
@@ -202,7 +202,7 @@ impl<In, Out> Traversal<In, Out> {
     /// let output = execute_traversal(&ctx, steps, input);
     /// ```
     #[inline]
-    pub fn steps(&self) -> &[Box<dyn AnyStep>] {
+    pub fn steps(&self) -> &[Box<dyn DynStep>] {
         &self.steps
     }
 }
@@ -351,7 +351,7 @@ mod tests {
         assert!(source.is_some());
         assert!(matches!(source, Some(TraversalSource::AllVertices)));
         assert_eq!(steps.len(), 2);
-        assert_eq!(steps[0].name(), "identity");
+        assert_eq!(steps[0].dyn_name(), "identity");
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod tests {
 
         let mut current: Box<dyn Iterator<Item = Traverser> + '_> = Box::new(input.into_iter());
         for step in &steps {
-            current = step.apply(&ctx, current);
+            current = step.apply_dyn(&ctx, current);
         }
 
         let results: Vec<Traverser> = current.collect();

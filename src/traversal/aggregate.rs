@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-use crate::traversal::step::{execute_traversal_from, AnyStep};
+use crate::traversal::step::{execute_traversal_from, DynStep, Step};
 use crate::traversal::{ExecutionContext, Traversal, Traverser};
 use crate::value::Value;
 
@@ -252,12 +252,17 @@ impl Default for GroupStep {
     }
 }
 
-impl AnyStep for GroupStep {
+impl Step for GroupStep {
+    type Iter<'a>
+        = std::iter::Once<Traverser>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Collect all input into groups (barrier)
         // Use Value directly as key since it implements Hash + Eq
         let mut groups: HashMap<Value, Vec<Value>> = HashMap::new();
@@ -300,11 +305,7 @@ impl AnyStep for GroupStep {
             bulk: 1,
         };
 
-        Box::new(std::iter::once(result_traverser))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        std::iter::once(result_traverser)
     }
 
     fn name(&self) -> &'static str {
@@ -335,7 +336,7 @@ impl AnyStep for GroupStep {
 ///     .next();
 /// ```
 pub struct GroupBuilder<In> {
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     key_selector: Option<GroupKey>,
     value_collector: Option<GroupValue>,
     _phantom: PhantomData<In>,
@@ -343,7 +344,7 @@ pub struct GroupBuilder<In> {
 
 impl<In> GroupBuilder<In> {
     /// Create a new GroupBuilder with existing steps.
-    pub(crate) fn new(steps: Vec<Box<dyn AnyStep>>) -> Self {
+    pub(crate) fn new(steps: Vec<Box<dyn DynStep>>) -> Self {
         Self {
             steps,
             key_selector: None,
@@ -428,7 +429,7 @@ pub struct BoundGroupBuilder<'g, In> {
     storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     key_selector: Option<GroupKey>,
     value_collector: Option<GroupValue>,
     track_paths: bool,
@@ -441,7 +442,7 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
         storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
-        steps: Vec<Box<dyn AnyStep>>,
+        steps: Vec<Box<dyn DynStep>>,
         track_paths: bool,
     ) -> Self {
         Self {
@@ -612,12 +613,17 @@ impl GroupCountStep {
     }
 }
 
-impl AnyStep for GroupCountStep {
+impl Step for GroupCountStep {
+    type Iter<'a>
+        = std::iter::Once<Traverser>
+    where
+        Self: 'a;
+
     fn apply<'a>(
-        &self,
+        &'a self,
         ctx: &'a ExecutionContext,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Collect all input and count by group key
         // Use Value directly as key since it implements Hash + Eq
         let mut counts: HashMap<Value, i64> = HashMap::new();
@@ -657,11 +663,7 @@ impl AnyStep for GroupCountStep {
             bulk: 1,
         };
 
-        Box::new(std::iter::once(result_traverser))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        std::iter::once(result_traverser)
     }
 
     fn name(&self) -> &'static str {
@@ -694,14 +696,14 @@ impl AnyStep for GroupCountStep {
 /// g.v().group_count().by_key("age").build();
 /// ```
 pub struct GroupCountBuilder<In> {
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     key_selector: Option<GroupKey>,
     _phantom: PhantomData<In>,
 }
 
 impl<In> GroupCountBuilder<In> {
     /// Create a new GroupCountBuilder with existing steps.
-    pub(crate) fn new(steps: Vec<Box<dyn AnyStep>>) -> Self {
+    pub(crate) fn new(steps: Vec<Box<dyn DynStep>>) -> Self {
         GroupCountBuilder {
             steps,
             key_selector: None,
@@ -754,7 +756,7 @@ pub struct BoundGroupCountBuilder<'g, In> {
     storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     key_selector: Option<GroupKey>,
     track_paths: bool,
     _phantom: PhantomData<In>,
@@ -766,7 +768,7 @@ impl<'g, In> BoundGroupCountBuilder<'g, In> {
         storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
-        steps: Vec<Box<dyn AnyStep>>,
+        steps: Vec<Box<dyn DynStep>>,
         track_paths: bool,
     ) -> Self {
         BoundGroupCountBuilder {

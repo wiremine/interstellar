@@ -1,9 +1,12 @@
 //! Step trait and basic step implementations.
 //!
-//! The `AnyStep` trait provides type-erased step execution, enabling:
-//! - Storing heterogeneous steps in `Vec<Box<dyn AnyStep>>`
+//! The `Step` trait with Generic Associated Types (GATs) provides type-safe step
+//! execution with lazy evaluation, while `DynStep` provides type-erased storage
+//! for heterogeneous step collections. Together they enable:
+//! - Storing heterogeneous steps in `Vec<Box<dyn DynStep>>`
 //! - Anonymous traversals without graph binding at construction
 //! - Cloning traversals for branching operations
+//! - True lazy evaluation (no intermediate collection between steps)
 //!
 //! This module also provides helper macros for implementing common step patterns:
 //! - `impl_filter_step!` for 1:1 filter steps
@@ -11,40 +14,42 @@
 
 use crate::traversal::{ExecutionContext, Traverser};
 
-/// Type-erased step trait.
+// =============================================================================
+// Step Trait (GAT-based, concrete iterator types)
+// =============================================================================
+
+/// A traversal step that transforms an input iterator into an output iterator.
 ///
-/// This is the core abstraction that enables:
-/// - Storing heterogeneous steps in `Vec<Box<dyn AnyStep>>`
-/// - Anonymous traversals without graph binding at construction
-/// - Cloning traversals for branching operations
+/// This trait uses Generic Associated Types (GATs) to express that the returned
+/// iterator's lifetime is tied to both `self` and the input iterator, enabling
+/// true lazy evaluation without intermediate collection.
 ///
 /// # Design Notes
 ///
-/// - Input and output are both `Iterator<Item = Traverser>` (using `Value` internally)
-/// - Steps receive `ExecutionContext` to access graph data
-/// - Steps must be cloneable (`clone_box`) for traversal cloning
+/// - The associated type `Iter<'a>` is a GAT that produces a concrete iterator type
+/// - Steps must be `Clone + Send + Sync + 'static` for storage in traversals
+/// - The blanket `DynStep` impl provides type-erased storage in collections
 ///
 /// # Example
 ///
 /// ```ignore
+/// #[derive(Clone)]
 /// struct MyFilterStep {
 ///     threshold: i64,
 /// }
 ///
-/// impl AnyStep for MyFilterStep {
+/// impl Step for MyFilterStep {
+///     type Iter<'a> = impl Iterator<Item = Traverser> + 'a where Self: 'a;
+///
 ///     fn apply<'a>(
 ///         &'a self,
 ///         _ctx: &'a ExecutionContext<'a>,
 ///         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-///     ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+///     ) -> Self::Iter<'a> {
 ///         let threshold = self.threshold;
-///         Box::new(input.filter(move |t| {
+///         input.filter(move |t| {
 ///             matches!(&t.value, Value::Int(n) if *n > threshold)
-///         }))
-///     }
-///
-///     fn clone_box(&self) -> Box<dyn AnyStep> {
-///         Box::new(self.clone())
+///         })
 ///     }
 ///
 ///     fn name(&self) -> &'static str {
@@ -52,21 +57,59 @@ use crate::traversal::{ExecutionContext, Traverser};
 ///     }
 /// }
 /// ```
-pub trait AnyStep: Send + Sync {
-    /// Apply this step to input traversers, producing output traversers.
+pub trait Step: Clone + Send + Sync + 'static {
+    /// The iterator type returned by this step.
     ///
-    /// The returned iterator is boxed to enable type erasure.
-    /// Steps that need graph access use the provided `ExecutionContext`.
+    /// The lifetime `'a` is tied to:
+    /// - The step itself (`&'a self`)
+    /// - The execution context (`&'a ExecutionContext`)
+    /// - The input iterator (boxed, lives for `'a`)
+    type Iter<'a>: Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    /// Apply this step to the input iterator, producing the output iterator.
     ///
     /// # Arguments
     ///
     /// * `ctx` - Execution context providing graph access and side effects
-    /// * `input` - Iterator of input traversers
+    /// * `input` - Boxed iterator of input traversers
     ///
     /// # Returns
     ///
-    /// A boxed iterator of output traversers
+    /// A concrete iterator type (avoiding boxing for output on hot paths)
     fn apply<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a>;
+
+    /// Step name for debugging and profiling.
+    fn name(&self) -> &'static str;
+}
+
+// =============================================================================
+// DynStep Trait (Type-Erased Wrapper)
+// =============================================================================
+
+/// Type-erased step trait for dynamic dispatch.
+///
+/// This trait provides the same functionality as `Step` but uses boxed iterators
+/// for both input and output, enabling storage in `Vec<Box<dyn DynStep>>`.
+///
+/// This is automatically implemented for all `Step` implementors via a blanket impl.
+/// Use this for storing heterogeneous steps in a `Traversal`.
+///
+/// # Design Notes
+///
+/// - Serves as the bridge between concrete `Step` implementations and dynamic dispatch
+/// - Enables cloning via `clone_box()` method
+/// - The blanket impl ensures any type implementing `Step` automatically implements `DynStep`
+pub trait DynStep: Send + Sync {
+    /// Apply this step to input traversers, producing output traversers.
+    ///
+    /// Like `Step::apply` but with boxed input and output for type erasure.
+    fn apply_dyn<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
@@ -74,24 +117,45 @@ pub trait AnyStep: Send + Sync {
 
     /// Clone this step into a boxed trait object.
     ///
-    /// This is required for cloning traversals (e.g., for branching operations
+    /// Required for cloning traversals (e.g., for branching operations
     /// like `union()` or `coalesce()`).
-    fn clone_box(&self) -> Box<dyn AnyStep>;
+    fn clone_box(&self) -> Box<dyn DynStep>;
 
     /// Get step name for debugging and profiling.
-    ///
-    /// Returns a static string identifying the step type.
-    fn name(&self) -> &'static str;
+    fn dyn_name(&self) -> &'static str;
 }
 
-// Enable cloning of Box<dyn AnyStep>
-impl Clone for Box<dyn AnyStep> {
+/// Blanket implementation: every `Step` is also a `DynStep`.
+///
+/// This allows concrete `Step` implementations to be stored in
+/// `Vec<Box<dyn DynStep>>` while maintaining their specific iterator types
+/// internally.
+impl<S: Step> DynStep for S {
+    fn apply_dyn<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+        Box::new(self.apply(ctx, input))
+    }
+
+    fn clone_box(&self) -> Box<dyn DynStep> {
+        Box::new(self.clone())
+    }
+
+    fn dyn_name(&self) -> &'static str {
+        <Self as Step>::name(self)
+    }
+}
+
+// Enable cloning of Box<dyn DynStep>
+impl Clone for Box<dyn DynStep> {
     fn clone(&self) -> Self {
         self.clone_box()
     }
 }
 
-/// Helper macro to implement `AnyStep` for simple filter steps.
+/// Helper macro to implement `Step` for simple filter steps.
 ///
 /// Filter steps pass through or reject traversers based on a predicate.
 /// The step struct must:
@@ -115,18 +179,19 @@ impl Clone for Box<dyn AnyStep> {
 #[macro_export]
 macro_rules! impl_filter_step {
     ($step:ty, $name:literal) => {
-        impl $crate::traversal::step::AnyStep for $step {
+        impl $crate::traversal::step::Step for $step {
+            type Iter<'a>
+                = impl Iterator<Item = $crate::traversal::Traverser> + 'a
+            where
+                Self: 'a;
+
             fn apply<'a>(
                 &'a self,
                 ctx: &'a $crate::traversal::ExecutionContext<'a>,
                 input: Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a>,
-            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a> {
+            ) -> Self::Iter<'a> {
                 let step = self.clone();
-                Box::new(input.filter(move |t| step.matches(ctx, t)))
-            }
-
-            fn clone_box(&self) -> Box<dyn $crate::traversal::step::AnyStep> {
-                Box::new(self.clone())
+                input.filter(move |t| step.matches(ctx, t))
             }
 
             fn name(&self) -> &'static str {
@@ -136,7 +201,7 @@ macro_rules! impl_filter_step {
     };
 }
 
-/// Helper macro to implement `AnyStep` for flatmap steps (1:N mappings).
+/// Helper macro to implement `Step` for flatmap steps (1:N mappings).
 ///
 /// Flatmap steps expand each input traverser into zero or more output traversers.
 /// The step struct must:
@@ -162,18 +227,19 @@ macro_rules! impl_filter_step {
 #[macro_export]
 macro_rules! impl_flatmap_step {
     ($step:ty, $name:literal) => {
-        impl $crate::traversal::step::AnyStep for $step {
+        impl $crate::traversal::step::Step for $step {
+            type Iter<'a>
+                = impl Iterator<Item = $crate::traversal::Traverser> + 'a
+            where
+                Self: 'a;
+
             fn apply<'a>(
                 &'a self,
                 ctx: &'a $crate::traversal::ExecutionContext<'a>,
                 input: Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a>,
-            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a> {
+            ) -> Self::Iter<'a> {
                 let step = self.clone();
-                Box::new(input.flat_map(move |t| step.expand(ctx, t)))
-            }
-
-            fn clone_box(&self) -> Box<dyn $crate::traversal::step::AnyStep> {
-                Box::new(self.clone())
+                input.flat_map(move |t| step.expand(ctx, t))
             }
 
             fn name(&self) -> &'static str {
@@ -215,17 +281,18 @@ impl IdentityStep {
     }
 }
 
-impl AnyStep for IdentityStep {
+impl Step for IdentityStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         input // Pass through unchanged
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -299,12 +366,17 @@ impl StartStep {
     }
 }
 
-impl AnyStep for StartStep {
+impl Step for StartStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         _input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let track_paths = ctx.is_tracking_paths();
 
         match &self.source {
@@ -368,10 +440,6 @@ impl AnyStep for StartStep {
         }
     }
 
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
-    }
-
     fn name(&self) -> &'static str {
         "start"
     }
@@ -431,14 +499,14 @@ impl AnyStep for StartStep {
 /// the context and the steps for the duration of its use.
 pub fn execute_traversal<'a>(
     ctx: &'a ExecutionContext<'a>,
-    steps: &'a [Box<dyn AnyStep>],
+    steps: &'a [Box<dyn DynStep>],
     input: Box<dyn Iterator<Item = Traverser> + 'a>,
 ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
     // Fold over steps, building an iterator chain
     // Each step wraps the previous iterator, maintaining lazy evaluation
     steps
         .iter()
-        .fold(input, |current, step| step.apply(ctx, current))
+        .fold(input, |current, step| step.apply_dyn(ctx, current))
 }
 
 /// Execute a traversal on provided input, extracting steps automatically.
@@ -475,6 +543,171 @@ pub fn execute_traversal_from<'a, In, Out>(
     execute_traversal(ctx, traversal.steps(), input)
 }
 
+// =============================================================================
+// LazyExecutor - Streaming traversal executor with O(1) memory per step
+// =============================================================================
+
+/// Lazy traversal executor that streams results without intermediate collection.
+///
+/// `LazyExecutor` builds an iterator chain from traversal steps, enabling true
+/// lazy evaluation where traversers flow through the pipeline one at a time.
+/// This provides O(1) memory overhead per step for non-branching traversals,
+/// compared to O(n) when eagerly collecting between steps.
+///
+/// # Memory Model
+///
+/// - **Non-branching traversals**: O(1) memory overhead per step
+/// - **Branching traversals** (`union`, `choose`, etc.): May buffer internally
+/// - **Barrier steps** (`fold`, `order`, etc.): Collect all input before producing output
+///
+/// # Example
+///
+/// ```ignore
+/// let graph = Graph::new();
+/// let snapshot = graph.snapshot();
+/// let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+///
+/// let steps: Vec<Box<dyn DynStep>> = vec![
+///     Box::new(StartStep::all_vertices()),
+///     Box::new(HasLabelStep::single("person")),
+/// ];
+///
+/// // Create lazy executor - no work done yet
+/// let executor = LazyExecutor::new(&ctx, &steps, Box::new(std::iter::empty()));
+///
+/// // Results stream lazily as we iterate
+/// for traverser in executor {
+///     println!("{:?}", traverser.value);
+/// }
+/// ```
+///
+/// # Design Notes
+///
+/// The executor owns a boxed iterator that represents the entire pipeline.
+/// Each call to `next()` pulls one traverser through all steps, enabling
+/// short-circuit evaluation (e.g., `limit(1)` stops after first match).
+pub struct LazyExecutor<'a> {
+    /// The chained iterator representing the entire traversal pipeline.
+    iter: Box<dyn Iterator<Item = Traverser> + 'a>,
+}
+
+impl<'a> LazyExecutor<'a> {
+    /// Create a new lazy executor from steps and input.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Execution context providing graph access
+    /// * `steps` - The traversal steps to apply
+    /// * `input` - Initial input iterator (often empty for source steps)
+    ///
+    /// # Returns
+    ///
+    /// A `LazyExecutor` that will stream results when iterated.
+    pub fn new(
+        ctx: &'a ExecutionContext<'a>,
+        steps: &'a [Box<dyn DynStep>],
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self {
+        let iter = execute_traversal(ctx, steps, input);
+        Self { iter }
+    }
+
+    /// Create a lazy executor from a traversal source.
+    ///
+    /// This variant handles the traversal's `TraversalSource` to generate
+    /// initial traversers, then applies all steps lazily. The source iterator
+    /// is produced independently and passed to the step chain.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Execution context providing graph access
+    /// * `source` - The traversal source (AllVertices, Vertices, etc.)
+    /// * `steps` - The traversal steps to apply
+    ///
+    /// # Returns
+    ///
+    /// A `LazyExecutor` that will stream results when iterated.
+    pub fn from_source(
+        ctx: &'a ExecutionContext<'a>,
+        source: crate::traversal::TraversalSource,
+        steps: &'a [Box<dyn DynStep>],
+    ) -> Self {
+        // Generate initial traversers from the source
+        let track_paths = ctx.is_tracking_paths();
+        let initial: Box<dyn Iterator<Item = Traverser> + 'a> = match source {
+            crate::traversal::TraversalSource::AllVertices => {
+                Box::new(ctx.storage().all_vertices().map(move |v| {
+                    let mut t = Traverser::from_vertex(v.id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
+            }
+            crate::traversal::TraversalSource::Vertices(ids) => {
+                Box::new(ids.into_iter().filter_map(move |id| {
+                    ctx.storage().get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            crate::traversal::TraversalSource::AllEdges => {
+                Box::new(ctx.storage().all_edges().map(move |e| {
+                    let mut t = Traverser::from_edge(e.id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
+            }
+            crate::traversal::TraversalSource::Edges(ids) => {
+                Box::new(ids.into_iter().filter_map(move |id| {
+                    ctx.storage().get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            crate::traversal::TraversalSource::Inject(values) => {
+                Box::new(values.into_iter().map(move |v| {
+                    let mut t = Traverser::new(v);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                }))
+            }
+        };
+
+        // Chain with the rest of the steps
+        let iter = execute_traversal(ctx, steps, initial);
+        Self { iter }
+    }
+}
+
+impl Iterator for LazyExecutor<'_> {
+    type Item = Traverser;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl std::iter::FusedIterator for LazyExecutor<'_> {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,40 +722,40 @@ mod tests {
         graph
     }
 
-    mod any_step_tests {
+    mod dyn_step_tests {
         use super::*;
 
         #[test]
-        fn any_step_trait_compiles() {
+        fn dyn_step_trait_compiles() {
             // Verify the trait can be used as a trait object
-            let step: Box<dyn AnyStep> = Box::new(IdentityStep);
-            assert_eq!(step.name(), "identity");
+            let step: Box<dyn DynStep> = Box::new(IdentityStep);
+            assert_eq!(step.dyn_name(), "identity");
         }
 
         #[test]
-        fn box_dyn_any_step_is_clonable() {
-            let step: Box<dyn AnyStep> = Box::new(IdentityStep);
+        fn box_dyn_step_is_clonable() {
+            let step: Box<dyn DynStep> = Box::new(IdentityStep);
             let cloned = step.clone();
-            assert_eq!(cloned.name(), "identity");
+            assert_eq!(cloned.dyn_name(), "identity");
         }
 
         #[test]
-        fn any_step_can_be_stored_in_vec() {
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+        fn dyn_step_can_be_stored_in_vec() {
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(IdentityStep),
                 Box::new(IdentityStep),
                 Box::new(IdentityStep),
             ];
             assert_eq!(steps.len(), 3);
             for step in &steps {
-                assert_eq!(step.name(), "identity");
+                assert_eq!(step.dyn_name(), "identity");
             }
         }
 
         #[test]
-        fn vec_of_steps_is_clonable() {
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep), Box::new(IdentityStep)];
-            let cloned: Vec<Box<dyn AnyStep>> = steps.iter().map(|s| s.clone_box()).collect();
+        fn vec_of_dyn_steps_is_clonable() {
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(IdentityStep), Box::new(IdentityStep)];
+            let cloned: Vec<Box<dyn DynStep>> = steps.iter().map(|s| s.clone_box()).collect();
             assert_eq!(cloned.len(), 2);
         }
     }
@@ -605,8 +838,8 @@ mod tests {
         #[test]
         fn identity_step_clone_box() {
             let step = IdentityStep;
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "identity");
+            let cloned: Box<dyn DynStep> = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "identity");
         }
     }
 
@@ -661,14 +894,14 @@ mod tests {
         #[test]
         fn filter_step_macro_clone_box() {
             let step = TestFilterStep { min_value: 10 };
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "testFilter");
+            let cloned: Box<dyn DynStep> = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "testFilter");
         }
 
         #[test]
-        fn filter_step_macro_is_any_step() {
-            let step: Box<dyn AnyStep> = Box::new(TestFilterStep { min_value: 0 });
-            assert_eq!(step.name(), "testFilter");
+        fn filter_step_macro_is_dyn_step() {
+            let step: Box<dyn DynStep> = Box::new(TestFilterStep { min_value: 0 });
+            assert_eq!(step.dyn_name(), "testFilter");
         }
 
         // Test flatmap step using the macro
@@ -743,14 +976,14 @@ mod tests {
         #[test]
         fn flatmap_step_macro_clone_box() {
             let step = TestFlatMapStep { repeat_count: 5 };
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "testFlatMap");
+            let cloned: Box<dyn DynStep> = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "testFlatMap");
         }
 
         #[test]
-        fn flatmap_step_macro_is_any_step() {
-            let step: Box<dyn AnyStep> = Box::new(TestFlatMapStep { repeat_count: 1 });
-            assert_eq!(step.name(), "testFlatMap");
+        fn flatmap_step_macro_is_dyn_step() {
+            let step: Box<dyn DynStep> = Box::new(TestFlatMapStep { repeat_count: 1 });
+            assert_eq!(step.dyn_name(), "testFlatMap");
         }
 
         #[test]
@@ -817,7 +1050,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create a pipeline: identity -> multiply by 2 -> filter even
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(IdentityStep),
                 Box::new(MultiplyStep { factor: 2 }),
                 Box::new(IsEvenStep),
@@ -832,7 +1065,7 @@ mod tests {
             // Apply steps in sequence
             let mut current: Box<dyn Iterator<Item = Traverser>> = Box::new(input.into_iter());
             for step in &steps {
-                current = step.apply(&ctx, current);
+                current = step.apply_dyn(&ctx, current);
             }
 
             let output: Vec<Traverser> = current.collect();
@@ -846,18 +1079,18 @@ mod tests {
 
         #[test]
         fn step_vec_can_be_cloned() {
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(IdentityStep),
                 Box::new(MultiplyStep { factor: 3 }),
                 Box::new(IsEvenStep),
             ];
 
-            let cloned: Vec<Box<dyn AnyStep>> = steps.iter().map(|s| s.clone_box()).collect();
+            let cloned: Vec<Box<dyn DynStep>> = steps.iter().map(|s| s.clone_box()).collect();
 
             assert_eq!(cloned.len(), 3);
-            assert_eq!(cloned[0].name(), "identity");
-            assert_eq!(cloned[1].name(), "multiply");
-            assert_eq!(cloned[2].name(), "isEven");
+            assert_eq!(cloned[0].dyn_name(), "identity");
+            assert_eq!(cloned[1].dyn_name(), "multiply");
+            assert_eq!(cloned[2].dyn_name(), "isEven");
         }
     }
 
@@ -1153,8 +1386,8 @@ mod tests {
         #[test]
         fn start_step_clone_box() {
             let step = StartStep::all_vertices();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "start");
+            let cloned: Box<dyn DynStep> = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "start");
         }
 
         #[test]
@@ -1170,9 +1403,9 @@ mod tests {
         }
 
         #[test]
-        fn start_step_is_any_step() {
-            let step: Box<dyn AnyStep> = Box::new(StartStep::all_vertices());
-            assert_eq!(step.name(), "start");
+        fn start_step_is_dyn_step() {
+            let step: Box<dyn DynStep> = Box::new(StartStep::all_vertices());
+            assert_eq!(step.dyn_name(), "start");
         }
 
         #[test]
@@ -1185,12 +1418,12 @@ mod tests {
 
         #[test]
         fn start_step_can_be_stored_with_other_steps() {
-            let steps: Vec<Box<dyn AnyStep>> =
+            let steps: Vec<Box<dyn DynStep>> =
                 vec![Box::new(StartStep::all_vertices()), Box::new(IdentityStep)];
 
             assert_eq!(steps.len(), 2);
-            assert_eq!(steps[0].name(), "start");
-            assert_eq!(steps[1].name(), "identity");
+            assert_eq!(steps[0].dyn_name(), "start");
+            assert_eq!(steps[1].dyn_name(), "identity");
         }
     }
 
@@ -1233,7 +1466,7 @@ mod tests {
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![];
+            let steps: Vec<Box<dyn DynStep>> = vec![];
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
 
             let output: Vec<Traverser> =
@@ -1251,7 +1484,7 @@ mod tests {
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(IdentityStep::new())];
             let input = vec![
                 Traverser::new(Value::Int(1)),
                 Traverser::new(Value::Int(2)),
@@ -1274,7 +1507,7 @@ mod tests {
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(IdentityStep::new()),
                 Box::new(IdentityStep::new()),
                 Box::new(IdentityStep::new()),
@@ -1295,7 +1528,7 @@ mod tests {
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(IdentityStep::new())];
             let input: Vec<Traverser> = vec![];
 
             let output: Vec<Traverser> =
@@ -1311,7 +1544,7 @@ mod tests {
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(IdentityStep::new())];
 
             let mut traverser = Traverser::from_vertex(VertexId(1));
             traverser.extend_path_labeled("start");
@@ -1335,7 +1568,7 @@ mod tests {
             let snapshot = graph.snapshot();
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(IdentityStep::new())];
             let input = vec![
                 Traverser::new(Value::Int(1)),
                 Traverser::new(Value::Int(2)),
@@ -1440,7 +1673,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Create steps that filter to "person" label
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(HasLabelStep::single("person"))];
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(HasLabelStep::single("person"))];
 
             // Input: vertex IDs 0, 1, 2 (person, person, software)
             let input = vec![
@@ -1466,7 +1699,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Chain: identity -> filter to person
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(IdentityStep::new()),
                 Box::new(HasLabelStep::single("person")),
                 Box::new(IdentityStep::new()),
@@ -1497,8 +1730,8 @@ mod tests {
 
             let steps = anon.steps();
             assert_eq!(steps.len(), 2);
-            assert_eq!(steps[0].name(), "identity");
-            assert_eq!(steps[1].name(), "identity");
+            assert_eq!(steps[0].dyn_name(), "identity");
+            assert_eq!(steps[1].dyn_name(), "identity");
         }
 
         #[test]
@@ -1508,7 +1741,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             // Same steps can be reused multiple times
-            let steps: Vec<Box<dyn AnyStep>> = vec![Box::new(IdentityStep::new())];
+            let steps: Vec<Box<dyn DynStep>> = vec![Box::new(IdentityStep::new())];
 
             let input1 = vec![Traverser::new(Value::Int(1))];
             let output1: Vec<Traverser> =

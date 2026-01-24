@@ -22,7 +22,7 @@
 //! ```
 
 use crate::traversal::context::ExecutionContext;
-use crate::traversal::step::AnyStep;
+use crate::traversal::step::Step;
 use crate::traversal::Traverser;
 use crate::value::Value;
 
@@ -72,12 +72,17 @@ impl Default for OutStep {
     }
 }
 
-impl AnyStep for OutStep {
+impl Step for OutStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Pre-resolve labels once (not per-traverser) for efficiency
         let label_ids: Vec<u32> = if self.labels.is_empty() {
             Vec::new()
@@ -116,10 +121,6 @@ impl AnyStep for OutStep {
                 Some(new_t)
             })) as Box<dyn Iterator<Item = Traverser>>
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
     }
 
     fn name(&self) -> &'static str {
@@ -173,12 +174,17 @@ impl Default for InStep {
     }
 }
 
-impl AnyStep for InStep {
+impl Step for InStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Pre-resolve labels once (not per-traverser) for efficiency
         let label_ids: Vec<u32> = if self.labels.is_empty() {
             Vec::new()
@@ -217,10 +223,6 @@ impl AnyStep for InStep {
                 Some(new_t)
             })) as Box<dyn Iterator<Item = Traverser>>
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
     }
 
     fn name(&self) -> &'static str {
@@ -274,12 +276,17 @@ impl Default for BothStep {
     }
 }
 
-impl AnyStep for BothStep {
+impl Step for BothStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Pre-resolve labels once (not per-traverser) for efficiency
         let label_ids: Vec<u32> = if self.labels.is_empty() {
             Vec::new()
@@ -339,10 +346,6 @@ impl AnyStep for BothStep {
         }))
     }
 
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
-    }
-
     fn name(&self) -> &'static str {
         "both"
     }
@@ -392,12 +395,17 @@ impl Default for OutEStep {
     }
 }
 
-impl AnyStep for OutEStep {
+impl Step for OutEStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Pre-resolve labels once (not per-traverser) for efficiency
         let label_ids: Vec<u32> = if self.labels.is_empty() {
             Vec::new()
@@ -434,10 +442,6 @@ impl AnyStep for OutEStep {
                 Some(new_t)
             })) as Box<dyn Iterator<Item = Traverser>>
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
     }
 
     fn name(&self) -> &'static str {
@@ -489,12 +493,17 @@ impl Default for InEStep {
     }
 }
 
-impl AnyStep for InEStep {
+impl Step for InEStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Pre-resolve labels once (not per-traverser) for efficiency
         let label_ids: Vec<u32> = if self.labels.is_empty() {
             Vec::new()
@@ -531,10 +540,6 @@ impl AnyStep for InEStep {
                 Some(new_t)
             })) as Box<dyn Iterator<Item = Traverser>>
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
     }
 
     fn name(&self) -> &'static str {
@@ -586,12 +591,17 @@ impl Default for BothEStep {
     }
 }
 
-impl AnyStep for BothEStep {
+impl Step for BothEStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Pre-resolve labels once (not per-traverser) for efficiency
         let label_ids: Vec<u32> = if self.labels.is_empty() {
             Vec::new()
@@ -651,10 +661,6 @@ impl AnyStep for BothEStep {
         }))
     }
 
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
-    }
-
     fn name(&self) -> &'static str {
         "bothE"
     }
@@ -696,12 +702,17 @@ impl Default for OutVStep {
     }
 }
 
-impl AnyStep for OutVStep {
+impl Step for OutVStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         Box::new(input.filter_map(move |t| {
             let edge_id = t.as_edge_id()?;
             let edge = ctx.storage().get_edge(edge_id)?;
@@ -711,10 +722,6 @@ impl AnyStep for OutVStep {
             }
             Some(new_t)
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -758,12 +765,17 @@ impl Default for InVStep {
     }
 }
 
-impl AnyStep for InVStep {
+impl Step for InVStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         Box::new(input.filter_map(move |t| {
             let edge_id = t.as_edge_id()?;
             let edge = ctx.storage().get_edge(edge_id)?;
@@ -773,10 +785,6 @@ impl AnyStep for InVStep {
             }
             Some(new_t)
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -820,12 +828,17 @@ impl Default for BothVStep {
     }
 }
 
-impl AnyStep for BothVStep {
+impl Step for BothVStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         Box::new(input.flat_map(move |t| {
             let edge_id = match t.as_edge_id() {
                 Some(id) => id,
@@ -847,10 +860,6 @@ impl AnyStep for BothVStep {
                 None => Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Traverser>>,
             }
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -938,12 +947,17 @@ impl OtherVStep {
     }
 }
 
-impl AnyStep for OtherVStep {
+impl Step for OtherVStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         Box::new(input.filter_map(move |t| {
             self.get_other_vertex(ctx, &t).map(|vid| {
                 let mut new_t = t.with_value(Value::Vertex(vid));
@@ -953,10 +967,6 @@ impl AnyStep for OtherVStep {
                 new_t
             })
         }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -972,6 +982,7 @@ impl AnyStep for OtherVStep {
 mod tests {
     use super::*;
     use crate::storage::Graph;
+    use crate::traversal::step::DynStep;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
 
@@ -1053,8 +1064,8 @@ mod tests {
         #[test]
         fn out_step_clone_box() {
             let step = OutStep::with_labels(vec!["test".to_string()]);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "out");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "out");
         }
 
         #[test]
@@ -1452,8 +1463,8 @@ mod tests {
         #[test]
         fn other_v_step_clone_box() {
             let step = OtherVStep::new();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "otherV");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "otherV");
         }
 
         #[test]

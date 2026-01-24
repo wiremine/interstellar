@@ -184,17 +184,18 @@ impl PropertiesStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for PropertiesStep {
+impl crate::traversal::step::Step for PropertiesStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.flat_map(move |traverser| self.expand(ctx, traverser)))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+    ) -> Self::Iter<'a> {
+        input.flat_map(move |traverser| self.expand(ctx, traverser))
     }
 
     fn name(&self) -> &'static str {
@@ -371,20 +372,21 @@ impl ValueMapStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for ValueMapStep {
+impl crate::traversal::step::Step for ValueMapStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.map(move |t| {
+    ) -> Self::Iter<'a> {
+        input.map(move |t| {
             let result = self.transform(ctx, &t);
             t.with_value(result)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -558,20 +560,21 @@ impl ElementMapStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for ElementMapStep {
+impl crate::traversal::step::Step for ElementMapStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.map(move |t| {
+    ) -> Self::Iter<'a> {
+        input.map(move |t| {
             let result = self.transform(ctx, &t);
             t.with_value(result)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -732,20 +735,21 @@ impl PropertyMapStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for PropertyMapStep {
+impl crate::traversal::step::Step for PropertyMapStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.map(move |t| {
+    ) -> Self::Iter<'a> {
+        input.map(move |t| {
             let result = self.transform(ctx, &t);
             t.with_value(result)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -757,7 +761,7 @@ impl crate::traversal::step::AnyStep for PropertyMapStep {
 mod tests {
     use super::*;
     use crate::storage::Graph;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::{DynStep, Step};
     use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
@@ -1186,8 +1190,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = PropertyMapStep::new();
-            let boxed = step.clone_box();
-            assert_eq!(boxed.name(), "propertyMap");
+            let boxed = DynStep::clone_box(&step);
+            assert_eq!(boxed.dyn_name(), "propertyMap");
         }
     }
 

@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 
 use crate::traversal::context::ExecutionContext;
-use crate::traversal::step::{execute_traversal_from, AnyStep};
+use crate::traversal::step::{execute_traversal_from, Step};
 use crate::traversal::{Traversal, Traverser};
 use crate::value::Value;
 
@@ -177,23 +177,24 @@ impl WhereStep {
     }
 }
 
-impl AnyStep for WhereStep {
+impl Step for WhereStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let sub = self.sub.clone();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             // Execute sub-traversal with current traverser as input
             let sub_input = Box::new(std::iter::once(t.clone()));
             let mut results = execute_traversal_from(ctx, &sub, sub_input);
             results.next().is_some() // Pass if any results
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -224,22 +225,23 @@ impl NotStep {
     }
 }
 
-impl AnyStep for NotStep {
+impl Step for NotStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let sub = self.sub.clone();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             let sub_input = Box::new(std::iter::once(t.clone()));
             let mut results = execute_traversal_from(ctx, &sub, sub_input);
             results.next().is_none() // Pass if NO results
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -270,25 +272,26 @@ impl AndStep {
     }
 }
 
-impl AnyStep for AndStep {
+impl Step for AndStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let subs = self.subs.clone();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             // All sub-traversals must produce at least one result
             subs.iter().all(|sub| {
                 let sub_input = Box::new(std::iter::once(t.clone()));
                 let mut results = execute_traversal_from(ctx, sub, sub_input);
                 results.next().is_some()
             })
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -319,25 +322,26 @@ impl OrStep {
     }
 }
 
-impl AnyStep for OrStep {
+impl Step for OrStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let subs = self.subs.clone();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             // At least one sub-traversal must produce a result
             subs.iter().any(|sub| {
                 let sub_input = Box::new(std::iter::once(t.clone()));
                 let mut results = execute_traversal_from(ctx, sub, sub_input);
                 results.next().is_some()
             })
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -372,15 +376,20 @@ impl UnionStep {
     }
 }
 
-impl AnyStep for UnionStep {
+impl Step for UnionStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let branches = self.branches.clone();
 
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             // For each input traverser, execute all branches and collect results
             let mut results = Vec::new();
             for branch in branches.iter() {
@@ -388,11 +397,7 @@ impl AnyStep for UnionStep {
                 results.extend(execute_traversal_from(ctx, branch, sub_input));
             }
             results.into_iter()
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -423,15 +428,20 @@ impl CoalesceStep {
     }
 }
 
-impl AnyStep for CoalesceStep {
+impl Step for CoalesceStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let branches = self.branches.clone();
 
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             // Try each branch in order
             for branch in branches.iter() {
                 let sub_input = Box::new(std::iter::once(t.clone()));
@@ -443,11 +453,7 @@ impl AnyStep for CoalesceStep {
             }
             // No branch produced results
             Vec::new().into_iter()
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -488,17 +494,22 @@ impl ChooseStep {
     }
 }
 
-impl AnyStep for ChooseStep {
+impl Step for ChooseStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let condition = self.condition.clone();
         let if_true = self.if_true.clone();
         let if_false = self.if_false.clone();
 
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             // Evaluate condition
             let cond_input = Box::new(std::iter::once(t.clone()));
             let mut cond_result = execute_traversal_from(ctx, &condition, cond_input);
@@ -513,11 +524,7 @@ impl AnyStep for ChooseStep {
             execute_traversal_from(ctx, branch, sub_input)
                 .collect::<Vec<_>>()
                 .into_iter()
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -548,15 +555,20 @@ impl OptionalStep {
     }
 }
 
-impl AnyStep for OptionalStep {
+impl Step for OptionalStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let sub = self.sub.clone();
 
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             let sub_input = Box::new(std::iter::once(t.clone()));
             let results: Vec<_> = execute_traversal_from(ctx, &sub, sub_input).collect();
 
@@ -566,11 +578,7 @@ impl AnyStep for OptionalStep {
             } else {
                 results.into_iter()
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -601,25 +609,26 @@ impl LocalStep {
     }
 }
 
-impl AnyStep for LocalStep {
+impl Step for LocalStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let sub = self.sub.clone();
 
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             // Execute sub-traversal for this traverser in isolation
             let sub_input = Box::new(std::iter::once(t));
             execute_traversal_from(ctx, &sub, sub_input)
                 .collect::<Vec<_>>()
                 .into_iter()
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -755,17 +764,22 @@ impl BranchStep {
     }
 }
 
-impl AnyStep for BranchStep {
+impl Step for BranchStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let branch_traversal = self.branch_traversal.clone();
         let options = self.options.clone();
         let none_branch = self.none_branch.clone();
 
-        Box::new(input.flat_map(move |t| {
+        input.flat_map(move |t| {
             // Evaluate branch traversal to get the key
             let branch_input = Box::new(std::iter::once(t.clone()));
             let mut branch_results = execute_traversal_from(ctx, &branch_traversal, branch_input);
@@ -793,11 +807,7 @@ impl AnyStep for BranchStep {
                 }
                 None => Vec::new().into_iter(),
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -808,6 +818,7 @@ impl AnyStep for BranchStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traversal::step::DynStep;
 
     // Basic compilation tests - full integration tests will be in tests/traversal.rs
 
@@ -924,15 +935,15 @@ mod tests {
     fn steps_implement_any_step() {
         let sub = Traversal::<Value, Value>::new();
 
-        let _: Box<dyn AnyStep> = Box::new(WhereStep::new(sub.clone()));
-        let _: Box<dyn AnyStep> = Box::new(NotStep::new(sub.clone()));
-        let _: Box<dyn AnyStep> = Box::new(AndStep::new(vec![sub.clone()]));
-        let _: Box<dyn AnyStep> = Box::new(OrStep::new(vec![sub.clone()]));
-        let _: Box<dyn AnyStep> = Box::new(UnionStep::new(vec![sub.clone()]));
-        let _: Box<dyn AnyStep> = Box::new(CoalesceStep::new(vec![sub.clone()]));
-        let _: Box<dyn AnyStep> = Box::new(ChooseStep::new(sub.clone(), sub.clone(), sub.clone()));
-        let _: Box<dyn AnyStep> = Box::new(OptionalStep::new(sub.clone()));
-        let _: Box<dyn AnyStep> = Box::new(LocalStep::new(sub));
+        let _: Box<dyn DynStep> = Box::new(WhereStep::new(sub.clone()));
+        let _: Box<dyn DynStep> = Box::new(NotStep::new(sub.clone()));
+        let _: Box<dyn DynStep> = Box::new(AndStep::new(vec![sub.clone()]));
+        let _: Box<dyn DynStep> = Box::new(OrStep::new(vec![sub.clone()]));
+        let _: Box<dyn DynStep> = Box::new(UnionStep::new(vec![sub.clone()]));
+        let _: Box<dyn DynStep> = Box::new(CoalesceStep::new(vec![sub.clone()]));
+        let _: Box<dyn DynStep> = Box::new(ChooseStep::new(sub.clone(), sub.clone(), sub.clone()));
+        let _: Box<dyn DynStep> = Box::new(OptionalStep::new(sub.clone()));
+        let _: Box<dyn DynStep> = Box::new(LocalStep::new(sub));
     }
 
     // ==========================================================================
@@ -1165,6 +1176,6 @@ mod tests {
     fn branch_step_implements_any_step() {
         let branch_traversal = Traversal::<Value, Value>::new();
         let step = BranchStep::new(branch_traversal);
-        let _: Box<dyn AnyStep> = Box::new(step);
+        let _: Box<dyn DynStep> = Box::new(step);
     }
 }

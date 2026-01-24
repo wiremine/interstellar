@@ -1,6 +1,6 @@
 # Spec: GAT-Based Step Trait Refactor
 
-**Status:** Draft  
+**Status:** Implemented  
 **Priority:** High (Long-term architectural fix)  
 **Depends on:** Rust 1.65+ (GATs stabilized)  
 **Related:** `perf-improvements/002-eager-collection-lazy-evaluation.md`

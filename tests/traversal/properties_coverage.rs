@@ -498,7 +498,7 @@ mod path_preservation_tests {
 
 mod bulk_preservation_tests {
     use super::*;
-    use interstellar::traversal::step::AnyStep;
+    use interstellar::traversal::step::Step;
     use interstellar::traversal::transform::PropertiesStep;
     use interstellar::traversal::{ExecutionContext, SnapshotLike, Traverser};
 
@@ -530,7 +530,7 @@ mod bulk_preservation_tests {
 // =============================================================================
 
 mod step_name_tests {
-    use interstellar::traversal::step::AnyStep;
+    use interstellar::traversal::step::Step;
     use interstellar::traversal::transform::{
         ElementMapStep, PropertiesStep, PropertyMapStep, ValueMapStep,
     };
@@ -565,7 +565,7 @@ mod step_name_tests {
 // =============================================================================
 
 mod from_keys_tests {
-    use interstellar::traversal::step::AnyStep;
+    use interstellar::traversal::step::Step;
     use interstellar::traversal::transform::PropertiesStep;
 
     #[test]

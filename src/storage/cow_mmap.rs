@@ -75,6 +75,7 @@ use crate::storage::mmap::MmapGraph;
 use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::traversal::markers::{Edge as EdgeMarker, OutputMarker, Scalar, Vertex as VertexMarker};
 use crate::traversal::mutation::{DropStep, PendingMutation, PropertyStep};
+use crate::traversal::step::Step;
 use crate::traversal::{
     ExecutionContext, HasLabelStep, HasStep, HasValueStep, IdStep, InEStep, InStep, InVStep,
     LabelStep, LimitStep, OutEStep, OutStep, OutVStep, SkipStep, Traversal, TraversalSource,
@@ -2560,7 +2561,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
     /// Add a step to the traversal, preserving the marker type.
     pub fn add_step_same<NewOut>(
         self,
-        step: impl crate::traversal::step::AnyStep + 'static,
+        step: impl crate::traversal::step::Step,
     ) -> CowMmapBoundTraversal<'g, In, NewOut, Marker> {
         CowMmapBoundTraversal {
             graph: self.graph,
@@ -2576,7 +2577,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
     /// Alias for `add_step_same` for backward compatibility.
     pub fn add_step<NewOut>(
         self,
-        step: impl crate::traversal::step::AnyStep + 'static,
+        step: impl crate::traversal::step::Step,
     ) -> CowMmapBoundTraversal<'g, In, NewOut, Marker> {
         self.add_step_same(step)
     }
@@ -2584,7 +2585,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
     /// Add a step to the traversal with a new marker type.
     pub fn add_step_with_marker<NewOut, NewMarker: OutputMarker>(
         self,
-        step: impl crate::traversal::step::AnyStep + 'static,
+        step: impl crate::traversal::step::Step,
     ) -> CowMmapBoundTraversal<'g, In, NewOut, NewMarker> {
         CowMmapBoundTraversal {
             graph: self.graph,
@@ -2613,7 +2614,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
     ///
     /// Returns an iterator over the results with mutations applied.
     fn execute_with_mutations(&self) -> Vec<Value> {
-        use crate::traversal::step::{AnyStep, StartStep};
+        use crate::traversal::step::StartStep;
         use crate::traversal::traverser::TraversalSource;
 
         // Clone the traversal so we can decompose it
@@ -2651,7 +2652,9 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
 
             // Apply each step in sequence
             for step in &steps {
-                current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+                current = step
+                    .apply_dyn(&ctx, Box::new(current.into_iter()))
+                    .collect();
             }
 
             current
@@ -2682,7 +2685,9 @@ impl<'g, In, Out, Marker: OutputMarker> CowMmapBoundTraversal<'g, In, Out, Marke
 
             // Apply each step in sequence
             for step in &steps {
-                current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+                current = step
+                    .apply_dyn(&ctx, Box::new(current.into_iter()))
+                    .collect();
             }
 
             current

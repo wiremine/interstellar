@@ -219,8 +219,8 @@ impl RhaiTraversalSource {
 
 /// A cloneable step that can be stored and applied later.
 ///
-/// This is necessary because `Box<dyn AnyStep>` is not Clone, but we need
-/// to rebuild traversals on demand for Rhai.
+/// This is necessary because we need to rebuild traversals on demand for Rhai,
+/// so we store step configurations as an enum rather than `Box<dyn DynStep>`.
 #[derive(Clone, Debug)]
 #[allow(dead_code)] // Some variants are prepared for future features
 enum RhaiStep {

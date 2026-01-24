@@ -67,7 +67,7 @@ use crate::traversal::markers::{Edge, OutputMarker, Scalar, Vertex};
 use crate::traversal::navigation::{
     BothEStep, BothStep, InEStep, InStep, InVStep, OutEStep, OutStep, OutVStep,
 };
-use crate::traversal::step::{AnyStep, StartStep};
+use crate::traversal::step::{StartStep, Step};
 use crate::traversal::transform::{IdStep, LabelStep, ValuesStep};
 use crate::traversal::{ExecutionContext, Traversal, TraversalSource, Traverser};
 use crate::value::Value;
@@ -311,7 +311,7 @@ impl<'g, Marker: OutputMarker> TypedTraversal<'g, Marker> {
     }
 
     /// Add a step to the traversal (internal use).
-    fn add_step(self, step: impl AnyStep + 'static) -> Self {
+    fn add_step(self, step: impl Step) -> Self {
         Self {
             traversal: self.traversal.add_step(step),
             ..self
@@ -340,7 +340,9 @@ impl<'g, Marker: OutputMarker> TypedTraversal<'g, Marker> {
 
         // Apply each step in sequence
         for step in &steps {
-            current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+            current = step
+                .apply_dyn(&ctx, Box::new(current.into_iter()))
+                .collect();
         }
 
         TypedTraversalExecutor {

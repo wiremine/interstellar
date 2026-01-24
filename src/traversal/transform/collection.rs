@@ -82,7 +82,7 @@ impl UnfoldStep {
     }
 }
 
-// Use the macro to implement AnyStep for UnfoldStep
+// Use the macro to implement Step for UnfoldStep
 impl_flatmap_step!(UnfoldStep, "unfold");
 
 // -----------------------------------------------------------------------------
@@ -133,12 +133,17 @@ impl MeanStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for MeanStep {
+impl crate::traversal::step::Step for MeanStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let mut sum = 0.0_f64;
         let mut count = 0_u64;
         let mut last_path = None;
@@ -158,22 +163,19 @@ impl crate::traversal::step::AnyStep for MeanStep {
             }
         }
 
-        if count == 0 {
-            Box::new(std::iter::empty())
+        let result = if count == 0 {
+            None
         } else {
             let mean = sum / count as f64;
-            Box::new(std::iter::once(Traverser {
+            Some(Traverser {
                 value: Value::Float(mean),
                 path: last_path.unwrap_or_default(),
                 loops: 0,
                 sack: None,
                 bulk: 1,
-            }))
-        }
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+            })
+        };
+        result.into_iter()
     }
 
     fn name(&self) -> &'static str {
@@ -185,7 +187,7 @@ impl crate::traversal::step::AnyStep for MeanStep {
 mod tests {
     use super::*;
     use crate::storage::Graph;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::Step;
     use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;

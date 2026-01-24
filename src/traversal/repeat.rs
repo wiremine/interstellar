@@ -40,7 +40,7 @@
 //!     .to_list();
 //! ```
 
-use crate::traversal::step::{execute_traversal_from, AnyStep};
+use crate::traversal::step::{execute_traversal_from, Step};
 use crate::traversal::{ExecutionContext, Traversal, Traverser};
 use crate::value::Value;
 use std::collections::VecDeque;
@@ -379,23 +379,24 @@ impl std::fmt::Debug for RepeatStep {
     }
 }
 
-impl AnyStep for RepeatStep {
+impl Step for RepeatStep {
+    type Iter<'a>
+        = RepeatIterator<'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(RepeatIterator::new(
+    ) -> Self::Iter<'a> {
+        RepeatIterator::new(
             ctx,
             input,
             self.sub.clone(),
             self.config.clone(),
             self.clone(),
-        ))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        )
     }
 
     fn name(&self) -> &'static str {
@@ -428,7 +429,7 @@ impl AnyStep for RepeatStep {
 /// - `emit()`: Emit after each iteration
 /// - `emit_if(condition)`: Emit only when condition is satisfied
 /// - `emit_first()`: Also emit the initial input before first iteration
-struct RepeatIterator<'a> {
+pub struct RepeatIterator<'a> {
     /// Execution context providing graph access
     ctx: &'a ExecutionContext<'a>,
     /// BFS queue of (traverser, loop_count) pairs
@@ -1049,7 +1050,7 @@ mod tests {
     use super::*;
     use crate::storage::Graph;
     use crate::traversal::filter::HasLabelStep;
-    use crate::traversal::step::IdentityStep;
+    use crate::traversal::step::{DynStep, IdentityStep};
     use crate::traversal::SnapshotLike;
     use crate::value::VertexId;
     use std::collections::HashMap;
@@ -1284,12 +1285,12 @@ mod tests {
         }
 
         #[test]
-        fn repeat_step_clone_box_returns_any_step() {
+        fn repeat_step_clone_box_returns_dyn_step() {
             let sub = Traversal::<Value, Value>::new().add_step(IdentityStep::new());
             let step = RepeatStep::new(sub);
-            let boxed = step.clone_box();
+            let boxed = DynStep::clone_box(&step);
 
-            assert_eq!(boxed.name(), "repeat");
+            assert_eq!(boxed.dyn_name(), "repeat");
         }
 
         #[test]
@@ -1313,12 +1314,12 @@ mod tests {
         }
 
         #[test]
-        fn repeat_step_can_be_boxed_as_any_step() {
+        fn repeat_step_can_be_boxed_as_dyn_step() {
             let sub = Traversal::<Value, Value>::new().add_step(IdentityStep::new());
             let step = RepeatStep::new(sub);
-            let boxed: Box<dyn AnyStep> = Box::new(step);
+            let boxed: Box<dyn DynStep> = Box::new(step);
 
-            assert_eq!(boxed.name(), "repeat");
+            assert_eq!(boxed.dyn_name(), "repeat");
         }
 
         #[test]
@@ -1326,14 +1327,14 @@ mod tests {
             let sub1 = Traversal::<Value, Value>::new().add_step(IdentityStep::new());
             let sub2 = Traversal::<Value, Value>::new().add_step(IdentityStep::new());
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(RepeatStep::new(sub1)),
                 Box::new(RepeatStep::new(sub2)),
             ];
 
             assert_eq!(steps.len(), 2);
-            assert_eq!(steps[0].name(), "repeat");
-            assert_eq!(steps[1].name(), "repeat");
+            assert_eq!(steps[0].dyn_name(), "repeat");
+            assert_eq!(steps[1].dyn_name(), "repeat");
         }
 
         #[test]

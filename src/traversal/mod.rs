@@ -156,14 +156,17 @@ pub use sideeffect::{AggregateStep, CapStep, ProfileStep, SideEffectStep, StoreS
 pub use source::{BoundTraversal, BranchBuilder, GraphTraversalSource, TraversalExecutor};
 
 // Re-export step types
-pub use step::{execute_traversal, execute_traversal_from, AnyStep, IdentityStep, StartStep};
+pub use step::{
+    execute_traversal, execute_traversal_from, DynStep, IdentityStep, LazyExecutor, StartStep, Step,
+};
 
 // Re-export transform types
 pub use transform::{
-    AsStep, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep, IdStep, IndexStep,
-    KeyStep, LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder, OrderKey, OrderStep,
-    PathStep, ProjectBuilder, ProjectStep, Projection, PropertiesStep, PropertyMapStep, SelectStep,
-    UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
+    AsStep, BoundMathBuilder, BoundOrderBuilder, BoundProjectBuilder, ConstantStep, ElementMapStep,
+    FlatMapStep, IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, MapStep, MathBuilder, MathStep,
+    MeanStep, Order, OrderBuilder, OrderKey, OrderStep, PathStep, ProjectBuilder, ProjectStep,
+    Projection, PropertiesStep, PropertyMapStep, SelectStep, UnfoldStep, ValueMapStep, ValueStep,
+    ValuesStep,
 };
 
 // Re-export predicate types

@@ -1,3 +1,4 @@
+#![feature(impl_trait_in_assoc_type)]
 //! # Interstellar
 //!
 //! A high-performance Rust graph traversal library with a Gremlin-style fluent API.

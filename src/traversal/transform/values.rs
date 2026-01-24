@@ -139,14 +139,14 @@ impl ValuesStep {
     }
 }
 
-// Use the macro to implement AnyStep for ValuesStep
+// Use the macro to implement Step for ValuesStep (DynStep is provided via blanket impl)
 impl_flatmap_step!(ValuesStep, "values");
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::Graph;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::{DynStep, Step};
     use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
@@ -231,8 +231,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = ValuesStep::new("name");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "values");
+            let cloned: Box<dyn DynStep> = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "values");
         }
 
         #[test]

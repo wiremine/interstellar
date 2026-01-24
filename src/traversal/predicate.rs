@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! The predicate system uses a trait object pattern similar to `AnyStep`:
+//! The predicate system uses a trait object pattern similar to `DynStep`:
 //! - `Predicate` trait defines `test()` and `clone_box()` methods
 //! - `Box<dyn Predicate>` is clonable via the `clone_box()` pattern
 //! - All predicates are `Send + Sync` for thread safety
@@ -42,7 +42,7 @@ use crate::value::Value;
 ///
 /// # Design Note
 ///
-/// Like `AnyStep`, predicates use `clone_box()` for cloning trait objects.
+/// Like `DynStep`, predicates use `clone_box()` for cloning trait objects.
 /// This enables storing predicates as `Box<dyn Predicate>` while supporting
 /// Clone via explicit method rather than the `Clone` trait bound.
 ///

@@ -15,7 +15,7 @@
 use std::collections::VecDeque;
 
 use crate::impl_filter_step;
-use crate::traversal::step::AnyStep;
+use crate::traversal::step::Step;
 use crate::traversal::{ExecutionContext, Traverser};
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -106,7 +106,7 @@ impl HasLabelStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasLabelStep
+// Use the macro to implement Step for HasLabelStep
 impl_filter_step!(HasLabelStep, "hasLabel");
 
 // -----------------------------------------------------------------------------
@@ -165,7 +165,7 @@ impl HasStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasStep
+// Use the macro to implement Step for HasStep
 impl_filter_step!(HasStep, "has");
 
 // -----------------------------------------------------------------------------
@@ -228,7 +228,7 @@ impl HasNotStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasNotStep
+// Use the macro to implement Step for HasNotStep
 impl_filter_step!(HasNotStep, "hasNot");
 
 // -----------------------------------------------------------------------------
@@ -305,7 +305,7 @@ impl HasValueStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasValueStep
+// Use the macro to implement Step for HasValueStep
 impl_filter_step!(HasValueStep, "has");
 
 // -----------------------------------------------------------------------------
@@ -380,21 +380,22 @@ where
     }
 }
 
-impl<F> AnyStep for FilterStep<F>
+impl<F> Step for FilterStep<F>
 where
     F: Fn(&ExecutionContext, &Value) -> bool + Clone + Send + Sync + 'static,
 {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let predicate = self.predicate.clone();
-        Box::new(input.filter(move |t| predicate(ctx, &t.value)))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        input.filter(move |t| predicate(ctx, &t.value))
     }
 
     fn name(&self) -> &'static str {
@@ -444,12 +445,17 @@ impl Default for DedupStep {
     }
 }
 
-impl AnyStep for DedupStep {
+impl Step for DedupStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Use a stateful iterator with HashSet to track seen values
         // The HashSet is created fresh for each apply() call
         //
@@ -457,7 +463,7 @@ impl AnyStep for DedupStep {
         // are already present. First we check if the value exists (no clone),
         // then only clone if it's actually new.
         let mut seen = std::collections::HashSet::new();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             // Check if already seen without cloning - this is the fast path
             // for duplicates which are discarded anyway
             if seen.contains(&t.value) {
@@ -467,11 +473,7 @@ impl AnyStep for DedupStep {
                 seen.insert(t.value.clone());
                 true
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -539,21 +541,22 @@ impl DedupByKeyStep {
     }
 }
 
-impl AnyStep for DedupByKeyStep {
+impl Step for DedupByKeyStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let mut seen = std::collections::HashSet::new();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             let key = self.extract_key(ctx, t);
             seen.insert(key)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -614,21 +617,22 @@ impl Default for DedupByLabelStep {
     }
 }
 
-impl AnyStep for DedupByLabelStep {
+impl Step for DedupByLabelStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let mut seen = std::collections::HashSet::new();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             let label = self.extract_label(ctx, t);
             seen.insert(label)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -699,21 +703,22 @@ impl std::fmt::Debug for DedupByTraversalStep {
     }
 }
 
-impl AnyStep for DedupByTraversalStep {
+impl Step for DedupByTraversalStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let mut seen = std::collections::HashSet::new();
-        Box::new(input.filter(move |t| {
+        input.filter(move |t| {
             let key = self.extract_key(ctx, t);
             seen.insert(key)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -757,17 +762,18 @@ impl LimitStep {
     }
 }
 
-impl AnyStep for LimitStep {
+impl Step for LimitStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.take(self.limit))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
+    ) -> Self::Iter<'a> {
+        input.take(self.limit)
     }
 
     fn name(&self) -> &'static str {
@@ -810,17 +816,18 @@ impl SkipStep {
     }
 }
 
-impl AnyStep for SkipStep {
+impl Step for SkipStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.skip(self.count))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
+    ) -> Self::Iter<'a> {
+        input.skip(self.count)
     }
 
     fn name(&self) -> &'static str {
@@ -872,19 +879,20 @@ impl RangeStep {
     }
 }
 
-impl AnyStep for RangeStep {
+impl Step for RangeStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Calculate how many to take after skipping
         let take_count = self.end.saturating_sub(self.start);
-        Box::new(input.skip(self.start).take(take_count))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
+        input.skip(self.start).take(take_count)
     }
 
     fn name(&self) -> &'static str {
@@ -1015,7 +1023,7 @@ impl HasIdStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasIdStep
+// Use the macro to implement Step for HasIdStep
 impl_filter_step!(HasIdStep, "hasId");
 
 // -----------------------------------------------------------------------------
@@ -1123,7 +1131,7 @@ impl std::fmt::Debug for HasWhereStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasWhereStep
+// Use the macro to implement Step for HasWhereStep
 impl_filter_step!(HasWhereStep, "has");
 
 // -----------------------------------------------------------------------------
@@ -1207,7 +1215,7 @@ impl std::fmt::Debug for IsStep {
     }
 }
 
-// Use the macro to implement AnyStep for IsStep
+// Use the macro to implement Step for IsStep
 impl_filter_step!(IsStep, "is");
 
 // -----------------------------------------------------------------------------
@@ -1269,7 +1277,7 @@ impl Default for SimplePathStep {
     }
 }
 
-// Use the macro to implement AnyStep for SimplePathStep
+// Use the macro to implement Step for SimplePathStep
 impl_filter_step!(SimplePathStep, "simplePath");
 
 // -----------------------------------------------------------------------------
@@ -1331,7 +1339,7 @@ impl Default for CyclicPathStep {
     }
 }
 
-// Use the macro to implement AnyStep for CyclicPathStep
+// Use the macro to implement Step for CyclicPathStep
 impl_filter_step!(CyclicPathStep, "cyclicPath");
 
 // -----------------------------------------------------------------------------
@@ -1408,12 +1416,17 @@ impl Default for TailStep {
     }
 }
 
-impl AnyStep for TailStep {
+impl Step for TailStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Special case: tail(0) returns nothing
         if self.count == 0 {
             return Box::new(std::iter::empty());
@@ -1431,10 +1444,6 @@ impl AnyStep for TailStep {
         }
 
         Box::new(ring_buffer.into_iter())
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -1533,12 +1542,17 @@ impl Default for CoinStep {
     }
 }
 
-impl AnyStep for CoinStep {
+impl Step for CoinStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         use rand::Rng;
 
         let probability = self.probability;
@@ -1553,10 +1567,6 @@ impl AnyStep for CoinStep {
 
         // Use thread-local RNG for each traverser
         Box::new(input.filter(move |_| rand::thread_rng().gen::<f64>() < probability))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -1594,7 +1604,7 @@ impl AnyStep for CoinStep {
 ///
 /// ```ignore
 /// use rust_graph_database::traversal::filter::SampleStep;
-/// use rust_graph_database::traversal::step::AnyStep;
+/// use rust_graph_database::traversal::step::Step;
 ///
 /// // Sample 5 random elements
 /// let step = SampleStep::new(5);
@@ -1637,12 +1647,17 @@ impl Default for SampleStep {
     }
 }
 
-impl AnyStep for SampleStep {
+impl Step for SampleStep {
+    type Iter<'a>
+        = Box<dyn Iterator<Item = Traverser> + 'a>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         use rand::Rng;
 
         let count = self.count;
@@ -1671,10 +1686,6 @@ impl AnyStep for SampleStep {
         }
 
         Box::new(reservoir.into_iter())
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(*self)
     }
 
     fn name(&self) -> &'static str {
@@ -1779,7 +1790,7 @@ impl HasKeyStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasKeyStep
+// Use the macro to implement Step for HasKeyStep
 impl_filter_step!(HasKeyStep, "hasKey");
 
 // HasPropValueStep - filter property maps by value
@@ -1884,7 +1895,7 @@ impl HasPropValueStep {
     }
 }
 
-// Use the macro to implement AnyStep for HasPropValueStep
+// Use the macro to implement Step for HasPropValueStep
 impl_filter_step!(HasPropValueStep, "hasValue");
 
 // WherePStep - filter current value against a predicate
@@ -1970,7 +1981,7 @@ impl std::fmt::Debug for WherePStep {
     }
 }
 
-// Use the macro to implement AnyStep for WherePStep
+// Use the macro to implement Step for WherePStep
 impl_filter_step!(WherePStep, "where");
 
 // -----------------------------------------------------------------------------
@@ -2020,7 +2031,7 @@ mod tests {
 
     mod has_label_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn single_creates_single_label_step() {
@@ -2049,8 +2060,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasLabelStep::single("person");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "hasLabel");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "hasLabel");
         }
 
         #[test]
@@ -2291,7 +2302,7 @@ mod tests {
 
     mod has_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_graph_with_properties() -> Graph {
             let graph = Graph::new();
@@ -2352,8 +2363,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasStep::new("age");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "has");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "has");
         }
 
         #[test]
@@ -2524,7 +2535,7 @@ mod tests {
 
     mod has_not_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_graph_with_properties() -> Graph {
             let graph = Graph::new();
@@ -2585,8 +2596,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasNotStep::new("email");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "hasNot");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "hasNot");
         }
 
         #[test]
@@ -2860,7 +2871,7 @@ mod tests {
 
     mod has_value_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_graph_with_properties() -> Graph {
             let graph = Graph::new();
@@ -2934,8 +2945,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasValueStep::new("age", 30i64);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "has");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "has");
         }
 
         #[test]
@@ -3140,7 +3151,7 @@ mod tests {
 
     mod filter_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_test_graph() -> Graph {
             let graph = Graph::new();
@@ -3177,8 +3188,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = FilterStep::new(|_ctx, _v| true);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "filter");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "filter");
         }
 
         #[test]
@@ -3367,7 +3378,7 @@ mod tests {
 
     mod dedup_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_dedup_step() {
@@ -3390,8 +3401,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = DedupStep::new();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "dedup");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "dedup");
         }
 
         #[test]
@@ -3790,7 +3801,7 @@ mod tests {
 
     mod dedup_by_key_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_test_graph_with_ages() -> Graph {
             let graph = Graph::new();
@@ -3839,8 +3850,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = DedupByKeyStep::new("age");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "dedup");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "dedup");
         }
 
         #[test]
@@ -3994,7 +4005,7 @@ mod tests {
 
     mod dedup_by_label_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_dedup_by_label_step() {
@@ -4011,8 +4022,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = DedupByLabelStep::new();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "dedup");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "dedup");
         }
 
         #[test]
@@ -4137,7 +4148,7 @@ mod tests {
 
     mod dedup_by_traversal_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
         use crate::traversal::Traversal;
 
         #[test]
@@ -4151,8 +4162,8 @@ mod tests {
         fn clone_box_works() {
             let sub = Traversal::<Value, Value>::new();
             let step = DedupByTraversalStep::new(sub);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "dedup");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "dedup");
         }
 
         #[test]
@@ -4280,7 +4291,7 @@ mod tests {
 
     mod limit_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_limit_step() {
@@ -4297,8 +4308,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = LimitStep::new(5);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "limit");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "limit");
         }
 
         #[test]
@@ -4458,7 +4469,7 @@ mod tests {
 
     mod skip_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_skip_step() {
@@ -4475,8 +4486,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = SkipStep::new(3);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "skip");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "skip");
         }
 
         #[test]
@@ -4662,7 +4673,7 @@ mod tests {
 
     mod tail_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_tail_step() {
@@ -4691,8 +4702,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = TailStep::new(3);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "tail");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "tail");
         }
 
         #[test]
@@ -4928,7 +4939,7 @@ mod tests {
 
     mod coin_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_coin_step() {
@@ -4975,8 +4986,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = CoinStep::new(0.5);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "coin");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "coin");
         }
 
         #[test]
@@ -5223,7 +5234,7 @@ mod tests {
 
     mod sample_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
         use std::collections::HashSet;
 
         #[test]
@@ -5247,8 +5258,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = SampleStep::new(5);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "sample");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "sample");
         }
 
         #[test]
@@ -5533,7 +5544,7 @@ mod tests {
 
     mod has_key_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_property_map(key: &str, value: Value) -> Value {
             let mut map = HashMap::new();
@@ -5563,8 +5574,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasKeyStep::new("name");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "hasKey");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "hasKey");
         }
 
         #[test]
@@ -5721,7 +5732,7 @@ mod tests {
 
     mod has_prop_value_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_property_map(key: &str, value: Value) -> Value {
             let mut map = HashMap::new();
@@ -5751,8 +5762,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasPropValueStep::new("Alice");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "hasValue");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "hasValue");
         }
 
         #[test]
@@ -5943,7 +5954,7 @@ mod tests {
 
     mod range_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_range_step() {
@@ -5961,8 +5972,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = RangeStep::new(2, 5);
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "range");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "range");
         }
 
         #[test]
@@ -6234,7 +6245,7 @@ mod tests {
 
     mod has_id_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn vertex_creates_single_vertex_id_step() {
@@ -6292,8 +6303,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasIdStep::vertex(VertexId(1));
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "hasId");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "hasId");
         }
 
         #[test]
@@ -6564,7 +6575,7 @@ mod tests {
     mod has_where_step_tests {
         use super::*;
         use crate::traversal::predicate::p;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_graph_with_ages() -> Graph {
             let graph = Graph::new();
@@ -6644,8 +6655,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = HasWhereStep::new("age", p::gte(18));
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "has");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "has");
         }
 
         #[test]
@@ -7053,7 +7064,7 @@ mod tests {
     mod is_step_tests {
         use super::*;
         use crate::traversal::predicate::p;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::Step;
 
         // Helper to create traversers with Value directly
         fn create_value_traverser(value: Value) -> Traverser {
@@ -7628,7 +7639,7 @@ mod tests {
 
     mod simple_path_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_empty_graph() -> Graph {
             Graph::in_memory()
@@ -7669,8 +7680,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = SimplePathStep::new();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "simplePath");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "simplePath");
         }
 
         #[test]
@@ -7873,7 +7884,7 @@ mod tests {
 
     mod cyclic_path_step_tests {
         use super::*;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         fn create_empty_graph() -> Graph {
             Graph::in_memory()
@@ -7912,8 +7923,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = CyclicPathStep::new();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "cyclicPath");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "cyclicPath");
         }
 
         #[test]
@@ -8111,7 +8122,7 @@ mod tests {
     mod where_p_step_tests {
         use super::*;
         use crate::traversal::predicate::p;
-        use crate::traversal::step::AnyStep;
+        use crate::traversal::step::DynStep;
 
         #[test]
         fn new_creates_where_p_step() {
@@ -8122,8 +8133,8 @@ mod tests {
         #[test]
         fn clone_box_works() {
             let step = WherePStep::new(p::gt(25));
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "where");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "where");
         }
 
         #[test]

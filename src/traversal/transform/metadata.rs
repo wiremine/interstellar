@@ -36,13 +36,18 @@ impl IdStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for IdStep {
+impl crate::traversal::step::Step for IdStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.filter_map(|traverser| {
+    ) -> Self::Iter<'a> {
+        input.filter_map(|traverser| {
             match &traverser.value {
                 Value::Vertex(id) => {
                     // Return the vertex ID as an integer
@@ -64,11 +69,7 @@ impl crate::traversal::step::AnyStep for IdStep {
                 // Non-element values are filtered out
                 _ => None,
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -111,13 +112,18 @@ impl LabelStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for LabelStep {
+impl crate::traversal::step::Step for LabelStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.filter_map(move |traverser| {
+    ) -> Self::Iter<'a> {
+        input.filter_map(move |traverser| {
             match &traverser.value {
                 Value::Vertex(id) => {
                     // Get the vertex and its label (already resolved by storage)
@@ -132,11 +138,7 @@ impl crate::traversal::step::AnyStep for LabelStep {
                 // Non-element values are filtered out
                 _ => None,
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -179,13 +181,18 @@ impl KeyStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for KeyStep {
+impl crate::traversal::step::Step for KeyStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.filter_map(|traverser| {
+    ) -> Self::Iter<'a> {
+        input.filter_map(|traverser| {
             match &traverser.value {
                 Value::Map(map) => {
                     // Extract the "key" field from property objects
@@ -194,11 +201,7 @@ impl crate::traversal::step::AnyStep for KeyStep {
                 // Non-map values are filtered out
                 _ => None,
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -241,13 +244,18 @@ impl ValueStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for ValueStep {
+impl crate::traversal::step::Step for ValueStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.filter_map(|traverser| {
+    ) -> Self::Iter<'a> {
+        input.filter_map(|traverser| {
             match &traverser.value {
                 Value::Map(map) => {
                     // Extract the "value" field from property objects
@@ -256,11 +264,7 @@ impl crate::traversal::step::AnyStep for ValueStep {
                 // Non-map values are filtered out
                 _ => None,
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -318,21 +322,22 @@ impl LoopsStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for LoopsStep {
+impl crate::traversal::step::Step for LoopsStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.map(|traverser| {
+    ) -> Self::Iter<'a> {
+        input.map(|traverser| {
             // Extract the loops count and convert to Value::Int
             let loops = traverser.loops as i64;
             traverser.split(Value::Int(loops))
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -392,26 +397,27 @@ impl IndexStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for IndexStep {
+impl crate::traversal::step::Step for IndexStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let counter = Cell::new(0usize);
 
-        Box::new(input.map(move |traverser| {
+        input.map(move |traverser| {
             let idx = counter.get();
             counter.set(idx + 1);
 
             // Wrap the value in a [value, index] list
             let indexed = Value::List(vec![traverser.value.clone(), Value::Int(idx as i64)]);
             traverser.split(indexed)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(Self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -423,7 +429,7 @@ impl crate::traversal::step::AnyStep for IndexStep {
 mod tests {
     use super::*;
     use crate::storage::Graph;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::Step;
     use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;
@@ -493,9 +499,9 @@ mod tests {
         }
 
         #[test]
-        fn clone_box_works() {
+        fn clone_works() {
             let step = IdStep::new();
-            let cloned = step.clone_box();
+            let cloned = step.clone();
             assert_eq!(cloned.name(), "id");
         }
 
@@ -988,9 +994,9 @@ mod tests {
         }
 
         #[test]
-        fn clone_box_works() {
+        fn clone_works() {
             let step = LabelStep::new();
-            let cloned = step.clone_box();
+            let cloned = step.clone();
             assert_eq!(cloned.name(), "label");
         }
 
@@ -1340,9 +1346,9 @@ mod tests {
         }
 
         #[test]
-        fn clone_box_works() {
+        fn clone_works() {
             let step = KeyStep::new();
-            let cloned = step.clone_box();
+            let cloned = step.clone();
             assert_eq!(cloned.name(), "key");
         }
 
@@ -1649,9 +1655,9 @@ mod tests {
         }
 
         #[test]
-        fn clone_box_works() {
+        fn clone_works() {
             let step = ValueStep::new();
-            let cloned = step.clone_box();
+            let cloned = step.clone();
             assert_eq!(cloned.name(), "value");
         }
 
@@ -2022,9 +2028,9 @@ mod tests {
         }
 
         #[test]
-        fn clone_box_works() {
+        fn clone_works() {
             let step = LoopsStep::new();
-            let cloned = step.clone_box();
+            let cloned = step.clone();
             assert_eq!(cloned.name(), "loops");
         }
 
@@ -2373,9 +2379,9 @@ mod tests {
         }
 
         #[test]
-        fn clone_box_works() {
+        fn clone_works() {
             let step = IndexStep::new();
-            let cloned = step.clone_box();
+            let cloned = step.clone();
             assert_eq!(cloned.name(), "index");
         }
 

@@ -33,7 +33,7 @@ use crate::storage::cow::Graph;
 use crate::storage::interner::StringInterner;
 use crate::storage::GraphStorage;
 use crate::traversal::context::SnapshotLike;
-use crate::traversal::step::{AnyStep, StartStep};
+use crate::traversal::step::{execute_traversal, DynStep, Step};
 use crate::traversal::{ExecutionContext, Traversal, TraversalSource, Traverser};
 use crate::value::{EdgeId, Value, VertexId};
 
@@ -477,7 +477,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// ```ignore
     /// let traversal = g.v().add_step(MyCustomStep::new());
     /// ```
-    pub fn add_step<NewOut>(self, step: impl AnyStep + 'static) -> BoundTraversal<'g, In, NewOut> {
+    pub fn add_step<NewOut>(self, step: impl Step + 'static) -> BoundTraversal<'g, In, NewOut> {
         BoundTraversal {
             storage: self.storage,
             interner: self.interner,
@@ -2847,6 +2847,10 @@ pub struct TraversalExecutor<'g> {
 
 impl<'g> TraversalExecutor<'g> {
     /// Create a new executor and execute the traversal.
+    ///
+    /// Uses lazy evaluation through the pipeline - each step wraps the previous
+    /// iterator without intermediate collection. Only the final result is collected.
+    /// This provides O(1) memory overhead per step for non-branching traversals.
     fn new<In, Out>(
         storage: &'g dyn GraphStorage,
         interner: &'g StringInterner,
@@ -2860,24 +2864,62 @@ impl<'g> TraversalExecutor<'g> {
         };
         let (source, steps) = traversal.into_steps();
 
-        // Start with source traversers - collect immediately to avoid lifetime issues
-        let mut current: Vec<Traverser> = match source {
-            Some(src) => {
-                let start_step = StartStep::new(src);
-                start_step
-                    .apply(&ctx, Box::new(std::iter::empty()))
-                    .collect()
+        // Build a lazy iterator from the source
+        // We capture `storage` directly (not `ctx`) to avoid move issues with closures
+        let start: Box<dyn Iterator<Item = Traverser> + '_> = match source {
+            Some(TraversalSource::AllVertices) => Box::new(storage.all_vertices().map(move |v| {
+                let mut t = Traverser::from_vertex(v.id);
+                if track_paths {
+                    t.extend_path_unlabeled();
+                }
+                t
+            })),
+            Some(TraversalSource::Vertices(ids)) => {
+                Box::new(ids.into_iter().filter_map(move |id| {
+                    storage.get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
             }
-            None => Vec::new(),
+            Some(TraversalSource::AllEdges) => Box::new(storage.all_edges().map(move |e| {
+                let mut t = Traverser::from_edge(e.id);
+                if track_paths {
+                    t.extend_path_unlabeled();
+                }
+                t
+            })),
+            Some(TraversalSource::Edges(ids)) => Box::new(ids.into_iter().filter_map(move |id| {
+                storage.get_edge(id).map(|_| {
+                    let mut t = Traverser::from_edge(id);
+                    if track_paths {
+                        t.extend_path_unlabeled();
+                    }
+                    t
+                })
+            })),
+            Some(TraversalSource::Inject(values)) => Box::new(values.into_iter().map(move |v| {
+                let mut t = Traverser::new(v);
+                if track_paths {
+                    t.extend_path_unlabeled();
+                }
+                t
+            })),
+            None => Box::new(std::iter::empty()),
         };
 
-        // Apply each step in sequence, collecting after each to avoid lifetime issues
-        for step in &steps {
-            current = step.apply(&ctx, Box::new(current.into_iter())).collect();
-        }
+        // Build lazy iterator chain through all steps - no intermediate collection!
+        // Each step wraps the previous iterator, maintaining O(1) memory per step.
+        let lazy_iter = execute_traversal(&ctx, &steps, start);
+
+        // Collect final results only at the end
+        let results: Vec<Traverser> = lazy_iter.collect();
 
         Self {
-            results: current.into_iter(),
+            results: results.into_iter(),
             _phantom: PhantomData,
         }
     }
@@ -3535,7 +3577,7 @@ pub struct BranchBuilder<'g, In> {
     storage: &'g dyn GraphStorage,
     interner: &'g StringInterner,
     source: Option<TraversalSource>,
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     branch_traversal: Traversal<Value, Value>,
     options: std::collections::HashMap<
         crate::traversal::branch::OptionKeyWrapper,
@@ -3552,7 +3594,7 @@ impl<'g, In> BranchBuilder<'g, In> {
         storage: &'g dyn GraphStorage,
         interner: &'g StringInterner,
         source: Option<TraversalSource>,
-        steps: Vec<Box<dyn AnyStep>>,
+        steps: Vec<Box<dyn DynStep>>,
         branch_traversal: Traversal<Value, Value>,
         track_paths: bool,
     ) -> Self {

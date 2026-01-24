@@ -1,7 +1,7 @@
 use std::cmp::Ordering as CmpOrdering;
 use std::marker::PhantomData;
 
-use crate::traversal::step::{execute_traversal_from, AnyStep};
+use crate::traversal::step::{execute_traversal_from, DynStep, Step};
 use crate::traversal::{ExecutionContext, Traversal, Traverser};
 use crate::value::Value;
 
@@ -214,23 +214,24 @@ impl Default for OrderStep {
     }
 }
 
-impl AnyStep for OrderStep {
+impl Step for OrderStep {
+    type Iter<'a>
+        = std::vec::IntoIter<Traverser>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Collect all input (barrier)
         let mut traversers: Vec<_> = input.collect();
 
         // Sort
         traversers.sort_by(|a, b| self.compare(ctx, a, b));
 
-        Box::new(traversers.into_iter())
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        traversers.into_iter()
     }
 
     fn name(&self) -> &'static str {
@@ -258,14 +259,14 @@ impl AnyStep for OrderStep {
 ///     .to_list();
 /// ```
 pub struct OrderBuilder<In> {
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     order_keys: Vec<OrderKey>,
     _phantom: PhantomData<In>,
 }
 
 impl<In> OrderBuilder<In> {
     /// Create a new OrderBuilder with existing steps.
-    pub(crate) fn new(steps: Vec<Box<dyn AnyStep>>) -> Self {
+    pub(crate) fn new(steps: Vec<Box<dyn DynStep>>) -> Self {
         Self {
             steps,
             order_keys: vec![],
@@ -348,7 +349,7 @@ pub struct BoundOrderBuilder<'g, In> {
     storage: &'g dyn crate::storage::GraphStorage,
     interner: &'g crate::storage::interner::StringInterner,
     source: Option<crate::traversal::TraversalSource>,
-    steps: Vec<Box<dyn AnyStep>>,
+    steps: Vec<Box<dyn DynStep>>,
     order_keys: Vec<OrderKey>,
     track_paths: bool,
     _phantom: PhantomData<In>,
@@ -360,7 +361,7 @@ impl<'g, In> BoundOrderBuilder<'g, In> {
         storage: &'g dyn crate::storage::GraphStorage,
         interner: &'g crate::storage::interner::StringInterner,
         source: Option<crate::traversal::TraversalSource>,
-        steps: Vec<Box<dyn AnyStep>>,
+        steps: Vec<Box<dyn DynStep>>,
         track_paths: bool,
     ) -> Self {
         Self {

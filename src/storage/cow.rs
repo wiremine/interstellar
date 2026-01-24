@@ -88,6 +88,7 @@ use crate::storage::interner::StringInterner;
 use crate::storage::{Edge, GraphStorage, Vertex};
 use crate::traversal::markers::{Edge as EdgeMarker, OutputMarker, Scalar, Vertex as VertexMarker};
 use crate::traversal::mutation::{DropStep, PendingMutation, PropertyStep};
+use crate::traversal::step::Step;
 use crate::traversal::{
     ExecutionContext, HasLabelStep, HasStep, HasValueStep, IdStep, InEStep, InStep, InVStep,
     LabelStep, LimitStep, OutEStep, OutStep, OutVStep, SkipStep, Traversal, TraversalSource,
@@ -1911,7 +1912,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
     /// Add a step to the traversal, preserving the marker type.
     pub fn add_step_same<NewOut>(
         self,
-        step: impl crate::traversal::step::AnyStep + 'static,
+        step: impl crate::traversal::step::Step,
     ) -> CowBoundTraversal<'g, In, NewOut, Marker> {
         CowBoundTraversal {
             graph: self.graph,
@@ -1927,7 +1928,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
     /// Alias for `add_step_same` for backward compatibility.
     pub fn add_step<NewOut>(
         self,
-        step: impl crate::traversal::step::AnyStep + 'static,
+        step: impl crate::traversal::step::Step,
     ) -> CowBoundTraversal<'g, In, NewOut, Marker> {
         self.add_step_same(step)
     }
@@ -1935,7 +1936,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
     /// Add a step to the traversal with a new marker type.
     pub fn add_step_with_marker<NewOut, NewMarker: OutputMarker>(
         self,
-        step: impl crate::traversal::step::AnyStep + 'static,
+        step: impl crate::traversal::step::Step,
     ) -> CowBoundTraversal<'g, In, NewOut, NewMarker> {
         CowBoundTraversal {
             graph: self.graph,
@@ -1961,7 +1962,7 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
     ///
     /// Returns a vector of raw Values with mutations applied.
     fn execute_with_mutations(self) -> Vec<Value> {
-        use crate::traversal::step::{AnyStep, StartStep};
+        use crate::traversal::step::StartStep;
         use crate::traversal::traverser::TraversalSource;
 
         // For mutation-only traversals (add_v, add_e, property, drop),
@@ -2003,7 +2004,9 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
 
             // Apply each step in sequence
             for step in &steps {
-                current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+                current = step
+                    .apply_dyn(&ctx, Box::new(current.into_iter()))
+                    .collect();
             }
 
             current
@@ -2034,7 +2037,9 @@ impl<'g, In, Out, Marker: OutputMarker> CowBoundTraversal<'g, In, Out, Marker> {
 
             // Apply each step in sequence
             for step in &steps {
-                current = step.apply(&ctx, Box::new(current.into_iter())).collect();
+                current = step
+                    .apply_dyn(&ctx, Box::new(current.into_iter()))
+                    .collect();
             }
 
             current

@@ -10,7 +10,7 @@ use interstellar::traversal::mutation::{
     AddEStep, AddVStep, DropStep, EdgeEndpoint, MutationExecutor, MutationResult, PendingMutation,
     PropertyStep,
 };
-use interstellar::traversal::step::AnyStep;
+use interstellar::traversal::step::{DynStep, Step};
 use interstellar::traversal::Traverser;
 use interstellar::value::{EdgeId, Value, VertexId};
 
@@ -56,8 +56,8 @@ fn create_test_graph() -> InMemoryGraph {
 #[test]
 fn add_v_step_clone_box() {
     let step = AddVStep::new("person");
-    let cloned = step.clone_box();
-    assert_eq!(cloned.name(), "addV");
+    let cloned = DynStep::clone_box(&step);
+    assert_eq!(cloned.dyn_name(), "addV");
 }
 
 #[test]
@@ -86,8 +86,8 @@ fn add_v_step_accessors() {
 #[test]
 fn property_step_clone_box() {
     let step = PropertyStep::new("name", "Alice");
-    let cloned = step.clone_box();
-    assert_eq!(cloned.name(), "property");
+    let cloned = DynStep::clone_box(&step);
+    assert_eq!(cloned.dyn_name(), "property");
 }
 
 #[test]
@@ -104,15 +104,15 @@ fn property_step_accessors() {
 #[test]
 fn drop_step_clone_box() {
     let step = DropStep::new();
-    let cloned = step.clone_box();
-    assert_eq!(cloned.name(), "drop");
+    let cloned = DynStep::clone_box(&step);
+    assert_eq!(cloned.dyn_name(), "drop");
 }
 
 #[test]
 fn drop_step_default() {
     // Test Default trait
     let step = DropStep::default();
-    assert_eq!(step.name(), "drop");
+    assert_eq!(Step::name(&step), "drop");
 }
 
 // =============================================================================
@@ -122,8 +122,8 @@ fn drop_step_default() {
 #[test]
 fn add_e_step_clone_box() {
     let step = AddEStep::new("knows");
-    let cloned = step.clone_box();
-    assert_eq!(cloned.name(), "addE");
+    let cloned = DynStep::clone_box(&step);
+    assert_eq!(cloned.dyn_name(), "addE");
 }
 
 #[test]

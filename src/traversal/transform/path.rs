@@ -41,20 +41,21 @@ impl PathStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for PathStep {
+impl crate::traversal::step::Step for PathStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
-        Box::new(input.map(|t| {
+    ) -> Self::Iter<'a> {
+        input.map(|t| {
             let path_values = t.path.to_list();
             t.with_value(path_values)
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(*self)
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -118,22 +119,23 @@ impl AsStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for AsStep {
+impl crate::traversal::step::Step for AsStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let label = self.label.clone();
-        Box::new(input.map(move |mut t| {
+        input.map(move |mut t| {
             // Label the current path position (don't add duplicate entry)
             t.label_path_position(&label);
             t
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -216,14 +218,19 @@ impl SelectStep {
     }
 }
 
-impl crate::traversal::step::AnyStep for SelectStep {
+impl crate::traversal::step::Step for SelectStep {
+    type Iter<'a>
+        = impl Iterator<Item = crate::traversal::Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         _ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let labels = self.labels.clone();
-        Box::new(input.filter_map(move |t| {
+        input.filter_map(move |t| {
             if labels.len() == 1 {
                 // Single label: return value directly (get last value for label)
                 let val = t
@@ -263,11 +270,7 @@ impl crate::traversal::step::AnyStep for SelectStep {
                     None
                 }
             }
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::traversal::step::AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -279,7 +282,7 @@ impl crate::traversal::step::AnyStep for SelectStep {
 mod tests {
     use super::*;
     use crate::storage::Graph;
-    use crate::traversal::step::AnyStep;
+    use crate::traversal::step::Step;
     use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
     use std::collections::HashMap;

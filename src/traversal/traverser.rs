@@ -378,7 +378,7 @@ impl Path {
 ///
 /// Unlike a monomorphic design, we use a single concrete type with `Value`
 /// to enable type erasure in steps. This allows heterogeneous steps to be
-/// stored in a `Vec<Box<dyn AnyStep>>`.
+/// stored in a `Vec<Box<dyn DynStep>>`.
 ///
 /// # Metadata
 ///

@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::traversal::context::ExecutionContext;
-use crate::traversal::step::{execute_traversal_from, AnyStep};
+use crate::traversal::step::{execute_traversal_from, Step};
 use crate::traversal::{Traversal, Traverser};
 use crate::value::Value;
 
@@ -101,22 +101,23 @@ impl StoreStep {
     }
 }
 
-impl AnyStep for StoreStep {
+impl Step for StoreStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let key = self.key.clone();
 
-        Box::new(input.inspect(move |t| {
+        input.inspect(move |t| {
             // Store the value in the side effects collection
             ctx.side_effects.store(&key, t.value.clone());
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -194,12 +195,17 @@ impl AggregateStep {
     }
 }
 
-impl AnyStep for AggregateStep {
+impl Step for AggregateStep {
+    type Iter<'a>
+        = std::vec::IntoIter<Traverser>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Barrier: collect all traversers first
         let traversers: Vec<Traverser> = input.collect();
 
@@ -209,11 +215,7 @@ impl AnyStep for AggregateStep {
         }
 
         // Re-emit all traversers
-        Box::new(traversers.into_iter())
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        traversers.into_iter()
     }
 
     fn name(&self) -> &'static str {
@@ -311,12 +313,17 @@ impl CapStep {
     }
 }
 
-impl AnyStep for CapStep {
+impl Step for CapStep {
+    type Iter<'a>
+        = std::iter::Once<Traverser>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         // Consume input to ensure all side effects populated
         input.for_each(drop);
 
@@ -334,11 +341,7 @@ impl AnyStep for CapStep {
             Value::Map(map)
         };
 
-        Box::new(std::iter::once(Traverser::new(result)))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        std::iter::once(Traverser::new(result))
     }
 
     fn name(&self) -> &'static str {
@@ -412,23 +415,24 @@ impl std::fmt::Debug for SideEffectStep {
     }
 }
 
-impl AnyStep for SideEffectStep {
+impl Step for SideEffectStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let side_traversal = self.side_traversal.clone();
 
-        Box::new(input.inspect(move |t| {
+        input.inspect(move |t| {
             // Execute side-effect traversal (discard results)
             let side_input = Box::new(std::iter::once(t.clone()));
             execute_traversal_from(ctx, &side_traversal, side_input).for_each(drop);
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -509,26 +513,27 @@ impl ProfileStep {
     }
 }
 
-impl AnyStep for ProfileStep {
+impl Step for ProfileStep {
+    type Iter<'a>
+        = ProfileIterator<'a, Box<dyn Iterator<Item = Traverser> + 'a>>
+    where
+        Self: 'a;
+
     fn apply<'a>(
         &'a self,
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
-    ) -> Box<dyn Iterator<Item = Traverser> + 'a> {
+    ) -> Self::Iter<'a> {
         let key = self.key.clone().unwrap_or_else(|| "profile".to_string());
 
-        Box::new(ProfileIterator {
+        ProfileIterator {
             inner: input,
             ctx,
             key,
             count: Cell::new(0),
             start: Instant::now(),
             finished: Cell::new(false),
-        })
-    }
-
-    fn clone_box(&self) -> Box<dyn AnyStep> {
-        Box::new(self.clone())
+        }
     }
 
     fn name(&self) -> &'static str {
@@ -537,7 +542,7 @@ impl AnyStep for ProfileStep {
 }
 
 /// Iterator wrapper that collects profiling information.
-struct ProfileIterator<'a, I> {
+pub struct ProfileIterator<'a, I> {
     inner: I,
     ctx: &'a ExecutionContext<'a>,
     key: String,
@@ -610,6 +615,7 @@ mod tests {
 
     mod store_step_tests {
         use super::*;
+        use crate::traversal::DynStep;
 
         #[test]
         fn store_step_new_creates_step_with_key() {
@@ -626,7 +632,7 @@ mod tests {
         #[test]
         fn store_step_name_is_store() {
             let step = StoreStep::new("x");
-            assert_eq!(step.name(), "store");
+            assert_eq!(Step::name(&step), "store");
         }
 
         #[test]
@@ -639,8 +645,8 @@ mod tests {
         #[test]
         fn store_step_clone_box() {
             let step = StoreStep::new("test");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "store");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "store");
         }
 
         #[test]
@@ -666,7 +672,8 @@ mod tests {
             ];
 
             // Apply the step and consume the iterator
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             // Check values were stored
             let stored = ctx.side_effects.get("collected").unwrap();
@@ -694,7 +701,8 @@ mod tests {
             t.bulk = 10;
 
             let input = vec![t];
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].value, Value::Vertex(VertexId(42)));
@@ -712,7 +720,8 @@ mod tests {
             let step = StoreStep::new("empty");
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
             // Key should not exist (nothing was stored)
@@ -733,7 +742,8 @@ mod tests {
                 Traverser::new(Value::String("third".to_string())),
             ];
 
-            let _output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let _output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             let stored = ctx.side_effects.get("items").unwrap();
             assert_eq!(stored.len(), 3);
@@ -760,7 +770,8 @@ mod tests {
                 Traverser::new(Value::Null),
             ];
 
-            let _output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let _output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             let stored = ctx.side_effects.get("mixed").unwrap();
             assert_eq!(stored.len(), 6);
@@ -781,12 +792,12 @@ mod tests {
             // First store
             let step1 = StoreStep::new("data");
             let input1 = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
-            let _: Vec<_> = step1.apply(&ctx, Box::new(input1.into_iter())).collect();
+            let _: Vec<_> = Step::apply(&step1, &ctx, Box::new(input1.into_iter())).collect();
 
             // Second store (same key)
             let step2 = StoreStep::new("data");
             let input2 = vec![Traverser::new(Value::Int(3)), Traverser::new(Value::Int(4))];
-            let _: Vec<_> = step2.apply(&ctx, Box::new(input2.into_iter())).collect();
+            let _: Vec<_> = Step::apply(&step2, &ctx, Box::new(input2.into_iter())).collect();
 
             let stored = ctx.side_effects.get("data").unwrap();
             assert_eq!(stored.len(), 4);
@@ -810,7 +821,7 @@ mod tests {
             ];
 
             // Create iterator but only partially consume it
-            let mut iter = step.apply(&ctx, Box::new(input.into_iter()));
+            let mut iter = Step::apply(&step, &ctx, Box::new(input.into_iter()));
 
             // Take first element
             let first = iter.next();
@@ -837,25 +848,25 @@ mod tests {
         }
 
         #[test]
-        fn store_step_can_be_used_as_any_step() {
-            let step: Box<dyn AnyStep> = Box::new(StoreStep::new("test"));
-            assert_eq!(step.name(), "store");
+        fn store_step_can_be_used_as_dyn_step() {
+            let step: Box<dyn DynStep> = Box::new(StoreStep::new("test"));
+            assert_eq!(step.dyn_name(), "store");
         }
 
         #[test]
         fn store_step_can_be_stored_in_vec_with_other_steps() {
             use crate::traversal::step::IdentityStep;
 
-            let steps: Vec<Box<dyn AnyStep>> = vec![
+            let steps: Vec<Box<dyn DynStep>> = vec![
                 Box::new(IdentityStep::new()),
                 Box::new(StoreStep::new("collected")),
                 Box::new(IdentityStep::new()),
             ];
 
             assert_eq!(steps.len(), 3);
-            assert_eq!(steps[0].name(), "identity");
-            assert_eq!(steps[1].name(), "store");
-            assert_eq!(steps[2].name(), "identity");
+            assert_eq!(steps[0].dyn_name(), "identity");
+            assert_eq!(steps[1].dyn_name(), "store");
+            assert_eq!(steps[2].dyn_name(), "identity");
         }
 
         #[test]
@@ -867,12 +878,12 @@ mod tests {
             // Store to key "a"
             let step_a = StoreStep::new("a");
             let input_a = vec![Traverser::new(Value::Int(1))];
-            let _: Vec<_> = step_a.apply(&ctx, Box::new(input_a.into_iter())).collect();
+            let _: Vec<_> = Step::apply(&step_a, &ctx, Box::new(input_a.into_iter())).collect();
 
             // Store to key "b"
             let step_b = StoreStep::new("b");
             let input_b = vec![Traverser::new(Value::Int(2))];
-            let _: Vec<_> = step_b.apply(&ctx, Box::new(input_b.into_iter())).collect();
+            let _: Vec<_> = Step::apply(&step_b, &ctx, Box::new(input_b.into_iter())).collect();
 
             let stored_a = ctx.side_effects.get("a").unwrap();
             let stored_b = ctx.side_effects.get("b").unwrap();
@@ -886,6 +897,7 @@ mod tests {
 
     mod aggregate_step_tests {
         use super::*;
+        use crate::traversal::DynStep;
 
         #[test]
         fn aggregate_step_new_creates_step_with_key() {
@@ -896,7 +908,7 @@ mod tests {
         #[test]
         fn aggregate_step_name_is_aggregate() {
             let step = AggregateStep::new("x");
-            assert_eq!(step.name(), "aggregate");
+            assert_eq!(Step::name(&step), "aggregate");
         }
 
         #[test]
@@ -909,8 +921,8 @@ mod tests {
         #[test]
         fn aggregate_step_clone_box() {
             let step = AggregateStep::new("test");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "aggregate");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "aggregate");
         }
 
         #[test]
@@ -927,7 +939,8 @@ mod tests {
                 Traverser::new(Value::Int(3)),
             ];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             // Check values were stored
             let stored = ctx.side_effects.get("collected").unwrap();
@@ -954,7 +967,7 @@ mod tests {
             ];
 
             // Create iterator
-            let mut iter = step.apply(&ctx, Box::new(input.into_iter()));
+            let mut iter = Step::apply(&step, &ctx, Box::new(input.into_iter()));
 
             // Before consuming any output, all values should already be stored
             // because aggregate is a barrier that collects all input first
@@ -980,7 +993,8 @@ mod tests {
             let step = AggregateStep::new("empty");
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
             assert!(ctx.side_effects.get("empty").is_none());
@@ -1000,7 +1014,8 @@ mod tests {
             t.bulk = 10;
 
             let input = vec![t];
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].value, Value::Vertex(VertexId(42)));
@@ -1012,6 +1027,7 @@ mod tests {
 
     mod cap_step_tests {
         use super::*;
+        use crate::traversal::DynStep;
 
         #[test]
         fn cap_step_new_creates_single_key() {
@@ -1028,7 +1044,7 @@ mod tests {
         #[test]
         fn cap_step_name_is_cap() {
             let step = CapStep::new("x");
-            assert_eq!(step.name(), "cap");
+            assert_eq!(Step::name(&step), "cap");
         }
 
         #[test]
@@ -1041,8 +1057,8 @@ mod tests {
         #[test]
         fn cap_step_clone_box() {
             let step = CapStep::new("test");
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "cap");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "cap");
         }
 
         #[test]
@@ -1059,7 +1075,8 @@ mod tests {
             let step = CapStep::new("items");
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             match &output[0].value {
@@ -1087,7 +1104,8 @@ mod tests {
             let step = CapStep::multi(["vertices", "edges"]);
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             match &output[0].value {
@@ -1120,7 +1138,8 @@ mod tests {
             let step = CapStep::new("nonexistent");
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             match &output[0].value {
@@ -1144,10 +1163,11 @@ mod tests {
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
 
             // Apply store step
-            let after_store = store_step.apply(&ctx, Box::new(input.into_iter()));
+            let after_store = Step::apply(&store_step, &ctx, Box::new(input.into_iter()));
 
             // Apply cap step (should consume store output first)
-            let output: Vec<Traverser> = cap_step.apply(&ctx, after_store).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&cap_step, &ctx, Box::new(after_store)).collect();
 
             // Cap should have consumed the store step output, triggering storage
             assert_eq!(output.len(), 1);
@@ -1171,7 +1191,8 @@ mod tests {
             let step = CapStep::new("x");
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             match &output[0].value {
@@ -1186,11 +1207,12 @@ mod tests {
 
     mod side_effect_step_tests {
         use super::*;
+        use crate::traversal::DynStep;
 
         #[test]
         fn side_effect_step_name_is_side_effect() {
             let step = SideEffectStep::new(Traversal::new());
-            assert_eq!(step.name(), "sideEffect");
+            assert_eq!(Step::name(&step), "sideEffect");
         }
 
         #[test]
@@ -1202,8 +1224,8 @@ mod tests {
         #[test]
         fn side_effect_step_clone_box() {
             let step = SideEffectStep::new(Traversal::new());
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "sideEffect");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "sideEffect");
         }
 
         #[test]
@@ -1217,7 +1239,8 @@ mod tests {
 
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 2);
             assert_eq!(output[0].value, Value::Int(1));
@@ -1237,7 +1260,8 @@ mod tests {
 
             let input = vec![Traverser::new(Value::Int(1)), Traverser::new(Value::Int(2))];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             // Original traversers pass through
             assert_eq!(output.len(), 2);
@@ -1263,7 +1287,8 @@ mod tests {
 
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
             assert!(ctx.side_effects.get("empty_side").is_none());
@@ -1283,7 +1308,8 @@ mod tests {
             t.bulk = 10;
 
             let input = vec![t];
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].value, Value::Vertex(VertexId(42)));
@@ -1302,6 +1328,7 @@ mod tests {
 
     mod profile_step_tests {
         use super::*;
+        use crate::traversal::DynStep;
 
         #[test]
         fn profile_step_new_uses_default_key() {
@@ -1318,7 +1345,7 @@ mod tests {
         #[test]
         fn profile_step_name_is_profile() {
             let step = ProfileStep::new();
-            assert_eq!(step.name(), "profile");
+            assert_eq!(Step::name(&step), "profile");
         }
 
         #[test]
@@ -1331,8 +1358,8 @@ mod tests {
         #[test]
         fn profile_step_clone_box() {
             let step = ProfileStep::new();
-            let cloned = step.clone_box();
-            assert_eq!(cloned.name(), "profile");
+            let cloned = DynStep::clone_box(&step);
+            assert_eq!(cloned.dyn_name(), "profile");
         }
 
         #[test]
@@ -1356,7 +1383,8 @@ mod tests {
             ];
 
             // Consume all output
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 3);
 
@@ -1381,7 +1409,7 @@ mod tests {
 
             let input = vec![Traverser::new(Value::Int(1))];
 
-            let _: Vec<_> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let _: Vec<_> = Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             let profile = ctx.side_effects.get("time_test").unwrap();
 
@@ -1407,7 +1435,7 @@ mod tests {
 
             let input = vec![Traverser::new(Value::Int(1))];
 
-            let _: Vec<_> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let _: Vec<_> = Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             // Should be stored under "profile"
             let profile = ctx.side_effects.get("profile").unwrap();
@@ -1424,7 +1452,8 @@ mod tests {
 
             let input: Vec<Traverser> = vec![];
 
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert!(output.is_empty());
 
@@ -1453,7 +1482,8 @@ mod tests {
             t.bulk = 10;
 
             let input = vec![t];
-            let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
+            let output: Vec<Traverser> =
+                Step::apply(&step, &ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].value, Value::Vertex(VertexId(42)));
@@ -1472,7 +1502,7 @@ mod tests {
 
             let input = vec![Traverser::new(Value::Int(1))];
 
-            let mut iter = step.apply(&ctx, Box::new(input.into_iter()));
+            let mut iter = Step::apply(&step, &ctx, Box::new(input.into_iter()));
 
             // Consume all elements
             let _ = iter.next();
