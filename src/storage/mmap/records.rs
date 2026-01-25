@@ -9,11 +9,26 @@
 /// Magic number identifying Interstellar database files ("GRML" in ASCII)
 pub const MAGIC: u32 = 0x47524D4C;
 
-/// File format version
-pub const VERSION: u32 = 1;
+/// Current file format version (V2)
+pub const VERSION: u32 = 2;
 
-/// Size of the file header in bytes
-pub const HEADER_SIZE: usize = 136;
+/// Minimum version this library can read
+pub const MIN_READABLE_VERSION: u32 = 1;
+
+/// Size of the file header in bytes (V2)
+pub const HEADER_SIZE: usize = 192;
+
+/// Size of the V1 file header in bytes (for backward compatibility)
+pub const HEADER_SIZE_V1: usize = 136;
+
+/// Endianness indicator: little-endian
+pub const ENDIAN_LITTLE: u8 = 1;
+
+/// Endianness indicator: big-endian
+pub const ENDIAN_BIG: u8 = 2;
+
+/// Default page size in bytes
+pub const DEFAULT_PAGE_SIZE: u32 = 4096;
 
 /// Size of a node record in bytes
 pub const NODE_RECORD_SIZE: usize = 48;
@@ -22,13 +37,13 @@ pub const NODE_RECORD_SIZE: usize = 48;
 pub const EDGE_RECORD_SIZE: usize = 56;
 
 // =============================================================================
-// FileHeader
+// FileHeaderV1 (Legacy - for backward compatibility)
 // =============================================================================
 
-/// File header at offset 0 (136 bytes total)
+/// V1 File header at offset 0 (136 bytes total)
 ///
-/// The header contains metadata about the database file, including counts,
-/// capacities, and offsets to major file sections.
+/// This is the legacy header format. New databases use V2.
+/// This struct is kept for reading existing V1 databases.
 ///
 /// # Layout
 ///
@@ -56,11 +71,11 @@ pub const EDGE_RECORD_SIZE: usize = 56;
 /// ```
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
-pub struct FileHeader {
+pub struct FileHeaderV1 {
     /// Magic number (must be 0x47524D4C "GRML")
     pub magic: u32,
 
-    /// File format version (currently 1)
+    /// File format version (1)
     pub version: u32,
 
     /// Number of active (non-deleted) nodes
@@ -112,12 +127,179 @@ pub struct FileHeader {
     pub _schema_reserved: [u8; 12],
 }
 
+impl FileHeaderV1 {
+    /// Read V1 header from bytes
+    ///
+    /// # Safety
+    ///
+    /// This uses `read_unaligned` because the struct is `#[repr(C, packed)]`,
+    /// which means fields may not be naturally aligned.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= HEADER_SIZE_V1,
+            "Buffer too small for FileHeaderV1"
+        );
+
+        unsafe {
+            let ptr = bytes.as_ptr() as *const FileHeaderV1;
+            ptr.read_unaligned()
+        }
+    }
+
+    /// Write V1 header to bytes
+    ///
+    /// # Safety
+    ///
+    /// This creates a byte slice from the packed struct.
+    pub fn to_bytes(&self) -> [u8; HEADER_SIZE_V1] {
+        unsafe {
+            let ptr = self as *const FileHeaderV1 as *const u8;
+            let slice = std::slice::from_raw_parts(ptr, HEADER_SIZE_V1);
+            let mut result = [0u8; HEADER_SIZE_V1];
+            result.copy_from_slice(slice);
+            result
+        }
+    }
+}
+
+// =============================================================================
+// FileHeader (V2 - Current Version)
+// =============================================================================
+
+/// File header at offset 0 (192 bytes total)
+///
+/// The V2 header contains enhanced metadata including page size, feature flags,
+/// endianness declaration, and a CRC32 checksum for integrity verification.
+///
+/// # Layout
+///
+/// ```text
+/// Offset | Size | Field                  | Description
+/// -------|------|------------------------|------------------------------------------
+/// 0      | 4    | magic                  | Magic number 0x47524D4C ("GRML")
+/// 4      | 4    | version                | File format version (2)
+/// 8      | 4    | min_reader_version     | Minimum library version that can read this file
+/// 12     | 4    | page_size              | Page size in bytes (default 4096)
+/// 16     | 4    | flags                  | Feature flags bitfield
+/// 20     | 1    | endianness             | Byte order indicator (1 = little, 2 = big)
+/// 21     | 3    | _padding1              | Alignment padding
+/// 24     | 8    | node_count             | Number of active (non-deleted) nodes
+/// 32     | 8    | node_capacity          | Total allocated slots in node table
+/// 40     | 8    | edge_count             | Number of active (non-deleted) edges
+/// 48     | 8    | edge_capacity          | Total allocated slots in edge table
+/// 56     | 8    | string_table_offset    | Byte offset to start of string table
+/// 64     | 8    | string_table_end       | Byte offset to end of string table data
+/// 72     | 8    | property_arena_offset  | Byte offset to start of property arena
+/// 80     | 8    | arena_next_offset      | Current write position in property arena
+/// 88     | 8    | free_node_head         | First free node slot (u64::MAX if empty)
+/// 96     | 8    | free_edge_head         | First free edge slot (u64::MAX if empty)
+/// 104    | 8    | next_node_id           | Next node ID to allocate
+/// 112    | 8    | next_edge_id           | Next edge ID to allocate
+/// 120    | 8    | schema_offset          | Byte offset to schema region (0 = none)
+/// 128    | 8    | schema_size            | Size of schema data in bytes
+/// 136    | 4    | schema_version         | Schema format version
+/// 140    | 12   | _schema_reserved       | Reserved for future schema fields
+/// 152    | 4    | header_crc32           | CRC32 of bytes 0-151 (header excluding this field)
+/// 156    | 36   | _reserved              | Reserved for future use (zero-filled)
+/// ```
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct FileHeader {
+    // Identity (12 bytes)
+    /// Magic number (must be 0x47524D4C "GRML")
+    pub magic: u32,
+
+    /// File format version
+    pub version: u32,
+
+    /// Minimum library version required to read this file
+    pub min_reader_version: u32,
+
+    // Configuration (8 bytes)
+    /// Page size in bytes
+    pub page_size: u32,
+
+    /// Feature flags bitfield
+    pub flags: u32,
+
+    // Endianness (4 bytes with padding)
+    /// Byte order: 1 = little-endian, 2 = big-endian
+    pub endianness: u8,
+
+    /// Alignment padding (must be zero)
+    pub _padding1: [u8; 3],
+
+    // Counts (32 bytes)
+    /// Number of active (non-deleted) nodes
+    pub node_count: u64,
+
+    /// Total allocated slots in node table
+    pub node_capacity: u64,
+
+    /// Number of active (non-deleted) edges
+    pub edge_count: u64,
+
+    /// Total allocated slots in edge table
+    pub edge_capacity: u64,
+
+    // Offsets (64 bytes)
+    /// Byte offset to start of string table
+    pub string_table_offset: u64,
+
+    /// Byte offset to end of string table data
+    pub string_table_end: u64,
+
+    /// Byte offset to start of property arena
+    pub property_arena_offset: u64,
+
+    /// Current write position in property arena
+    pub arena_next_offset: u64,
+
+    /// First free node slot ID (u64::MAX if empty)
+    pub free_node_head: u64,
+
+    /// First free edge slot ID (u64::MAX if empty)
+    pub free_edge_head: u64,
+
+    /// Next node ID to allocate
+    pub next_node_id: u64,
+
+    /// Next edge ID to allocate
+    pub next_edge_id: u64,
+
+    // Schema (32 bytes)
+    /// Byte offset to schema region (0 = no schema)
+    pub schema_offset: u64,
+
+    /// Size of schema data in bytes
+    pub schema_size: u64,
+
+    /// Schema format version
+    pub schema_version: u32,
+
+    /// Reserved for future schema fields
+    pub _schema_reserved: [u8; 12],
+
+    // Integrity (4 bytes)
+    /// CRC32 of bytes 0-151
+    pub header_crc32: u32,
+
+    // Reserved (36 bytes)
+    /// Reserved for future use (must be zero)
+    pub _reserved: [u8; 36],
+}
+
 impl FileHeader {
     /// Create a new header with default values
     pub fn new() -> Self {
-        Self {
+        let mut header = Self {
             magic: MAGIC,
             version: VERSION,
+            min_reader_version: VERSION,
+            page_size: DEFAULT_PAGE_SIZE,
+            flags: 0,
+            endianness: ENDIAN_LITTLE,
+            _padding1: [0u8; 3],
             node_count: 0,
             node_capacity: 0,
             edge_count: 0,
@@ -134,10 +316,47 @@ impl FileHeader {
             schema_size: 0,
             schema_version: 0,
             _schema_reserved: [0u8; 12],
+            header_crc32: 0,
+            _reserved: [0u8; 36],
+        };
+        // Compute and set the CRC
+        header.header_crc32 = header.compute_crc32();
+        header
+    }
+
+    /// Convert from a V1 header, synthesizing missing V2 fields with defaults
+    pub fn from_v1(v1: &FileHeaderV1) -> Self {
+        // Don't compute CRC for V1-sourced headers since we skip CRC validation for V1
+        Self {
+            magic: v1.magic,
+            version: 1, // Keep original version for tracking
+            min_reader_version: 1,
+            page_size: DEFAULT_PAGE_SIZE,
+            flags: 0,
+            endianness: ENDIAN_LITTLE,
+            _padding1: [0u8; 3],
+            node_count: v1.node_count,
+            node_capacity: v1.node_capacity,
+            edge_count: v1.edge_count,
+            edge_capacity: v1.edge_capacity,
+            string_table_offset: v1.string_table_offset,
+            string_table_end: v1.string_table_end,
+            property_arena_offset: v1.property_arena_offset,
+            arena_next_offset: v1.arena_next_offset,
+            free_node_head: v1.free_node_head,
+            free_edge_head: v1.free_edge_head,
+            next_node_id: v1.next_node_id,
+            next_edge_id: v1.next_edge_id,
+            schema_offset: v1.schema_offset,
+            schema_size: v1.schema_size,
+            schema_version: v1.schema_version,
+            _schema_reserved: v1._schema_reserved,
+            header_crc32: 0, // V1 files don't have CRC, skip validation
+            _reserved: [0u8; 36],
         }
     }
 
-    /// Read header from bytes
+    /// Read header from bytes (handles both V1 and V2)
     ///
     /// # Safety
     ///
@@ -169,6 +388,33 @@ impl FileHeader {
             result.copy_from_slice(slice);
             result
         }
+    }
+
+    /// Compute the CRC32 of the header (bytes 0-151, excluding header_crc32 and _reserved)
+    pub fn compute_crc32(&self) -> u32 {
+        let bytes = self.to_bytes();
+        // CRC covers bytes 0-151 (excludes header_crc32 at 152 and _reserved at 156)
+        let crc_range = &bytes[0..152];
+
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(crc_range);
+        hasher.finalize()
+    }
+
+    /// Update the header's CRC32 field to match its current contents
+    pub fn update_crc32(&mut self) {
+        self.header_crc32 = self.compute_crc32();
+    }
+
+    /// Validate the header's CRC32 (for V2+ headers only)
+    ///
+    /// Returns `true` if the CRC is valid or if this is a V1 header (no CRC).
+    pub fn validate_crc32(&self) -> bool {
+        // V1 headers don't have CRC validation
+        if self.version < 2 {
+            return true;
+        }
+        self.header_crc32 == self.compute_crc32()
     }
 }
 
@@ -596,20 +842,23 @@ impl StringEntry {
 mod tests {
     use super::*;
 
+    // =========================================================================
+    // FileHeaderV1 Tests (Legacy)
+    // =========================================================================
+
     #[test]
-    fn test_file_header_size() {
-        // FileHeader must be exactly 136 bytes
+    fn test_file_header_v1_size() {
+        // FileHeaderV1 must be exactly 136 bytes
         assert_eq!(
-            std::mem::size_of::<FileHeader>(),
-            HEADER_SIZE,
-            "FileHeader size must be exactly 136 bytes"
+            std::mem::size_of::<FileHeaderV1>(),
+            HEADER_SIZE_V1,
+            "FileHeaderV1 size must be exactly 136 bytes"
         );
     }
 
     #[test]
-    fn test_file_header_alignment() {
+    fn test_file_header_v1_alignment() {
         // Verify the packed struct has expected layout
-
         // magic and version are u32 (4 bytes each) = 8 bytes
         // 14 u64 fields (14 × 8 bytes) = 112 bytes
         // 1 u32 field (schema_version) = 4 bytes
@@ -617,9 +866,43 @@ mod tests {
         // Total: 8 + 112 + 4 + 12 = 136 bytes
 
         assert_eq!(
-            std::mem::size_of::<FileHeader>(),
+            std::mem::size_of::<FileHeaderV1>(),
             4 + 4 + (14 * 8) + 4 + 12,
-            "FileHeader fields should sum to 136 bytes"
+            "FileHeaderV1 fields should sum to 136 bytes"
+        );
+    }
+
+    // =========================================================================
+    // FileHeader (V2) Tests
+    // =========================================================================
+
+    #[test]
+    fn test_file_header_size() {
+        // FileHeader (V2) must be exactly 192 bytes
+        assert_eq!(
+            std::mem::size_of::<FileHeader>(),
+            HEADER_SIZE,
+            "FileHeader size must be exactly 192 bytes"
+        );
+    }
+
+    #[test]
+    fn test_file_header_alignment() {
+        // Verify the packed V2 struct has expected layout
+        // Identity: magic(4) + version(4) + min_reader_version(4) = 12 bytes
+        // Configuration: page_size(4) + flags(4) = 8 bytes
+        // Endianness: endianness(1) + _padding1(3) = 4 bytes
+        // Counts: node_count(8) + node_capacity(8) + edge_count(8) + edge_capacity(8) = 32 bytes
+        // Offsets: 8 * 8 = 64 bytes
+        // Schema: schema_offset(8) + schema_size(8) + schema_version(4) + _schema_reserved(12) = 32 bytes
+        // Integrity: header_crc32(4) = 4 bytes
+        // Reserved: _reserved(36) = 36 bytes
+        // Total: 12 + 8 + 4 + 32 + 64 + 32 + 4 + 36 = 192 bytes
+
+        assert_eq!(
+            std::mem::size_of::<FileHeader>(),
+            12 + 8 + 4 + 32 + 64 + 32 + 4 + 36,
+            "FileHeader fields should sum to 192 bytes"
         );
     }
 
@@ -630,6 +913,10 @@ mod tests {
         // Copy fields to avoid unaligned reference errors
         let magic = header.magic;
         let version = header.version;
+        let min_reader_version = header.min_reader_version;
+        let page_size = header.page_size;
+        let flags = header.flags;
+        let endianness = header.endianness;
         let node_count = header.node_count;
         let node_capacity = header.node_capacity;
         let edge_count = header.edge_count;
@@ -648,6 +935,10 @@ mod tests {
 
         assert_eq!(magic, MAGIC);
         assert_eq!(version, VERSION);
+        assert_eq!(min_reader_version, VERSION);
+        assert_eq!(page_size, DEFAULT_PAGE_SIZE);
+        assert_eq!(flags, 0);
+        assert_eq!(endianness, ENDIAN_LITTLE);
         assert_eq!(node_count, 0);
         assert_eq!(node_capacity, 0);
         assert_eq!(edge_count, 0);
@@ -684,10 +975,15 @@ mod tests {
         header.schema_offset = 900000;
         header.schema_size = 2048;
         header.schema_version = 1;
+        header.update_crc32();
 
         // Copy original values
         let orig_magic = header.magic;
         let orig_version = header.version;
+        let orig_min_reader_version = header.min_reader_version;
+        let orig_page_size = header.page_size;
+        let orig_flags = header.flags;
+        let orig_endianness = header.endianness;
         let orig_node_count = header.node_count;
         let orig_node_capacity = header.node_capacity;
         let orig_edge_count = header.edge_count;
@@ -716,6 +1012,10 @@ mod tests {
         // Copy recovered values to avoid unaligned reference errors
         let rec_magic = recovered.magic;
         let rec_version = recovered.version;
+        let rec_min_reader_version = recovered.min_reader_version;
+        let rec_page_size = recovered.page_size;
+        let rec_flags = recovered.flags;
+        let rec_endianness = recovered.endianness;
         let rec_node_count = recovered.node_count;
         let rec_node_capacity = recovered.node_capacity;
         let rec_edge_count = recovered.edge_count;
@@ -735,6 +1035,10 @@ mod tests {
         // Verify all fields match
         assert_eq!(rec_magic, orig_magic);
         assert_eq!(rec_version, orig_version);
+        assert_eq!(rec_min_reader_version, orig_min_reader_version);
+        assert_eq!(rec_page_size, orig_page_size);
+        assert_eq!(rec_flags, orig_flags);
+        assert_eq!(rec_endianness, orig_endianness);
         assert_eq!(rec_node_count, orig_node_count);
         assert_eq!(rec_node_capacity, orig_node_capacity);
         assert_eq!(rec_edge_count, orig_edge_count);
@@ -754,19 +1058,18 @@ mod tests {
 
     #[test]
     fn test_file_header_transmute_safety() {
-        // Verify we can safely transmute between [u8; 64] and FileHeader
         let header = FileHeader::new();
         let bytes = header.to_bytes();
 
         // This should not panic
         let _ = FileHeader::from_bytes(&bytes);
 
-        // Verify magic number is at correct offset
+        // Verify magic number is at correct offset (0)
         let magic_bytes: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
         let magic = u32::from_le_bytes(magic_bytes);
         assert_eq!(magic, MAGIC);
 
-        // Verify version is at correct offset
+        // Verify version is at correct offset (4)
         let version_bytes: [u8; 4] = [bytes[4], bytes[5], bytes[6], bytes[7]];
         let version = u32::from_le_bytes(version_bytes);
         assert_eq!(version, VERSION);
@@ -777,12 +1080,13 @@ mod tests {
         // Verify fields are stored in little-endian format
         let mut header = FileHeader::new();
         header.node_count = 0x0102030405060708u64;
+        header.update_crc32();
 
         let bytes = header.to_bytes();
 
-        // node_count starts at offset 8
+        // node_count starts at offset 24 in V2 (after identity, config, and endianness blocks)
         let node_count_bytes: [u8; 8] = [
-            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+            bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30], bytes[31],
         ];
 
         // Should be little-endian
@@ -793,10 +1097,176 @@ mod tests {
     #[test]
     fn test_constants() {
         assert_eq!(MAGIC, 0x47524D4C); // "GRML"
-        assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 136);
+        assert_eq!(VERSION, 2);
+        assert_eq!(MIN_READABLE_VERSION, 1);
+        assert_eq!(HEADER_SIZE, 192);
+        assert_eq!(HEADER_SIZE_V1, 136);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
+        assert_eq!(DEFAULT_PAGE_SIZE, 4096);
+        assert_eq!(ENDIAN_LITTLE, 1);
+        assert_eq!(ENDIAN_BIG, 2);
+    }
+
+    // =========================================================================
+    // V1 to V2 Conversion Tests
+    // =========================================================================
+
+    #[test]
+    fn test_file_header_from_v1() {
+        // Create a V1 header
+        let v1 = FileHeaderV1 {
+            magic: MAGIC,
+            version: 1,
+            node_count: 100,
+            node_capacity: 1000,
+            edge_count: 50,
+            edge_capacity: 500,
+            string_table_offset: 10000,
+            string_table_end: 12000,
+            property_arena_offset: 5000,
+            arena_next_offset: 6000,
+            free_node_head: 42,
+            free_edge_head: 99,
+            next_node_id: 101,
+            next_edge_id: 51,
+            schema_offset: 0,
+            schema_size: 0,
+            schema_version: 0,
+            _schema_reserved: [0u8; 12],
+        };
+
+        // Copy V1 fields to local variables to avoid packed struct reference issues
+        let v1_magic = v1.magic;
+        let v1_node_count = v1.node_count;
+        let v1_node_capacity = v1.node_capacity;
+        let v1_edge_count = v1.edge_count;
+        let v1_edge_capacity = v1.edge_capacity;
+        let v1_string_table_offset = v1.string_table_offset;
+        let v1_string_table_end = v1.string_table_end;
+        let v1_property_arena_offset = v1.property_arena_offset;
+        let v1_arena_next_offset = v1.arena_next_offset;
+        let v1_free_node_head = v1.free_node_head;
+        let v1_free_edge_head = v1.free_edge_head;
+        let v1_next_node_id = v1.next_node_id;
+        let v1_next_edge_id = v1.next_edge_id;
+
+        // Convert to V2
+        let v2 = FileHeader::from_v1(&v1);
+
+        // Copy V2 fields to local variables
+        let v2_magic = v2.magic;
+        let v2_version = v2.version;
+        let v2_node_count = v2.node_count;
+        let v2_node_capacity = v2.node_capacity;
+        let v2_edge_count = v2.edge_count;
+        let v2_edge_capacity = v2.edge_capacity;
+        let v2_string_table_offset = v2.string_table_offset;
+        let v2_string_table_end = v2.string_table_end;
+        let v2_property_arena_offset = v2.property_arena_offset;
+        let v2_arena_next_offset = v2.arena_next_offset;
+        let v2_free_node_head = v2.free_node_head;
+        let v2_free_edge_head = v2.free_edge_head;
+        let v2_next_node_id = v2.next_node_id;
+        let v2_next_edge_id = v2.next_edge_id;
+        let v2_min_reader_version = v2.min_reader_version;
+        let v2_page_size = v2.page_size;
+        let v2_flags = v2.flags;
+        let v2_endianness = v2.endianness;
+
+        // Verify V1 fields are preserved
+        assert_eq!(v2_magic, v1_magic);
+        assert_eq!(v2_version, 1); // Keeps original version
+        assert_eq!(v2_node_count, v1_node_count);
+        assert_eq!(v2_node_capacity, v1_node_capacity);
+        assert_eq!(v2_edge_count, v1_edge_count);
+        assert_eq!(v2_edge_capacity, v1_edge_capacity);
+        assert_eq!(v2_string_table_offset, v1_string_table_offset);
+        assert_eq!(v2_string_table_end, v1_string_table_end);
+        assert_eq!(v2_property_arena_offset, v1_property_arena_offset);
+        assert_eq!(v2_arena_next_offset, v1_arena_next_offset);
+        assert_eq!(v2_free_node_head, v1_free_node_head);
+        assert_eq!(v2_free_edge_head, v1_free_edge_head);
+        assert_eq!(v2_next_node_id, v1_next_node_id);
+        assert_eq!(v2_next_edge_id, v1_next_edge_id);
+
+        // Verify V2 defaults are applied
+        assert_eq!(v2_min_reader_version, 1);
+        assert_eq!(v2_page_size, DEFAULT_PAGE_SIZE);
+        assert_eq!(v2_flags, 0);
+        assert_eq!(v2_endianness, ENDIAN_LITTLE);
+    }
+
+    // =========================================================================
+    // CRC32 Tests
+    // =========================================================================
+
+    #[test]
+    fn test_file_header_crc32_validation() {
+        let header = FileHeader::new();
+
+        // New headers should have valid CRC
+        assert!(header.validate_crc32());
+    }
+
+    #[test]
+    fn test_file_header_crc32_detects_corruption() {
+        let mut header = FileHeader::new();
+
+        // Corrupt a field
+        header.node_count = 12345;
+
+        // CRC should now be invalid (unless we update it)
+        assert!(!header.validate_crc32());
+
+        // After updating CRC, it should be valid again
+        header.update_crc32();
+        assert!(header.validate_crc32());
+    }
+
+    #[test]
+    fn test_file_header_crc32_roundtrip() {
+        let mut header = FileHeader::new();
+        header.node_count = 100;
+        header.edge_count = 200;
+        header.update_crc32();
+
+        // Serialize and deserialize
+        let bytes = header.to_bytes();
+        let recovered = FileHeader::from_bytes(&bytes);
+
+        // CRC should still be valid
+        assert!(recovered.validate_crc32());
+    }
+
+    #[test]
+    fn test_file_header_v1_skips_crc_validation() {
+        // V1-sourced headers should skip CRC validation
+        let v1 = FileHeaderV1 {
+            magic: MAGIC,
+            version: 1,
+            node_count: 0,
+            node_capacity: 0,
+            edge_count: 0,
+            edge_capacity: 0,
+            string_table_offset: 0,
+            string_table_end: 0,
+            property_arena_offset: 0,
+            arena_next_offset: 0,
+            free_node_head: u64::MAX,
+            free_edge_head: u64::MAX,
+            next_node_id: 0,
+            next_edge_id: 0,
+            schema_offset: 0,
+            schema_size: 0,
+            schema_version: 0,
+            _schema_reserved: [0u8; 12],
+        };
+
+        let v2 = FileHeader::from_v1(&v1);
+
+        // V1-converted headers have version=1 so CRC validation is skipped
+        assert!(v2.validate_crc32());
     }
 
     // =========================================================================
@@ -1393,6 +1863,7 @@ mod tests {
     fn test_all_record_sizes() {
         // Verify all record sizes match their constants
         assert_eq!(std::mem::size_of::<FileHeader>(), HEADER_SIZE);
+        assert_eq!(std::mem::size_of::<FileHeaderV1>(), HEADER_SIZE_V1);
         assert_eq!(std::mem::size_of::<NodeRecord>(), NODE_RECORD_SIZE);
         assert_eq!(std::mem::size_of::<EdgeRecord>(), EDGE_RECORD_SIZE);
         assert_eq!(
@@ -1406,11 +1877,16 @@ mod tests {
     fn test_constant_values() {
         // Verify all constant values are as specified
         assert_eq!(MAGIC, 0x47524D4C);
-        assert_eq!(VERSION, 1);
-        assert_eq!(HEADER_SIZE, 136);
+        assert_eq!(VERSION, 2);
+        assert_eq!(MIN_READABLE_VERSION, 1);
+        assert_eq!(HEADER_SIZE, 192);
+        assert_eq!(HEADER_SIZE_V1, 136);
         assert_eq!(NODE_RECORD_SIZE, 48);
         assert_eq!(EDGE_RECORD_SIZE, 56);
         assert_eq!(PROPERTY_ENTRY_HEADER_SIZE, 17);
         assert_eq!(STRING_ENTRY_HEADER_SIZE, 8);
+        assert_eq!(DEFAULT_PAGE_SIZE, 4096);
+        assert_eq!(ENDIAN_LITTLE, 1);
+        assert_eq!(ENDIAN_BIG, 2);
     }
 }

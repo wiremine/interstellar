@@ -2071,10 +2071,10 @@ fn test_error_corrupted_file_bad_magic() {
     }
 }
 
-/// Test that opening a file with unsupported version returns InvalidFormat error.
+/// Test that opening a file with unsupported version returns VersionMismatch error.
 ///
 /// This test creates a file with correct magic but wrong version (999) and verifies
-/// that MmapGraph::open() returns StorageError::InvalidFormat.
+/// that MmapGraph::open() returns StorageError::VersionMismatch.
 #[test]
 fn test_error_corrupted_file_bad_version() {
     let (_dir, db_path) = temp_db();
@@ -2088,22 +2088,26 @@ fn test_error_corrupted_file_bad_version() {
         let magic: u32 = 0x47524D4C;
         file.write_all(&magic.to_ne_bytes()).expect("write magic");
 
-        // Write invalid version (999 instead of 1)
+        // Write invalid version (999 instead of 1 or 2)
         let bad_version: u32 = 999;
         file.write_all(&bad_version.to_ne_bytes())
             .expect("write version");
 
-        // Pad to at least HEADER_SIZE (104 bytes) so it passes size check
-        let padding = vec![0u8; 104 - 8];
+        // Pad to at least HEADER_SIZE (192 bytes for V2) so it passes size check
+        let padding = vec![0u8; 192 - 8];
         file.write_all(&padding).expect("write padding");
     }
 
-    // Try to open - should fail with InvalidFormat
+    // Try to open - should fail with VersionMismatch
     let result = MmapGraph::open(&db_path);
     assert!(result.is_err(), "Expected error for bad version");
     match result {
-        Err(StorageError::InvalidFormat) => {} // Expected
-        Err(e) => panic!("Expected InvalidFormat, got {:?}", e),
+        Err(StorageError::VersionMismatch {
+            file_version: 999,
+            min_supported: 1,
+            max_supported: 2,
+        }) => {} // Expected
+        Err(e) => panic!("Expected VersionMismatch, got {:?}", e),
         Ok(_) => panic!("Expected error, got success"),
     }
 }

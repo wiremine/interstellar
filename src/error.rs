@@ -513,6 +513,33 @@ pub enum StorageError {
     /// - Drop and recreate index after cleaning up duplicates
     #[error("index error: {0}")]
     IndexError(String),
+
+    /// The file version is incompatible with this library.
+    ///
+    /// This occurs when opening a database created with a different
+    /// version of Interstellar that uses an incompatible layout.
+    ///
+    /// # Fields
+    ///
+    /// - `file_version`: Version found in the file header
+    /// - `min_supported`: Minimum version this library can read
+    /// - `max_supported`: Maximum version this library can read (current version)
+    ///
+    /// # Recovery
+    ///
+    /// - If `file_version > max_supported`: Upgrade the library
+    /// - If `file_version < min_supported`: Use migration tools or older library
+    #[error(
+        "version mismatch: file version {file_version}, library supports {min_supported}-{max_supported}"
+    )]
+    VersionMismatch {
+        /// Version found in the file header
+        file_version: u32,
+        /// Minimum version this library can read
+        min_supported: u32,
+        /// Maximum version this library can read (current version)
+        max_supported: u32,
+    },
 }
 
 // =============================================================================
@@ -923,5 +950,34 @@ mod tests {
 
         assert!(format!("{}", zero).contains("found 0"));
         assert!(format!("{}", many).contains("found 5"));
+    }
+
+    #[test]
+    fn version_mismatch_error_display() {
+        let err = StorageError::VersionMismatch {
+            file_version: 3,
+            min_supported: 1,
+            max_supported: 2,
+        };
+
+        let display = format!("{}", err);
+        assert!(display.contains("version mismatch"));
+        assert!(display.contains("file version 3"));
+        assert!(display.contains("library supports 1-2"));
+    }
+
+    #[test]
+    fn version_mismatch_error_debug() {
+        let err = StorageError::VersionMismatch {
+            file_version: 5,
+            min_supported: 1,
+            max_supported: 2,
+        };
+
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("VersionMismatch"));
+        assert!(debug.contains("file_version: 5"));
+        assert!(debug.contains("min_supported: 1"));
+        assert!(debug.contains("max_supported: 2"));
     }
 }

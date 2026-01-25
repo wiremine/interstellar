@@ -29,8 +29,8 @@ use wal::{WalEntry, WriteAheadLog};
 
 use freelist::FreeList;
 use records::{
-    EdgeRecord, FileHeader, NodeRecord, EDGE_RECORD_SIZE, HEADER_SIZE, MAGIC, NODE_RECORD_SIZE,
-    VERSION,
+    EdgeRecord, FileHeader, FileHeaderV1, NodeRecord, EDGE_RECORD_SIZE, ENDIAN_LITTLE, HEADER_SIZE,
+    HEADER_SIZE_V1, MAGIC, MIN_READABLE_VERSION, NODE_RECORD_SIZE, VERSION,
 };
 
 use crate::value::{EdgeId, VertexId};
@@ -276,12 +276,12 @@ impl MmapGraph {
         Ok(graph)
     }
 
-    /// Initialize a new database file with header and initial structure.
+    /// Initialize a new database file with V2 header and initial structure.
     ///
     /// Creates a file with:
-    /// - 80-byte header
-    /// - Space for 1000 initial node records
-    /// - Space for 10000 initial edge records
+    /// - 192-byte V2 header
+    /// - Space for 100 initial node records
+    /// - Space for 200 initial edge records
     /// - 64KB for properties and strings
     ///
     /// # Safety
@@ -294,7 +294,7 @@ impl MmapGraph {
         const INITIAL_EDGE_CAPACITY: u64 = 200;
         const INITIAL_ARENA_SIZE: u64 = 32 * 1024; // 32KB
 
-        // Calculate file size
+        // Calculate file size (using V2 header size)
         let node_table_size = INITIAL_NODE_CAPACITY * NODE_RECORD_SIZE as u64;
         let edge_table_size = INITIAL_EDGE_CAPACITY * records::EDGE_RECORD_SIZE as u64;
         let initial_size =
@@ -307,7 +307,7 @@ impl MmapGraph {
         let property_arena_offset = HEADER_SIZE as u64 + node_table_size + edge_table_size;
         let string_table_offset = initial_size - 32 * 1024; // Last 32KB for strings
 
-        // Create initial header
+        // Create initial V2 header
         let mut header = FileHeader::new();
         header.node_capacity = INITIAL_NODE_CAPACITY;
         header.edge_capacity = INITIAL_EDGE_CAPACITY;
@@ -315,6 +315,7 @@ impl MmapGraph {
         header.arena_next_offset = property_arena_offset; // Start writing at arena beginning
         header.string_table_offset = string_table_offset;
         header.string_table_end = string_table_offset; // Empty string table initially
+                                                       // CRC32 will be updated by write_header
 
         // Write header
         Self::write_header(file, &header)?;
@@ -324,45 +325,131 @@ impl MmapGraph {
 
     /// Validate file header for correct magic and version.
     ///
+    /// This method performs comprehensive validation per the V2 spec:
+    /// 1. Check magic number (InvalidFormat if wrong)
+    /// 2. Check version compatibility (VersionMismatch if incompatible)
+    /// 3. Check min_reader_version for forward compatibility
+    /// 4. Check endianness (only little-endian supported)
+    /// 5. Check page size validity
+    /// 6. Verify CRC32 for V2+ headers
+    /// 7. Check for unknown flags
+    ///
     /// # Errors
     ///
-    /// - [`StorageError::InvalidFormat`] - File is too small or has wrong magic number
-    /// - [`StorageError::InvalidFormat`] - File has unsupported version
+    /// - [`StorageError::InvalidFormat`] - File is too small, wrong magic, invalid endianness, or bad page size
+    /// - [`StorageError::VersionMismatch`] - File version incompatible with this library
+    /// - [`StorageError::CorruptedData`] - CRC32 checksum mismatch
     fn validate_header(mmap: &[u8]) -> Result<(), StorageError> {
+        // Need at least enough bytes to read magic and version
+        if mmap.len() < 8 {
+            return Err(StorageError::InvalidFormat);
+        }
+
+        // Read magic number
+        let magic = u32::from_le_bytes(mmap[0..4].try_into().unwrap());
+        if magic != MAGIC {
+            return Err(StorageError::InvalidFormat);
+        }
+
+        // Read version to determine header format
+        let version = u32::from_le_bytes(mmap[4..8].try_into().unwrap());
+
+        // Check version compatibility
+        if !(MIN_READABLE_VERSION..=VERSION).contains(&version) {
+            return Err(StorageError::VersionMismatch {
+                file_version: version,
+                min_supported: MIN_READABLE_VERSION,
+                max_supported: VERSION,
+            });
+        }
+
+        // Handle V1 headers
+        if version == 1 {
+            if mmap.len() < HEADER_SIZE_V1 {
+                return Err(StorageError::InvalidFormat);
+            }
+            // V1 headers don't have additional validation fields
+            return Ok(());
+        }
+
+        // Handle V2+ headers
         if mmap.len() < HEADER_SIZE {
             return Err(StorageError::InvalidFormat);
         }
 
         let header = Self::read_header(mmap);
 
-        // Check magic number
-        let magic = header.magic;
-        if magic != MAGIC {
+        // Check min_reader_version for forward compatibility
+        let min_reader_version = header.min_reader_version;
+        if min_reader_version > VERSION {
+            return Err(StorageError::VersionMismatch {
+                file_version: version,
+                min_supported: MIN_READABLE_VERSION,
+                max_supported: VERSION,
+            });
+        }
+
+        // Check endianness (only little-endian supported)
+        let endianness = header.endianness;
+        if endianness != ENDIAN_LITTLE {
             return Err(StorageError::InvalidFormat);
         }
 
-        // Check version
-        let version = header.version;
-        if version != VERSION {
+        // Check page size validity (must be power of 2, 512 to 65536)
+        let page_size = header.page_size;
+        if !page_size.is_power_of_two() || !(512..=65536).contains(&page_size) {
             return Err(StorageError::InvalidFormat);
+        }
+
+        // Verify header CRC32
+        if !header.validate_crc32() {
+            return Err(StorageError::CorruptedData);
+        }
+
+        // Check for unknown flags (none defined yet, so any flag is unknown)
+        let known_flags: u32 = 0;
+        let flags = header.flags;
+        if flags & !known_flags != 0 {
+            return Err(StorageError::VersionMismatch {
+                file_version: version,
+                min_supported: MIN_READABLE_VERSION,
+                max_supported: VERSION,
+            });
         }
 
         Ok(())
     }
 
-    /// Read header from memory-mapped bytes.
+    /// Read header from memory-mapped bytes, handling both V1 and V2 formats.
+    ///
+    /// For V1 files, this reads the V1 header and converts it to V2 format
+    /// by synthesizing missing fields with defaults.
     ///
     /// # Safety
     ///
     /// This uses `read_unaligned` since FileHeader is `#[repr(C, packed)]`.
-    /// Caller must ensure mmap has at least HEADER_SIZE bytes.
+    /// Caller must ensure mmap has at least enough bytes for the detected version.
     fn read_header(mmap: &[u8]) -> FileHeader {
-        assert!(mmap.len() >= HEADER_SIZE, "mmap too small to read header");
+        assert!(mmap.len() >= 8, "mmap too small to read version");
 
-        FileHeader::from_bytes(mmap)
+        // Check version to determine header format
+        let version = u32::from_le_bytes(mmap[4..8].try_into().unwrap());
+
+        if version == 1 {
+            // V1 format: read V1 header and convert to V2
+            assert!(mmap.len() >= HEADER_SIZE_V1, "mmap too small for V1 header");
+            let v1 = FileHeaderV1::from_bytes(&mmap[..HEADER_SIZE_V1]);
+            FileHeader::from_v1(&v1)
+        } else {
+            // V2+ format: read V2 header directly
+            assert!(mmap.len() >= HEADER_SIZE, "mmap too small for V2 header");
+            FileHeader::from_bytes(mmap)
+        }
     }
 
     /// Write header to file at offset 0.
+    ///
+    /// For V2 headers, this automatically updates the CRC32 before writing.
     ///
     /// # Arguments
     ///
@@ -374,6 +461,12 @@ impl MmapGraph {
     /// On Unix, uses `write_all_at` for positioned writes.
     /// On other platforms, uses seek + write_all.
     fn write_header(file: &File, header: &FileHeader) -> Result<(), StorageError> {
+        // Update CRC32 for V2 headers before writing
+        let mut header = *header;
+        if header.version >= 2 {
+            header.update_crc32();
+        }
+
         let bytes = header.to_bytes();
 
         #[cfg(unix)]
@@ -4530,10 +4623,19 @@ mod tests {
         let mut bytes = [0u8; HEADER_SIZE];
         let mut header = FileHeader::new();
         header.version = 999; // Unsupported version
+        header.update_crc32(); // Update CRC after changing version
         bytes.copy_from_slice(&header.to_bytes());
 
         let result = MmapGraph::validate_header(&bytes);
-        assert!(matches!(result, Err(StorageError::InvalidFormat)));
+        // Version mismatch now returns VersionMismatch error
+        assert!(matches!(
+            result,
+            Err(StorageError::VersionMismatch {
+                file_version: 999,
+                min_supported: 1,
+                max_supported: 2
+            })
+        ));
     }
 
     #[test]
@@ -4560,7 +4662,7 @@ mod tests {
         let file_size = metadata.len();
 
         // Size should be: header + nodes + edges + arena
-        // HEADER_SIZE (136) + (100 * 48) + (200 * 56) + (32 * 1024)
+        // HEADER_SIZE (192 for V2) + (100 * 48) + (200 * 56) + (32 * 1024)
         let expected_size = HEADER_SIZE + (100 * 48) + (200 * 56) + (32 * 1024);
         assert_eq!(file_size, expected_size as u64);
 
@@ -5867,6 +5969,7 @@ mod tests {
                 let mut header = MmapGraph::read_header(&mmap);
                 header.node_count = nodes.len() as u64;
                 header.next_node_id = nodes.len() as u64;
+                header.update_crc32(); // Must update CRC after modifying V2 header
                 drop(mmap);
 
                 let mut file = graph.file.write();
