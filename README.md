@@ -5,7 +5,7 @@ A high-performance Rust graph database with dual query APIs: Gremlin-style fluen
 ## Features
 
 - **Dual Query APIs**: Gremlin-style fluent API and SQL-like GQL syntax
-- **Rhai Scripting**: Embedded scripting for dynamic queries without recompilation
+- **Gremlin Text Parser**: Execute TinkerPop-compatible Gremlin query strings
 - **GQL Schema & DDL**: Define vertex/edge types with validation (`CREATE NODE TYPE`, `CREATE EDGE TYPE`)
 - **Dual Storage Backends**: In-memory (HashMap-based) and memory-mapped (persistent)
 - **Anonymous Traversals**: Composable fragments via the `__` factory module
@@ -22,6 +22,9 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 interstellar = "0.1"
+
+# With Gremlin text parser:
+# interstellar = { version = "0.1", features = ["gremlin"] }
 
 # With GQL query language:
 # interstellar = { version = "0.1", features = ["gql"] }
@@ -397,79 +400,94 @@ SET SCHEMA VALIDATION STRICT
 - **REDUCE**: Fold over lists: `REDUCE(sum = 0, x IN list | sum + x)`
 - **CALL subqueries**: Correlated and uncorrelated subqueries
 
-## Rhai Scripting
+## Gremlin Text Parser
 
-The optional `rhai` feature enables embedded scripting for dynamic graph queries.
+Interstellar includes a TinkerPop-compatible Gremlin query string parser. Enable with the `gremlin` feature:
 
 ```toml
 [dependencies]
-interstellar = { version = "0.1", features = ["rhai"] }
+interstellar = { version = "0.1", features = ["gremlin"] }
 ```
 
-### Basic Usage
+### Basic Queries
 
 ```rust
-use interstellar::rhai::RhaiEngine;
+use interstellar::prelude::*;
 
-let engine = RhaiEngine::new();
+let graph = Graph::new();
+// ... add vertices and edges ...
 
-// Execute Gremlin-style queries from scripts
-let results: Vec<String> = engine.eval_with_graph(&graph, r#"
-    let g = graph.traversal();
-    g.v()
-        .has_label("person")
-        .has_where("age", gt(25))
-        .order_by("age")
-        .values("name")
-        .to_list()
-"#).unwrap();
+// Execute Gremlin query strings directly
+let result = graph.query("g.V().hasLabel('person').values('name').toList()").unwrap();
+
+// Or use a snapshot
+let snapshot = graph.snapshot();
+let result = snapshot.query("g.V().has('age', P.gt(25)).count()").unwrap();
 ```
 
-### Predicates in Scripts
+### Supported Steps
 
-```javascript
-// All predicates available
-g.v().has_where("age", gt(30))
-g.v().has_where("age", between(25, 40))
-g.v().has_where("name", containing("ali"))
-g.v().has_where("email", regex(".*@gmail.com"))
-g.v().has_where("status", within(["active", "pending"]))
+The parser supports the full range of Gremlin steps:
+
+```gremlin
+// Navigation
+g.V().out('knows').in('created').both('uses')
+g.V().outE('knows').inV().otherV()
+
+// Filtering
+g.V().hasLabel('person').has('age', P.gt(30))
+g.V().has('name', P.within('Alice', 'Bob'))
+g.V().has('email', TextP.containing('@gmail'))
+g.V().where(__.out('knows').count().is(P.gt(3)))
+
+// Transform
+g.V().values('name', 'age')
+g.V().valueMap(true)  // Include id and label
+g.V().project('name', 'friends').by('name').by(__.out('knows').count())
+
+// Branching
+g.V().union(__.out('knows'), __.out('created'))
+g.V().choose(__.hasLabel('person'), __.out('knows'), __.out('uses'))
+g.V().coalesce(__.out('preferred'), __.out('default'))
+
+// Repeat
+g.V().repeat(__.out('parent')).times(3)
+g.V().repeat(__.out()).until(__.hasLabel('root')).emit()
+
+// Aggregation
+g.V().hasLabel('person').order().by('age', desc).limit(10)
+g.V().group().by('city')
+g.V().groupCount().by('label')
+
+// Side effects
+g.V().as('a').out().as('b').select('a', 'b')
+g.V().aggregate('x').out().where(P.within('x'))
+
+// Terminal
+g.V().toList()
+g.V().next()
+g.V().count()
+g.V().hasNext()
 ```
 
-### Anonymous Traversals
+### Math Expressions
 
-```javascript
-// Compose traversal fragments
-let friends = anon().out("knows").has_label("person");
+When both `gremlin` and `gql` features are enabled, mathematical expressions are supported:
 
-g.v().has_label("person")
-    .where_(friends)
-    .values("name")
-    .to_list()
-
-// Use in repeat
-g.v().has_value("name", "Alice")
-    .repeat_emit(anon().out("knows"), 3)
-    .dedup()
-    .values("name")
-    .to_list()
+```rust
+// Requires features = ["gremlin", "gql"]
+let result = graph.query("g.V().values('age').math('_ * 2 + 5').toList()").unwrap();
 ```
 
-### Mutations
+### Predicates
 
-```javascript
-// Add vertices
-let g = graph.traversal();
-g.add_v("person")
-    .property("name", "Eve")
-    .property("age", 28)
-    .id()
+Full predicate support including:
 
-// Add edges
-g.v().has_value("name", "Alice").as_("a")
-    .v().has_value("name", "Bob").as_("b")
-    .add_e("knows").from_("a").to_("b")
-```
+- **Comparison**: `P.eq()`, `P.neq()`, `P.gt()`, `P.gte()`, `P.lt()`, `P.lte()`
+- **Range**: `P.between()`, `P.inside()`, `P.outside()`
+- **Membership**: `P.within()`, `P.without()`
+- **Text**: `TextP.containing()`, `TextP.startingWith()`, `TextP.endingWith()`, `TextP.regex()`
+- **Logical**: `P.and()`, `P.or()`, `P.not()`
 
 ## Examples
 
@@ -484,9 +502,6 @@ cargo run --example nba --features mmap,gql
 # GQL queries (requires gql feature)
 cargo run --example quickstart_gql --features gql
 
-# Rhai scripting (requires rhai feature)
-cargo run --example scripting --features rhai
-
 # Persistence (requires mmap feature)
 cargo run --example storage --features mmap
 ```
@@ -498,8 +513,8 @@ cargo run --example storage --features mmap
 | `graphson` | GraphSON import/export | Yes |
 | `mmap` | Memory-mapped persistent storage | No |
 | `gql` | GQL query language | No |
+| `gremlin` | Gremlin text query parser | No |
 | `full-text` | Full-text search (Tantivy) | No |
-| `rhai` | Rhai scripting | No |
 | `full` | Enable all features | No |
 
 In-memory graph storage is always available as core functionality.
@@ -509,9 +524,9 @@ In-memory graph storage is always available as core functionality.
 ```bash
 cargo build                          # Debug build
 cargo build --release                # Release build
+cargo build --features gremlin       # With Gremlin text parser
 cargo build --features gql           # With GQL query language
 cargo build --features mmap          # With mmap support
-cargo build --features rhai          # With Rhai scripting
 cargo build --features full          # All features
 ```
 
@@ -519,10 +534,10 @@ cargo build --features full          # All features
 
 ```bash
 cargo test                                      # Run default tests
+cargo test --features gremlin                   # Include Gremlin parser tests
 cargo test --features gql                       # Include GQL tests
 cargo test --features mmap                      # Include mmap tests
-cargo test --features rhai                      # Include Rhai scripting tests
-cargo test --features "gql,mmap,rhai"           # Run most tests (recommended)
+cargo test --features "gremlin,gql,mmap"        # Run most tests (recommended)
 cargo clippy -- -D warnings                     # Lint
 cargo fmt --check                               # Check formatting
 ```
@@ -590,7 +605,7 @@ cargo doc --open                     # Build and view docs
 See the [docs/](docs/) directory for comprehensive documentation:
 
 - [Getting Started](docs/getting-started/) - Installation, quick start, and examples
-- [API Reference](docs/api/) - Gremlin, GQL, Rhai, and predicate reference
+- [API Reference](docs/api/) - Gremlin, GQL, and predicate reference
 - [Concepts](docs/concepts/) - Architecture, storage, traversal model
 - [Guides](docs/guides/) - Graph modeling, querying, mutations, performance
 - [Reference](docs/reference/) - Value types, error handling, feature flags, glossary
