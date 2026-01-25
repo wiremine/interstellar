@@ -1952,7 +1952,7 @@ fn apply_step_cow<'g, In>(
         RhaiStep::PropValue => bound.add_step(ValueStep),
         RhaiStep::ValueMapKeys(keys) => bound.add_step(ValueMapStep::with_keys(keys.clone())),
         RhaiStep::ValueMapWithTokens => bound.add_step(ValueMapStep::new().with_tokens()),
-        RhaiStep::Index => bound.add_step(IndexStep),
+        RhaiStep::Index => bound.add_step(IndexStep::new()),
         RhaiStep::Local(sub) => {
             use crate::traversal::branch::LocalStep;
             bound.add_step(LocalStep::new(sub.to_traversal()))
@@ -2234,7 +2234,7 @@ fn apply_step_mmap<'g, In>(
         RhaiStep::PropValue => bound.add_step(ValueStep),
         RhaiStep::ValueMapKeys(keys) => bound.add_step(ValueMapStep::with_keys(keys.clone())),
         RhaiStep::ValueMapWithTokens => bound.add_step(ValueMapStep::new().with_tokens()),
-        RhaiStep::Index => bound.add_step(IndexStep),
+        RhaiStep::Index => bound.add_step(IndexStep::new()),
         RhaiStep::Local(sub) => {
             use crate::traversal::branch::LocalStep;
             bound.add_step(LocalStep::new(sub.to_traversal()))
@@ -2524,7 +2524,7 @@ fn apply_anonymous_step(
         RhaiStep::PropValue => traversal.add_step(ValueStep),
         RhaiStep::ValueMapKeys(keys) => traversal.add_step(ValueMapStep::with_keys(keys.clone())),
         RhaiStep::ValueMapWithTokens => traversal.add_step(ValueMapStep::new().with_tokens()),
-        RhaiStep::Index => traversal.add_step(IndexStep),
+        RhaiStep::Index => traversal.add_step(IndexStep::new()),
         RhaiStep::Local(sub) => {
             use crate::traversal::branch::LocalStep;
             traversal.add_step(LocalStep::new(sub.to_traversal()))

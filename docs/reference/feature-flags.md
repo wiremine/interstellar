@@ -190,7 +190,7 @@ cargo test --features mmap
 cargo test --features rhai
 
 # All features (recommended for CI)
-cargo test --features "inmemory,mmap,rhai"
+cargo test --features "mmap,rhai"
 ```
 
 ## Benchmarking with Features

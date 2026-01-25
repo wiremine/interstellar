@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
 use crate::traversal::{ExecutionContext, Traverser};
 use crate::value::Value;
 
@@ -485,13 +488,24 @@ use std::cell::Cell;
 ///     .to_list();
 /// // Returns: [v[0], 0, v[1], 1, v[2], 2, ...]
 /// ```
-#[derive(Clone, Debug, Default)]
-pub struct IndexStep;
+#[derive(Clone, Debug)]
+pub struct IndexStep {
+    /// Counter for streaming execution (shared across clones)
+    counter: Arc<AtomicUsize>,
+}
+
+impl Default for IndexStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl IndexStep {
     /// Create a new IndexStep.
     pub fn new() -> Self {
-        Self
+        Self {
+            counter: Arc::new(AtomicUsize::new(0)),
+        }
     }
 }
 
@@ -527,12 +541,12 @@ impl crate::traversal::step::Step for IndexStep {
         _ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // STATEFUL STEP: IndexStep cannot truly stream because it requires a sequential counter
-        // to assign indices 0, 1, 2, ... to each traverser. In a true streaming model,
-        // traversers may be processed out of order or in parallel, making consistent
-        // index assignment impossible without coordination.
-        // Current behavior: pass-through (no indexing).
-        Box::new(std::iter::once(input))
+        // Atomically get the current index and increment for the next traverser
+        let idx = self.counter.fetch_add(1, Ordering::SeqCst);
+
+        // Wrap the value in a [value, index] list
+        let indexed = Value::List(vec![input.value.clone(), Value::Int(idx as i64)]);
+        Box::new(std::iter::once(input.split(indexed)))
     }
 }
 
@@ -2485,7 +2499,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = IndexStep;
+            let step = IndexStep::default();
             assert_eq!(step.name(), "index");
         }
 

@@ -496,7 +496,7 @@ cargo build --features "mmap,rhai"   # Multiple features
 cargo test                                      # Run default tests
 cargo test --features mmap                      # Include mmap tests
 cargo test --features rhai                      # Include Rhai scripting tests
-cargo test --features "inmemory,mmap,rhai"      # Run ALL tests (recommended)
+cargo test --features "mmap,rhai"               # Run ALL tests (recommended)
 cargo clippy -- -D warnings                     # Lint
 cargo fmt --check                               # Check formatting
 ```
