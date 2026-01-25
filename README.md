@@ -23,8 +23,14 @@ Add to your `Cargo.toml`:
 [dependencies]
 interstellar = "0.1"
 
+# With GQL query language:
+# interstellar = { version = "0.1", features = ["gql"] }
+
 # For persistent storage (memory-mapped files):
 # interstellar = { version = "0.1", features = ["mmap"] }
+
+# Everything enabled:
+# interstellar = { version = "0.1", features = ["full"] }
 ```
 
 ### Basic Usage
@@ -300,7 +306,12 @@ g.v().repeat(__.out("parent")).until(__.has_label("root"));
 
 ## GQL (Graph Query Language)
 
-Interstellar includes a full GQL implementation with SQL-like syntax for querying and mutating graphs.
+Interstellar includes a full GQL implementation with SQL-like syntax for querying and mutating graphs. Enable with the `gql` feature:
+
+```toml
+[dependencies]
+interstellar = { version = "0.1", features = ["gql"] }
+```
 
 ### Basic Queries
 
@@ -466,37 +477,52 @@ Run the included examples:
 
 ```bash
 # Gremlin-style traversals
-cargo run --example british_royals
+cargo run --example quickstart_gremlin
 cargo run --example marvel
-cargo run --example nba --features mmap
+cargo run --example nba --features mmap,gql
 
-# GQL queries
-cargo run --example gql
+# GQL queries (requires gql feature)
+cargo run --example quickstart_gql --features gql
 
 # Rhai scripting (requires rhai feature)
-cargo run --example rhai_scripting --features rhai
+cargo run --example scripting --features rhai
 
 # Persistence (requires mmap feature)
-cargo run --example persistence --features mmap
+cargo run --example storage --features mmap
 ```
+
+## Features
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `graphson` | GraphSON import/export | Yes |
+| `mmap` | Memory-mapped persistent storage | No |
+| `gql` | GQL query language | No |
+| `full-text` | Full-text search (Tantivy) | No |
+| `rhai` | Rhai scripting | No |
+| `full` | Enable all features | No |
+
+In-memory graph storage is always available as core functionality.
 
 ## Building
 
 ```bash
 cargo build                          # Debug build
 cargo build --release                # Release build
+cargo build --features gql           # With GQL query language
 cargo build --features mmap          # With mmap support
 cargo build --features rhai          # With Rhai scripting
-cargo build --features "mmap,rhai"   # Multiple features
+cargo build --features full          # All features
 ```
 
 ## Testing
 
 ```bash
 cargo test                                      # Run default tests
+cargo test --features gql                       # Include GQL tests
 cargo test --features mmap                      # Include mmap tests
 cargo test --features rhai                      # Include Rhai scripting tests
-cargo test --features "mmap,rhai"               # Run ALL tests (recommended)
+cargo test --features "gql,mmap,rhai"           # Run most tests (recommended)
 cargo clippy -- -D warnings                     # Lint
 cargo fmt --check                               # Check formatting
 ```
