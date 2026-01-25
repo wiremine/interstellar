@@ -2,7 +2,8 @@
 //!
 //! Comprehensive demonstration of GQL (Graph Query Language) features.
 //!
-//! This example showcases Interstellar's GQL capabilities using NBA data:
+//! This example showcases Interstellar's GQL capabilities using NBA data
+//! loaded from a GraphSON 3.0 fixture with embedded schema:
 //! - Basic queries: MATCH, RETURN, WHERE, ORDER BY, LIMIT
 //! - Pattern matching: single-hop, multi-hop, variable-length paths
 //! - Aggregations: count(), sum(), avg(), min(), max(), collect()
@@ -13,138 +14,27 @@
 //! - Mutations: CREATE, SET, DELETE, DETACH DELETE, MERGE
 //! - Parameters: $paramName, gql_with_params()
 //! - Advanced: inline WHERE, LET clause, list comprehensions, map literals
-//! - Schema and DDL
 //!
-//! Run: `cargo run --example nba --features mmap`
+//! Run: `cargo run --example nba`
 
+use interstellar::graphson;
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
 
 // =============================================================================
-// Data Loading
+// Data Loading (GraphSON Import)
 // =============================================================================
 
-fn load_nba_data(graph: &Graph) {
-    let json_str =
-        fs::read_to_string("examples/fixtures/nba.json").expect("Failed to read nba.json");
-    let data: JsonValue = serde_json::from_str(&json_str).expect("Failed to parse JSON");
-
-    let mut player_ids = HashMap::new();
-    let mut team_ids = HashMap::new();
-
-    // Load Teams
-    if let Some(teams) = data["teams"].as_array() {
-        for team in teams {
-            let json_id = team["id"].as_str().unwrap_or("unknown");
-            let mut props = HashMap::new();
-
-            for key in ["name", "city", "state", "arena", "conference", "division"] {
-                if let Some(v) = team[key].as_str() {
-                    props.insert(key.to_string(), Value::String(v.to_string()));
-                }
-            }
-            if let Some(v) = team["founded"].as_i64() {
-                props.insert("founded".to_string(), Value::Int(v));
-            }
-            if let Some(v) = team["defunct"].as_bool() {
-                props.insert("defunct".to_string(), Value::Bool(v));
-            }
-            if let Some(championships) = team["championships"].as_array() {
-                let values: Vec<Value> = championships
-                    .iter()
-                    .filter_map(|y| y.as_i64().map(Value::Int))
-                    .collect();
-                props.insert(
-                    "championship_count".to_string(),
-                    Value::Int(values.len() as i64),
-                );
-                props.insert("championships".to_string(), Value::List(values));
-            }
-
-            let vid = graph.add_vertex("team", props);
-            team_ids.insert(json_id.to_string(), vid);
-        }
-    }
-
-    // Load Players
-    if let Some(players) = data["players"].as_array() {
-        for player in players {
-            let json_id = player["id"].as_str().unwrap_or("unknown");
-            let mut props = HashMap::new();
-
-            if let Some(v) = player["name"].as_str() {
-                props.insert("name".to_string(), Value::String(v.to_string()));
-            }
-            if let Some(v) = player["position"].as_str() {
-                props.insert("position".to_string(), Value::String(v.to_string()));
-            }
-            if let Some(v) = player["height_inches"].as_i64() {
-                props.insert("height_inches".to_string(), Value::Int(v));
-            }
-            if let Some(v) = player["all_star_selections"].as_i64() {
-                props.insert("all_star_selections".to_string(), Value::Int(v));
-            }
-
-            // Flatten career stats
-            if let Some(stats) = player["career_stats"].as_object() {
-                for key in ["points_per_game", "rebounds_per_game", "assists_per_game"] {
-                    if let Some(v) = stats.get(key).and_then(|v| v.as_f64()) {
-                        props.insert(key.to_string(), Value::Float(v));
-                    }
-                }
-            }
-
-            // MVP counts
-            if let Some(mvps) = player["mvp_awards"].as_array() {
-                props.insert("mvp_count".to_string(), Value::Int(mvps.len() as i64));
-            }
-            if let Some(fmvps) = player["finals_mvp_awards"].as_array() {
-                props.insert(
-                    "finals_mvp_count".to_string(),
-                    Value::Int(fmvps.len() as i64),
-                );
-            }
-
-            let vid = graph.add_vertex("player", props);
-            player_ids.insert(json_id.to_string(), vid);
-        }
-    }
-
-    // Load played_for edges
-    if let Some(edges) = data["relationships"]["played_for"].as_array() {
-        for edge in edges {
-            let player_id = edge["player_id"].as_str().unwrap_or("");
-            let team_id = edge["team_id"].as_str().unwrap_or("");
-            if let (Some(&p), Some(&t)) = (player_ids.get(player_id), team_ids.get(team_id)) {
-                let mut props = HashMap::new();
-                if let Some(start) = edge["start_year"].as_i64() {
-                    props.insert("start_year".to_string(), Value::Int(start));
-                }
-                if let Some(end) = edge["end_year"].as_i64() {
-                    props.insert("end_year".to_string(), Value::Int(end));
-                }
-                let _ = graph.add_edge(p, t, "played_for", props);
-            }
-        }
-    }
-
-    // Load won_championship_with edges
-    if let Some(edges) = data["relationships"]["won_championship_with"].as_array() {
-        for edge in edges {
-            let player_id = edge["player_id"].as_str().unwrap_or("");
-            let team_id = edge["team_id"].as_str().unwrap_or("");
-            if let (Some(&p), Some(&t)) = (player_ids.get(player_id), team_ids.get(team_id)) {
-                let mut props = HashMap::new();
-                if let Some(years) = edge["years"].as_array() {
-                    props.insert("ring_count".to_string(), Value::Int(years.len() as i64));
-                }
-                let _ = graph.add_edge(p, t, "won_championship_with", props);
-            }
-        }
-    }
+/// Load the NBA graph from GraphSON 3.0 fixture.
+///
+/// The fixture includes both the graph data and schema definitions,
+/// demonstrating real-world GraphSON import capabilities.
+fn load_nba_graph() -> Graph {
+    let json_str = fs::read_to_string("examples/fixtures/nba.graphson.json")
+        .expect("Failed to read nba.graphson.json");
+    graphson::from_str(&json_str).expect("Failed to parse GraphSON")
 }
 
 // =============================================================================
@@ -199,80 +89,13 @@ fn main() {
     println!("=== NBA Graph Database Example ===");
     println!("Comprehensive GQL (Graph Query Language) Demonstration\n");
 
-    let graph = Graph::new();
-
     // =========================================================================
-    // Part 1: Schema and DDL
+    // Part 1: Load Data from GraphSON
     // =========================================================================
-    section("PART 1: SCHEMA AND DDL");
+    section("PART 1: LOAD DATA FROM GRAPHSON");
 
-    println!("\n--- CREATE NODE TYPE ---");
-    graph
-        .ddl("CREATE NODE TYPE player (name STRING NOT NULL, position STRING, height_inches INT, all_star_selections INT, points_per_game FLOAT, rebounds_per_game FLOAT, assists_per_game FLOAT, mvp_count INT, finals_mvp_count INT)")
-        .unwrap();
-    println!("Created: player (name STRING NOT NULL, position STRING, ...)");
-
-    graph
-        .ddl("CREATE NODE TYPE team (name STRING NOT NULL, city STRING, state STRING, arena STRING, conference STRING, division STRING, founded INT, defunct BOOL, championship_count INT, championships LIST)")
-        .unwrap();
-    println!("Created: team (name STRING NOT NULL, city STRING, ...)");
-
-    println!("\n--- CREATE EDGE TYPE ---");
-    graph
-        .ddl("CREATE EDGE TYPE played_for (start_year INT, end_year INT) FROM player TO team")
-        .unwrap();
-    println!("Created: played_for (start_year INT, end_year INT) FROM player TO team");
-
-    graph
-        .ddl("CREATE EDGE TYPE won_championship_with (ring_count INT) FROM player TO team")
-        .unwrap();
-    println!("Created: won_championship_with (ring_count INT) FROM player TO team");
-
-    println!("\n--- SET SCHEMA VALIDATION ---");
-    graph.ddl("SET SCHEMA VALIDATION STRICT").unwrap();
-    println!("Set: STRICT mode - schema violations will be rejected");
-
-    // Show schema info
-    if let Some(schema) = graph.schema() {
-        println!("\nSchema summary:");
-        println!(
-            "  Vertex types: {:?}",
-            schema.vertex_labels().collect::<Vec<_>>()
-        );
-        println!(
-            "  Edge types: {:?}",
-            schema.edge_labels().collect::<Vec<_>>()
-        );
-        println!("  Validation mode: {:?}", schema.mode);
-    }
-
-    println!("\n--- Schema Validation Demo ---");
-    // Try to create a vertex with wrong type for a property
-    let invalid_result = graph.gql("CREATE (:player {name: 123})"); // name should be STRING
-    match invalid_result {
-        Err(e) => println!("Caught schema violation (wrong type): {}", e),
-        Ok(_) => println!("  (validation not enforced for this case)"),
-    }
-
-    // Try to create a vertex missing a NOT NULL property
-    let missing_required = graph.gql("CREATE (:player {position: 'Guard'})"); // missing name
-    match missing_required {
-        Err(e) => println!("Caught schema violation (missing required): {}", e),
-        Ok(_) => println!("  (validation not enforced for this case)"),
-    }
-
-    // Try to create an edge with invalid endpoints
-    let invalid_edge = graph.gql("CREATE (:team {name: 'T1'})-[:played_for]->(:team {name: 'T2'})");
-    match invalid_edge {
-        Err(e) => println!("Caught schema violation (invalid edge): {}", e),
-        Ok(_) => println!("  (validation not enforced for this case)"),
-    }
-
-    // =========================================================================
-    // Load Data (validated against schema)
-    // =========================================================================
-    println!("\n--- Loading NBA Data ---");
-    load_nba_data(&graph);
+    println!("\n--- Loading NBA Graph from GraphSON ---");
+    let graph = load_nba_graph();
 
     // Graph statistics using GQL
     let players: i64 = match &graph.gql("MATCH (p:player) RETURN count(*)").unwrap()[0] {
@@ -286,6 +109,7 @@ fn main() {
         _ => 0,
     };
     println!("Graph loaded: {} players, {} teams", players, teams);
+    println!("(Schema embedded in GraphSON fixture)");
 
     // =========================================================================
     // Part 2: Basic GQL Queries
@@ -738,10 +562,9 @@ fn main() {
     // =========================================================================
     section("SUMMARY: GQL FEATURES DEMONSTRATED");
 
-    println!("\nSchema/DDL:");
-    println!("  CREATE NODE TYPE / CREATE EDGE TYPE");
-    println!("  SET SCHEMA VALIDATION STRICT");
-    println!("  Schema validation catches type errors and missing required fields");
+    println!("\nData Loading:");
+    println!("  GraphSON 3.0 import with embedded schema");
+    println!("  graphson::from_str() for deserializing graph data");
 
     println!("\nBasic Queries:");
     println!("  MATCH (p:player) RETURN p.name");

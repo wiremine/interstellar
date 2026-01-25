@@ -2,212 +2,30 @@
 //!
 //! Comprehensive demonstration of Gremlin-style traversal features.
 //!
-//! This example loads the Marvel Universe dataset containing characters (heroes,
-//! villains, antiheroes), teams, and locations with rich relationship data. It
-//! showcases all major Gremlin traversal features.
+//! This example loads the Marvel Universe dataset from a GraphSON 3.0 fixture
+//! containing characters (heroes, villains, antiheroes), teams, and locations
+//! with rich relationship data. It showcases all major Gremlin traversal features.
 //!
 //! Run with: `cargo run --example marvel`
 
+use interstellar::graphson;
 use interstellar::storage::{Graph, GraphSnapshot, GraphStorage};
 use interstellar::traversal::{p, __};
-use interstellar::value::{Value, VertexId};
-use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use interstellar::value::Value;
 use std::fs;
 
 // =============================================================================
-// Part 1: Data Loading
+// Part 1: Data Loading (GraphSON Import)
 // =============================================================================
 
-/// ID mappings for looking up vertices by their JSON IDs
-struct IdMappings {
-    characters: HashMap<String, VertexId>,
-    teams: HashMap<String, VertexId>,
-    locations: HashMap<String, VertexId>,
-}
-
-/// Load the Marvel Universe JSON fixture and build the graph.
-fn load_marvel_graph() -> (Graph, IdMappings) {
-    let json_str =
-        fs::read_to_string("examples/fixtures/marvel.json").expect("Failed to read marvel.json");
-    let data: JsonValue = serde_json::from_str(&json_str).expect("Failed to parse JSON");
-
-    let graph = Graph::new();
-    let mut mappings = IdMappings {
-        characters: HashMap::new(),
-        teams: HashMap::new(),
-        locations: HashMap::new(),
-    };
-
-    // Load Characters
-    if let Some(characters) = data["nodes"]["characters"].as_array() {
-        for c in characters {
-            let json_id = c["id"].as_str().unwrap_or("unknown");
-            let mut props = HashMap::new();
-            for key in ["name", "alias", "type", "base"] {
-                if let Some(v) = c[key].as_str() {
-                    props.insert(key.to_string(), Value::String(v.to_string()));
-                }
-            }
-            if let Some(v) = c["first_appearance"].as_i64() {
-                props.insert("first_appearance".to_string(), Value::Int(v));
-            }
-            if let Some(powers) = c["powers"].as_array() {
-                let values: Vec<Value> = powers
-                    .iter()
-                    .filter_map(|p| p.as_str().map(|s| Value::String(s.to_string())))
-                    .collect();
-                if !values.is_empty() {
-                    props.insert("powers".to_string(), Value::List(values));
-                }
-            }
-            if let Some(affiliations) = c["affiliation"].as_array() {
-                let values: Vec<Value> = affiliations
-                    .iter()
-                    .filter_map(|a| a.as_str().map(|s| Value::String(s.to_string())))
-                    .collect();
-                if !values.is_empty() {
-                    props.insert("affiliation".to_string(), Value::List(values));
-                }
-            }
-            let vid = graph.add_vertex("character", props);
-            mappings.characters.insert(json_id.to_string(), vid);
-        }
-    }
-
-    // Load Teams
-    if let Some(teams) = data["nodes"]["teams"].as_array() {
-        for t in teams {
-            let json_id = t["id"].as_str().unwrap_or("unknown");
-            let mut props = HashMap::new();
-            for key in ["name", "type", "base", "purpose"] {
-                if let Some(v) = t[key].as_str() {
-                    props.insert(key.to_string(), Value::String(v.to_string()));
-                }
-            }
-            if let Some(v) = t["founded"].as_i64() {
-                props.insert("founded".to_string(), Value::Int(v));
-            }
-            let vid = graph.add_vertex("team", props);
-            mappings.teams.insert(json_id.to_string(), vid);
-        }
-    }
-
-    // Load Locations
-    if let Some(locations) = data["nodes"]["locations"].as_array() {
-        for loc in locations {
-            let json_id = loc["id"].as_str().unwrap_or("unknown");
-            let mut props = HashMap::new();
-            if let Some(v) = loc["name"].as_str() {
-                props.insert("name".to_string(), Value::String(v.to_string()));
-            }
-            if let Some(v) = loc["type"].as_str() {
-                props.insert("location_type".to_string(), Value::String(v.to_string()));
-            }
-            let vid = graph.add_vertex("location", props);
-            mappings.locations.insert(json_id.to_string(), vid);
-        }
-    }
-
-    // Load edges with helper macro
-    macro_rules! load_edges {
-        ($edge_type:expr, $source_map:expr, $target_map:expr, $props:expr) => {
-            if let Some(edges) = data["edges"][$edge_type].as_array() {
-                for e in edges {
-                    let source = e["source"].as_str().unwrap_or("");
-                    let target = e["target"].as_str().unwrap_or("");
-                    let src = $source_map(source, &mappings);
-                    let dst = $target_map(target, &mappings);
-                    if let (Some(s), Some(d)) = (src, dst) {
-                        let props: HashMap<String, Value> = $props(e);
-                        let _ = graph.add_edge(s, d, $edge_type, props);
-                    }
-                }
-            }
-        };
-    }
-
-    let char_lookup = |id: &str, m: &IdMappings| m.characters.get(id).copied();
-    let team_lookup = |id: &str, m: &IdMappings| m.teams.get(id).copied();
-    let loc_lookup = |id: &str, m: &IdMappings| m.locations.get(id).copied();
-    let char_or_team = |id: &str, m: &IdMappings| {
-        m.characters
-            .get(id)
-            .copied()
-            .or_else(|| m.teams.get(id).copied())
-    };
-    let team_or_char = |id: &str, m: &IdMappings| {
-        m.teams
-            .get(id)
-            .copied()
-            .or_else(|| m.characters.get(id).copied())
-    };
-
-    load_edges!("member_of", char_lookup, team_lookup, |e: &JsonValue| {
-        let mut p = HashMap::new();
-        if let Some(v) = e["role"].as_str() {
-            p.insert("role".to_string(), Value::String(v.to_string()));
-        }
-        if let Some(v) = e["joined"].as_i64() {
-            p.insert("joined".to_string(), Value::Int(v));
-        }
-        p
-    });
-
-    load_edges!("rivals_with", char_lookup, char_or_team, |e: &JsonValue| {
-        let mut p = HashMap::new();
-        if let Some(v) = e["rivalry_type"].as_str() {
-            p.insert("rivalry_type".to_string(), Value::String(v.to_string()));
-        }
-        if let Some(v) = e["since"].as_i64() {
-            p.insert("since".to_string(), Value::Int(v));
-        }
-        p
-    });
-
-    load_edges!("allies_with", char_lookup, char_lookup, |e: &JsonValue| {
-        let mut p = HashMap::new();
-        if let Some(v) = e["alliance_type"].as_str() {
-            p.insert("alliance_type".to_string(), Value::String(v.to_string()));
-        }
-        if let Some(v) = e["strength"].as_str() {
-            p.insert("strength".to_string(), Value::String(v.to_string()));
-        }
-        p
-    });
-
-    load_edges!("mentors", char_lookup, char_lookup, |e: &JsonValue| {
-        let mut p = HashMap::new();
-        if let Some(v) = e["mentorship_type"].as_str() {
-            p.insert("mentorship_type".to_string(), Value::String(v.to_string()));
-        }
-        if let Some(v) = e["period"].as_str() {
-            p.insert("period".to_string(), Value::String(v.to_string()));
-        }
-        p
-    });
-
-    load_edges!("related_to", char_lookup, char_lookup, |e: &JsonValue| {
-        let mut p = HashMap::new();
-        if let Some(v) = e["relationship"].as_str() {
-            p.insert("relationship".to_string(), Value::String(v.to_string()));
-        }
-        p
-    });
-
-    load_edges!("works_for", char_lookup, char_or_team, |e: &JsonValue| {
-        let mut p = HashMap::new();
-        if let Some(v) = e["role"].as_str() {
-            p.insert("role".to_string(), Value::String(v.to_string()));
-        }
-        p
-    });
-
-    load_edges!("located_in", team_or_char, loc_lookup, |_: &JsonValue| {
-        HashMap::new()
-    });
-
-    (graph, mappings)
+/// Load the Marvel Universe graph from GraphSON 3.0 fixture.
+///
+/// The fixture includes both the graph data and schema definitions,
+/// demonstrating real-world GraphSON import capabilities.
+fn load_marvel_graph() -> Graph {
+    let json_str = fs::read_to_string("examples/fixtures/marvel.graphson.json")
+        .expect("Failed to read marvel.graphson.json");
+    graphson::from_str(&json_str).expect("Failed to parse GraphSON")
 }
 
 // =============================================================================
@@ -262,7 +80,7 @@ fn print_query(desc: &str) {
 
 fn main() {
     println!("=== Marvel Universe Graph - Gremlin Features Demo ===");
-    let (graph, _) = load_marvel_graph();
+    let graph = load_marvel_graph();
     let snapshot = graph.snapshot();
     let g = snapshot.gremlin();
 

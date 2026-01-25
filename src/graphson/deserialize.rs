@@ -132,15 +132,55 @@ fn json_to_value(json: &JsonValue) -> Result<Value> {
 }
 
 /// Deserialize a GraphSON string into a Graph.
+///
+/// This function handles both plain `tinker:graph` format and the
+/// `interstellar:GraphWithSchema` wrapper format.
 pub fn from_json_str(json: &str) -> Result<Graph> {
-    let typed_graph: TypedGraph = serde_json::from_str(json)?;
-    deserialize_graph(typed_graph.value)
+    // First, parse as generic JSON to check the type tag
+    let json_value: JsonValue = serde_json::from_str(json)?;
+
+    let typed_graph = extract_graph_from_json(&json_value)?;
+    deserialize_graph(typed_graph)
 }
 
 /// Deserialize from a reader.
+///
+/// This function handles both plain `tinker:graph` format and the
+/// `interstellar:GraphWithSchema` wrapper format.
 pub fn from_reader<R: std::io::Read>(reader: R) -> Result<Graph> {
-    let typed_graph: TypedGraph = serde_json::from_reader(reader)?;
-    deserialize_graph(typed_graph.value)
+    // First, parse as generic JSON to check the type tag
+    let json_value: JsonValue = serde_json::from_reader(reader)?;
+
+    let typed_graph = extract_graph_from_json(&json_value)?;
+    deserialize_graph(typed_graph)
+}
+
+/// Extract the graph from JSON, handling both `tinker:graph` and
+/// `interstellar:GraphWithSchema` wrapper formats.
+fn extract_graph_from_json(json_value: &JsonValue) -> Result<GraphSONGraph> {
+    let type_tag = json_value
+        .get("@type")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| GraphSONError::MissingField("@type".to_string()))?;
+
+    match type_tag {
+        "tinker:graph" => {
+            // Direct graph format
+            let typed_graph: TypedGraph = serde_json::from_value(json_value.clone())?;
+            Ok(typed_graph.value)
+        }
+        "interstellar:GraphWithSchema" => {
+            // Wrapper format with schema - extract the graph portion
+            let graph_json = json_value
+                .get("@value")
+                .and_then(|v| v.get("graph"))
+                .ok_or_else(|| GraphSONError::MissingField("@value.graph".to_string()))?;
+
+            let typed_graph: TypedGraph = serde_json::from_value(graph_json.clone())?;
+            Ok(typed_graph.value)
+        }
+        other => Err(GraphSONError::UnknownTypeTag(other.to_string())),
+    }
 }
 
 /// Deserialize a GraphSONGraph into a Graph.
