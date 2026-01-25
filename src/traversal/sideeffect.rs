@@ -30,7 +30,11 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
+
+use parking_lot::RwLock;
 
 use crate::traversal::context::ExecutionContext;
 use crate::traversal::step::{execute_traversal_from, Step};
@@ -539,9 +543,13 @@ impl Step for SideEffectStep {
 /// let profile = ctx.side_effects.get("step1");
 /// // Contains: {"count": 10, "time_ms": 1.5}
 /// ```
-#[derive(Clone, Debug, Default)]
+#[derive(Clone)]
 pub struct ProfileStep {
     key: Option<String>,
+    /// Atomic counter for streaming execution (shared across clones)
+    streaming_count: Arc<AtomicU64>,
+    /// Start time for streaming execution (set on first traverser)
+    streaming_start: Arc<RwLock<Option<Instant>>>,
 }
 
 impl ProfileStep {
@@ -553,7 +561,11 @@ impl ProfileStep {
     /// let step = ProfileStep::new();
     /// ```
     pub fn new() -> Self {
-        Self { key: None }
+        Self {
+            key: None,
+            streaming_count: Arc::new(AtomicU64::new(0)),
+            streaming_start: Arc::new(RwLock::new(None)),
+        }
     }
 
     /// Create a ProfileStep with a specific key.
@@ -570,12 +582,32 @@ impl ProfileStep {
     pub fn with_key(key: impl Into<String>) -> Self {
         Self {
             key: Some(key.into()),
+            streaming_count: Arc::new(AtomicU64::new(0)),
+            streaming_start: Arc::new(RwLock::new(None)),
         }
     }
 
     /// Get the key this step stores profile data under.
     pub fn key(&self) -> Option<&str> {
         self.key.as_deref()
+    }
+}
+
+impl Default for ProfileStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ProfileStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProfileStep")
+            .field("key", &self.key)
+            .field(
+                "streaming_count",
+                &self.streaming_count.load(Ordering::Relaxed),
+            )
+            .finish()
     }
 }
 
@@ -608,13 +640,43 @@ impl Step for ProfileStep {
 
     fn apply_streaming(
         &self,
-        _ctx: crate::traversal::context::StreamingContext,
+        ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // Note: ProfileStep requires collecting count and timing across all traversers,
-        // which cannot be done in a per-traverser streaming model without shared state.
-        // In streaming mode, we simply pass through the traverser without profiling.
-        // Full profiling requires the batch execution path.
+        // Initialize start time on first traverser (only once)
+        {
+            let mut start_guard = self.streaming_start.write();
+            if start_guard.is_none() {
+                *start_guard = Some(Instant::now());
+            }
+        }
+
+        // Atomically increment the traverser count
+        let count = self.streaming_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Calculate elapsed time
+        let elapsed_ms = {
+            let start_guard = self.streaming_start.read();
+            start_guard
+                .map(|start| start.elapsed().as_secs_f64() * 1000.0)
+                .unwrap_or(0.0)
+        };
+
+        // Store current profile state in side effects
+        // Note: This updates on each traverser, so the final state reflects all traversers
+        let key = self.key.clone().unwrap_or_else(|| "profile".to_string());
+        let profile = Value::Map({
+            let mut m = HashMap::new();
+            m.insert("count".to_string(), Value::Int(count as i64));
+            m.insert("time_ms".to_string(), Value::Float(elapsed_ms));
+            m
+        });
+
+        // Clear previous profile data and store current state
+        // We use a special streaming profile key pattern
+        ctx.side_effects()
+            .store(&format!("{}_streaming", key), profile);
+
         Box::new(std::iter::once(input))
     }
 }
@@ -1604,6 +1666,278 @@ mod tests {
             let debug_str = format!("{:?}", step);
             assert!(debug_str.contains("ProfileStep"));
             assert!(debug_str.contains("debug_test"));
+        }
+    }
+
+    mod streaming_tests {
+        use super::*;
+        use crate::traversal::context::StreamingContext;
+        use crate::traversal::step::Step;
+        use crate::traversal::SnapshotLike;
+
+        fn create_test_graph() -> Graph {
+            let graph = Graph::new();
+
+            graph.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+            graph.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props.insert("age".to_string(), Value::Int(25));
+                props
+            });
+            graph.add_vertex("software", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Graph DB".to_string()));
+                props
+            });
+
+            graph
+        }
+
+        #[test]
+        fn store_step_streaming_stores_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = StoreStep::new("streamed");
+
+            // Process traversers one at a time (streaming style)
+            let inputs = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+
+            let mut outputs = vec![];
+            for input in inputs {
+                let result: Vec<_> = Step::apply_streaming(&step, ctx.clone(), input).collect();
+                outputs.extend(result);
+            }
+
+            // All values should be stored
+            let stored = ctx.side_effects().get("streamed").unwrap();
+            assert_eq!(stored.len(), 3);
+            assert_eq!(stored[0], Value::Int(1));
+            assert_eq!(stored[1], Value::Int(2));
+            assert_eq!(stored[2], Value::Int(3));
+
+            // All traversers should pass through
+            assert_eq!(outputs.len(), 3);
+        }
+
+        #[test]
+        fn store_step_streaming_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+
+            // Eager execution
+            let eager_ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+            let step = StoreStep::new("items");
+            let input = vec![Traverser::new(Value::Int(42))];
+            let _: Vec<_> = Step::apply(&step, &eager_ctx, Box::new(input.into_iter())).collect();
+            let eager_stored = eager_ctx.side_effects.get("items").unwrap();
+
+            // Streaming execution
+            let streaming_ctx =
+                StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+            let step = StoreStep::new("items");
+            let _: Vec<_> =
+                Step::apply_streaming(&step, streaming_ctx.clone(), Traverser::new(Value::Int(42)))
+                    .collect();
+            let streaming_stored = streaming_ctx.side_effects().get("items").unwrap();
+
+            assert_eq!(eager_stored, streaming_stored);
+        }
+
+        #[test]
+        fn aggregate_step_streaming_stores_values() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = AggregateStep::new("collected");
+
+            // Process traversers streaming style
+            let inputs = vec![
+                Traverser::new(Value::String("a".to_string())),
+                Traverser::new(Value::String("b".to_string())),
+            ];
+
+            for input in inputs {
+                let _: Vec<_> = Step::apply_streaming(&step, ctx.clone(), input).collect();
+            }
+
+            // Values should be stored
+            let stored = ctx.side_effects().get("collected").unwrap();
+            assert_eq!(stored.len(), 2);
+        }
+
+        #[test]
+        fn side_effect_step_streaming_executes_sub_traversal() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            // Create a sub-traversal that stores values
+            let sub = Traversal::<Value, Value>::new().add_step(StoreStep::new("side_stored"));
+            let step = SideEffectStep::new(sub);
+
+            let input = Traverser::new(Value::Int(99));
+            let output: Vec<_> = Step::apply_streaming(&step, ctx.clone(), input).collect();
+
+            // Original traverser passes through
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Int(99));
+
+            // Side effect should have stored the value
+            let stored = ctx.side_effects().get("side_stored").unwrap();
+            assert_eq!(stored.len(), 1);
+            assert_eq!(stored[0], Value::Int(99));
+        }
+
+        #[test]
+        fn cap_step_streaming_retrieves_side_effects() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            // Pre-store values
+            ctx.side_effects().store("data", Value::Int(1));
+            ctx.side_effects().store("data", Value::Int(2));
+
+            let step = CapStep::new("data");
+            let output: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Null)).collect();
+
+            assert_eq!(output.len(), 1);
+            match &output[0].value {
+                Value::List(values) => {
+                    assert_eq!(values.len(), 2);
+                    assert_eq!(values[0], Value::Int(1));
+                    assert_eq!(values[1], Value::Int(2));
+                }
+                _ => panic!("Expected List"),
+            }
+        }
+
+        #[test]
+        fn profile_step_streaming_tracks_count() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = ProfileStep::with_key("profile_test");
+
+            // Process multiple traversers
+            for i in 0..5 {
+                let _: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(i)))
+                        .collect();
+            }
+
+            // Check streaming profile data
+            let profile = ctx.side_effects().get("profile_test_streaming").unwrap();
+
+            // Should have 5 entries (one per traverser update)
+            assert_eq!(profile.len(), 5);
+
+            // Last entry should have count=5
+            if let Value::Map(map) = &profile[4] {
+                assert_eq!(map.get("count"), Some(&Value::Int(5)));
+                // Time should be present and non-negative
+                if let Some(Value::Float(time_ms)) = map.get("time_ms") {
+                    assert!(*time_ms >= 0.0);
+                } else {
+                    panic!("Expected time_ms to be Float");
+                }
+            } else {
+                panic!("Expected Map");
+            }
+        }
+
+        #[test]
+        fn profile_step_streaming_passes_through_unchanged() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = ProfileStep::new();
+
+            let mut t = Traverser::from_vertex(VertexId(42));
+            t.extend_path_labeled("test");
+            t.loops = 3;
+
+            let output: Vec<_> = Step::apply_streaming(&step, ctx.clone(), t).collect();
+
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].value, Value::Vertex(VertexId(42)));
+            assert!(output[0].path.has_label("test"));
+            assert_eq!(output[0].loops, 3);
+        }
+
+        #[test]
+        fn streaming_context_shares_side_effects_across_clones() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            // Clone the context
+            let ctx_clone = ctx.clone();
+
+            // Store via original
+            ctx.side_effects().store("shared", Value::Int(1));
+
+            // Store via clone
+            ctx_clone.side_effects().store("shared", Value::Int(2));
+
+            // Both should see the same data
+            let original_view = ctx.side_effects().get("shared").unwrap();
+            let clone_view = ctx_clone.side_effects().get("shared").unwrap();
+
+            assert_eq!(original_view, clone_view);
+            assert_eq!(original_view.len(), 2);
+        }
+
+        #[test]
+        fn index_step_streaming_increments_counter() {
+            use crate::traversal::transform::metadata::IndexStep;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = IndexStep::new();
+
+            // Process multiple traversers
+            let mut results = vec![];
+            for i in 0..3 {
+                let output: Vec<_> = Step::apply_streaming(
+                    &step,
+                    ctx.clone(),
+                    Traverser::new(Value::String(format!("item_{}", i))),
+                )
+                .collect();
+                results.extend(output);
+            }
+
+            assert_eq!(results.len(), 3);
+
+            // Check indices are sequential
+            for (i, result) in results.iter().enumerate() {
+                match &result.value {
+                    Value::List(parts) => {
+                        assert_eq!(parts.len(), 2);
+                        assert_eq!(parts[1], Value::Int(i as i64));
+                    }
+                    _ => panic!("Expected List"),
+                }
+            }
         }
     }
 }

@@ -3144,10 +3144,10 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     pub fn count(self) -> u64 {
         if self.traversal.has_barrier() {
             // Barrier steps require eager execution
-            self.execute().map(|t| t.bulk as u64).sum()
+            self.execute().map(|t| t.bulk).sum()
         } else {
             // Stream through and sum bulk values - O(1) memory
-            self.streaming_execute().map(|t| t.bulk as u64).sum()
+            self.streaming_execute().map(|t| t.bulk).sum()
         }
     }
 

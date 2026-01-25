@@ -1905,7 +1905,7 @@ fn apply_step_cow<'g, In>(
         RhaiStep::HasWhere(key, pred) => {
             bound.add_step(HasWhereStep::new(key.clone(), pred.clone()))
         }
-        RhaiStep::Dedup => bound.add_step(DedupStep),
+        RhaiStep::Dedup => bound.add_step(DedupStep::new()),
         RhaiStep::Limit(n) => bound.add_step(LimitStep::new(*n)),
         RhaiStep::Skip(n) => bound.add_step(SkipStep::new(*n)),
         RhaiStep::Range(start, end) => bound.add_step(RangeStep::new(*start, *end)),
@@ -2188,7 +2188,7 @@ fn apply_step_mmap<'g, In>(
         RhaiStep::HasWhere(key, pred) => {
             bound.add_step(HasWhereStep::new(key.clone(), pred.clone()))
         }
-        RhaiStep::Dedup => bound.add_step(DedupStep),
+        RhaiStep::Dedup => bound.add_step(DedupStep::new()),
         RhaiStep::Limit(n) => bound.add_step(LimitStep::new(*n)),
         RhaiStep::Skip(n) => bound.add_step(SkipStep::new(*n)),
         RhaiStep::Range(start, end) => bound.add_step(RangeStep::new(*start, *end)),
@@ -2470,7 +2470,7 @@ fn apply_anonymous_step(
         RhaiStep::HasWhere(key, pred) => {
             traversal.add_step(HasWhereStep::new(key.clone(), pred.clone()))
         }
-        RhaiStep::Dedup => traversal.add_step(DedupStep),
+        RhaiStep::Dedup => traversal.add_step(DedupStep::new()),
         RhaiStep::Limit(n) => traversal.add_step(LimitStep::new(*n)),
         RhaiStep::Skip(n) => traversal.add_step(SkipStep::new(*n)),
         RhaiStep::Range(start, end) => traversal.add_step(RangeStep::new(*start, *end)),

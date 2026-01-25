@@ -12,9 +12,11 @@
 //! - `HasIdStep`: Filters elements by ID
 //! - `FilterStep`: Generic filter with custom predicate
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 use crate::impl_filter_step;
 use crate::traversal::step::Step;
@@ -518,13 +520,18 @@ where
 /// This step maintains internal state (a `HashSet` of seen values) which is
 /// created fresh each time the step is applied. This means cloning a traversal
 /// with a `DedupStep` will result in independent deduplication state.
-#[derive(Clone, Debug, Copy)]
-pub struct DedupStep;
+#[derive(Clone, Debug)]
+pub struct DedupStep {
+    /// Shared set for streaming execution (shared across clones)
+    seen: Arc<RwLock<HashSet<Value>>>,
+}
 
 impl DedupStep {
     /// Create a new DedupStep.
     pub fn new() -> Self {
-        Self
+        Self {
+            seen: Arc::new(RwLock::new(HashSet::new())),
+        }
     }
 }
 
@@ -578,10 +585,17 @@ impl Step for DedupStep {
         _ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // DedupStep requires mutable state (HashSet) across traversers
-        // In streaming mode, we pass through - dedup needs barrier-like behavior
-        // TODO: Implement with shared mutable state
-        Box::new(std::iter::once(input))
+        // Use shared RwLock<HashSet> for streaming deduplication
+        // Check if value is already seen, if not, insert and pass through
+        let mut seen = self.seen.write();
+        if seen.contains(&input.value) {
+            // Already seen, filter out
+            Box::new(std::iter::empty())
+        } else {
+            // New value, insert and pass through
+            seen.insert(input.value.clone());
+            Box::new(std::iter::once(input))
+        }
     }
 }
 
@@ -611,6 +625,8 @@ impl Step for DedupStep {
 pub struct DedupByKeyStep {
     /// The property key to use for deduplication
     key: String,
+    /// Shared set for streaming execution (shared across clones)
+    seen: Arc<RwLock<HashSet<Value>>>,
 }
 
 impl DedupByKeyStep {
@@ -620,7 +636,10 @@ impl DedupByKeyStep {
     ///
     /// * `key` - The property key to extract and use for deduplication
     pub fn new(key: impl Into<String>) -> Self {
-        Self { key: key.into() }
+        Self {
+            key: key.into(),
+            seen: Arc::new(RwLock::new(HashSet::new())),
+        }
     }
 
     /// Extract the property value from a traverser's element.
@@ -628,6 +647,24 @@ impl DedupByKeyStep {
     /// Returns `Value::Null` if the element doesn't have the property
     /// or if the traverser value is not an element.
     fn extract_key(&self, ctx: &ExecutionContext, traverser: &Traverser) -> Value {
+        match &traverser.value {
+            Value::Vertex(id) => ctx
+                .storage()
+                .get_vertex(*id)
+                .and_then(|v| v.properties.get(&self.key).cloned())
+                .unwrap_or(Value::Null),
+            Value::Edge(id) => ctx
+                .storage()
+                .get_edge(*id)
+                .and_then(|e| e.properties.get(&self.key).cloned())
+                .unwrap_or(Value::Null),
+            // Non-element values don't have properties, use Null
+            _ => Value::Null,
+        }
+    }
+
+    /// Extract the property value using StreamingContext.
+    fn extract_key_streaming(&self, ctx: &StreamingContext, traverser: &Traverser) -> Value {
         match &traverser.value {
             Value::Vertex(id) => ctx
                 .storage()
@@ -673,12 +710,22 @@ impl Step for DedupByKeyStep {
 
     fn apply_streaming(
         &self,
-        _ctx: crate::traversal::context::StreamingContext,
+        ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // DedupByKeyStep requires mutable state across traversers
-        // TODO: Implement with shared mutable state
-        Box::new(std::iter::once(input))
+        // Extract the key using streaming context
+        let key = self.extract_key_streaming(&ctx, &input);
+
+        // Use shared RwLock<HashSet> for streaming deduplication
+        let mut seen = self.seen.write();
+        if seen.contains(&key) {
+            // Already seen this key, filter out
+            Box::new(std::iter::empty())
+        } else {
+            // New key, insert and pass through
+            seen.insert(key);
+            Box::new(std::iter::once(input))
+        }
     }
 }
 
@@ -699,19 +746,42 @@ impl Step for DedupByKeyStep {
 /// // Keep only one element per label
 /// let one_per_label = g.v().dedup_by_label().to_list();
 /// ```
-#[derive(Clone, Debug, Copy)]
-pub struct DedupByLabelStep;
+#[derive(Clone, Debug)]
+pub struct DedupByLabelStep {
+    /// Shared set for streaming execution (shared across clones)
+    seen: Arc<RwLock<HashSet<String>>>,
+}
 
 impl DedupByLabelStep {
     /// Create a new DedupByLabelStep.
     pub fn new() -> Self {
-        Self
+        Self {
+            seen: Arc::new(RwLock::new(HashSet::new())),
+        }
     }
 
     /// Extract the label from a traverser's element.
     ///
     /// Returns an empty string if the traverser value is not an element.
     fn extract_label(&self, ctx: &ExecutionContext, traverser: &Traverser) -> String {
+        match &traverser.value {
+            Value::Vertex(id) => ctx
+                .storage()
+                .get_vertex(*id)
+                .map(|v| v.label.clone())
+                .unwrap_or_default(),
+            Value::Edge(id) => ctx
+                .storage()
+                .get_edge(*id)
+                .map(|e| e.label.clone())
+                .unwrap_or_default(),
+            // Non-element values don't have labels
+            _ => String::new(),
+        }
+    }
+
+    /// Extract the label using StreamingContext.
+    fn extract_label_streaming(&self, ctx: &StreamingContext, traverser: &Traverser) -> String {
         match &traverser.value {
             Value::Vertex(id) => ctx
                 .storage()
@@ -763,12 +833,22 @@ impl Step for DedupByLabelStep {
 
     fn apply_streaming(
         &self,
-        _ctx: crate::traversal::context::StreamingContext,
+        ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // DedupByLabelStep requires mutable state across traversers
-        // TODO: Implement with shared mutable state
-        Box::new(std::iter::once(input))
+        // Extract the label using streaming context
+        let label = self.extract_label_streaming(&ctx, &input);
+
+        // Use shared RwLock<HashSet> for streaming deduplication
+        let mut seen = self.seen.write();
+        if seen.contains(&label) {
+            // Already seen this label, filter out
+            Box::new(std::iter::empty())
+        } else {
+            // New label, insert and pass through
+            seen.insert(label);
+            Box::new(std::iter::once(input))
+        }
     }
 }
 
@@ -803,6 +883,8 @@ impl Step for DedupByLabelStep {
 pub struct DedupByTraversalStep {
     /// The sub-traversal to execute for each element to get the dedup key
     sub: crate::traversal::Traversal<Value, Value>,
+    /// Shared set for streaming execution (shared across clones)
+    seen: Arc<RwLock<HashSet<Value>>>,
 }
 
 impl DedupByTraversalStep {
@@ -812,7 +894,10 @@ impl DedupByTraversalStep {
     ///
     /// * `sub` - The sub-traversal to execute for each element
     pub fn new(sub: crate::traversal::Traversal<Value, Value>) -> Self {
-        Self { sub }
+        Self {
+            sub,
+            seen: Arc::new(RwLock::new(HashSet::new())),
+        }
     }
 
     /// Execute the sub-traversal and get the first result as the dedup key.
@@ -823,6 +908,14 @@ impl DedupByTraversalStep {
 
         let sub_input = Box::new(std::iter::once(traverser.clone()));
         let mut results = execute_traversal_from(ctx, &self.sub, sub_input);
+        results.next().map(|t| t.value).unwrap_or(Value::Null)
+    }
+
+    /// Execute the sub-traversal using StreamingContext and get the first result as the dedup key.
+    fn extract_key_streaming(&self, ctx: &StreamingContext, traverser: &Traverser) -> Value {
+        use crate::traversal::step::execute_traversal_streaming;
+
+        let mut results = execute_traversal_streaming(ctx, &self.sub, traverser.clone());
         results.next().map(|t| t.value).unwrap_or(Value::Null)
     }
 }
@@ -863,16 +956,20 @@ impl Step for DedupByTraversalStep {
 
     fn apply_streaming(
         &self,
-        _ctx: crate::traversal::context::StreamingContext,
+        ctx: crate::traversal::context::StreamingContext,
         input: Traverser,
     ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
-        // STATEFUL STEP: DedupByTraversalStep requires shared mutable state (HashSet of seen values)
-        // and executing a sub-traversal to extract the dedup key. True streaming would require:
-        // 1. Thread-safe shared HashSet across all traversers in the pipeline
-        // 2. Streaming sub-traversal execution for the key extraction
-        // The simpler DedupStep (by value) does stream correctly.
-        // Current behavior: pass-through (no deduplication).
-        Box::new(std::iter::once(input))
+        // Extract the dedup key using streaming sub-traversal execution
+        let key = self.extract_key_streaming(&ctx, &input);
+
+        // Use the shared HashSet to check for duplicates
+        let mut seen = self.seen.write();
+        if seen.contains(&key) {
+            Box::new(std::iter::empty())
+        } else {
+            seen.insert(key);
+            Box::new(std::iter::once(input))
+        }
     }
 }
 
@@ -3758,7 +3855,7 @@ mod tests {
 
         #[test]
         fn default_creates_dedup_step() {
-            let step = DedupStep;
+            let step = DedupStep::new();
             assert_eq!(step.name(), "dedup");
         }
 
@@ -4106,10 +4203,10 @@ mod tests {
         }
 
         #[test]
-        fn dedup_step_is_copy() {
+        fn dedup_step_is_clone() {
             let step1 = DedupStep::new();
-            let step2 = step1; // Copy, not move
-            let _step3 = step1; // Can still use step1
+            let step2 = step1.clone();
+            let _step3 = step1.clone();
 
             assert_eq!(step2.name(), "dedup");
         }
@@ -4385,7 +4482,7 @@ mod tests {
 
         #[test]
         fn default_creates_step() {
-            let step = DedupByLabelStep;
+            let step = DedupByLabelStep::new();
             assert_eq!(step.name(), "dedup");
         }
 
@@ -4500,10 +4597,10 @@ mod tests {
         }
 
         #[test]
-        fn dedup_by_label_step_is_copy() {
+        fn dedup_by_label_step_is_clone() {
             let step1 = DedupByLabelStep::new();
-            let step2 = step1; // Copy
-            let _step3 = step1; // Can still use step1
+            let step2 = step1.clone();
+            let _step3 = step1.clone();
 
             assert_eq!(step2.name(), "dedup");
         }
@@ -9004,6 +9101,561 @@ mod tests {
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
             assert_eq!(output.len(), 3);
+        }
+    }
+
+    mod streaming_tests {
+        use super::*;
+        use crate::storage::GraphStorage;
+        use crate::traversal::context::StreamingContext;
+        use crate::traversal::step::Step;
+        use crate::traversal::SnapshotLike;
+
+        fn create_test_graph() -> Graph {
+            let graph = Graph::new();
+
+            graph.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Alice".to_string()));
+                props.insert("age".to_string(), Value::Int(30));
+                props
+            });
+            graph.add_vertex("person", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Bob".to_string()));
+                props.insert("age".to_string(), Value::Int(25));
+                props
+            });
+            graph.add_vertex("software", {
+                let mut props = HashMap::new();
+                props.insert("name".to_string(), Value::String("Graph DB".to_string()));
+                props
+            });
+
+            graph
+        }
+
+        // ---------------------------------------------------------------------
+        // LimitStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn limit_step_streaming_limits_traversers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = LimitStep::new(2);
+
+            // Process 5 traversers, only first 2 should pass
+            let mut outputs = vec![];
+            for i in 0..5 {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(i)))
+                        .collect();
+                outputs.extend(result);
+            }
+
+            assert_eq!(outputs.len(), 2);
+            assert_eq!(outputs[0].value, Value::Int(0));
+            assert_eq!(outputs[1].value, Value::Int(1));
+        }
+
+        #[test]
+        fn limit_step_streaming_shares_counter_across_clones() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = LimitStep::new(3);
+            let step_clone = step.clone();
+
+            // Use original for first two
+            let _: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(1))).collect();
+            let _: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(2))).collect();
+
+            // Use clone for next two - only one should pass (limit=3)
+            let result1: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(3)))
+                    .collect();
+            let result2: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(4)))
+                    .collect();
+
+            assert_eq!(result1.len(), 1); // 3rd traverser passes
+            assert_eq!(result2.len(), 0); // 4th is blocked
+        }
+
+        #[test]
+        fn limit_step_streaming_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+
+            // Eager execution
+            let eager_ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+            let step = LimitStep::new(2);
+            let input = vec![
+                Traverser::new(Value::Int(1)),
+                Traverser::new(Value::Int(2)),
+                Traverser::new(Value::Int(3)),
+            ];
+            let eager_output: Vec<_> =
+                Step::apply(&step, &eager_ctx, Box::new(input.into_iter())).collect();
+
+            // Streaming execution
+            let streaming_ctx =
+                StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+            let step = LimitStep::new(2);
+            let mut streaming_output = vec![];
+            for i in 1..=3 {
+                let result: Vec<_> = Step::apply_streaming(
+                    &step,
+                    streaming_ctx.clone(),
+                    Traverser::new(Value::Int(i)),
+                )
+                .collect();
+                streaming_output.extend(result);
+            }
+
+            assert_eq!(eager_output.len(), streaming_output.len());
+            for (e, s) in eager_output.iter().zip(streaming_output.iter()) {
+                assert_eq!(e.value, s.value);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // SkipStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn skip_step_streaming_skips_traversers() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = SkipStep::new(2);
+
+            // Process 5 traversers, first 2 should be skipped
+            let mut outputs = vec![];
+            for i in 0..5 {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(i)))
+                        .collect();
+                outputs.extend(result);
+            }
+
+            assert_eq!(outputs.len(), 3);
+            assert_eq!(outputs[0].value, Value::Int(2));
+            assert_eq!(outputs[1].value, Value::Int(3));
+            assert_eq!(outputs[2].value, Value::Int(4));
+        }
+
+        #[test]
+        fn skip_step_streaming_shares_counter_across_clones() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = SkipStep::new(2);
+            let step_clone = step.clone();
+
+            // Use original for first traverser (skipped)
+            let result1: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(1))).collect();
+            assert_eq!(result1.len(), 0);
+
+            // Use clone for second (still skipped, counter is shared)
+            let result2: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(2)))
+                    .collect();
+            assert_eq!(result2.len(), 0);
+
+            // Third should pass
+            let result3: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(3))).collect();
+            assert_eq!(result3.len(), 1);
+            assert_eq!(result3[0].value, Value::Int(3));
+        }
+
+        // ---------------------------------------------------------------------
+        // RangeStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn range_step_streaming_applies_range() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = RangeStep::new(1, 4); // Skip first, take next 3
+
+            let mut outputs = vec![];
+            for i in 0..6 {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(i)))
+                        .collect();
+                outputs.extend(result);
+            }
+
+            assert_eq!(outputs.len(), 3);
+            assert_eq!(outputs[0].value, Value::Int(1));
+            assert_eq!(outputs[1].value, Value::Int(2));
+            assert_eq!(outputs[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn range_step_streaming_shares_counter_across_clones() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = RangeStep::new(1, 3); // Skip 1, take 2
+            let step_clone = step.clone();
+
+            // First is skipped
+            let r1: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(0))).collect();
+            assert_eq!(r1.len(), 0);
+
+            // Second passes (via clone)
+            let r2: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(1)))
+                    .collect();
+            assert_eq!(r2.len(), 1);
+
+            // Third passes
+            let r3: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(2))).collect();
+            assert_eq!(r3.len(), 1);
+
+            // Fourth blocked (past end)
+            let r4: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(3)))
+                    .collect();
+            assert_eq!(r4.len(), 0);
+        }
+
+        // ---------------------------------------------------------------------
+        // DedupStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn dedup_step_streaming_removes_duplicates() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = DedupStep::new();
+
+            // Process traversers with duplicates
+            let inputs = vec![
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(1), // duplicate
+                Value::Int(3),
+                Value::Int(2), // duplicate
+            ];
+
+            let mut outputs = vec![];
+            for v in inputs {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::new(v)).collect();
+                outputs.extend(result);
+            }
+
+            assert_eq!(outputs.len(), 3);
+            assert_eq!(outputs[0].value, Value::Int(1));
+            assert_eq!(outputs[1].value, Value::Int(2));
+            assert_eq!(outputs[2].value, Value::Int(3));
+        }
+
+        #[test]
+        fn dedup_step_streaming_shares_hashset_across_clones() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = DedupStep::new();
+            let step_clone = step.clone();
+
+            // Insert via original
+            let r1: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(1))).collect();
+            assert_eq!(r1.len(), 1);
+
+            // Try duplicate via clone - should be blocked
+            let r2: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(1)))
+                    .collect();
+            assert_eq!(r2.len(), 0);
+
+            // New value via clone should pass
+            let r3: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(2)))
+                    .collect();
+            assert_eq!(r3.len(), 1);
+        }
+
+        #[test]
+        fn dedup_step_streaming_matches_eager() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+
+            let inputs = vec![Value::Int(1), Value::Int(2), Value::Int(1), Value::Int(3)];
+
+            // Eager execution
+            let eager_ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+            let step = DedupStep::new();
+            let input: Vec<_> = inputs.iter().map(|v| Traverser::new(v.clone())).collect();
+            let eager_output: Vec<_> =
+                Step::apply(&step, &eager_ctx, Box::new(input.into_iter())).collect();
+
+            // Streaming execution
+            let streaming_ctx =
+                StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+            let step = DedupStep::new();
+            let mut streaming_output = vec![];
+            for v in inputs {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, streaming_ctx.clone(), Traverser::new(v))
+                        .collect();
+                streaming_output.extend(result);
+            }
+
+            assert_eq!(eager_output.len(), streaming_output.len());
+            for (e, s) in eager_output.iter().zip(streaming_output.iter()) {
+                assert_eq!(e.value, s.value);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // DedupByKeyStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn dedup_by_key_step_streaming_removes_duplicates() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = DedupByKeyStep::new("name");
+
+            // Get vertices - there are 3 with different names
+            let vertices: Vec<_> = snapshot.all_vertices().collect();
+
+            let mut outputs = vec![];
+            for v in &vertices {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::from_vertex(v.id))
+                        .collect();
+                outputs.extend(result);
+            }
+
+            // All should pass since they have different names
+            assert_eq!(outputs.len(), vertices.len());
+        }
+
+        #[test]
+        fn dedup_by_key_step_streaming_shares_hashset() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = DedupByKeyStep::new("type");
+
+            // Create map values with same "type" key
+            let map1 = {
+                let mut m = std::collections::HashMap::new();
+                m.insert("type".to_string(), Value::String("A".to_string()));
+                m.insert("id".to_string(), Value::Int(1));
+                Value::Map(m)
+            };
+            let map2 = {
+                let mut m = std::collections::HashMap::new();
+                m.insert("type".to_string(), Value::String("A".to_string())); // Same type
+                m.insert("id".to_string(), Value::Int(2));
+                Value::Map(m)
+            };
+
+            let step_clone = step.clone();
+
+            let r1: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(map1)).collect();
+            assert_eq!(r1.len(), 1);
+
+            // Clone sees the same hashset, so duplicate is blocked
+            let r2: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(map2)).collect();
+            assert_eq!(r2.len(), 0);
+        }
+
+        // ---------------------------------------------------------------------
+        // DedupByLabelStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn dedup_by_label_step_streaming_removes_duplicates() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = DedupByLabelStep::new();
+
+            // Get vertices - there are 2 "person" and 1 "software"
+            let vertices: Vec<_> = snapshot.all_vertices().collect();
+
+            let mut outputs = vec![];
+            for v in &vertices {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::from_vertex(v.id))
+                        .collect();
+                outputs.extend(result);
+            }
+
+            // Only 2 unique labels should pass
+            assert_eq!(outputs.len(), 2);
+        }
+
+        #[test]
+        fn dedup_by_label_step_streaming_shares_hashset() {
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let step = DedupByLabelStep::new();
+            let step_clone = step.clone();
+
+            // Get person vertices
+            let person_vertices: Vec<_> = snapshot
+                .all_vertices()
+                .filter(|v| v.label == "person")
+                .collect();
+            assert!(
+                person_vertices.len() >= 2,
+                "Need at least 2 person vertices"
+            );
+
+            // First person passes via original step
+            let r1: Vec<_> = Step::apply_streaming(
+                &step,
+                ctx.clone(),
+                Traverser::from_vertex(person_vertices[0].id),
+            )
+            .collect();
+            assert_eq!(r1.len(), 1);
+
+            // Second person blocked via clone (same label already seen)
+            let r2: Vec<_> = Step::apply_streaming(
+                &step_clone,
+                ctx.clone(),
+                Traverser::from_vertex(person_vertices[1].id),
+            )
+            .collect();
+            assert_eq!(r2.len(), 0);
+        }
+
+        // ---------------------------------------------------------------------
+        // DedupByTraversalStep streaming tests
+        // ---------------------------------------------------------------------
+
+        #[test]
+        fn dedup_by_traversal_step_streaming_removes_duplicates() {
+            use crate::traversal::IdentityStep;
+            use crate::traversal::Traversal;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            // Sub-traversal that returns the value itself (identity)
+            let sub = Traversal::<Value, Value>::new().add_step(IdentityStep);
+            let step = DedupByTraversalStep::new(sub);
+
+            let inputs = vec![
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(1), // duplicate
+                Value::Int(3),
+            ];
+
+            let mut outputs = vec![];
+            for v in inputs {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, ctx.clone(), Traverser::new(v)).collect();
+                outputs.extend(result);
+            }
+
+            assert_eq!(outputs.len(), 3);
+        }
+
+        #[test]
+        fn dedup_by_traversal_step_streaming_shares_hashset() {
+            use crate::traversal::IdentityStep;
+            use crate::traversal::Traversal;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+            let ctx = StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+
+            let sub = Traversal::<Value, Value>::new().add_step(IdentityStep);
+            let step = DedupByTraversalStep::new(sub);
+            let step_clone = step.clone();
+
+            // Insert via original
+            let r1: Vec<_> =
+                Step::apply_streaming(&step, ctx.clone(), Traverser::new(Value::Int(1))).collect();
+            assert_eq!(r1.len(), 1);
+
+            // Duplicate via clone should be blocked
+            let r2: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(1)))
+                    .collect();
+            assert_eq!(r2.len(), 0);
+
+            // New value via clone should pass
+            let r3: Vec<_> =
+                Step::apply_streaming(&step_clone, ctx.clone(), Traverser::new(Value::Int(2)))
+                    .collect();
+            assert_eq!(r3.len(), 1);
+        }
+
+        #[test]
+        fn dedup_by_traversal_step_streaming_matches_eager() {
+            use crate::traversal::IdentityStep;
+            use crate::traversal::Traversal;
+
+            let graph = create_test_graph();
+            let snapshot = graph.snapshot();
+
+            let inputs = vec![Value::Int(1), Value::Int(2), Value::Int(1), Value::Int(3)];
+
+            // Eager execution
+            let eager_ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
+            let sub = Traversal::<Value, Value>::new().add_step(IdentityStep);
+            let step = DedupByTraversalStep::new(sub);
+            let input: Vec<_> = inputs.iter().map(|v| Traverser::new(v.clone())).collect();
+            let eager_output: Vec<_> =
+                Step::apply(&step, &eager_ctx, Box::new(input.into_iter())).collect();
+
+            // Streaming execution
+            let streaming_ctx =
+                StreamingContext::new(snapshot.arc_streamable(), snapshot.arc_interner());
+            let sub = Traversal::<Value, Value>::new().add_step(IdentityStep);
+            let step = DedupByTraversalStep::new(sub);
+            let mut streaming_output = vec![];
+            for v in inputs {
+                let result: Vec<_> =
+                    Step::apply_streaming(&step, streaming_ctx.clone(), Traverser::new(v))
+                        .collect();
+                streaming_output.extend(result);
+            }
+
+            assert_eq!(eager_output.len(), streaming_output.len());
+            for (e, s) in eager_output.iter().zip(streaming_output.iter()) {
+                assert_eq!(e.value, s.value);
+            }
         }
     }
 }
