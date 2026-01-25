@@ -381,6 +381,8 @@ pub mod graph_access;
 pub mod graph_elements;
 #[cfg(feature = "graphson")]
 pub mod graphson;
+#[cfg(feature = "gremlin")]
+pub mod gremlin;
 pub mod index;
 pub mod schema;
 pub mod storage;

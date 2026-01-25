@@ -1713,6 +1713,51 @@ impl Graph {
     }
 }
 
+// Gremlin query string support
+#[cfg(feature = "gremlin")]
+impl Graph {
+    /// Execute a Gremlin query string against this graph.
+    ///
+    /// This is a convenience method that takes a snapshot, parses the query,
+    /// compiles it, and executes it in one call. For more control over the
+    /// process (e.g., reusing parsed queries or controlling snapshot timing),
+    /// use the [`crate::gremlin`] module directly.
+    ///
+    /// # Note
+    ///
+    /// This method takes a snapshot internally, so it provides a consistent
+    /// view of the graph at the time of the call. For mutation queries, use
+    /// the programmatic API instead.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use interstellar::prelude::*;
+    ///
+    /// let graph = Graph::new();
+    /// // ... populate graph ...
+    ///
+    /// // Execute a Gremlin query
+    /// let result = graph.query("g.V().hasLabel('person').values('name').toList()")?;
+    ///
+    /// if let ExecutionResult::List(names) = result {
+    ///     for name in names {
+    ///         println!("{}", name);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`] if the query fails to parse or compile.
+    pub fn query(
+        &self,
+        query: &str,
+    ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
+        self.snapshot().query(query)
+    }
+}
+
 impl Default for Graph {
     fn default() -> Self {
         Self::new()
@@ -2955,6 +3000,48 @@ impl GraphSnapshot {
     /// ```
     pub fn gremlin(&self) -> crate::traversal::GraphTraversalSource<'_> {
         crate::traversal::GraphTraversalSource::from_snapshot(self)
+    }
+}
+
+// Gremlin query string support
+#[cfg(feature = "gremlin")]
+impl GraphSnapshot {
+    /// Execute a Gremlin query string against this snapshot.
+    ///
+    /// This is a convenience method that parses, compiles, and executes a Gremlin
+    /// query in one call. For more control over the process (e.g., reusing parsed
+    /// queries), use the [`crate::gremlin`] module directly.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use interstellar::prelude::*;
+    ///
+    /// let graph = Graph::new();
+    /// // ... populate graph ...
+    /// let snapshot = graph.snapshot();
+    ///
+    /// // Execute a Gremlin query
+    /// let result = snapshot.query("g.V().hasLabel('person').values('name').toList()")?;
+    ///
+    /// if let ExecutionResult::List(names) = result {
+    ///     for name in names {
+    ///         println!("{}", name);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`] if the query fails to parse or compile.
+    pub fn query(
+        &self,
+        query: &str,
+    ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
+        let ast = crate::gremlin::parse(query)?;
+        let g = self.gremlin();
+        let compiled = crate::gremlin::compile(&ast, &g)?;
+        Ok(compiled.execute())
     }
 }
 

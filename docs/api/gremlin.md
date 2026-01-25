@@ -1,352 +1,408 @@
-# Interstellar API Reference
+# Gremlin API Reference
 
-This document maps standard Gremlin steps (TinkerPop 3.x) to their Rust and Rhai implementations in Interstellar.
+This document maps standard Gremlin steps (TinkerPop 3.x) to their implementations in Interstellar's Rust API and Gremlin text parser.
+
+## Quick Start
+
+### Rust Fluent API
+
+```rust
+use interstellar::prelude::*;
+
+let graph = Graph::new();
+// ... populate graph ...
+
+let snapshot = graph.snapshot();
+let g = snapshot.gremlin();
+
+// Fluent API traversal
+let names = g.v()
+    .has_label("person")
+    .out_labels(&["knows"])
+    .values("name")
+    .to_list();
+```
+
+### Gremlin Text Parser
+
+```rust
+use interstellar::prelude::*;
+use interstellar::gremlin::ExecutionResult;
+
+let graph = Graph::new();
+// ... populate graph ...
+
+// Execute a Gremlin query string
+let result = graph.query("g.V().hasLabel('person').out('knows').values('name').toList()")?;
+
+if let ExecutionResult::List(names) = result {
+    for name in names {
+        println!("{}", name);
+    }
+}
+```
+
+### Lower-Level Parser API
+
+```rust
+use interstellar::gremlin::{parse, compile, ExecutionResult};
+
+// Parse query to AST (can be reused)
+let ast = parse("g.V().hasLabel('person').values('name').toList()")?;
+
+// Compile and execute
+let snapshot = graph.snapshot();
+let g = snapshot.gremlin();
+let compiled = compile(&ast, &g)?;
+let result = compiled.execute();
+```
+
+---
 
 ## Legend
 
 | Symbol | Meaning |
 |--------|---------|
-| `function_name` | Implemented |
+| ✓ | Implemented in both Rust API and Gremlin parser |
+| Rust | Implemented in Rust API only |
+| Parser | Implemented in Gremlin parser only |
 | - | Not implemented |
 
 ## API Naming Differences
 
-| Gremlin | Rust | Rhai | Reason |
-|---------|------|------|--------|
-| `in()` | `in_()` | `in_()` | `in` is a keyword in both Rust and Rhai |
-| `as()` | `as_()` | `as_()` | `as` is a keyword in both Rust and Rhai |
-| `is()` | `is_()` | `is_()` | `is` is a Rust keyword; reserved in Rhai |
-| `where()` | `where_()` | `where_()` | `where` is a Rust keyword; Rhai follows for consistency |
-| `and()` | `and_()` | `and_()` | `and` is a Rust keyword; Rhai follows for consistency |
-| `or()` | `or_()` | `or_()` | `or` is a Rust keyword; Rhai follows for consistency |
-| `has(key, value)` | `has_value(key, value)` | `has_value(key, value)` | Distinguishes from `has(key)` existence check |
-| `drop()` | `drop()` | `drop_()` | `drop` is a reserved function name in Rhai |
-| `__` (anonymous) | `__.` | `A.` | Rhai doesn't allow identifiers starting with `_` |
-| `value()` (property) | `value()` | `prop_value()` | Avoids conflict with Rhai's `Value` type |
+| Gremlin | Rust | Reason |
+|---------|------|--------|
+| `in()` | `in_()` | `in` is a Rust keyword |
+| `as()` | `as_()` | `as` is a Rust keyword |
+| `is()` | `is_()` | `is` is a Rust keyword |
+| `where()` | `where_()` | `where` is a Rust keyword |
+| `and()` | `and_()` | `and` is a Rust keyword |
+| `or()` | `or_()` | `or` is a Rust keyword |
+| `has(key, value)` | `has_value(key, value)` | Distinguishes from `has(key)` existence check |
 
 ---
 
 ## Source Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `V()` | `v()` | `g.v()` |
-| `V(id)` | `v_by_id(id)` | `g.v_id(id)` |
-| `V(id...)` | `v_ids(ids)` | `g.v_ids([ids])` |
-| `V()` + index | `v_by_property()`, `v_by_property_range()` | - |
-| `E()` | `e()` | `g.e()` |
-| `E(id)` | - | `g.e_id(id)` |
-| `E(id...)` | `e_ids(ids)` | `g.e_ids([ids])` |
-| `E()` + index | `e_by_property()` | - |
-| `addV(label)` | `add_v(label)` | `g.add_v("label")` |
-| `addE(label)` | `add_e(label)` | `g.add_e("label")` |
-| `inject(values...)` | `inject(values)` | `g.inject([values])` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `g.V()` | `g.v()` | `g.V()` | ✓ |
+| `g.V(id)` | `g.v_by_id(id)` | `g.V(id)` | ✓ |
+| `g.V(id...)` | `g.v_ids(ids)` | `g.V(id, id, ...)` | ✓ |
+| `g.E()` | `g.e()` | `g.E()` | ✓ |
+| `g.E(id)` | `g.e_by_id(id)` | `g.E(id)` | ✓ |
+| `g.E(id...)` | `g.e_ids(ids)` | `g.E(id, id, ...)` | ✓ |
+| `g.addV(label)` | `g.add_v(label)` | `g.addV('label')` | ✓ |
+| `g.addE(label)` | `g.add_e(label)` | `g.addE('label')` | ✓ |
+| `g.inject(values...)` | `g.inject(values)` | `g.inject(v1, v2, ...)` | ✓ |
 
 ---
 
 ## Navigation Steps (Vertex to Vertex)
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `out()` | `out()` | `out()` |
-| `out(label...)` | `out_labels(&[labels])` | `out_labels(["labels"])` |
-| `in()` | `in_()` | `in_()` |
-| `in(label...)` | `in_labels(&[labels])` | `in_labels(["labels"])` |
-| `both()` | `both()` | `both()` |
-| `both(label...)` | `both_labels(&[labels])` | `both_labels(["labels"])` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `out()` | `out()` | `out()` | ✓ |
+| `out(label...)` | `out_labels(&[labels])` | `out('label', ...)` | ✓ |
+| `in()` | `in_()` | `in()` | ✓ |
+| `in(label...)` | `in_labels(&[labels])` | `in('label', ...)` | ✓ |
+| `both()` | `both()` | `both()` | ✓ |
+| `both(label...)` | `both_labels(&[labels])` | `both('label', ...)` | ✓ |
 
 ## Navigation Steps (Vertex to Edge)
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `outE()` | `out_e()` | `out_e()` |
-| `outE(label...)` | `out_e_labels(&[labels])` | `out_e_labels(["labels"])` |
-| `inE()` | `in_e()` | `in_e()` |
-| `inE(label...)` | `in_e_labels(&[labels])` | `in_e_labels(["labels"])` |
-| `bothE()` | `both_e()` | `both_e()` |
-| `bothE(label...)` | `both_e_labels(&[labels])` | `both_e_labels(["labels"])` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `outE()` | `out_e()` | `outE()` | ✓ |
+| `outE(label...)` | `out_e_labels(&[labels])` | `outE('label', ...)` | ✓ |
+| `inE()` | `in_e()` | `inE()` | ✓ |
+| `inE(label...)` | `in_e_labels(&[labels])` | `inE('label', ...)` | ✓ |
+| `bothE()` | `both_e()` | `bothE()` | ✓ |
+| `bothE(label...)` | `both_e_labels(&[labels])` | `bothE('label', ...)` | ✓ |
 
 ## Navigation Steps (Edge to Vertex)
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `outV()` | `out_v()` | `out_v()` |
-| `inV()` | `in_v()` | `in_v()` |
-| `bothV()` | `both_v()` | `both_v()` |
-| `otherV()` | `other_v()` | `other_v()` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `outV()` | `out_v()` | `outV()` | ✓ |
+| `inV()` | `in_v()` | `inV()` | ✓ |
+| `bothV()` | `both_v()` | `bothV()` | ✓ |
+| `otherV()` | `other_v()` | `otherV()` | ✓ |
 
 ---
 
 ## Filter Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `has(key)` | `has(key)` | `has("key")` |
-| `has(key, value)` | `has_value(key, value)` | `has_value("key", value)` |
-| `has(key, predicate)` | `has_where(key, predicate)` | `has_where("key", predicate)` |
-| `hasLabel(label)` | `has_label(label)` | `has_label("label")` |
-| `hasLabel(label...)` | `has_label_any(&[labels])` | `has_label_any(["labels"])` |
-| `hasId(id)` | `has_id(id)` | `has_id(id)` |
-| `hasId(id...)` | `has_ids(&[ids])` | `has_ids([ids])` |
-| `hasNot(key)` | `has_not(key)` | `has_not("key")` |
-| `hasKey(key)` | `has_key(key)` | - |
-| `hasKey(key...)` | `has_key_any(&[keys])` | - |
-| `hasValue(value)` | `has_prop_value(value)` | - |
-| `hasValue(value...)` | `has_prop_value_any(&[values])` | - |
-| `filter(traversal)` | `filter(closure)` | - |
-| `where(traversal)` | `where_(traversal)` | `where_(traversal)` |
-| `where(predicate)` | `where_p(predicate)` | - |
-| `not(traversal)` | `not(traversal)` | `not(traversal)` |
-| `and(traversal...)` | `and_(&[traversals])` | `and_([traversals])` |
-| `or(traversal...)` | `or_(&[traversals])` | `or_([traversals])` |
-| `is(value)` | `is_eq(value)` | `is_eq(value)` |
-| `is(predicate)` | `is_(predicate)` | `is_(predicate)` |
-| `dedup()` | `dedup()` | `dedup()` |
-| `dedup().by(key)` | `dedup_by_key(key)` | `dedup_by_key("key")` |
-| `dedup().by(label)` | `dedup_by_label()` | `dedup_by_label()` |
-| `dedup().by(traversal)` | `dedup_by(traversal)` | `dedup_by(traversal)` |
-| `limit(n)` | `limit(n)` | `limit(n)` |
-| `skip(n)` | `skip(n)` | `skip(n)` |
-| `range(start, end)` | `range(start, end)` | `range(start, end)` |
-| `tail()` | `tail()` | `tail()` |
-| `tail(n)` | `tail_n(n)` | `tail_n(n)` |
-| `coin(probability)` | `coin(probability)` | `coin(probability)` |
-| `sample(n)` | `sample(n)` | `sample(n)` |
-| `simplePath()` | `simple_path()` | `simple_path()` |
-| `cyclicPath()` | `cyclic_path()` | `cyclic_path()` |
-| `timeLimit()` | - | - |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `has(key)` | `has(key)` | `has('key')` | ✓ |
+| `has(key, value)` | `has_value(key, value)` | `has('key', value)` | ✓ |
+| `has(key, predicate)` | `has_where(key, predicate)` | `has('key', P.gt(x))` | ✓ |
+| `has(label, key, value)` | `has_label(...).has_value(...)` | `has('label', 'key', value)` | ✓ |
+| `hasLabel(label)` | `has_label(label)` | `hasLabel('label')` | ✓ |
+| `hasLabel(label...)` | `has_label_any(&[labels])` | `hasLabel('l1', 'l2')` | ✓ |
+| `hasId(id)` | `has_id(id)` | `hasId(id)` | ✓ |
+| `hasId(id...)` | `has_ids(&[ids])` | `hasId(id1, id2)` | ✓ |
+| `hasNot(key)` | `has_not(key)` | `hasNot('key')` | ✓ |
+| `hasKey(key)` | `has_key(key)` | `hasKey('key')` | ✓ |
+| `hasKey(key...)` | `has_key_any(&[keys])` | `hasKey('k1', 'k2')` | ✓ |
+| `hasValue(value)` | `has_prop_value(value)` | `hasValue(value)` | ✓ |
+| `hasValue(value...)` | `has_prop_value_any(&[values])` | `hasValue(v1, v2)` | ✓ |
+| `filter(traversal)` | `filter(closure)` | - | Rust |
+| `where(traversal)` | `where_(traversal)` | `where(__.out())` | ✓ |
+| `where(predicate)` | `where_p(predicate)` | `where(P.gt(x))` | ✓ |
+| `not(traversal)` | `not(traversal)` | `not(__.out())` | ✓ |
+| `and(traversal...)` | `and_(&[traversals])` | `and(__.t1(), __.t2())` | ✓ |
+| `or(traversal...)` | `or_(&[traversals])` | `or(__.t1(), __.t2())` | ✓ |
+| `is(value)` | `is_eq(value)` | `is(value)` | ✓ |
+| `is(predicate)` | `is_(predicate)` | `is(P.gt(x))` | ✓ |
+| `dedup()` | `dedup()` | `dedup()` | ✓ |
+| `dedup().by(key)` | `dedup_by_key(key)` | - | Rust |
+| `dedup().by(label)` | `dedup_by_label()` | - | Rust |
+| `dedup().by(traversal)` | `dedup_by(traversal)` | - | Rust |
+| `limit(n)` | `limit(n)` | `limit(n)` | ✓ |
+| `skip(n)` | `skip(n)` | `skip(n)` | ✓ |
+| `range(start, end)` | `range(start, end)` | `range(start, end)` | ✓ |
+| `tail()` | `tail()` | `tail()` | ✓ |
+| `tail(n)` | `tail_n(n)` | `tail(n)` | ✓ |
+| `coin(probability)` | `coin(probability)` | `coin(0.5)` | ✓ |
+| `sample(n)` | `sample(n)` | `sample(n)` | ✓ |
+| `simplePath()` | `simple_path()` | `simplePath()` | ✓ |
+| `cyclicPath()` | `cyclic_path()` | `cyclicPath()` | ✓ |
+| `timeLimit()` | - | - | - |
 
 ---
 
 ## Transform / Map Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `map(traversal)` | `map(closure)` | - |
-| `flatMap(traversal)` | `flat_map(closure)` | - |
-| `identity()` | `identity()` | `identity()` |
-| `constant(value)` | `constant(value)` | `constant(value)` |
-| `id()` | `id()` | `id()` |
-| `label()` | `label()` | `label()` |
-| `properties()` | `properties()` | `properties()` |
-| `properties(key...)` | `properties_keys(&[keys])` | `properties_keys(["keys"])` |
-| `values(key)` | `values(key)` | `values("key")` |
-| `values(key...)` | `values_multi(&[keys])` | `values_multi(["keys"])` |
-| `propertyMap()` | `property_map()` | - |
-| `propertyMap(key...)` | `property_map_keys(&[keys])` | - |
-| `valueMap()` | `value_map()` | `value_map()` |
-| `valueMap(key...)` | `value_map_keys(&[keys])` | `value_map_keys(["keys"])` |
-| `valueMap(true)` | `value_map_with_tokens()` | `value_map_with_tokens()` |
-| `elementMap()` | `element_map()` | `element_map()` |
-| `elementMap(key...)` | `element_map_keys(&[keys])` | - |
-| `key()` | `key()` | `key()` |
-| `value()` | `value()` | `prop_value()` |
-| `path()` | `path()` | `path()` |
-| `select(labels...)` | `select(&[labels])` | `select(["labels"])` |
-| `select(label)` | `select_one(label)` | `select_one("label")` |
-| `project(keys...)` | `project(&[keys]).by().build()` | `project(keys, projections)` |
-| `unfold()` | `unfold()` | `unfold()` |
-| `fold()` | `fold()` | `fold()` |
-| `count()` | `count()` | `count()` / `count_step()` |
-| `sum()` | `sum()` | `sum()` |
-| `max()` | `max()` | `max()` |
-| `min()` | `min()` | `min()` |
-| `mean()` | `mean()` | `mean()` |
-| `order()` | `order().build()` | `order_asc()` / `order_desc()` |
-| `order().by(key)` | `order().by_key_asc(key).build()` | `order_by("key")` |
-| `order().by(key, desc)` | `order().by_key_desc(key).build()` | `order_by_desc("key")` |
-| `order().by(traversal)` | `order().by_traversal(t).build()` | `order_by_traversal(t)` |
-| `math(expression)` | `math(expr).build()` | `math("expr")` |
-| `math()` with bindings | `math(expr).bind(k,v).build()` | `math_with_bindings(expr, bindings)` |
-| `index()` | `index()` | `index()` |
-| `loops()` | `loops()` | - |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `map(traversal)` | `map(closure)` | - | Rust |
+| `flatMap(traversal)` | `flat_map(closure)` | - | Rust |
+| `identity()` | `identity()` | `identity()` | ✓ |
+| `constant(value)` | `constant(value)` | `constant(value)` | ✓ |
+| `id()` | `id()` | `id()` | ✓ |
+| `label()` | `label()` | `label()` | ✓ |
+| `properties()` | `properties()` | `properties()` | ✓ |
+| `properties(key...)` | `properties_keys(&[keys])` | `properties('k1', 'k2')` | ✓ |
+| `values(key)` | `values(key)` | `values('key')` | ✓ |
+| `values(key...)` | `values_multi(&[keys])` | `values('k1', 'k2')` | ✓ |
+| `propertyMap()` | `property_map()` | - | Rust |
+| `propertyMap(key...)` | `property_map_keys(&[keys])` | - | Rust |
+| `valueMap()` | `value_map()` | `valueMap()` | ✓ |
+| `valueMap(key...)` | `value_map_keys(&[keys])` | `valueMap('k1', 'k2')` | ✓ |
+| `valueMap(true)` | `value_map_with_tokens()` | `valueMap(true)` | ✓ |
+| `elementMap()` | `element_map()` | `elementMap()` | ✓ |
+| `elementMap(key...)` | `element_map_keys(&[keys])` | `elementMap('k1')` | ✓ |
+| `key()` | `key()` | `key()` | ✓ |
+| `value()` | `value()` | `value()` | ✓ |
+| `path()` | `path()` | `path()` | ✓ |
+| `select(labels...)` | `select(&[labels])` | `select('a', 'b')` | ✓ |
+| `select(label)` | `select_one(label)` | `select('a')` | ✓ |
+| `project(keys...).by()` | `project(&[keys]).by().build()` | `project('a', 'b').by(...)` | ✓ |
+| `unfold()` | `unfold()` | `unfold()` | ✓ |
+| `fold()` | `fold()` | `fold()` | ✓ |
+| `count()` | `count()` | `count()` | ✓ |
+| `sum()` | `sum()` | `sum()` | ✓ |
+| `max()` | `max()` | `max()` | ✓ |
+| `min()` | `min()` | `min()` | ✓ |
+| `mean()` | `mean()` | `mean()` | ✓ |
+| `order()` | `order().build()` | `order()` | ✓ |
+| `order().by(key)` | `order().by_key_asc(key).build()` | `order().by('key')` | ✓ |
+| `order().by(key, desc)` | `order().by_key_desc(key).build()` | `order().by('key', desc)` | ✓ |
+| `order().by(traversal)` | `order().by_traversal(t).build()` | `order().by(__.out())` | ✓ |
+| `math(expression)` | `math(expr).build()` | - | Rust |
+| `index()` | `index()` | `index()` | ✓ |
+| `loops()` | `loops()` | `loops()` | ✓ |
 
 ---
 
 ## Aggregation Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `group()` | `group().by_*().build()` | `group(key_selector, value_collector)` |
-| `group().by(key)` | `group().by_key(key).build()` | `group_by_key("key")` |
-| `group().by(label)` | `group().by_label().build()` | `group_by_label()` |
-| `groupCount()` | `group_count().by_*().build()` | `group_count(key_selector)` |
-| `groupCount().by(key)` | `group_count().by_key(key).build()` | `group_count_by_key("key")` |
-| `groupCount().by(label)` | `group_count().by_label().build()` | `group_count_by_label()` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `group()` | `group().by_*().build()` | - | Rust |
+| `group().by(key)` | `group().by_key(key).build()` | - | Rust |
+| `group().by(label)` | `group().by_label().build()` | - | Rust |
+| `groupCount()` | `group_count().by_*().build()` | - | Rust |
+| `groupCount().by(key)` | `group_count().by_key(key).build()` | - | Rust |
+| `groupCount().by(label)` | `group_count().by_label().build()` | - | Rust |
 
 ---
 
 ## Branch Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `branch(traversal)` | `branch(traversal).option()` | - |
-| `choose(cond, true, false)` | `choose(cond, if_true, if_false)` | `choose_binary(cond, true_t, false_t)` |
-| `choose(traversal).option()` | `choose_by(t).option()` | `choose_options(key_t, options, default)` |
-| `union(traversal...)` | `union(&[traversals])` | `union([traversals])` |
-| `coalesce(traversal...)` | `coalesce(&[traversals])` | `coalesce([traversals])` |
-| `optional(traversal)` | `optional(traversal)` | `optional(traversal)` |
-| `local(traversal)` | `local(traversal)` | `local(traversal)` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `branch(traversal)` | `branch(traversal).option()` | - | Rust |
+| `choose(cond, true, false)` | `choose(cond, if_true, if_false)` | `choose(__.cond(), __.t(), __.f())` | ✓ |
+| `choose(traversal).option()` | `choose_by(t).option()` | - | Rust |
+| `union(traversal...)` | `union(&[traversals])` | `union(__.t1(), __.t2())` | ✓ |
+| `coalesce(traversal...)` | `coalesce(&[traversals])` | `coalesce(__.t1(), __.t2())` | ✓ |
+| `optional(traversal)` | `optional(traversal)` | `optional(__.out())` | ✓ |
+| `local(traversal)` | `local(traversal)` | `local(__.out())` | ✓ |
 
 ---
 
 ## Repeat Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `repeat(traversal)` | `repeat(traversal)` | - |
-| `repeat().times(n)` | `repeat().times(n)` | `repeat_times(traversal, n)` |
-| `repeat().until(traversal)` | `repeat().until(traversal)` | `repeat_until(traversal, until)` |
-| `repeat().emit()` | `repeat().emit()` | `repeat_emit(traversal, n)` |
-| `repeat().emit(traversal)` | `repeat().emit_if(traversal)` | `repeat_emit_until(traversal, until)` |
-| `repeat().emit()` (before) | `repeat().emit_first()` | - |
-| `loops()` | `loops()` | - |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `repeat(traversal)` | `repeat(traversal)` | `repeat(__.out())` | ✓ |
+| `repeat().times(n)` | `repeat().times(n)` | `repeat(__.out()).times(n)` | ✓ |
+| `repeat().until(traversal)` | `repeat().until(traversal)` | `repeat(__.out()).until(__.t())` | ✓ |
+| `repeat().emit()` | `repeat().emit()` | `repeat(__.out()).emit()` | ✓ |
+| `repeat().emit(traversal)` | `repeat().emit_if(traversal)` | `repeat(__.out()).emit(__.t())` | ✓ |
+| `repeat().emit()` (first) | `repeat().emit_first()` | - | Rust |
+| `loops()` | `loops()` | `loops()` | ✓ |
 
 ---
 
 ## Side Effect Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `sideEffect(traversal)` | `side_effect(traversal)` | `side_effect(traversal)` |
-| `aggregate(key)` | `aggregate(key)` | `aggregate("key")` |
-| `store(key)` | `store(key)` | `store("key")` |
-| `subgraph()` | - | - |
-| `cap(key)` | `cap(key)` | `cap("key")` |
-| `cap(key...)` | `cap_multi(&[keys])` | `cap_multi(["keys"])` |
-| `profile()` | `profile()`, `profile_as(key)` | - |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `sideEffect(traversal)` | `side_effect(traversal)` | `sideEffect(__.t())` | ✓ |
+| `aggregate(key)` | `aggregate(key)` | `aggregate('key')` | ✓ |
+| `store(key)` | `store(key)` | `store('key')` | ✓ |
+| `cap(key)` | `cap(key)` | `cap('key')` | ✓ |
+| `cap(key...)` | `cap_multi(&[keys])` | `cap('k1', 'k2')` | ✓ |
+| `subgraph()` | - | - | - |
+| `profile()` | `profile()` | - | Rust |
 
 ---
 
 ## Mutation Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `addV(label)` | `add_v(label)` | `add_v("label")` |
-| `addE(label)` | `add_e(label)` | `add_e("label")` |
-| `property(key, value)` | `property(key, value)` | `property("key", value)` |
-| `from(vertex)` | `from_vertex(id)` | `from_v(id)` |
-| `from(label)` | `from_label(label)` | `from_label("label")` |
-| `to(vertex)` | `to_vertex(id)` | `to_v(id)` |
-| `to(label)` | `to_label(label)` | `to_label("label")` |
-| `drop()` | `drop()` | `drop_()` |
-| `mergeV()` | - | - |
-| `mergeE()` | - | - |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `addV(label)` | `add_v(label)` | `addV('label')` | ✓ |
+| `addE(label)` | `add_e(label)` | `addE('label')` | ✓ |
+| `property(key, value)` | `property(key, value)` | `property('key', value)` | ✓ |
+| `property(cardinality, k, v)` | `property_with_cardinality(...)` | `property(single, 'k', v)` | ✓ |
+| `from(vertex)` | `from_vertex(id)` | `from(__.V(id))` | ✓ |
+| `from(label)` | `from_label(label)` | `from('label')` | ✓ |
+| `to(vertex)` | `to_vertex(id)` | `to(__.V(id))` | ✓ |
+| `to(label)` | `to_label(label)` | `to('label')` | ✓ |
+| `drop()` | `drop()` | `drop()` | ✓ |
+| `mergeV()` | - | - | - |
+| `mergeE()` | - | - | - |
 
 ---
 
 ## Modulator Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `as(label)` | `as_(label)` | `as_("label")` |
-| `by()` | `.by_*()` methods | (integrated in steps) |
-| `with()` | - | - |
-| `option(key, traversal)` | `.option(key, traversal)` | (via `choose_options`) |
-| `option(none)` | `.option_none(traversal)` | (via `choose_options`) |
-| - | `with_path()` | `with_path()` |
-| `read()` | - | - |
-| `write()` | - | - |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `as(label)` | `as_(label)` | `as('label')` | ✓ |
+| `by()` | `.by_*()` methods | `.by(...)` | ✓ |
+| `with()` | - | - | - |
+| `option(key, traversal)` | `.option(key, traversal)` | - | Rust |
+| `option(none)` | `.option_none(traversal)` | - | Rust |
+| - | `with_path()` | - | Rust |
 
 ---
 
 ## Terminal Steps
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `next()` | `next()` | `first()` |
-| `next(n)` | `take(n)` | `take(n)` |
-| `toList()` | `to_list()` | `to_list()` |
-| `toSet()` | `to_set()` | `to_set()` |
-| `toBulkSet()` | - | - |
-| `iterate()` | `iterate()` | `iterate()` |
-| `hasNext()` | `has_next()` | `has_next()` |
-| `tryNext()` | - | - |
-| `one()` | `one()` | `one()` |
-| `explain()` | - | - |
-| `profile()` | - | - |
-| - | `iter()` | - |
-| - | `traversers()` | - |
-| - | `to_vertex_list()` | - |
-| - | `next_vertex()` | - |
-| - | `one_vertex()` | - |
-| - | `to_edge_list()` | - |
-| - | `next_edge()` | - |
-| - | `one_edge()` | - |
-| - | - | `to_rich_list()` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `next()` | `next()` | `next()` | ✓ |
+| `next(n)` | `take(n)` | `next(n)` | ✓ |
+| `toList()` | `to_list()` | `toList()` | ✓ |
+| `toSet()` | `to_set()` | `toSet()` | ✓ |
+| `toBulkSet()` | - | - | - |
+| `iterate()` | `iterate()` | `iterate()` | ✓ |
+| `hasNext()` | `has_next()` | `hasNext()` | ✓ |
+| `tryNext()` | - | - | - |
+| `one()` | `one()` | - | Rust |
+| `explain()` | - | - | - |
+| - | `iter()` | - | Rust |
+| - | `traversers()` | - | Rust |
+| - | `to_vertex_list()` | - | Rust |
+| - | `next_vertex()` | - | Rust |
+| - | `to_edge_list()` | - | Rust |
+| - | `next_edge()` | - | Rust |
 
 ---
 
-## Predicate Functions
+## Predicate Functions (P.)
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `P.eq(value)` | `p::eq(value)` | `eq(value)` |
-| `P.neq(value)` | `p::neq(value)` | `neq(value)` |
-| `P.lt(value)` | `p::lt(value)` | `lt(value)` |
-| `P.lte(value)` | `p::lte(value)` | `lte(value)` |
-| `P.gt(value)` | `p::gt(value)` | `gt(value)` |
-| `P.gte(value)` | `p::gte(value)` | `gte(value)` |
-| `P.between(start, end)` | `p::between(start, end)` | `between(start, end)` |
-| `P.inside(start, end)` | `p::inside(start, end)` | `inside(start, end)` |
-| `P.outside(start, end)` | `p::outside(start, end)` | `outside(start, end)` |
-| `P.within(values...)` | `p::within(&[values])` | `within([values])` |
-| `P.without(values...)` | `p::without(&[values])` | `without([values])` |
-| `P.and(p1, p2)` | `p::and(p1, p2)` | `pred_and(p1, p2)` |
-| `P.or(p1, p2)` | `p::or(p1, p2)` | `pred_or(p1, p2)` |
-| `P.not(predicate)` | `p::not(predicate)` | `pred_not(predicate)` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `P.eq(value)` | `p::eq(value)` | `P.eq(value)` | ✓ |
+| `P.neq(value)` | `p::neq(value)` | `P.neq(value)` | ✓ |
+| `P.lt(value)` | `p::lt(value)` | `P.lt(value)` | ✓ |
+| `P.lte(value)` | `p::lte(value)` | `P.lte(value)` | ✓ |
+| `P.gt(value)` | `p::gt(value)` | `P.gt(value)` | ✓ |
+| `P.gte(value)` | `p::gte(value)` | `P.gte(value)` | ✓ |
+| `P.between(start, end)` | `p::between(start, end)` | `P.between(s, e)` | ✓ |
+| `P.inside(start, end)` | `p::inside(start, end)` | `P.inside(s, e)` | ✓ |
+| `P.outside(start, end)` | `p::outside(start, end)` | `P.outside(s, e)` | ✓ |
+| `P.within(values...)` | `p::within(&[values])` | `P.within(v1, v2)` | ✓ |
+| `P.without(values...)` | `p::without(&[values])` | `P.without(v1, v2)` | ✓ |
+| `P.and(p1, p2)` | `p::and(p1, p2)` | `P.gt(x).and(P.lt(y))` | ✓ |
+| `P.or(p1, p2)` | `p::or(p1, p2)` | `P.lt(x).or(P.gt(y))` | ✓ |
+| `P.not(predicate)` | `p::not(predicate)` | `P.not(P.eq(x))` | ✓ |
 
-## Text Predicates
+## Text Predicates (TextP.)
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `TextP.containing(str)` | `p::containing(str)` | `containing("str")` |
-| `TextP.startingWith(str)` | `p::starting_with(str)` | `starting_with("str")` |
-| `TextP.endingWith(str)` | `p::ending_with(str)` | `ending_with("str")` |
-| `TextP.notContaining(str)` | `p::not_containing(str)` | `not_containing("str")` |
-| `TextP.notStartingWith(str)` | `p::not_starting_with(str)` | `not_starting_with("str")` |
-| `TextP.notEndingWith(str)` | `p::not_ending_with(str)` | `not_ending_with("str")` |
-| `TextP.regex(pattern)` | `p::regex(pattern)` | `regex("pattern")` |
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `TextP.containing(str)` | `p::containing(str)` | `TextP.containing('str')` | ✓ |
+| `TextP.startingWith(str)` | `p::starting_with(str)` | `TextP.startingWith('str')` | ✓ |
+| `TextP.endingWith(str)` | `p::ending_with(str)` | `TextP.endingWith('str')` | ✓ |
+| `TextP.notContaining(str)` | `p::not_containing(str)` | `TextP.notContaining('str')` | ✓ |
+| `TextP.notStartingWith(str)` | `p::not_starting_with(str)` | `TextP.notStartingWith('str')` | ✓ |
+| `TextP.notEndingWith(str)` | `p::not_ending_with(str)` | `TextP.notEndingWith('str')` | ✓ |
+| `TextP.regex(pattern)` | `p::regex(pattern)` | `TextP.regex('pattern')` | ✓ |
 
 ---
 
-## Anonymous Traversal Factory
+## Anonymous Traversal Factory (__)
 
-| Gremlin | Rust | Rhai |
-|---------|------|------|
-| `__.identity()` | `__.identity()` | `A.identity()` |
-| `__.out()` | `__.out()` | `A.out()` |
-| `__.out(label)` | `__.out_labels(&[label])` | `A.out("label")` |
-| `__.in()` | `__.in_()` | `A.in_()` |
-| `__.in(label)` | `__.in_labels(&[label])` | `A.in_("label")` |
-| `__.both()` | `__.both()` | `A.both()` |
-| `__.outE()` | `__.out_e()` | `A.out_e()` |
-| `__.inE()` | `__.in_e()` | `A.in_e()` |
-| `__.bothE()` | `__.both_e()` | `A.both_e()` |
-| `__.outV()` | `__.out_v()` | `A.out_v()` |
-| `__.inV()` | `__.in_v()` | `A.in_v()` |
-| `__.otherV()` | `__.other_v()` | `A.other_v()` |
-| `__.hasLabel(label)` | `__.has_label(label)` | `A.has_label("label")` |
-| `__.has(key)` | `__.has(key)` | `A.has("key")` |
-| `__.hasNot(key)` | `__.has_not(key)` | `A.has_not("key")` |
-| `__.has(key, value)` | `__.has_value(key, value)` | `A.has_value("key", value)` |
-| `__.dedup()` | `__.dedup()` | `A.dedup()` |
-| `__.limit(n)` | `__.limit(n)` | `A.limit(n)` |
-| `__.id()` | `__.id()` | `A.id()` |
-| `__.label()` | `__.label()` | `A.label()` |
-| `__.values(key)` | `__.values(key)` | `A.values("key")` |
-| `__.valueMap()` | `__.value_map()` | `A.value_map()` |
-| `__.path()` | `__.path()` | `A.path()` |
-| `__.constant(value)` | `__.constant(value)` | `A.constant(value)` |
-| `__.fold()` | `__.fold()` | `A.fold()` |
-| `__.unfold()` | `__.unfold()` | `A.unfold()` |
-| `__.as(label)` | `__.as_(label)` | `A.as_("label")` |
+The anonymous traversal factory `__` creates traversal fragments for use in steps like `where()`, `choose()`, `repeat()`, etc.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `__.identity()` | `__.identity()` | `__.identity()` | ✓ |
+| `__.out()` | `__.out()` | `__.out()` | ✓ |
+| `__.out(label)` | `__.out_labels(&[label])` | `__.out('label')` | ✓ |
+| `__.in()` | `__.in_()` | `__.in()` | ✓ |
+| `__.in(label)` | `__.in_labels(&[label])` | `__.in('label')` | ✓ |
+| `__.both()` | `__.both()` | `__.both()` | ✓ |
+| `__.outE()` | `__.out_e()` | `__.outE()` | ✓ |
+| `__.inE()` | `__.in_e()` | `__.inE()` | ✓ |
+| `__.bothE()` | `__.both_e()` | `__.bothE()` | ✓ |
+| `__.outV()` | `__.out_v()` | `__.outV()` | ✓ |
+| `__.inV()` | `__.in_v()` | `__.inV()` | ✓ |
+| `__.otherV()` | `__.other_v()` | `__.otherV()` | ✓ |
+| `__.bothV()` | `__.both_v()` | `__.bothV()` | ✓ |
+| `__.hasLabel(label)` | `__.has_label(label)` | `__.hasLabel('label')` | ✓ |
+| `__.has(key)` | `__.has(key)` | `__.has('key')` | ✓ |
+| `__.hasNot(key)` | `__.has_not(key)` | `__.hasNot('key')` | ✓ |
+| `__.has(key, value)` | `__.has_value(key, value)` | `__.has('key', value)` | ✓ |
+| `__.dedup()` | `__.dedup()` | `__.dedup()` | ✓ |
+| `__.limit(n)` | `__.limit(n)` | `__.limit(n)` | ✓ |
+| `__.skip(n)` | `__.skip(n)` | `__.skip(n)` | ✓ |
+| `__.range(s, e)` | `__.range(s, e)` | `__.range(s, e)` | ✓ |
+| `__.id()` | `__.id()` | `__.id()` | ✓ |
+| `__.label()` | `__.label()` | `__.label()` | ✓ |
+| `__.values(key)` | `__.values(key)` | `__.values('key')` | ✓ |
+| `__.valueMap()` | `__.value_map()` | `__.valueMap()` | ✓ |
+| `__.path()` | `__.path()` | `__.path()` | ✓ |
+| `__.constant(value)` | `__.constant(value)` | `__.constant(value)` | ✓ |
+| `__.fold()` | `__.fold()` | `__.fold()` | ✓ |
+| `__.unfold()` | `__.unfold()` | `__.unfold()` | ✓ |
+| `__.count()` | `__.count()` | `__.count()` | ✓ |
+| `__.sum()` | `__.sum()` | `__.sum()` | ✓ |
+| `__.as(label)` | `__.as_(label)` | `__.as('label')` | ✓ |
 
 ### Additional Rust-only Anonymous Functions
 
-These are available in Rust via `__.` but not yet exposed in Rhai's `A` factory:
+These are available in Rust via `__.` but not yet in the Gremlin parser:
 
-- **Filter:** `has_label_any`, `has_id`, `has_ids`, `has_key`, `has_key_any`, `has_prop_value`, `has_prop_value_any`, `is_`, `is_eq`, `filter`, `skip`, `range`, `tail`, `tail_n`, `coin`, `sample`, `simple_path`, `cyclic_path`, `dedup_by_key`, `dedup_by_label`, `dedup_by`
+- **Filter:** `has_label_any`, `has_id`, `has_ids`, `has_key`, `has_key_any`, `has_prop_value`, `has_prop_value_any`, `is_`, `is_eq`, `filter`, `tail`, `tail_n`, `coin`, `sample`, `simple_path`, `cyclic_path`, `dedup_by_key`, `dedup_by_label`, `dedup_by`
 - **Transform:** `values_multi`, `properties`, `properties_keys`, `value_map_keys`, `value_map_with_tokens`, `element_map`, `element_map_keys`, `property_map`, `property_map_keys`, `key`, `value`, `index`, `loops`, `mean`, `order`, `math`, `project`, `map`, `flat_map`
 - **Aggregation:** `group`, `group_count`
 - **Side Effect:** `select`, `select_one`, `store`, `aggregate`, `cap`, `side_effect`, `profile`
@@ -355,192 +411,39 @@ These are available in Rust via `__.` but not yet exposed in Rhai's `A` factory:
 
 ---
 
-## Rhai Scripting Quick Start
+## Convenience Methods
+
+### Graph::query()
+
+Execute a Gremlin query string directly on a Graph:
 
 ```rust
-use interstellar::prelude::*;
-use interstellar::rhai::RhaiEngine;
-use std::sync::Arc;
-
-let engine = RhaiEngine::new();
-let graph = Arc::new(Graph::new());
-// ... populate graph ...
-
-let script = r#"
-    let g = graph.gremlin();
-    g.v().has_label("person").values("name").to_list()
-"#;
-
-let result = engine.eval_with_graph(graph, script)?;
+let result = graph.query("g.V().hasLabel('person').values('name').toList()")?;
 ```
 
-### Rhai Value Constructors
+This takes an internal snapshot, so it provides a consistent view at call time.
 
-```javascript
-let v = value_int(42);
-let v = value_float(3.14);
-let v = value_string("hello");
-let v = value_bool(true);
-```
+### GraphSnapshot::query()
 
-### Rhai Storage Backend Support
+Execute a Gremlin query string on a snapshot:
 
 ```rust
-// In-memory graph
-let engine = RhaiEngine::new();
-let graph = Arc::new(Graph::new());
-let result = engine.eval_with_graph(graph, script)?;
+let snapshot = graph.snapshot();
+let result = snapshot.query("g.V().out('knows').values('name').toList()")?;
+```
 
-// Persistent mmap graph (requires "mmap" feature)
-#[cfg(feature = "mmap")]
-{
-    let mmap_graph = Arc::new(CowMmapGraph::open("data.db")?);
-    let result = engine.eval_with_mmap_graph(mmap_graph, script)?;
+### ExecutionResult
+
+Query results are returned as an `ExecutionResult` enum:
+
+```rust
+pub enum ExecutionResult {
+    List(Vec<Value>),        // toList()
+    Single(Option<Value>),   // next()
+    Set(HashSet<Value>),     // toSet()
+    Bool(bool),              // hasNext()
+    Unit,                    // iterate()
 }
-```
-
-### Rhai Example Scripts
-
-```javascript
-// Find friends of Alice over 25
-let g = graph.gremlin();
-g.v()
-  .has_value("name", "Alice")
-  .out_labels(["knows"])
-  .has_where("age", gt(25))
-  .values("name")
-  .to_list()
-
-// Count vertices by label
-let g = graph.gremlin();
-g.v().group_count_by_label().to_list()
-
-// Find all paths of length 2
-let g = graph.gremlin();
-g.v()
-  .with_path()
-  .out().out()
-  .path()
-  .to_list()
-
-// Using predicates
-let g = graph.gremlin();
-g.v()
-  .has_where("age", pred_and(gte(18), lt(65)))
-  .values("name")
-  .to_list()
-
-// Create and query
-let g = graph.gremlin();
-let id = g.add_v("person").property("name", "Dave").first();
-g.v_id(id).values("name").first()
-```
-
----
-
-## GQL (Graph Query Language) Mutations
-
-Interstellar also supports GQL, a declarative SQL-like query language for graphs.
-
-### GQL Mutation Clauses
-
-| GQL Clause | Gremlin Equivalent | Rust |
-|------------|-------------------|------|
-| `CREATE (n:Label {props})` | `addV("Label").property(...)` | `parse_statement()` + `execute_mutation()` |
-| `CREATE (a)-[:REL]->(b)` | `addE("REL").from(a).to(b)` | `parse_statement()` + `execute_mutation()` |
-| `SET n.prop = value` | `V(id).property("prop", value)` | `parse_statement()` + `execute_mutation()` |
-| `REMOVE n.prop` | - | `parse_statement()` + `execute_mutation()` |
-| `DELETE n` | `V(id).drop()` | `parse_statement()` + `execute_mutation()` |
-| `DETACH DELETE n` | `V(id).drop()` + edges | `parse_statement()` + `execute_mutation()` |
-| `MERGE (n:Label {key: value})` | `mergeV()` (not impl) | `parse_statement()` + `execute_mutation()` |
-
-### GQL Examples
-
-```sql
--- Create a vertex
-CREATE (n:Person {name: 'Alice', age: 30})
-
--- Create vertex and edge pattern
-CREATE (a:Person {name: 'Alice'})-[:KNOWS {since: 2020}]->(b:Person {name: 'Bob'})
-
--- Update properties
-MATCH (n:Person {name: 'Alice'}) SET n.age = 31
-
--- Delete with edges
-MATCH (n:Person {name: 'Alice'}) DETACH DELETE n
-
--- Upsert
-MERGE (n:Person {name: 'Alice'}) 
-ON CREATE SET n.status = 'new'
-ON MATCH SET n.visits = n.visits + 1
-```
-
----
-
-## Streaming Execution and Barrier Steps
-
-Interstellar supports **streaming execution** where traversers flow through the pipeline one at a time with O(1) memory overhead. This is enabled via the `iter()` and `traversers()` terminal methods.
-
-### Fully Streaming Steps
-
-The following step categories support true lazy streaming:
-
-| Category | Steps | Coverage |
-|----------|-------|----------|
-| **Navigation** | `out`, `in_`, `both`, `outE`, `inE`, `bothE`, `outV`, `inV`, `bothV`, `otherV` | 100% |
-| **Has/Is Filters** | `has`, `hasLabel`, `hasNot`, `hasId`, `hasValue`, `is_`, `simplePath`, `cyclicPath` | 100% |
-| **Branch** | `choose`, `coalesce`, `union`, `optional`, `local`, `branch`, `and_`, `or_`, `not`, `where_` | 100% |
-| **Transform** | `values`, `properties`, `valueMap`, `elementMap`, `path`, `select`, `project`, `math`, `id`, `label`, `unfold`, `constant` | ~80% |
-
-### Barrier Steps (Cannot Stream)
-
-**Barrier steps** must collect ALL input traversers before producing any output. This is fundamental to their semantics and cannot be optimized away.
-
-| Step | Reason |
-|------|--------|
-| `order()` | Must see all inputs to determine sort order |
-| `group()` | Must collect all inputs to group them by key |
-| `groupCount()` | Must count all inputs per group |
-| `mean()` | Must sum all values and divide by count |
-| `tail()` | Must see all inputs to find the last N elements |
-| `sample()` | Requires reservoir sampling across all inputs |
-| `fold()` | Reduces all inputs to a single collection |
-| `count()` | Must count all inputs |
-| `sum()` / `max()` / `min()` | Must aggregate all values |
-
-When a barrier step is encountered in streaming mode, it will buffer all inputs before producing output, temporarily breaking the O(1) memory guarantee for that step.
-
-### Mutation Steps (Read-Only Streaming)
-
-Streaming execution is **read-only**. Mutation steps require graph write access and are executed via the eager `to_list()` terminal:
-
-| Step | Behavior in Streaming |
-|------|----------------------|
-| `addV()` | Not supported - use eager execution |
-| `addE()` | Not supported - use eager execution |
-| `property()` | Not supported - use eager execution |
-| `drop()` | Not supported - use eager execution |
-
-### Closure Steps (Require ExecutionContext)
-
-Steps that accept user-provided closures cannot stream because the closure signature requires `ExecutionContext`:
-
-| Step | Alternative |
-|------|-------------|
-| `map(closure)` | Use built-in transform steps (`values`, `id`, `label`, etc.) |
-| `flatMap(closure)` | Use navigation steps (`out`, `in_`, etc.) |
-| `filter(closure)` | Use predicate steps (`has`, `hasLabel`, `is_`, etc.) |
-
-### Example: Streaming vs Eager Execution
-
-```rust
-// Streaming - processes one traverser at a time
-for value in g.v().has_label("person").out("knows").values("name").iter() {
-    println!("{}", value);  // Each value processed as it arrives
-}
-
-// Eager - collects all results into memory first
-let all_names = g.v().has_label("person").out("knows").values("name").to_list();
 ```
 
 ---
@@ -564,19 +467,23 @@ let all_names = g.v().has_label("person").out("knows").values("name").to_list();
 
 ## Implementation Summary
 
-| Category | Gremlin | Rust | Rhai |
-|----------|---------|------|------|
-| Source Steps | 7 | 8 | 9 |
-| Navigation Steps | 12 | 16 | 16 |
-| Filter Steps | 33 | 34 | 28 |
-| Transform/Map Steps | 28 | 30 | 26 |
-| Aggregation Steps | 6 | 6 | 6 |
-| Branch Steps | 7 | 8 | 6 |
-| Repeat Steps | 6 | 7 | 4 |
-| Side Effect Steps | 6 | 7 | 6 |
-| Mutation Steps | 8 | 8 | 8 |
-| Modulator Steps | 8 | 6 | 3 |
-| Terminal Steps | 10 | 19 | 9 |
-| Predicates (P) | 14 | 14 | 14 |
+| Category | Gremlin Steps | Rust API | Parser |
+|----------|--------------|----------|--------|
+| Source Steps | 9 | 9 | 9 |
+| Navigation (V→V) | 6 | 6 | 6 |
+| Navigation (V→E) | 6 | 6 | 6 |
+| Navigation (E→V) | 4 | 4 | 4 |
+| Filter Steps | ~30 | ~34 | ~25 |
+| Transform/Map Steps | ~30 | ~32 | ~28 |
+| Aggregation Steps | 6 | 6 | 0 |
+| Branch Steps | 7 | 8 | 5 |
+| Repeat Steps | 6 | 7 | 6 |
+| Side Effect Steps | 6 | 7 | 5 |
+| Mutation Steps | 10 | 10 | 9 |
+| Modulator Steps | 5 | 6 | 2 |
+| Terminal Steps | 8 | 15 | 6 |
+| Predicates (P.) | 14 | 14 | 14 |
 | Text Predicates | 7 | 7 | 7 |
-| Anonymous Factory | 27 | 50+ | 27 |
+| Anonymous Factory | ~30 | 50+ | ~30 |
+
+**Total Parser Coverage:** ~85% of common Gremlin operations

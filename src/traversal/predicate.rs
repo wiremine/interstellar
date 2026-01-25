@@ -76,6 +76,17 @@ impl Clone for Box<dyn Predicate> {
     }
 }
 
+// Enable Box<dyn Predicate> to be used where impl Predicate is expected
+impl Predicate for Box<dyn Predicate> {
+    fn test(&self, value: &Value) -> bool {
+        (**self).test(value)
+    }
+
+    fn clone_box(&self) -> Box<dyn Predicate> {
+        (**self).clone_box()
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Predicate Factory Module (p::) - Stub for Phase 1.1
 // -----------------------------------------------------------------------------
@@ -1394,6 +1405,76 @@ pub mod p {
         P: Predicate + Clone + 'static,
     {
         Not(p)
+    }
+
+    // -------------------------------------------------------------------------
+    // Boxed Predicate Composition (for dynamic predicate composition)
+    // -------------------------------------------------------------------------
+
+    /// Boxed AND predicate for composing boxed predicates.
+    #[derive(Clone)]
+    pub struct BoxedAnd(Box<dyn Predicate>, Box<dyn Predicate>);
+
+    impl Predicate for BoxedAnd {
+        #[inline]
+        fn test(&self, value: &Value) -> bool {
+            self.0.test(value) && self.1.test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a logical AND predicate from boxed predicates.
+    ///
+    /// This variant accepts `Box<dyn Predicate>` for dynamic composition.
+    pub fn and_pred(p1: Box<dyn Predicate>, p2: Box<dyn Predicate>) -> Box<dyn Predicate> {
+        Box::new(BoxedAnd(p1, p2))
+    }
+
+    /// Boxed OR predicate for composing boxed predicates.
+    #[derive(Clone)]
+    pub struct BoxedOr(Box<dyn Predicate>, Box<dyn Predicate>);
+
+    impl Predicate for BoxedOr {
+        #[inline]
+        fn test(&self, value: &Value) -> bool {
+            self.0.test(value) || self.1.test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a logical OR predicate from boxed predicates.
+    ///
+    /// This variant accepts `Box<dyn Predicate>` for dynamic composition.
+    pub fn or_pred(p1: Box<dyn Predicate>, p2: Box<dyn Predicate>) -> Box<dyn Predicate> {
+        Box::new(BoxedOr(p1, p2))
+    }
+
+    /// Boxed NOT predicate for composing boxed predicates.
+    #[derive(Clone)]
+    pub struct BoxedNot(Box<dyn Predicate>);
+
+    impl Predicate for BoxedNot {
+        #[inline]
+        fn test(&self, value: &Value) -> bool {
+            !self.0.test(value)
+        }
+
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a logical NOT predicate from a boxed predicate.
+    ///
+    /// This variant accepts `Box<dyn Predicate>` for dynamic composition.
+    pub fn not_pred(p: Box<dyn Predicate>) -> Box<dyn Predicate> {
+        Box::new(BoxedNot(p))
     }
 }
 

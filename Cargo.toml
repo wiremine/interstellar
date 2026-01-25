@@ -13,7 +13,8 @@ graphson = ["serde_json"]
 full-text = ["tantivy"]
 rhai = ["dep:rhai"]
 gql = ["pest", "pest_derive", "mathexpr"]
-full = ["mmap", "graphson", "gql", "full-text", "rhai"]
+gremlin = ["pest", "pest_derive"]
+full = ["mmap", "graphson", "gql", "gremlin", "full-text", "rhai"]
 
 [dependencies]
 thiserror = "1.0"
