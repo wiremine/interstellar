@@ -8,8 +8,7 @@ This specification defines the implementation of a TinkerPop-compatible Gremlin 
 
 1. **TinkerPop Compatibility**: Match standard Gremlin syntax closely (`g.V().hasLabel('person').out('knows')`)
 2. **Full Mutation Support**: Support `addV()`, `addE()`, `property()`, `drop()` for complete write capability
-3. **Interactive REPL/CLI**: Primary use case is command-line Gremlin shell experience
-4. **Consistent Architecture**: Follow the proven GQL module pattern (pest parser → AST → compiler → traversal)
+3. **Consistent Architecture**: Follow the proven GQL module pattern (pest parser -> AST -> compiler -> traversal)
 
 ### Non-Goals
 
@@ -17,6 +16,7 @@ This specification defines the implementation of a TinkerPop-compatible Gremlin 
 - Remote execution protocol (GLV - Gremlin Language Variants)
 - Bytecode serialization
 - Full TinkerPop server compatibility
+- Interactive REPL (separate spec)
 
 ## Architecture
 
@@ -42,14 +42,12 @@ src/gremlin/
 ├── parser.rs           # pest-based parser, AST construction
 ├── ast.rs              # Abstract Syntax Tree type definitions
 ├── compiler.rs         # AST → Traversal compilation
-├── error.rs            # Error types with span information
-└── repl.rs             # REPL implementation for CLI
+└── error.rs            # Error types with span information
 
 tests/gremlin/
 ├── mod.rs              # Test module
 ├── parser_tests.rs     # Parser unit tests
 ├── compiler_tests.rs   # Compiler integration tests
-├── repl_tests.rs       # REPL tests
 └── snapshots/          # Snapshot tests for parser output
 ```
 
@@ -67,9 +65,9 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 // String literals (both quote styles for TinkerPop compatibility)
 string = ${ single_quoted | double_quoted }
 single_quoted = ${ "'" ~ single_inner ~ "'" }
-single_inner = @{ (!"'" ~ ANY | "''")* }
+single_inner = @{ (!"'" ~ ("\\\\" | "\\'" | ANY))* }
 double_quoted = ${ "\"" ~ double_inner ~ "\"" }
-double_inner = @{ (!"\""  ~ ANY | "\"\"")* }
+double_inner = @{ (!"\"" ~ ("\\\\" | "\\\"" | ANY))* }
 
 // Numeric literals
 integer = @{ "-"? ~ ASCII_DIGIT+ }
@@ -218,11 +216,12 @@ cyclic_path_step = { "cyclicPath" ~ "(" ~ ")" }
 // Transform Steps
 // ============================================================
 
-values_step = { "values" ~ "(" ~ string ~ ("," ~ string)* ~ ")" }
-properties_step = { "properties" ~ "(" ~ string* ~ ")" }
-value_map_step = { "valueMap" ~ "(" ~ (boolean | string)* ~ ")" }
-element_map_step = { "elementMap" ~ "(" ~ string* ~ ")" }
-property_map_step = { "propertyMap" ~ "(" ~ string* ~ ")" }
+values_step = { "values" ~ "(" ~ (string ~ ("," ~ string)*)? ~ ")" }
+properties_step = { "properties" ~ "(" ~ (string ~ ("," ~ string)*)? ~ ")" }
+value_map_step = { "valueMap" ~ "(" ~ value_map_args? ~ ")" }
+value_map_args = { boolean ~ ("," ~ string)* | string ~ ("," ~ string)* }
+element_map_step = { "elementMap" ~ "(" ~ (string ~ ("," ~ string)*)? ~ ")" }
+property_map_step = { "propertyMap" ~ "(" ~ (string ~ ("," ~ string)*)? ~ ")" }
 id_step = { "id" ~ "(" ~ ")" }
 label_step = { "label" ~ "(" ~ ")" }
 key_step = { "key" ~ "(" ~ ")" }
@@ -389,8 +388,9 @@ text_regex = { "regex" ~ "(" ~ string ~ ")" }
 // Anonymous Traversal
 // ============================================================
 
-// __.out(), __.in(), etc.
-anonymous_traversal = { "__" ~ step+ }
+// __.out(), __.in(), __.identity(), etc.
+// Note: step* allows zero steps (e.g., __ used as identity)
+anonymous_traversal = { "__" ~ step* }
 
 // ============================================================
 // Values
@@ -398,8 +398,10 @@ anonymous_traversal = { "__" ~ step+ }
 
 value = { float | integer | string | boolean | null | list_value | map_value }
 list_value = { "[" ~ (value ~ ("," ~ value)*)? ~ "]" }
-map_value = { "[" ~ (map_entry ~ ("," ~ map_entry)*)? ~ "]" }
+// Maps use [:] for empty, and key:value syntax (distinct from list)
+map_value = { "[" ~ ":" ~ "]" | "[" ~ map_entry ~ ("," ~ map_entry)* ~ "]" }
 map_entry = { (string | identifier) ~ ":" ~ value }
+```
 
 ## AST Specification
 
@@ -415,6 +417,16 @@ pub struct GremlinTraversal {
     pub steps: Vec<Step>,
     /// Optional terminal step (toList, next, etc.)
     pub terminal: Option<TerminalStep>,
+    /// Source span for error reporting
+    pub span: Span,
+}
+
+/// An anonymous traversal (__.out(), __.values(), etc.)
+/// Unlike GremlinTraversal, has no source step or terminal
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnonymousTraversal {
+    /// The chain of traversal steps (may be empty for identity)
+    pub steps: Vec<Step>,
     /// Source span for error reporting
     pub span: Span,
 }
@@ -498,11 +510,11 @@ pub enum Step {
     /// is(value), is(P.gt(25))
     Is { args: IsArgs, span: Span },
     /// and(__.out(), __.in())
-    And { traversals: Vec<GremlinTraversal>, span: Span },
+    And { traversals: Vec<AnonymousTraversal>, span: Span },
     /// or(__.out(), __.in())
-    Or { traversals: Vec<GremlinTraversal>, span: Span },
+    Or { traversals: Vec<AnonymousTraversal>, span: Span },
     /// not(__.out())
-    Not { traversal: Box<GremlinTraversal>, span: Span },
+    Not { traversal: Box<AnonymousTraversal>, span: Span },
     /// dedup(), dedup('label')
     Dedup { by_label: Option<String>, span: Span },
     /// limit(n)
@@ -582,28 +594,28 @@ pub enum Step {
     /// choose(cond, true_trav, false_trav), choose(__.values('type'))
     Choose { args: ChooseArgs, span: Span },
     /// union(__.out(), __.in())
-    Union { traversals: Vec<GremlinTraversal>, span: Span },
+    Union { traversals: Vec<AnonymousTraversal>, span: Span },
     /// coalesce(__.out(), __.in())
-    Coalesce { traversals: Vec<GremlinTraversal>, span: Span },
+    Coalesce { traversals: Vec<AnonymousTraversal>, span: Span },
     /// optional(__.out())
-    Optional { traversal: Box<GremlinTraversal>, span: Span },
+    Optional { traversal: Box<AnonymousTraversal>, span: Span },
     /// local(__.out())
-    Local { traversal: Box<GremlinTraversal>, span: Span },
+    Local { traversal: Box<AnonymousTraversal>, span: Span },
     /// branch(__.values('type'))
-    Branch { traversal: Box<GremlinTraversal>, span: Span },
+    Branch { traversal: Box<AnonymousTraversal>, span: Span },
     /// option('key', __.out()), option(none, __.identity())
     Option { args: OptionArgs, span: Span },
 
     // ========== Repeat Steps ==========
     
     /// repeat(__.out())
-    Repeat { traversal: Box<GremlinTraversal>, span: Span },
+    Repeat { traversal: Box<AnonymousTraversal>, span: Span },
     /// times(n)
     Times { count: u32, span: Span },
     /// until(__.hasLabel('target'))
-    Until { traversal: Box<GremlinTraversal>, span: Span },
+    Until { traversal: Box<AnonymousTraversal>, span: Span },
     /// emit(), emit(__.hasLabel('person'))
-    Emit { traversal: Option<Box<GremlinTraversal>>, span: Span },
+    Emit { traversal: Option<Box<AnonymousTraversal>>, span: Span },
 
     // ========== Side Effect Steps ==========
     
@@ -616,7 +628,7 @@ pub enum Step {
     /// cap('x'), cap('x', 'y')
     Cap { keys: Vec<String>, span: Span },
     /// sideEffect(__.out())
-    SideEffect { traversal: Box<GremlinTraversal>, span: Span },
+    SideEffect { traversal: Box<AnonymousTraversal>, span: Span },
     /// profile(), profile('metrics')
     Profile { key: Option<String>, span: Span },
 
@@ -657,7 +669,7 @@ pub enum HasArgs {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WhereArgs {
     /// where(__.out())
-    Traversal(Box<GremlinTraversal>),
+    Traversal(Box<AnonymousTraversal>),
     /// where(P.eq('value'))
     Predicate(Predicate),
 }
@@ -688,13 +700,13 @@ pub enum ByArgs {
     /// by('key')
     Key(String),
     /// by(__.values('name'))
-    Traversal(Box<GremlinTraversal>),
+    Traversal(Box<AnonymousTraversal>),
     /// by(asc), by(desc)
     Order(OrderDirection),
     /// by('key', asc)
     KeyOrder { key: String, order: OrderDirection },
     /// by(__.values('x'), asc)
-    TraversalOrder { traversal: Box<GremlinTraversal>, order: OrderDirection },
+    TraversalOrder { traversal: Box<AnonymousTraversal>, order: OrderDirection },
 }
 
 /// Order direction for sorting
@@ -710,12 +722,12 @@ pub enum OrderDirection {
 pub enum ChooseArgs {
     /// choose(cond, true_trav, false_trav)
     IfThenElse {
-        condition: Box<GremlinTraversal>,
-        if_true: Box<GremlinTraversal>,
-        if_false: Box<GremlinTraversal>,
+        condition: Box<AnonymousTraversal>,
+        if_true: Box<AnonymousTraversal>,
+        if_false: Box<AnonymousTraversal>,
     },
     /// choose(__.values('type')) - for use with option()
-    ByTraversal(Box<GremlinTraversal>),
+    ByTraversal(Box<AnonymousTraversal>),
     /// choose(P.gt(25))
     ByPredicate(Predicate),
 }
@@ -724,9 +736,9 @@ pub enum ChooseArgs {
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptionArgs {
     /// option('key', __.out())
-    KeyValue { key: Literal, traversal: Box<GremlinTraversal> },
+    KeyValue { key: Literal, traversal: Box<AnonymousTraversal> },
     /// option(none, __.identity())
-    None { traversal: Box<GremlinTraversal> },
+    None { traversal: Box<AnonymousTraversal> },
 }
 
 /// Arguments for property() step
@@ -754,7 +766,7 @@ pub enum FromToArgs {
     /// from('label') - select by as() label
     Label(String),
     /// from(__.select('a'))
-    Traversal(Box<GremlinTraversal>),
+    Traversal(Box<AnonymousTraversal>),
     /// from(vertexId)
     Id(Literal),
 }
@@ -1041,261 +1053,6 @@ g.V().hasLabel('person').outX('knows')
 Unexpected token: found 'outX', expected step name (out, in, has, etc.)
 ```
 
-## REPL Specification
-
-### REPL Features
-
-1. **Multi-line input**: Support `\` continuation
-2. **History**: Arrow key navigation, persistent history file
-3. **Tab completion**: Step names, property keys (if schema available)
-4. **Special commands**: `:help`, `:quit`, `:clear`, `:schema`, `:load`
-5. **Result formatting**: Pretty-print vertices/edges/values
-6. **Timing**: Show query execution time
-
-### REPL Commands
-
-| Command | Description |
-|---------|-------------|
-| `:help` | Show help message |
-| `:quit` or `:q` | Exit REPL |
-| `:clear` | Clear screen |
-| `:history` | Show command history |
-| `:schema` | Show graph schema (if available) |
-| `:load <file>` | Execute Gremlin script from file |
-| `:timing [on\|off]` | Toggle execution timing display |
-| `:format [json\|pretty\|compact]` | Set output format |
-
-### REPL Implementation
-
-```rust
-use rustyline::{Editor, error::ReadlineError, hint::HistoryHinter};
-use rustyline_derive::{Completer, Helper, Highlighter, Hinter, Validator};
-use std::sync::Arc;
-
-#[derive(Helper, Completer, Hinter, Highlighter, Validator)]
-struct GremlinHelper {
-    #[rustyline(Hinter)]
-    hinter: HistoryHinter,
-}
-
-pub struct GremlinRepl {
-    graph: Arc<Graph>,
-    history_path: Option<PathBuf>,
-    show_timing: bool,
-    output_format: OutputFormat,
-}
-
-#[derive(Clone, Copy)]
-pub enum OutputFormat {
-    Json,
-    Pretty,
-    Compact,
-}
-
-impl GremlinRepl {
-    pub fn new(graph: Arc<Graph>) -> Self {
-        Self {
-            graph,
-            history_path: dirs::data_dir().map(|d| d.join("interstellar/gremlin_history")),
-            show_timing: true,
-            output_format: OutputFormat::Pretty,
-        }
-    }
-    
-    pub fn run(&mut self) -> Result<(), ReplError> {
-        let mut rl = Editor::new()?;
-        rl.set_helper(Some(GremlinHelper {
-            hinter: HistoryHinter {},
-        }));
-        
-        if let Some(ref path) = self.history_path {
-            let _ = rl.load_history(path);
-        }
-        
-        self.print_banner();
-        
-        loop {
-            match rl.readline("gremlin> ") {
-                Ok(line) => {
-                    let line = line.trim();
-                    if line.is_empty() { continue; }
-                    
-                    rl.add_history_entry(line)?;
-                    
-                    if line.starts_with(':') {
-                        if self.handle_command(line)? {
-                            break; // :quit
-                        }
-                    } else {
-                        self.execute_query(line);
-                    }
-                }
-                Err(ReadlineError::Interrupted) => {
-                    println!("^C");
-                    continue;
-                }
-                Err(ReadlineError::Eof) => break,
-                Err(e) => return Err(e.into()),
-            }
-        }
-        
-        if let Some(ref path) = self.history_path {
-            let _ = rl.save_history(path);
-        }
-        
-        Ok(())
-    }
-    
-    fn print_banner(&self) {
-        println!("╔═══════════════════════════════════════════════════════════╗");
-        println!("║           Interstellar Gremlin Console v0.1.0             ║");
-        println!("║  Type :help for commands, :quit to exit                   ║");
-        println!("╚═══════════════════════════════════════════════════════════╝");
-        println!();
-    }
-    
-    fn handle_command(&mut self, cmd: &str) -> Result<bool, ReplError> {
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        match parts.get(0).map(|s| *s) {
-            Some(":quit") | Some(":q") => Ok(true),
-            Some(":help") | Some(":h") => {
-                self.print_help();
-                Ok(false)
-            }
-            Some(":clear") => {
-                print!("\x1B[2J\x1B[1;1H");
-                Ok(false)
-            }
-            Some(":timing") => {
-                match parts.get(1) {
-                    Some(&"on") => self.show_timing = true,
-                    Some(&"off") => self.show_timing = false,
-                    _ => self.show_timing = !self.show_timing,
-                }
-                println!("Timing: {}", if self.show_timing { "on" } else { "off" });
-                Ok(false)
-            }
-            Some(":format") => {
-                match parts.get(1) {
-                    Some(&"json") => self.output_format = OutputFormat::Json,
-                    Some(&"pretty") => self.output_format = OutputFormat::Pretty,
-                    Some(&"compact") => self.output_format = OutputFormat::Compact,
-                    _ => println!("Usage: :format [json|pretty|compact]"),
-                }
-                Ok(false)
-            }
-            Some(":schema") => {
-                self.show_schema();
-                Ok(false)
-            }
-            Some(":load") => {
-                if let Some(path) = parts.get(1) {
-                    self.load_script(path)?;
-                } else {
-                    println!("Usage: :load <file>");
-                }
-                Ok(false)
-            }
-            _ => {
-                println!("Unknown command: {}", cmd);
-                println!("Type :help for available commands");
-                Ok(false)
-            }
-        }
-    }
-    
-    fn execute_query(&self, query: &str) {
-        let start = std::time::Instant::now();
-        
-        match self.graph.gremlin_query(query) {
-            Ok(results) => {
-                let elapsed = start.elapsed();
-                
-                self.print_results(&results);
-                
-                if self.show_timing {
-                    println!("\n==> {} result(s) in {:.3}ms", 
-                             results.len(), 
-                             elapsed.as_secs_f64() * 1000.0);
-                } else {
-                    println!("\n==> {} result(s)", results.len());
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-            }
-        }
-    }
-    
-    fn print_results(&self, results: &[Value]) {
-        match self.output_format {
-            OutputFormat::Json => {
-                println!("{}", serde_json::to_string_pretty(results).unwrap_or_default());
-            }
-            OutputFormat::Pretty => {
-                for (i, value) in results.iter().enumerate() {
-                    println!("[{}] {}", i, self.format_value_pretty(value));
-                }
-            }
-            OutputFormat::Compact => {
-                for value in results {
-                    println!("{:?}", value);
-                }
-            }
-        }
-    }
-    
-    fn format_value_pretty(&self, value: &Value) -> String {
-        match value {
-            Value::Vertex(id) => {
-                if let Some(vertex) = self.graph.snapshot().get_vertex(*id) {
-                    format!("v[{}] label={} props={:?}", 
-                            id.0, vertex.label(), vertex.properties())
-                } else {
-                    format!("v[{}]", id.0)
-                }
-            }
-            Value::Edge(id) => format!("e[{}]", id.0),
-            Value::String(s) => format!("\"{}\"", s),
-            Value::Int(i) => i.to_string(),
-            Value::Float(f) => f.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::Null => "null".to_string(),
-            Value::List(items) => {
-                let formatted: Vec<_> = items.iter()
-                    .map(|v| self.format_value_pretty(v))
-                    .collect();
-                format!("[{}]", formatted.join(", "))
-            }
-            Value::Map(map) => {
-                let formatted: Vec<_> = map.iter()
-                    .map(|(k, v)| format!("{}: {}", k, self.format_value_pretty(v)))
-                    .collect();
-                format!("{{{}}}", formatted.join(", "))
-            }
-            _ => format!("{:?}", value),
-        }
-    }
-    
-    fn print_help(&self) {
-        println!("Gremlin Console Commands:");
-        println!("  :help, :h       Show this help message");
-        println!("  :quit, :q       Exit the console");
-        println!("  :clear          Clear the screen");
-        println!("  :timing [on|off] Toggle execution timing");
-        println!("  :format <fmt>   Set output format (json, pretty, compact)");
-        println!("  :schema         Show graph schema");
-        println!("  :load <file>    Execute Gremlin script from file");
-        println!();
-        println!("Example Queries:");
-        println!("  g.V()                              - Get all vertices");
-        println!("  g.V().hasLabel('person')           - Get person vertices");
-        println!("  g.V().has('age', P.gt(25))         - Filter by predicate");
-        println!("  g.V(1).out('knows').values('name') - Navigate and project");
-    }
-}
-```
-
 ## Public API
 
 ### Module Exports
@@ -1318,29 +1075,16 @@ impl GremlinRepl {
 //! // Execute a Gremlin query
 //! let results = graph.gremlin("g.V().hasLabel('person').values('name')")?;
 //! ```
-//!
-//! ## REPL
-//!
-//! ```rust
-//! use interstellar::gremlin::GremlinRepl;
-//! use std::sync::Arc;
-//!
-//! let graph = Arc::new(Graph::new());
-//! let mut repl = GremlinRepl::new(graph);
-//! repl.run()?;
-//! ```
 
 mod ast;
 mod compiler;
 mod error;
 mod parser;
-mod repl;
 
 pub use ast::*;
 pub use compiler::{compile, CompiledTraversal, ExecutionResult};
 pub use error::{CompileError, GremlinError, ParseError};
 pub use parser::parse;
-pub use repl::{GremlinRepl, OutputFormat};
 ```
 
 ### Graph Integration
@@ -1807,6 +1551,74 @@ mod parser_tests {
         ));
     }
 
+    // ========== String Escape Tests ==========
+
+    #[test]
+    fn test_escaped_single_quote() {
+        let ast = parse("g.V().has('name', 'O\\'Brien')").unwrap();
+        assert!(matches!(&ast.steps[0], 
+            Step::Has { args: HasArgs::KeyValue { value: Literal::String(v), .. }, .. }
+            if v == "O'Brien"
+        ));
+    }
+
+    #[test]
+    fn test_escaped_double_quote() {
+        let ast = parse("g.V().has('quote', \"He said \\\"hello\\\"\")").unwrap();
+        assert!(matches!(&ast.steps[0], 
+            Step::Has { args: HasArgs::KeyValue { value: Literal::String(v), .. }, .. }
+            if v == "He said \"hello\""
+        ));
+    }
+
+    #[test]
+    fn test_escaped_backslash() {
+        let ast = parse("g.V().has('path', 'C:\\\\Users')").unwrap();
+        assert!(matches!(&ast.steps[0], 
+            Step::Has { args: HasArgs::KeyValue { value: Literal::String(v), .. }, .. }
+            if v == "C:\\Users"
+        ));
+    }
+
+    // ========== Map/List Tests ==========
+
+    #[test]
+    fn test_empty_list() {
+        let ast = parse("g.inject([])").unwrap();
+        assert!(matches!(&ast.source, SourceStep::Inject { values, .. } 
+            if values.len() == 1 && matches!(&values[0], Literal::List(l) if l.is_empty())
+        ));
+    }
+
+    #[test]
+    fn test_empty_map() {
+        let ast = parse("g.inject([:])").unwrap();
+        assert!(matches!(&ast.source, SourceStep::Inject { values, .. } 
+            if values.len() == 1 && matches!(&values[0], Literal::Map(m) if m.is_empty())
+        ));
+    }
+
+    #[test]
+    fn test_map_literal() {
+        let ast = parse("g.inject([name: 'alice', age: 30])").unwrap();
+        assert!(matches!(&ast.source, SourceStep::Inject { values, .. } 
+            if values.len() == 1 && matches!(&values[0], Literal::Map(m) if m.len() == 2)
+        ));
+    }
+
+    // ========== Anonymous Traversal Tests ==========
+
+    #[test]
+    fn test_anonymous_identity() {
+        // __ with no steps acts as identity
+        let ast = parse("g.V().where(__)").unwrap();
+        if let Step::Where { args: WhereArgs::Traversal(trav), .. } = &ast.steps[0] {
+            assert!(trav.steps.is_empty());
+        } else {
+            panic!("Expected where with traversal");
+        }
+    }
+
     // ========== Complex Query Tests ==========
 
     #[test]
@@ -2138,23 +1950,7 @@ mod snapshot_tests {
 - API usage tests
 - Documentation tests
 
-### Phase 5: REPL (3-4 hours)
-
-**Files:**
-- `src/gremlin/repl.rs`
-- `src/bin/gremlin-repl.rs` (optional binary)
-
-**Deliverables:**
-- Interactive REPL with history
-- Command handling (`:help`, `:quit`, etc.)
-- Result formatting
-- Error display with context
-
-**Tests:**
-- REPL command tests
-- Output format tests
-
-### Phase 6: Testing & Polish (4-6 hours)
+### Phase 5: Testing & Polish (4-6 hours)
 
 **Deliverables:**
 - Comprehensive test coverage (aim for 90%+)
@@ -2173,24 +1969,9 @@ pest = "2.7"
 pest_derive = "2.7"
 thiserror = "1.0"
 
-# New for REPL (optional feature)
-rustyline = { version = "14.0", optional = true }
-dirs = { version = "5.0", optional = true }
-
 [features]
 default = []
-gremlin-repl = ["rustyline", "dirs"]
-```
-
-### Feature Flags
-
-```toml
-[features]
-# Core Gremlin parser (always available with gql feature)
 gremlin = ["gql"]
-
-# REPL binary
-gremlin-repl = ["gremlin", "rustyline", "dirs"]
 ```
 
 ## TinkerPop Compatibility Notes
@@ -2199,17 +1980,17 @@ gremlin-repl = ["gremlin", "rustyline", "dirs"]
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `g.V()`, `g.E()` | ✓ | Full support |
-| Navigation steps | ✓ | out, in, both, outE, inE, etc. |
-| Filter steps | ✓ | has, hasLabel, where, is, and, or, not |
-| Transform steps | ✓ | values, valueMap, select, project, order |
-| Branch steps | ✓ | choose, union, coalesce, optional |
-| Repeat steps | ✓ | repeat, until, times, emit |
-| Side effect steps | ✓ | as, aggregate, store, cap |
-| Mutation steps | ✓ | addV, addE, property, drop |
-| P predicates | ✓ | eq, neq, lt, gt, between, within, etc. |
-| TextP predicates | ✓ | containing, startingWith, regex |
-| Anonymous traversals | ✓ | `__.out()`, `__.values()`, etc. |
+| `g.V()`, `g.E()` | Supported | Full support |
+| Navigation steps | Supported | out, in, both, outE, inE, etc. |
+| Filter steps | Supported | has, hasLabel, where, is, and, or, not |
+| Transform steps | Supported | values, valueMap, select, project, order |
+| Branch steps | Supported | choose, union, coalesce, optional |
+| Repeat steps | Supported | repeat, until, times, emit |
+| Side effect steps | Supported | as, aggregate, store, cap |
+| Mutation steps | Supported | addV, addE, property, drop |
+| P predicates | Supported | eq, neq, lt, gt, between, within, etc. |
+| TextP predicates | Supported | containing, startingWith, regex |
+| Anonymous traversals | Supported | `__.out()`, `__.values()`, `__` (identity) |
 
 ### Unsupported Features
 
@@ -2230,6 +2011,9 @@ gremlin-repl = ["gremlin", "rustyline", "dirs"]
 | `toList()` | `toList()` | Same |
 | `id` (as string) | Integer literal | IDs are u64 internally |
 | Groovy closures | Not supported | Security |
+| `[:]` | `[:]` | Empty map syntax |
+| `['a', 'b']` | `['a', 'b']` | List syntax |
+| `[a: 1, b: 2]` | `[a: 1, b: 2]` | Map syntax (key:value) |
 
 ## Success Criteria
 
@@ -2239,7 +2023,3 @@ gremlin-repl = ["gremlin", "rustyline", "dirs"]
 4. **Performance**: Parsing < 1ms for typical queries, compilation < 5ms
 5. **Test Coverage**: > 90% coverage on parser and compiler
 6. **Documentation**: Complete rustdoc with examples
-7. **REPL Usability**: Pleasant interactive experience with history and help
-```
-```
-
