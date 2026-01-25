@@ -507,9 +507,440 @@ criterion_group!(
     bench_streaming_full_traversal,
 );
 
+// =============================================================================
+// Streaming Terminal Step Benchmarks
+// =============================================================================
+
+/// Benchmark: next() terminal step - streaming vs eager for first element
+fn bench_streaming_next(c: &mut Criterion) {
+    let graph = create_benchmark_graph(10_000, 100_000);
+
+    let mut group = c.benchmark_group("streaming_next");
+
+    // next() on simple traversal (should use streaming)
+    group.bench_function("v().out().next() [streaming]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().next())
+        })
+    });
+
+    // next() with barrier step (forces eager)
+    group.bench_function("v().out().dedup().next() [eager - barrier]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().dedup().next())
+        })
+    });
+
+    // Compare: to_list().first() (always eager)
+    group.bench_function("v().out().to_list().first() [eager]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().to_list().into_iter().next())
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark: has_next() terminal step - existence check
+fn bench_streaming_has_next(c: &mut Criterion) {
+    let graph = create_benchmark_graph(10_000, 100_000);
+
+    let mut group = c.benchmark_group("streaming_has_next");
+
+    // has_next() on simple traversal (streaming)
+    group.bench_function("v().out().has_label().has_next() [streaming]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().has_label("person").has_next())
+        })
+    });
+
+    // has_next() with barrier (eager)
+    group.bench_function(
+        "v().out().order().build().has_next() [eager - barrier]",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v().out().order().build().has_next())
+            })
+        },
+    );
+
+    group.finish();
+}
+
+/// Benchmark: take(n) terminal step - first N elements
+fn bench_streaming_take(c: &mut Criterion) {
+    let graph = create_benchmark_graph(10_000, 100_000);
+
+    let mut group = c.benchmark_group("streaming_take");
+
+    for n in [1, 10, 100, 1000] {
+        // take() on simple traversal (streaming)
+        group.bench_function(format!("v().out().take({}) [streaming]", n), |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v().out().take(n))
+            })
+        });
+
+        // take() with barrier (eager)
+        group.bench_function(format!("v().out().dedup().take({}) [eager]", n), |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v().out().dedup().take(n))
+            })
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: count() terminal step
+fn bench_streaming_count(c: &mut Criterion) {
+    let graph = create_benchmark_graph(10_000, 100_000);
+
+    let mut group = c.benchmark_group("streaming_count");
+
+    // count() on simple traversal (streaming - but must consume all)
+    group.bench_function("v().out().count() [streaming]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().count())
+        })
+    });
+
+    // count() with barrier (eager)
+    group.bench_function("v().out().dedup().count() [eager - barrier]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().dedup().count())
+        })
+    });
+
+    // count() with limit (streaming early termination doesn't help count)
+    group.bench_function("v().out().limit(100).count() [streaming]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().limit(100).count())
+        })
+    });
+
+    group.finish();
+}
+
+// =============================================================================
+// Barrier Step Impact Benchmarks
+// =============================================================================
+
+/// Benchmark: Impact of barrier steps on streaming
+fn bench_barrier_impact(c: &mut Criterion) {
+    let graph = create_benchmark_graph(5_000, 50_000);
+
+    let mut group = c.benchmark_group("barrier_impact");
+
+    // No barrier - streaming
+    group.bench_function("v().out().out().next() [no barrier]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().next())
+        })
+    });
+
+    // dedup barrier
+    group.bench_function("v().out().out().dedup().next() [dedup barrier]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().dedup().next())
+        })
+    });
+
+    // order barrier
+    group.bench_function(
+        "v().out().out().order().build().next() [order barrier]",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v().out().out().order().build().next())
+            })
+        },
+    );
+
+    // tail barrier
+    group.bench_function("v().out().out().tail_n(10).next() [tail barrier]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().tail_n(10).next())
+        })
+    });
+
+    // sample barrier
+    group.bench_function("v().out().out().sample(10).next() [sample barrier]", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().sample(10).next())
+        })
+    });
+
+    group.finish();
+}
+
+// =============================================================================
+// Streaming with Different Graph Sizes
+// =============================================================================
+
+/// Benchmark: Streaming performance scales with graph size
+fn bench_streaming_scalability(c: &mut Criterion) {
+    let mut group = c.benchmark_group("streaming_scalability");
+
+    for (vertices, edges) in [(1_000, 5_000), (5_000, 25_000), (10_000, 100_000)] {
+        let graph = create_benchmark_graph(vertices, edges);
+
+        // Streaming: first 10 results
+        group.bench_function(
+            format!("{}v/{}e: v().out().take(10) [streaming]", vertices, edges),
+            |b| {
+                b.iter(|| {
+                    let snapshot = graph.snapshot();
+                    let g = snapshot.gremlin();
+                    black_box(g.v().out().take(10))
+                })
+            },
+        );
+
+        // Eager: all results then take
+        group.bench_function(
+            format!(
+                "{}v/{}e: v().out().to_list().take(10) [eager]",
+                vertices, edges
+            ),
+            |b| {
+                b.iter(|| {
+                    let snapshot = graph.snapshot();
+                    let g = snapshot.gremlin();
+                    let result: Vec<_> = g.v().out().to_list().into_iter().take(10).collect();
+                    black_box(result)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// =============================================================================
+// Streaming with Complex Traversals
+// =============================================================================
+
+/// Benchmark: Streaming with filter chains
+fn bench_streaming_filter_chain(c: &mut Criterion) {
+    let graph = create_benchmark_graph(10_000, 100_000);
+
+    let mut group = c.benchmark_group("streaming_filter_chain");
+
+    // Multiple filters (all streamable)
+    group.bench_function("v().has_label().has().out().has_label().next()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(
+                g.v()
+                    .has_label("person")
+                    .has("age")
+                    .out()
+                    .has_label("software")
+                    .next(),
+            )
+        })
+    });
+
+    // Same with take(100)
+    group.bench_function("v().has_label().has().out().has_label().take(100)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(
+                g.v()
+                    .has_label("person")
+                    .has("age")
+                    .out()
+                    .has_label("software")
+                    .take(100),
+            )
+        })
+    });
+
+    // Full collection for comparison
+    group.bench_function("v().has_label().has().out().has_label().to_list()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(
+                g.v()
+                    .has_label("person")
+                    .has("age")
+                    .out()
+                    .has_label("software")
+                    .to_list(),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark: Streaming with deep traversals
+fn bench_streaming_deep_traversal(c: &mut Criterion) {
+    // Smaller graph for deep traversals to avoid explosion
+    let graph = create_benchmark_graph(500, 2_000);
+
+    let mut group = c.benchmark_group("streaming_deep_traversal");
+
+    // 1-hop
+    group.bench_function("1-hop: v().out().next()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().next())
+        })
+    });
+
+    // 2-hop
+    group.bench_function("2-hop: v().out().out().next()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().next())
+        })
+    });
+
+    // 3-hop
+    group.bench_function("3-hop: v().out().out().out().next()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().out().next())
+        })
+    });
+
+    // 4-hop
+    group.bench_function("4-hop: v().out().out().out().out().next()", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().out().out().out().next())
+        })
+    });
+
+    // Compare 3-hop streaming vs eager
+    group.bench_function(
+        "3-hop: v().out().out().out().to_list().first() [eager]",
+        |b| {
+            b.iter(|| {
+                let snapshot = graph.snapshot();
+                let g = snapshot.gremlin();
+                black_box(g.v().out().out().out().to_list().into_iter().next())
+            })
+        },
+    );
+
+    group.finish();
+}
+
+/// Benchmark: Streaming with navigation step variations
+fn bench_streaming_navigation(c: &mut Criterion) {
+    let graph = create_benchmark_graph(5_000, 50_000);
+
+    let mut group = c.benchmark_group("streaming_navigation");
+
+    // out() streaming
+    group.bench_function("v().out().take(50)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out().take(50))
+        })
+    });
+
+    // in() streaming
+    group.bench_function("v().in_().take(50)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().in_().take(50))
+        })
+    });
+
+    // both() streaming
+    group.bench_function("v().both().take(50)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().both().take(50))
+        })
+    });
+
+    // out_e().in_v() streaming
+    group.bench_function("v().out_e().in_v().take(50)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out_e().in_v().take(50))
+        })
+    });
+
+    // With label filter
+    group.bench_function("v().out_labels(['knows']).take(50)", |b| {
+        b.iter(|| {
+            let snapshot = graph.snapshot();
+            let g = snapshot.gremlin();
+            black_box(g.v().out_labels(&["knows"]).take(50))
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    streaming_terminal_benches,
+    bench_streaming_next,
+    bench_streaming_has_next,
+    bench_streaming_take,
+    bench_streaming_count,
+);
+
+criterion_group!(
+    streaming_advanced_benches,
+    bench_barrier_impact,
+    bench_streaming_scalability,
+    bench_streaming_filter_chain,
+    bench_streaming_deep_traversal,
+    bench_streaming_navigation,
+);
+
 criterion_main!(
     basic_benches,
     throughput_benches,
     query_benches,
-    streaming_benches
+    streaming_benches,
+    streaming_terminal_benches,
+    streaming_advanced_benches
 );
