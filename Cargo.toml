@@ -7,9 +7,10 @@ edition = "2021"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [features]
-default = ["inmemory"]
+default = ["inmemory", "graphson"]
 inmemory = []
 mmap = ["memmap2", "serde_json"]
+graphson = ["serde_json"]
 full-text = ["tantivy"]
 rhai = ["dep:rhai"]
 
@@ -88,6 +89,10 @@ name = "marvel"
 [[example]]
 name = "nba"
 required-features = ["mmap"]
+
+[[example]]
+name = "graphson"
+required-features = ["graphson"]
 
 [package.metadata.kani]
 # Default unwind bound for loops (can be overridden per-proof)

@@ -368,6 +368,8 @@ pub mod error;
 pub mod gql;
 pub mod graph_access;
 pub mod graph_elements;
+#[cfg(feature = "graphson")]
+pub mod graphson;
 pub mod index;
 pub mod schema;
 pub mod storage;

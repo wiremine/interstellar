@@ -1650,6 +1650,63 @@ impl Graph {
 
         Ok(result)
     }
+
+    /// Export this graph to GraphSON format.
+    ///
+    /// Returns a compact JSON string. For pretty-printed output, use
+    /// [`to_graphson_pretty`](Self::to_graphson_pretty).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::Graph;
+    ///
+    /// let graph = Graph::new();
+    /// let json = graph.to_graphson().unwrap();
+    /// assert!(json.contains("tinker:graph"));
+    /// ```
+    #[cfg(feature = "graphson")]
+    pub fn to_graphson(&self) -> Result<String, serde_json::Error> {
+        crate::graphson::to_string(&self.snapshot())
+    }
+
+    /// Export this graph to GraphSON format (pretty-printed).
+    ///
+    /// Returns a nicely formatted JSON string with indentation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::Graph;
+    ///
+    /// let graph = Graph::new();
+    /// let json = graph.to_graphson_pretty().unwrap();
+    /// assert!(json.contains('\n')); // Contains newlines
+    /// ```
+    #[cfg(feature = "graphson")]
+    pub fn to_graphson_pretty(&self) -> Result<String, serde_json::Error> {
+        crate::graphson::to_string_pretty(&self.snapshot())
+    }
+
+    /// Create a graph from GraphSON data.
+    ///
+    /// Deserializes a GraphSON 3.0 formatted JSON string into a new graph.
+    /// The original vertex and edge IDs from the GraphSON are mapped to
+    /// new IDs; the original IDs are not preserved.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::storage::Graph;
+    ///
+    /// let json = r#"{"@type": "tinker:graph", "@value": {"vertices": [], "edges": []}}"#;
+    /// let graph = Graph::from_graphson(json).unwrap();
+    /// assert_eq!(graph.vertex_count(), 0);
+    /// ```
+    #[cfg(feature = "graphson")]
+    pub fn from_graphson(json: &str) -> crate::graphson::Result<Self> {
+        crate::graphson::from_str(json)
+    }
 }
 
 impl Default for Graph {
