@@ -12,6 +12,8 @@
 //! - `clauses` - UNION, OPTIONAL MATCH, UNWIND, WITH
 //! - `collections` - List operations, string functions, maps
 
+#![cfg(feature = "gql")]
+
 mod common;
 
 #[path = "gql/basics.rs"]

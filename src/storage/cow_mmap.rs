@@ -63,6 +63,7 @@ use parking_lot::RwLock;
 use roaring::RoaringBitmap;
 
 use crate::error::StorageError;
+#[cfg(feature = "gql")]
 use crate::gql::{self, GqlError};
 use crate::graph_elements::{GraphEdge, GraphVertex, PersistentEdge, PersistentVertex};
 use crate::index::{
@@ -1552,7 +1553,7 @@ impl CowMmapGraph {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// ```ignore
     /// use interstellar::storage::cow_mmap::CowMmapGraph;
     ///
     /// let graph = CowMmapGraph::open("test.db").unwrap();
@@ -1564,6 +1565,7 @@ impl CowMmapGraph {
     /// // Reads
     /// let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
     /// ```
+    #[cfg(feature = "gql")]
     pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError> {
         let stmt = gql::parse_statement(query)?;
 
@@ -1584,6 +1586,7 @@ impl CowMmapGraph {
     ///
     /// This is a convenience method for executing parameterized queries.
     /// Parameters can be referenced in the query using `$paramName` syntax.
+    #[cfg(feature = "gql")]
     pub fn gql_with_params(
         &self,
         query: &str,

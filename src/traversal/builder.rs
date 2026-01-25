@@ -1138,6 +1138,7 @@ impl<In> Traversal<In, Value> {
     /// // Complex expression with functions
     /// g.v().values("x").math("sqrt(_ ^ 2 + 1)").build()
     /// ```
+    #[cfg(feature = "gql")]
     pub fn math(self, expression: &str) -> transform::MathBuilder<In> {
         let (_, steps) = self.into_steps();
         transform::MathBuilder::new(steps, expression)

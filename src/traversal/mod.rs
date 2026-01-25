@@ -166,12 +166,13 @@ pub use step::{
 
 // Re-export transform types
 pub use transform::{
-    AsStep, BoundMathBuilder, BoundOrderBuilder, BoundProjectBuilder, ConstantStep, ElementMapStep,
-    FlatMapStep, IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, MapStep, MathBuilder, MathStep,
-    MeanStep, Order, OrderBuilder, OrderKey, OrderStep, PathStep, ProjectBuilder, ProjectStep,
-    Projection, PropertiesStep, PropertyMapStep, SelectStep, UnfoldStep, ValueMapStep, ValueStep,
-    ValuesStep,
+    AsStep, BoundOrderBuilder, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep,
+    IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder,
+    OrderKey, OrderStep, PathStep, ProjectBuilder, ProjectStep, Projection, PropertiesStep,
+    PropertyMapStep, SelectStep, UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
 };
+#[cfg(feature = "gql")]
+pub use transform::{BoundMathBuilder, MathBuilder, MathStep};
 
 // Re-export predicate types
 pub use predicate::p;

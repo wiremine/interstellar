@@ -1154,6 +1154,7 @@ impl<'g, In> BoundProjectBuilder<'g, In> {
 // MathStep - mathematical expression evaluator
 // -----------------------------------------------------------------------------
 
+#[cfg(feature = "gql")]
 use mathexpr::Expression;
 
 /// Mathematical expression evaluator step.
@@ -1186,6 +1187,7 @@ use mathexpr::Expression;
 /// // Complex expression with functions
 /// g.v().values("x").math("sqrt(_ ^ 2 + 1)").build().to_list()
 /// ```
+#[cfg(feature = "gql")]
 #[derive(Clone)]
 pub struct MathStep {
     /// The mathematical expression string
@@ -1194,6 +1196,7 @@ pub struct MathStep {
     variable_keys: HashMap<String, String>,
 }
 
+#[cfg(feature = "gql")]
 impl MathStep {
     /// Create a new MathStep with the given expression.
     ///
@@ -1330,6 +1333,7 @@ impl MathStep {
     }
 }
 
+#[cfg(feature = "gql")]
 impl crate::traversal::step::Step for MathStep {
     type Iter<'a>
         = impl Iterator<Item = Traverser> + 'a
@@ -1361,6 +1365,7 @@ impl crate::traversal::step::Step for MathStep {
     }
 }
 
+#[cfg(feature = "gql")]
 impl MathStep {
     /// Evaluate the expression for a given traverser using streaming context.
     fn evaluate_streaming(
@@ -1437,6 +1442,7 @@ impl MathStep {
     }
 }
 
+#[cfg(feature = "gql")]
 impl std::fmt::Debug for MathStep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MathStep")
@@ -1464,6 +1470,7 @@ impl std::fmt::Debug for MathStep {
 ///     .by("b", "age")  // Extract age from labeled "b"
 ///     .build()
 /// ```
+#[cfg(feature = "gql")]
 pub struct MathBuilder<In> {
     steps: Vec<Box<dyn crate::traversal::step::DynStep>>,
     expression: String,
@@ -1471,6 +1478,7 @@ pub struct MathBuilder<In> {
     _phantom: PhantomData<In>,
 }
 
+#[cfg(feature = "gql")]
 impl<In> MathBuilder<In> {
     /// Create a new MathBuilder with existing steps and expression.
     ///
@@ -1532,6 +1540,7 @@ impl<In> MathBuilder<In> {
 ///
 /// This builder is returned from `BoundTraversal::math()` and allows chaining
 /// `by()` clauses before calling `build()` to get back a `BoundTraversal`.
+#[cfg(feature = "gql")]
 pub struct BoundMathBuilder<'g, In> {
     snapshot: &'g dyn crate::traversal::SnapshotLike,
     source: Option<crate::traversal::TraversalSource>,
@@ -1542,6 +1551,7 @@ pub struct BoundMathBuilder<'g, In> {
     _phantom: PhantomData<In>,
 }
 
+#[cfg(feature = "gql")]
 impl<'g, In> BoundMathBuilder<'g, In> {
     /// Create a new BoundMathBuilder with existing steps, graph references, and expression.
     pub(crate) fn new(
@@ -1898,7 +1908,7 @@ mod project_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gql"))]
 mod math_tests {
     use super::*;
     use crate::storage::Graph;

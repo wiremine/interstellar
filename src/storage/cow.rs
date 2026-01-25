@@ -78,6 +78,7 @@ use parking_lot::RwLock;
 use roaring::RoaringBitmap;
 
 use crate::error::StorageError;
+#[cfg(feature = "gql")]
 use crate::gql::{self, GqlError};
 use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
 use crate::index::{
@@ -1471,7 +1472,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use interstellar::storage::cow::Graph;
     /// use interstellar::storage::GraphStorage;
     ///
@@ -1485,6 +1486,7 @@ impl Graph {
     /// let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
     /// assert_eq!(results.len(), 1);
     /// ```
+    #[cfg(feature = "gql")]
     pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError> {
         let stmt = gql::parse_statement(query)?;
 
@@ -1508,7 +1510,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use interstellar::storage::Graph;
     /// use interstellar::gql::Parameters;
     /// use interstellar::value::Value;
@@ -1525,6 +1527,7 @@ impl Graph {
     /// ).unwrap();
     /// assert_eq!(results.len(), 1);
     /// ```
+    #[cfg(feature = "gql")]
     pub fn gql_with_params(
         &self,
         query: &str,
@@ -1557,7 +1560,7 @@ impl Graph {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use interstellar::storage::Graph;
     /// use interstellar::schema::ValidationMode;
     ///
@@ -1572,6 +1575,7 @@ impl Graph {
     /// assert!(schema.edge_schema("KNOWS").is_some());
     /// assert_eq!(schema.mode, ValidationMode::Strict);
     /// ```
+    #[cfg(feature = "gql")]
     pub fn ddl(&self, query: &str) -> Result<GraphSchema, GqlError> {
         let stmt = gql::parse_statement(query)?;
 

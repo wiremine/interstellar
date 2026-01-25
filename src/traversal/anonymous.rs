@@ -1016,6 +1016,7 @@ pub fn order() -> OrderBuilder<Value> {
 ///     .by("b", "age")
 ///     .build();
 /// ```
+#[cfg(feature = "gql")]
 pub fn math(expression: &str) -> crate::traversal::transform::MathBuilder<Value> {
     crate::traversal::transform::MathBuilder::new(vec![], expression)
 }
@@ -2133,6 +2134,7 @@ impl AnonymousTraversal {
     }
 
     /// Evaluate a mathematical expression.
+    #[cfg(feature = "gql")]
     #[inline]
     pub fn math(&self, expression: &str) -> crate::traversal::transform::MathBuilder<Value> {
         math(expression)

@@ -976,6 +976,7 @@ fn anon_group_count() {
 }
 
 #[test]
+#[cfg(feature = "gql")]
 fn anon_math() {
     let tg = create_small_graph();
     let snapshot = tg.graph.snapshot();

@@ -442,6 +442,7 @@ fn cow_batch_with_property_updates() {
 // =============================================================================
 
 #[test]
+#[cfg(feature = "gql")]
 fn cow_gql_create_vertex() {
     let graph = Graph::new();
 
@@ -464,6 +465,7 @@ fn cow_gql_create_vertex() {
 }
 
 #[test]
+#[cfg(feature = "gql")]
 fn cow_gql_create_edges() {
     let graph = Graph::new();
 
@@ -497,6 +499,7 @@ fn cow_gql_create_edges() {
 }
 
 #[test]
+#[cfg(feature = "gql")]
 fn cow_gql_query_on_snapshot() {
     let graph = Graph::new();
 
@@ -534,6 +537,7 @@ fn cow_gql_query_on_snapshot() {
 }
 
 #[test]
+#[cfg(feature = "gql")]
 fn cow_gql_set_property() {
     let graph = Graph::new();
 

@@ -2165,6 +2165,7 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     /// // Complex expression with functions
     /// let sqrt = g.v().values("x").math("sqrt(_ ^ 2 + 1)").build().to_list();
     /// ```
+    #[cfg(feature = "gql")]
     pub fn math(self, expression: &str) -> crate::traversal::transform::BoundMathBuilder<'g, In> {
         use crate::traversal::transform::BoundMathBuilder;
 

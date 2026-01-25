@@ -1,8 +1,9 @@
 pub use collection::{MeanStep, UnfoldStep};
 pub use constant::ConstantStep;
+#[cfg(feature = "gql")]
+pub use functional::{BoundMathBuilder, MathBuilder, MathStep};
 pub use functional::{
-    BoundMathBuilder, BoundProjectBuilder, FlatMapStep, MapStep, MathBuilder, MathStep,
-    ProjectBuilder, ProjectStep, Projection,
+    BoundProjectBuilder, FlatMapStep, MapStep, ProjectBuilder, ProjectStep, Projection,
 };
 pub use metadata::{IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, ValueStep};
 pub use order::{BoundOrderBuilder, Order, OrderBuilder, OrderKey, OrderStep};

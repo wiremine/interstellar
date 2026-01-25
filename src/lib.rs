@@ -76,7 +76,7 @@
 //! | [`traversal`] | Fluent traversal API, steps, predicates ([`p`]), anonymous traversals ([`__`]) |
 //! | [`value`] | Core value types ([`Value`], [`VertexId`], [`EdgeId`]) |
 //! | [`error`] | Error types ([`StorageError`], [`TraversalError`], [`MutationError`](error::MutationError)) |
-//! | [`gql`] | GQL query language parser and compiler |
+//! | [`gql`] | GQL query language parser and compiler (requires `gql` feature) |
 //! | [`algorithms`] | Graph algorithms (BFS, DFS, shortest path) |
 //!
 //! ## Traversal API Overview
@@ -176,9 +176,14 @@
 //!
 //! ## GQL Query Language
 //!
-//! For declarative queries, use the GQL interface:
+//! For declarative queries, enable the `gql` feature and use the GQL interface:
 //!
-//! ```rust
+//! ```toml
+//! [dependencies]
+//! interstellar = { version = "0.1", features = ["gql"] }
+//! ```
+//!
+//! ```rust,ignore
 //! use interstellar::prelude::*;
 //! use std::collections::HashMap;
 //!
@@ -189,7 +194,7 @@
 //!
 //! let snapshot = graph.snapshot();
 //!
-//! // Execute a GQL query
+//! // Execute a GQL query (requires `gql` feature)
 //! let results = graph.gql("MATCH (n:Person) RETURN n.name").unwrap();
 //! assert_eq!(results.len(), 1);
 //! ```
@@ -248,9 +253,14 @@
 //!
 //! | Feature | Description | Default |
 //! |---------|-------------|---------|
-//! | `inmemory` | In-memory storage backend | Yes |
+//! | `graphson` | GraphSON import/export support | Yes |
 //! | `mmap` | Memory-mapped persistent storage | No |
-//! | `full-text` | Full-text search (planned) | No |
+//! | `gql` | GQL query language support | No |
+//! | `full-text` | Full-text search with Tantivy | No |
+//! | `rhai` | Rhai scripting support | No |
+//! | `full` | Enable all features | No |
+//!
+//! Note: In-memory graph storage is always available (core functionality).
 //!
 //! ## Thread Safety
 //!
@@ -365,6 +375,7 @@ macro_rules! props {
 
 pub mod algorithms;
 pub mod error;
+#[cfg(feature = "gql")]
 pub mod gql;
 pub mod graph_access;
 pub mod graph_elements;

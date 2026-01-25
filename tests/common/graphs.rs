@@ -639,6 +639,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gql")]
     fn gql_test_graph_has_expected_structure() {
         let graph = create_gql_test_graph();
         let _snapshot = graph.snapshot();

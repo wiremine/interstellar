@@ -7,12 +7,13 @@ edition = "2021"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [features]
-default = ["inmemory", "graphson"]
-inmemory = []
+default = ["graphson"]
 mmap = ["memmap2", "serde_json"]
 graphson = ["serde_json"]
 full-text = ["tantivy"]
 rhai = ["dep:rhai"]
+gql = ["pest", "pest_derive", "mathexpr"]
+full = ["mmap", "graphson", "gql", "full-text", "rhai"]
 
 [dependencies]
 thiserror = "1.0"
@@ -29,9 +30,9 @@ tantivy = { version = "0.21", optional = true }
 rhai = { version = "1.19", optional = true, features = ["sync"] }
 crc32fast = "1.4"
 bincode = "1.3"
-pest = "2.7"
-pest_derive = "2.7"
-mathexpr = "0.1.1"
+pest = { version = "2.7", optional = true }
+pest_derive = { version = "2.7", optional = true }
+mathexpr = { version = "0.1.1", optional = true }
 rand = "0.8"
 
 [dev-dependencies]
@@ -74,6 +75,7 @@ name = "quickstart_gremlin"
 
 [[example]]
 name = "quickstart_gql"
+required-features = ["gql"]
 
 [[example]]
 name = "scripting"
@@ -88,7 +90,7 @@ name = "marvel"
 
 [[example]]
 name = "nba"
-required-features = ["mmap"]
+required-features = ["mmap", "gql"]
 
 [[example]]
 name = "graphson"
