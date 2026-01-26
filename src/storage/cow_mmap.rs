@@ -1607,6 +1607,190 @@ impl CowMmapGraph {
     }
 
     // =========================================================================
+    // Gremlin Query API
+    // =========================================================================
+
+    /// Execute a Gremlin query string.
+    ///
+    /// This is a convenience method that takes a snapshot, parses the query,
+    /// compiles it, and executes it in one call. For mutation queries, use
+    /// [`mutate()`](Self::mutate) instead.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::gremlin::ExecutionResult;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// // Execute a read query
+    /// let result = graph.query("g.V().hasLabel('person').values('name').toList()").unwrap();
+    ///
+    /// if let ExecutionResult::List(names) = result {
+    ///     for name in names {
+    ///         println!("{}", name);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`](crate::gremlin::GremlinError) if the query fails to parse or compile.
+    #[cfg(feature = "gremlin")]
+    pub fn query(
+        &self,
+        query: &str,
+    ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
+        self.snapshot().query(query)
+    }
+
+    /// Execute a Gremlin query string with mutation support.
+    ///
+    /// Unlike [`query()`](Self::query), this method actually executes mutations
+    /// (`addV`, `addE`, `property`, `drop`) against the graph and persists them to disk.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::gremlin::ExecutionResult;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// // Create a vertex with mutations
+    /// let result = graph.mutate("g.addV('person').property('name', 'Alice')").unwrap();
+    ///
+    /// // Verify the vertex was created
+    /// assert_eq!(graph.vertex_count(), 1);
+    ///
+    /// // Create an edge
+    /// graph.mutate("g.addE('knows').from(0).to(1)").unwrap();
+    ///
+    /// // Read queries also work
+    /// let result = graph.mutate("g.V().hasLabel('person').values('name').toList()").unwrap();
+    /// if let ExecutionResult::List(names) = result {
+    ///     println!("Found {} people", names.len());
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`](crate::gremlin::GremlinError) if the query fails to parse, compile, or execute.
+    #[cfg(feature = "gremlin")]
+    pub fn mutate(
+        &self,
+        query: &str,
+    ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
+        use crate::gremlin::{compile, parse, ExecutionResult};
+        use crate::traversal::mutation::PendingMutation;
+
+        // Parse the query
+        let ast = parse(query)?;
+
+        // Compile using a snapshot (read-only compilation)
+        let snapshot = self.snapshot();
+        let g = snapshot.gremlin();
+        let compiled = compile(&ast, &g)?;
+
+        // Get terminal step before consuming traversal
+        let terminal = compiled.terminal().cloned();
+
+        // Execute the traversal to get raw results (may include pending mutations)
+        let raw_values = compiled.traversal.to_list();
+
+        // Process results, executing any pending mutations
+        let mut final_results = Vec::with_capacity(raw_values.len());
+
+        for value in raw_values {
+            if let Some(mutation) = PendingMutation::from_value(&value) {
+                // Check if ID extraction was requested
+                let extract_id = value
+                    .as_map()
+                    .map(|m| m.contains_key("__extract_id"))
+                    .unwrap_or(false);
+
+                // Execute the mutation
+                let result = match mutation {
+                    PendingMutation::AddVertex { label, properties } => {
+                        match self.add_vertex(&label, properties) {
+                            Ok(id) => Some(Value::Vertex(id)),
+                            Err(_) => None,
+                        }
+                    }
+                    PendingMutation::AddEdge {
+                        label,
+                        from,
+                        to,
+                        properties,
+                    } => match self.add_edge(from, to, &label, properties) {
+                        Ok(id) => Some(Value::Edge(id)),
+                        Err(_) => None,
+                    },
+                    PendingMutation::SetVertexProperty { id, key, value } => {
+                        if self.set_vertex_property(id, &key, value).is_ok() {
+                            Some(Value::Vertex(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::SetEdgeProperty { id, key, value } => {
+                        if self.set_edge_property(id, &key, value).is_ok() {
+                            Some(Value::Edge(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::DropVertex { id } => {
+                        let _ = self.remove_vertex(id);
+                        None
+                    }
+                    PendingMutation::DropEdge { id } => {
+                        let _ = self.remove_edge(id);
+                        None
+                    }
+                };
+
+                if let Some(result) = result {
+                    if extract_id {
+                        let id_value = match result {
+                            Value::Vertex(vid) => Value::Int(vid.0 as i64),
+                            Value::Edge(eid) => Value::Int(eid.0 as i64),
+                            other => other,
+                        };
+                        final_results.push(id_value);
+                    } else {
+                        final_results.push(result);
+                    }
+                }
+            } else {
+                // Not a mutation, pass through
+                final_results.push(value);
+            }
+        }
+
+        // Return based on terminal step
+        Ok(match terminal {
+            None | Some(crate::gremlin::TerminalStep::ToList { .. }) => {
+                ExecutionResult::List(final_results)
+            }
+            Some(crate::gremlin::TerminalStep::Next { count: None, .. }) => {
+                ExecutionResult::Single(final_results.into_iter().next())
+            }
+            Some(crate::gremlin::TerminalStep::Next { count: Some(n), .. }) => {
+                ExecutionResult::List(final_results.into_iter().take(n as usize).collect())
+            }
+            Some(crate::gremlin::TerminalStep::ToSet { .. }) => {
+                ExecutionResult::Set(final_results.into_iter().collect())
+            }
+            Some(crate::gremlin::TerminalStep::Iterate { .. }) => ExecutionResult::Unit,
+            Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
+                ExecutionResult::Bool(!final_results.is_empty())
+            }
+        })
+    }
+
+    // =========================================================================
     // Persistence Operations
     // =========================================================================
 
@@ -1669,6 +1853,44 @@ impl CowMmapSnapshot {
     /// Since `CowMmapSnapshot` is immutable, only read operations are available.
     pub fn gremlin(&self) -> crate::traversal::GraphTraversalSource<'_> {
         crate::traversal::GraphTraversalSource::from_snapshot(self)
+    }
+
+    /// Execute a Gremlin query string.
+    ///
+    /// This is a convenience method that parses, compiles, and executes a Gremlin
+    /// query against this snapshot.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::gremlin::ExecutionResult;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    /// let snapshot = graph.snapshot();
+    ///
+    /// // Execute a read query
+    /// let result = snapshot.query("g.V().hasLabel('person').values('name').toList()").unwrap();
+    ///
+    /// if let ExecutionResult::List(names) = result {
+    ///     for name in names {
+    ///         println!("{}", name);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`](crate::gremlin::GremlinError) if the query fails to parse or compile.
+    #[cfg(feature = "gremlin")]
+    pub fn query(
+        &self,
+        query: &str,
+    ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
+        let ast = crate::gremlin::parse(query)?;
+        let g = self.gremlin();
+        let compiled = crate::gremlin::compile(&ast, &g)?;
+        Ok(compiled.execute())
     }
 }
 
@@ -4276,5 +4498,216 @@ mod tests {
         // Verify mutation persisted
         let updated = graph.get_edge(edge_id).unwrap();
         assert_eq!(updated.properties.get("since"), Some(&Value::Int(2020)));
+    }
+
+    // =========================================================================
+    // Gremlin Query/Mutate Tests
+    // =========================================================================
+
+    #[test]
+    #[cfg(feature = "gremlin")]
+    fn test_gremlin_query() {
+        use crate::gremlin::ExecutionResult;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gremlin_query.db");
+        let graph = CowMmapGraph::open(&path).unwrap();
+
+        // Add some test data
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+            )
+            .unwrap();
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
+            )
+            .unwrap();
+
+        // Query using Gremlin text parser
+        let result = graph
+            .query("g.V().hasLabel('person').values('name').toList()")
+            .unwrap();
+
+        if let ExecutionResult::List(names) = result {
+            assert_eq!(names.len(), 2);
+        } else {
+            panic!("Expected List result");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "gremlin")]
+    fn test_gremlin_mutate_add_vertex() {
+        use crate::gremlin::ExecutionResult;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gremlin_mutate.db");
+        let graph = CowMmapGraph::open(&path).unwrap();
+
+        assert_eq!(graph.vertex_count(), 0);
+
+        // Add a vertex using Gremlin mutation
+        let result = graph
+            .mutate("g.addV('person').property('name', 'Alice')")
+            .unwrap();
+
+        // Verify mutation returned a vertex
+        if let ExecutionResult::List(values) = result {
+            assert_eq!(values.len(), 1);
+            assert!(
+                values[0].is_vertex(),
+                "Expected Vertex, got: {:?}",
+                values[0]
+            );
+        } else {
+            panic!("Expected List result");
+        }
+
+        // Verify the vertex was actually created
+        assert_eq!(graph.vertex_count(), 1, "Vertex was not created");
+
+        // Verify we can query the vertex
+        let result = graph
+            .query("g.V().hasLabel('person').values('name').toList()")
+            .unwrap();
+        if let ExecutionResult::List(names) = result {
+            assert_eq!(names.len(), 1);
+            assert_eq!(names[0], Value::String("Alice".to_string()));
+        } else {
+            panic!("Expected List result");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "gremlin")]
+    fn test_gremlin_mutate_add_edge() {
+        use crate::gremlin::ExecutionResult;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gremlin_edge.db");
+        let graph = CowMmapGraph::open(&path).unwrap();
+
+        // Create two vertices
+        let alice = graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+            )
+            .unwrap();
+        let bob = graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
+            )
+            .unwrap();
+
+        assert_eq!(graph.edge_count(), 0);
+
+        // Add edge using Gremlin mutation
+        let result = graph
+            .mutate(&format!("g.addE('knows').from({}).to({})", alice.0, bob.0))
+            .unwrap();
+
+        // Verify mutation returned an edge
+        if let ExecutionResult::List(values) = result {
+            assert_eq!(values.len(), 1);
+            assert!(values[0].is_edge(), "Expected Edge, got: {:?}", values[0]);
+        } else {
+            panic!("Expected List result");
+        }
+
+        // Verify the edge was actually created
+        assert_eq!(graph.edge_count(), 1, "Edge was not created");
+    }
+
+    #[test]
+    #[cfg(feature = "gremlin")]
+    fn test_gremlin_mutate_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gremlin_drop.db");
+        let graph = CowMmapGraph::open(&path).unwrap();
+
+        // Create vertices
+        let alice = graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+            )
+            .unwrap();
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
+            )
+            .unwrap();
+
+        assert_eq!(graph.vertex_count(), 2);
+
+        // Drop using Gremlin mutation
+        graph.mutate(&format!("g.V({}).drop()", alice.0)).unwrap();
+
+        // Verify the vertex was deleted
+        assert_eq!(graph.vertex_count(), 1, "Vertex was not dropped");
+    }
+
+    #[test]
+    #[cfg(feature = "gremlin")]
+    fn test_gremlin_snapshot_query() {
+        use crate::gremlin::ExecutionResult;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("snapshot_query.db");
+        let graph = CowMmapGraph::open(&path).unwrap();
+
+        // Add some test data
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Alice".to_string()))]),
+            )
+            .unwrap();
+
+        // Take a snapshot
+        let snapshot = graph.snapshot();
+
+        // Query the snapshot
+        let result = snapshot
+            .query("g.V().hasLabel('person').values('name').toList()")
+            .unwrap();
+
+        if let ExecutionResult::List(names) = result {
+            assert_eq!(names.len(), 1);
+            assert_eq!(names[0], Value::String("Alice".to_string()));
+        } else {
+            panic!("Expected List result");
+        }
+
+        // Add another vertex to the graph
+        graph
+            .add_vertex(
+                "person",
+                HashMap::from([("name".to_string(), Value::String("Bob".to_string()))]),
+            )
+            .unwrap();
+
+        // Snapshot should still show only 1 vertex (isolation)
+        let result = snapshot.query("g.V().hasLabel('person').toList()").unwrap();
+        if let ExecutionResult::List(vertices) = result {
+            assert_eq!(vertices.len(), 1, "Snapshot should be isolated");
+        } else {
+            panic!("Expected List result");
+        }
+
+        // Graph query should show 2 vertices
+        let result = graph.query("g.V().hasLabel('person').toList()").unwrap();
+        if let ExecutionResult::List(vertices) = result {
+            assert_eq!(vertices.len(), 2, "Graph should have both vertices");
+        } else {
+            panic!("Expected List result");
+        }
     }
 }
