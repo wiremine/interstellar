@@ -489,6 +489,34 @@ Full predicate support including:
 - **Text**: `TextP.containing()`, `TextP.startingWith()`, `TextP.endingWith()`, `TextP.regex()`
 - **Logical**: `P.and()`, `P.or()`, `P.not()`
 
+### Mutations
+
+> **Note**: The `graph.query()` and `snapshot.query()` methods are **read-only**. Mutation queries (addV, addE, property, drop) will parse and compile but return placeholder values instead of executing.
+
+For mutations, use the Rust fluent API:
+
+```rust
+use interstellar::prelude::*;
+use std::sync::Arc;
+
+let graph = Arc::new(Graph::new());
+
+// Use gremlin() with Arc for write access
+let g = graph.gremlin(Arc::clone(&graph));
+
+// Mutations execute immediately
+let alice = g.add_v("Person").property("name", "Alice").next();
+let bob = g.add_v("Person").property("name", "Bob").next();
+
+// Create edge between them
+if let (Some(a), Some(b)) = (alice, bob) {
+    g.v_id(a.id()).add_e("knows").to_id(b.id()).iterate();
+}
+
+// Read queries work normally
+let count = g.v().count();  // 2
+```
+
 ## Examples
 
 Run the included examples:

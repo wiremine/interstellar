@@ -432,6 +432,33 @@ let snapshot = graph.snapshot();
 let result = snapshot.query("g.V().out('knows').values('name').toList()")?;
 ```
 
+### Graph::mutate()
+
+Execute a Gremlin mutation query that actually modifies the graph:
+
+```rust
+// Create vertices
+graph.mutate("g.addV('person').property('name', 'Alice')")?;
+graph.mutate("g.addV('person').property('name', 'Bob')")?;
+
+// Get vertex IDs for edge creation
+let alice_id = 0; // First vertex
+let bob_id = 1;   // Second vertex
+
+// Create an edge between them
+graph.mutate(&format!("g.addE('knows').from({}).to({}).property('since', 2020)", alice_id, bob_id))?;
+
+// Update a property on an existing vertex
+graph.mutate(&format!("g.V({}).property('age', 30)", alice_id))?;
+
+// Delete elements
+graph.mutate(&format!("g.V({}).drop()", bob_id))?;
+```
+
+**Important:** Use `mutate()` instead of `query()` when you need mutations to actually execute:
+- `query()` returns mutation placeholders but doesn't modify the graph
+- `mutate()` executes pending mutations and modifies the graph
+
 ### ExecutionResult
 
 Query results are returned as an `ExecutionResult` enum:

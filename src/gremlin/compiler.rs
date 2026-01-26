@@ -27,7 +27,7 @@ pub enum ExecutionResult {
 /// A compiled traversal ready for execution.
 pub struct CompiledTraversal<'g> {
     /// The bound traversal pipeline
-    traversal: BoundTraversal<'g, (), Value>,
+    pub(crate) traversal: BoundTraversal<'g, (), Value>,
     /// Terminal step information
     terminal: Option<TerminalStep>,
 }
@@ -2413,6 +2413,19 @@ mod tests {
         }
     }
 
+    // =========================================================================
+    // Mutation Compilation Tests
+    //
+    // NOTE: These tests verify that mutations PARSE and COMPILE correctly.
+    // They do NOT verify actual execution because the Gremlin text parser
+    // uses the read-only GraphTraversalSource. Mutations return placeholder
+    // values (maps with __pending_add_v, etc.).
+    //
+    // For actual mutations via Gremlin text, use the Rust API:
+    //   let g = graph.gremlin(Arc::clone(&graph));  // CowTraversalSource
+    //   g.add_v("Person").property("name", "Alice").next();
+    // =========================================================================
+
     #[test]
     fn test_compile_add_e_source_with_labels() {
         let graph = test_graph();
@@ -2420,13 +2433,16 @@ mod tests {
         let g = snapshot.gremlin();
 
         // Test g.addE('test').from('a').to('b') pattern
-        // First need to label vertices with as()
-        // This test verifies the parser/compiler handles addE as source
+        // Verifies parser/compiler handles addE as source step
         let ast = parse("g.addE('test_edge').from('a').to('b')").unwrap();
         let result = compile(&ast, &g);
 
-        // This should compile successfully (execution may fail without proper context)
-        assert!(result.is_ok());
+        // Should compile successfully
+        assert!(
+            result.is_ok(),
+            "addE source compilation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -2441,8 +2457,12 @@ mod tests {
                 .unwrap();
         let result = compile(&ast, &g);
 
-        // This should compile successfully
-        assert!(result.is_ok());
+        // Should compile successfully
+        assert!(
+            result.is_ok(),
+            "addE inline compilation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -2455,7 +2475,11 @@ mod tests {
         let ast = parse("g.addE('test').from('a').to('b').property('since', 2020)").unwrap();
         let result = compile(&ast, &g);
 
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "addE with property compilation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -2464,13 +2488,15 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = snapshot.gremlin();
 
-        // Test drop() step
+        // Test drop() step compiles correctly
         let ast = parse("g.V().hasLabel('software').drop()").unwrap();
-        let compiled = compile(&ast, &g).unwrap();
-        let result = compiled.execute();
+        let result = compile(&ast, &g);
 
-        // drop() returns Unit
-        assert!(matches!(result, ExecutionResult::List(_)));
+        assert!(
+            result.is_ok(),
+            "drop compilation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -2479,14 +2505,25 @@ mod tests {
         let snapshot = graph.snapshot();
         let g = snapshot.gremlin();
 
-        // Test addV with property
+        // Test addV with property compiles and returns placeholder
         let ast = parse("g.addV('test').property('name', 'TestNode')").unwrap();
         let compiled = compile(&ast, &g).unwrap();
         let result = compiled.execute();
 
-        // Should return the new vertex
+        // Returns a placeholder map since we're using read-only GraphTraversalSource.
+        // For actual mutations, use Graph::gremlin(Arc::clone(&graph)) with CowTraversalSource.
         if let ExecutionResult::List(values) = result {
             assert_eq!(values.len(), 1);
+            // Verify it's a pending mutation placeholder
+            if let Value::Map(map) = &values[0] {
+                assert!(
+                    map.contains_key("__pending_add_v"),
+                    "Expected pending mutation placeholder, got: {:?}",
+                    map
+                );
+            } else {
+                panic!("Expected Map placeholder, got: {:?}", values[0]);
+            }
         } else {
             panic!("Expected List result");
         }

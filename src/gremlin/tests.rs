@@ -1243,3 +1243,473 @@ fn test_math_complex_expression() {
         Step::Math { expression, .. } if expression == "(_ * 2) + 10"
     ));
 }
+
+// ============================================================
+// Mutation Execution Tests (Graph::mutate)
+// ============================================================
+
+#[test]
+fn test_mutate_add_vertex() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Verify graph is empty
+    assert_eq!(graph.vertex_count(), 0);
+
+    // Add a vertex via Gremlin mutation
+    let result = graph
+        .mutate("g.addV('person').property('name', 'Alice')")
+        .unwrap();
+
+    // Verify mutation returned something
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        // Should return a Vertex ID, not a placeholder
+        assert!(
+            values[0].is_vertex(),
+            "Expected Vertex, got: {:?}",
+            values[0]
+        );
+    } else {
+        panic!("Expected List result");
+    }
+
+    // Verify the vertex was actually created
+    assert_eq!(graph.vertex_count(), 1, "Vertex was not created");
+
+    // Verify we can query the vertex
+    let result = graph
+        .query("g.V().hasLabel('person').values('name').toList()")
+        .unwrap();
+    if let ExecutionResult::List(names) = result {
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], crate::value::Value::String("Alice".to_string()));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_add_multiple_vertices() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Add first vertex
+    graph
+        .mutate("g.addV('person').property('name', 'Alice')")
+        .unwrap();
+    assert_eq!(graph.vertex_count(), 1);
+
+    // Add second vertex
+    graph
+        .mutate("g.addV('person').property('name', 'Bob')")
+        .unwrap();
+    assert_eq!(graph.vertex_count(), 2);
+
+    // Query all names
+    let result = graph
+        .query("g.V().hasLabel('person').values('name').toList()")
+        .unwrap();
+    if let ExecutionResult::List(names) = result {
+        assert_eq!(names.len(), 2);
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_drop_vertex() {
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Add vertices using Rust API (since we need the IDs)
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let _bob = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Bob".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    assert_eq!(graph.vertex_count(), 2);
+
+    // Drop Alice using Gremlin
+    graph.mutate(&format!("g.V({}).drop()", alice.0)).unwrap();
+
+    // Verify only one vertex remains
+    assert_eq!(graph.vertex_count(), 1);
+}
+
+#[test]
+fn test_mutate_read_query_unchanged() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Add vertices using Rust API
+    graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Bob".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    // Read query via mutate() should work the same as query()
+    let result = graph
+        .mutate("g.V().hasLabel('person').values('name').toList()")
+        .unwrap();
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 2);
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_add_edge() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Create two vertices using Rust API (we need their IDs)
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let bob = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Bob".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 0);
+
+    // Add edge using Gremlin mutation with vertex IDs
+    let result = graph
+        .mutate(&format!("g.addE('knows').from({}).to({})", alice.0, bob.0))
+        .unwrap();
+
+    // Verify mutation returned an edge
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        assert!(values[0].is_edge(), "Expected Edge, got: {:?}", values[0]);
+    } else {
+        panic!("Expected List result");
+    }
+
+    // Verify the edge was actually created
+    assert_eq!(graph.edge_count(), 1, "Edge was not created");
+
+    // Verify we can traverse the edge
+    let result = graph
+        .query(&format!(
+            "g.V({}).out('knows').values('name').toList()",
+            alice.0
+        ))
+        .unwrap();
+    if let ExecutionResult::List(names) = result {
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], crate::value::Value::String("Bob".to_string()));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_add_edge_with_labels() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Add vertices and create edge using as() labels
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let bob = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Bob".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 0);
+
+    // Use mid-traversal addE with as() labels (using V(id1, id2) to get both vertices)
+    let result = graph
+        .mutate(&format!(
+            "g.V({}, {}).as('v').addE('knows').from('v').to('v')",
+            alice.0, bob.0
+        ))
+        .unwrap();
+
+    // The traversal iterates over two vertices, creating self-loops
+    // This tests that from/to labels work, even if the result isn't ideal semantically
+    if let ExecutionResult::List(values) = result {
+        // Each vertex creates an edge with itself using from/to labels
+        assert!(!values.is_empty(), "Expected at least one edge");
+        for v in &values {
+            assert!(v.is_edge(), "Expected Edge, got: {:?}", v);
+        }
+    } else {
+        panic!("Expected List result");
+    }
+
+    // Verify edges were actually created
+    assert!(
+        graph.edge_count() >= 1,
+        "At least one edge should be created"
+    );
+}
+
+#[test]
+fn test_mutate_add_edge_with_properties() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Create two vertices
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let bob = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Bob".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    // Add edge with properties
+    let result = graph
+        .mutate(&format!(
+            "g.addE('knows').from({}).to({}).property('since', 2020).property('weight', 0.8)",
+            alice.0, bob.0
+        ))
+        .unwrap();
+
+    // Verify mutation returned an edge
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        assert!(values[0].is_edge(), "Expected Edge, got: {:?}", values[0]);
+    } else {
+        panic!("Expected List result");
+    }
+
+    // Verify edge was created
+    assert_eq!(graph.edge_count(), 1);
+
+    // Verify edge properties via traversal
+    let result = graph.query("g.E().values('since').toList()").unwrap();
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0], crate::value::Value::Int(2020));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_set_vertex_property() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Create a vertex with initial properties
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    // Verify initial state
+    let result = graph
+        .query(&format!("g.V({}).values('age').toList()", alice.0))
+        .unwrap();
+    if let ExecutionResult::List(values) = result {
+        assert!(values.is_empty(), "Should have no age property initially");
+    }
+
+    // Set a new property on the existing vertex
+    let result = graph
+        .mutate(&format!("g.V({}).property('age', 30)", alice.0))
+        .unwrap();
+
+    // Verify mutation returned the vertex
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        assert!(
+            values[0].is_vertex(),
+            "Expected Vertex, got: {:?}",
+            values[0]
+        );
+    } else {
+        panic!("Expected List result");
+    }
+
+    // Verify the property was set
+    let result = graph
+        .query(&format!("g.V({}).values('age').toList()", alice.0))
+        .unwrap();
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0], crate::value::Value::Int(30));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_update_vertex_property() {
+    use crate::gremlin::ExecutionResult;
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Create a vertex with initial name
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    // Verify initial name
+    let result = graph
+        .query(&format!("g.V({}).values('name').toList()", alice.0))
+        .unwrap();
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values[0], crate::value::Value::String("Alice".to_string()));
+    }
+
+    // Update the name property
+    graph
+        .mutate(&format!("g.V({}).property('name', 'Alicia')", alice.0))
+        .unwrap();
+
+    // Verify the property was updated
+    let result = graph
+        .query(&format!("g.V({}).values('name').toList()", alice.0))
+        .unwrap();
+    if let ExecutionResult::List(values) = result {
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0], crate::value::Value::String("Alicia".to_string()));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_mutate_drop_edge() {
+    use crate::storage::Graph;
+
+    let graph = Graph::new();
+
+    // Create two vertices and an edge
+    let alice = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Alice".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let bob = graph.add_vertex(
+        "person",
+        [(
+            "name".to_string(),
+            crate::value::Value::String("Bob".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    let edge = graph
+        .add_edge(
+            alice,
+            bob,
+            "knows",
+            [("since".to_string(), crate::value::Value::Int(2020))]
+                .into_iter()
+                .collect(),
+        )
+        .unwrap();
+
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 1);
+
+    // Drop the edge using Gremlin
+    graph.mutate(&format!("g.E({}).drop()", edge.0)).unwrap();
+
+    // Verify the edge was deleted
+    assert_eq!(graph.edge_count(), 0, "Edge was not dropped");
+    assert_eq!(graph.vertex_count(), 2, "Vertices should still exist");
+}

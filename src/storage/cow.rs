@@ -1756,6 +1756,146 @@ impl Graph {
     ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
         self.snapshot().query(query)
     }
+
+    /// Execute a Gremlin query string with mutation support.
+    ///
+    /// Unlike [`query()`](Self::query), this method actually executes mutations
+    /// (`addV`, `addE`, `property`, `drop`) against the graph.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::gremlin::ExecutionResult;
+    ///
+    /// let graph = Graph::new();
+    ///
+    /// // Create a vertex with mutations
+    /// let result = graph.mutate("g.addV('person').property('name', 'Alice')").unwrap();
+    ///
+    /// // Verify the vertex was created
+    /// assert_eq!(graph.vertex_count(), 1);
+    ///
+    /// // Read queries also work
+    /// let result = graph.mutate("g.V().hasLabel('person').values('name').toList()").unwrap();
+    /// if let ExecutionResult::List(names) = result {
+    ///     assert_eq!(names.len(), 1);
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`] if the query fails to parse, compile, or execute.
+    #[cfg(feature = "gremlin")]
+    pub fn mutate(
+        &self,
+        query: &str,
+    ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
+        use crate::gremlin::{compile, parse, ExecutionResult};
+        use crate::traversal::mutation::PendingMutation;
+
+        // Parse the query
+        let ast = parse(query)?;
+
+        // Compile using a snapshot (read-only compilation)
+        let snapshot = self.snapshot();
+        let g = snapshot.gremlin();
+        let compiled = compile(&ast, &g)?;
+
+        // Get terminal step before consuming traversal
+        let terminal = compiled.terminal().cloned();
+
+        // Execute the traversal to get raw results (may include pending mutations)
+        let raw_values = compiled.traversal.to_list();
+
+        // Process results, executing any pending mutations
+        let mut final_results = Vec::with_capacity(raw_values.len());
+
+        for value in raw_values {
+            if let Some(mutation) = PendingMutation::from_value(&value) {
+                // Check if ID extraction was requested
+                let extract_id = value
+                    .as_map()
+                    .map(|m| m.contains_key("__extract_id"))
+                    .unwrap_or(false);
+
+                // Execute the mutation
+                let result = match mutation {
+                    PendingMutation::AddVertex { label, properties } => {
+                        let id = self.add_vertex(&label, properties);
+                        Some(Value::Vertex(id))
+                    }
+                    PendingMutation::AddEdge {
+                        label,
+                        from,
+                        to,
+                        properties,
+                    } => match self.add_edge(from, to, &label, properties) {
+                        Ok(id) => Some(Value::Edge(id)),
+                        Err(_) => None,
+                    },
+                    PendingMutation::SetVertexProperty { id, key, value } => {
+                        if self.set_vertex_property(id, &key, value).is_ok() {
+                            Some(Value::Vertex(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::SetEdgeProperty { id, key, value } => {
+                        if self.set_edge_property(id, &key, value).is_ok() {
+                            Some(Value::Edge(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::DropVertex { id } => {
+                        let _ = self.remove_vertex(id);
+                        None
+                    }
+                    PendingMutation::DropEdge { id } => {
+                        let _ = self.remove_edge(id);
+                        None
+                    }
+                };
+
+                if let Some(result) = result {
+                    if extract_id {
+                        let id_value = match result {
+                            Value::Vertex(vid) => Value::Int(vid.0 as i64),
+                            Value::Edge(eid) => Value::Int(eid.0 as i64),
+                            other => other,
+                        };
+                        final_results.push(id_value);
+                    } else {
+                        final_results.push(result);
+                    }
+                }
+            } else {
+                // Not a mutation, pass through
+                final_results.push(value);
+            }
+        }
+
+        // Return based on terminal step
+        Ok(match terminal {
+            None | Some(crate::gremlin::TerminalStep::ToList { .. }) => {
+                ExecutionResult::List(final_results)
+            }
+            Some(crate::gremlin::TerminalStep::Next { count: None, .. }) => {
+                ExecutionResult::Single(final_results.into_iter().next())
+            }
+            Some(crate::gremlin::TerminalStep::Next { count: Some(n), .. }) => {
+                ExecutionResult::List(final_results.into_iter().take(n as usize).collect())
+            }
+            Some(crate::gremlin::TerminalStep::ToSet { .. }) => {
+                ExecutionResult::Set(final_results.into_iter().collect())
+            }
+            Some(crate::gremlin::TerminalStep::Iterate { .. }) => ExecutionResult::Unit,
+            Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
+                ExecutionResult::Bool(!final_results.is_empty())
+            }
+        })
+    }
 }
 
 impl Default for Graph {
