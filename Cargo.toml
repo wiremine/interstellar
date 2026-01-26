@@ -86,6 +86,11 @@ required-features = ["mmap", "gql"]
 name = "graphson"
 required-features = ["graphson"]
 
+# WASM support
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+web-time = "1.1"
+
 [package.metadata.kani]
 # Default unwind bound for loops (can be overridden per-proof)
 default-unwind = 10

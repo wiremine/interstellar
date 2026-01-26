@@ -121,8 +121,11 @@ pub use types::{
 
 use crate::schema::GraphSchema;
 use crate::storage::GraphStorage;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{BufReader, BufWriter};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 /// Serialize a graph to a JSON string.
@@ -222,6 +225,9 @@ pub fn to_string_with_schema<S: GraphStorage>(
 
 /// Export a graph to a file.
 ///
+/// This function is not available on WASM targets.
+/// Use [`to_string`] or [`to_string_pretty`] instead.
+///
 /// # Example
 ///
 /// ```no_run
@@ -232,6 +238,7 @@ pub fn to_string_with_schema<S: GraphStorage>(
 /// let snapshot = graph.snapshot();
 /// graphson::export_to_file(&snapshot, "graph.json").unwrap();
 /// ```
+#[cfg(not(target_arch = "wasm32"))]
 pub fn export_to_file<S: GraphStorage, P: AsRef<Path>>(storage: &S, path: P) -> Result<()> {
     let file = File::create(path)?;
     let writer = BufWriter::new(file);
@@ -241,6 +248,9 @@ pub fn export_to_file<S: GraphStorage, P: AsRef<Path>>(storage: &S, path: P) -> 
 
 /// Import a graph from a file.
 ///
+/// This function is not available on WASM targets.
+/// Use [`from_str`] instead.
+///
 /// # Example
 ///
 /// ```no_run
@@ -248,6 +258,7 @@ pub fn export_to_file<S: GraphStorage, P: AsRef<Path>>(storage: &S, path: P) -> 
 ///
 /// let graph = graphson::import_from_file("graph.json").unwrap();
 /// ```
+#[cfg(not(target_arch = "wasm32"))]
 pub fn import_from_file<P: AsRef<Path>>(path: P) -> Result<crate::storage::Graph> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);

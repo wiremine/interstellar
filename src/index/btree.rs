@@ -5,7 +5,8 @@
 
 use std::collections::BTreeMap;
 use std::ops::Bound;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::time::{SystemTime, UNIX_EPOCH};
 
 use roaring::RoaringTreemap;
 

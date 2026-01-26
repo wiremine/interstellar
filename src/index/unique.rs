@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 use std::ops::Bound;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::time::{SystemTime, UNIX_EPOCH};
 
 use crate::index::error::IndexError;
 use crate::index::spec::{IndexSpec, IndexType};

@@ -32,7 +32,8 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+
+use crate::time::Instant;
 
 use parking_lot::RwLock;
 

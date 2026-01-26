@@ -254,12 +254,29 @@
 //! | Feature | Description | Default |
 //! |---------|-------------|---------|
 //! | `graphson` | GraphSON import/export support | Yes |
-//! | `mmap` | Memory-mapped persistent storage | No |
+//! | `mmap` | Memory-mapped persistent storage (**not available on WASM**) | No |
 //! | `gql` | GQL query language support | No |
-//! | `full-text` | Full-text search with Tantivy | No |
+//! | `full-text` | Full-text search with Tantivy (**not available on WASM**) | No |
 //! | `full` | Enable all features | No |
 //!
 //! Note: In-memory graph storage is always available (core functionality).
+//!
+//! ## WASM Support
+//!
+//! Interstellar supports WebAssembly targets (`wasm32-unknown-unknown`).
+//! The following features work on WASM:
+//!
+//! - Core in-memory `Graph`
+//! - Full traversal API
+//! - GQL query language (with `gql` feature)
+//! - GraphSON serialization (string-based only; file I/O excluded)
+//!
+//! Build for WASM:
+//!
+//! ```bash
+//! cargo build --target wasm32-unknown-unknown
+//! cargo build --target wasm32-unknown-unknown --features gql
+//! ```
 //!
 //! ## Thread Safety
 //!
@@ -385,6 +402,8 @@ pub mod gremlin;
 pub mod index;
 pub mod schema;
 pub mod storage;
+// Internal time abstraction for WASM compatibility
+pub(crate) mod time;
 pub mod traversal;
 pub mod value;
 
