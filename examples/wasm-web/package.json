@@ -1,0 +1,19 @@
+{
+  "name": "wasm-web",
+  "version": "1.0.0",
+  "description": "This example demonstrates using the Interstellar Graph Database in the browser via WebAssembly.",
+  "main": "app.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:headed": "npx playwright test --headed",
+    "serve": "python3 -m http.server 8080"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.58.0"
+  }
+}

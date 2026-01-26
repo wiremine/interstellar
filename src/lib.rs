@@ -406,6 +406,9 @@ pub mod storage;
 pub(crate) mod time;
 pub mod traversal;
 pub mod value;
+// WASM JavaScript bindings
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 // Re-export graph element types for convenience
 pub use graph_elements::{GraphEdge, GraphVertex, GraphVertexTraversal};

@@ -1,0 +1,14 @@
+{
+  "name": "interstellar-node-example",
+  "version": "1.0.0",
+  "description": "Node.js example for Interstellar graph database",
+  "type": "module",
+  "scripts": {
+    "start": "node app.mjs",
+    "test": "node --test tests/"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

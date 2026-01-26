@@ -14,6 +14,8 @@ full-text = ["tantivy"]
 gql = ["pest", "pest_derive", "mathexpr"]
 gremlin = ["pest", "pest_derive"]
 full = ["mmap", "graphson", "gql", "gremlin", "full-text"]
+# WASM JavaScript bindings
+wasm = ["wasm-bindgen", "serde-wasm-bindgen", "js-sys"]
 
 [dependencies]
 thiserror = "1.0"
@@ -33,6 +35,10 @@ pest = { version = "2.7", optional = true }
 pest_derive = { version = "2.7", optional = true }
 mathexpr = { version = "0.1.1", optional = true }
 rand = "0.8"
+# WASM bindings (optional)
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
@@ -90,6 +96,12 @@ required-features = ["graphson"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 web-time = "1.1"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz"]
 
 [package.metadata.kani]
 # Default unwind bound for loops (can be overridden per-proof)
