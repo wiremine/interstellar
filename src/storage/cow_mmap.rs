@@ -1790,6 +1790,271 @@ impl CowMmapGraph {
         })
     }
 
+    /// Execute a multi-statement Gremlin script with variable assignment support.
+    ///
+    /// This is a convenience wrapper around [`execute_script_with_context`] that
+    /// starts with an empty variable context.
+    ///
+    /// This method supports the full Gremlin script syntax including:
+    /// - Variable assignment: `alice = g.addV('person').property('name', 'Alice').next()`
+    /// - Variable references in V(): `g.V(alice)`
+    /// - Variable references in from/to: `g.addE('knows').from(alice).to(bob).next()`
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::gremlin::{ExecutionResult, ScriptResult};
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// // Execute a multi-statement script with variable assignments
+    /// let result = graph.execute_script(r#"
+    ///     alice = g.addV('person').property('name', 'Alice').next()
+    ///     bob = g.addV('person').property('name', 'Bob').next()
+    ///     g.addE('knows').from(alice).to(bob).next()
+    ///     g.V(alice).out('knows').values('name').toList()
+    /// "#).unwrap();
+    ///
+    /// // The result is from the last statement
+    /// if let ExecutionResult::List(names) = result.result {
+    ///     println!("Found: {:?}", names);
+    /// }
+    ///
+    /// // Variables are available in result.variables
+    /// assert!(result.variables.contains("alice"));
+    /// assert!(result.variables.contains("bob"));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`](crate::gremlin::GremlinError) if:
+    /// - The script fails to parse
+    /// - A traversal fails to compile
+    /// - An assignment doesn't return a single value
+    /// - A variable reference cannot be resolved
+    #[cfg(feature = "gremlin")]
+    pub fn execute_script(
+        &self,
+        script: &str,
+    ) -> Result<crate::gremlin::ScriptResult, crate::gremlin::GremlinError> {
+        self.execute_script_with_context(script, crate::gremlin::VariableContext::new())
+    }
+
+    /// Execute a multi-statement Gremlin script with an existing variable context.
+    ///
+    /// This enables REPL-style workflows where variables persist across calls:
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::gremlin::{ExecutionResult, ScriptResult, VariableContext};
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    /// let mut ctx = VariableContext::new();
+    ///
+    /// // First REPL command
+    /// let result = graph.execute_script_with_context(
+    ///     "alice = g.addV('person').property('name', 'Alice').next()",
+    ///     ctx
+    /// ).unwrap();
+    /// ctx = result.variables;  // alice is now bound
+    ///
+    /// // Second REPL command (can reference alice from previous)
+    /// let result = graph.execute_script_with_context(
+    ///     "g.V(alice).values('name').toList()",
+    ///     ctx
+    /// ).unwrap();
+    ///
+    /// if let ExecutionResult::List(names) = result.result {
+    ///     println!("Found: {:?}", names);
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`](crate::gremlin::GremlinError) if:
+    /// - The script fails to parse
+    /// - A traversal fails to compile
+    /// - An assignment doesn't return a single value
+    /// - A variable reference cannot be resolved
+    #[cfg(feature = "gremlin")]
+    pub fn execute_script_with_context(
+        &self,
+        script: &str,
+        context: crate::gremlin::VariableContext,
+    ) -> Result<crate::gremlin::ScriptResult, crate::gremlin::GremlinError> {
+        use crate::gremlin::{parse_script, ExecutionResult, ScriptResult, Statement};
+
+        // Parse the script
+        let ast = parse_script(script)?;
+
+        // Execute using our own mutation-aware execution
+        let mut ctx = context;
+        let mut last_result = ExecutionResult::Unit;
+
+        for statement in &ast.statements {
+            match statement {
+                Statement::Assignment {
+                    name, traversal, ..
+                } => {
+                    // Compile and execute the traversal
+                    let snapshot = self.snapshot();
+                    let g = snapshot.gremlin();
+                    let compiled = crate::gremlin::compile_with_vars(traversal, &g, &ctx)?;
+                    let terminal = compiled.terminal().cloned();
+                    let raw_values = compiled.traversal.to_list();
+
+                    // Process mutations and get results
+                    let final_results = self.process_script_mutations(raw_values);
+
+                    // Apply terminal semantics
+                    let result = match terminal {
+                        Some(crate::gremlin::TerminalStep::Next { count: None, .. }) => {
+                            ExecutionResult::Single(final_results.into_iter().next())
+                        }
+                        _ => ExecutionResult::List(final_results),
+                    };
+
+                    // Bind the result to the variable
+                    match result {
+                        ExecutionResult::Single(Some(value)) => {
+                            ctx.bind(name.clone(), value);
+                        }
+                        ExecutionResult::List(values) if values.len() == 1 => {
+                            ctx.bind(name.clone(), values.into_iter().next().unwrap());
+                        }
+                        _ => {
+                            return Err(crate::gremlin::GremlinError::Compile(
+                                crate::gremlin::CompileError::InvalidArguments {
+                                    step: "assignment".to_string(),
+                                    message: format!(
+                                        "assignment to '{}' requires single value from .next()",
+                                        name
+                                    ),
+                                },
+                            ));
+                        }
+                    }
+                    last_result = ExecutionResult::Unit;
+                }
+                Statement::Traversal { traversal, .. } => {
+                    // Compile and execute the traversal
+                    let snapshot = self.snapshot();
+                    let g = snapshot.gremlin();
+                    let compiled = crate::gremlin::compile_with_vars(traversal, &g, &ctx)?;
+                    let terminal = compiled.terminal().cloned();
+                    let raw_values = compiled.traversal.to_list();
+
+                    // Process mutations and get results
+                    let final_results = self.process_script_mutations(raw_values);
+
+                    // Return based on terminal step
+                    last_result = match terminal {
+                        None | Some(crate::gremlin::TerminalStep::ToList { .. }) => {
+                            ExecutionResult::List(final_results)
+                        }
+                        Some(crate::gremlin::TerminalStep::Next { count: None, .. }) => {
+                            ExecutionResult::Single(final_results.into_iter().next())
+                        }
+                        Some(crate::gremlin::TerminalStep::Next { count: Some(n), .. }) => {
+                            ExecutionResult::List(
+                                final_results.into_iter().take(n as usize).collect(),
+                            )
+                        }
+                        Some(crate::gremlin::TerminalStep::ToSet { .. }) => {
+                            ExecutionResult::Set(final_results.into_iter().collect())
+                        }
+                        Some(crate::gremlin::TerminalStep::Iterate { .. }) => ExecutionResult::Unit,
+                        Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
+                            ExecutionResult::Bool(!final_results.is_empty())
+                        }
+                    };
+                }
+            }
+        }
+
+        Ok(ScriptResult {
+            result: last_result,
+            variables: ctx,
+        })
+    }
+
+    /// Process raw traversal values, executing any pending mutations.
+    #[cfg(feature = "gremlin")]
+    fn process_script_mutations(&self, raw_values: Vec<Value>) -> Vec<Value> {
+        use crate::traversal::mutation::PendingMutation;
+
+        let mut final_results = Vec::with_capacity(raw_values.len());
+
+        for value in raw_values {
+            if let Some(mutation) = PendingMutation::from_value(&value) {
+                let extract_id = value
+                    .as_map()
+                    .map(|m| m.contains_key("__extract_id"))
+                    .unwrap_or(false);
+
+                let result = match mutation {
+                    PendingMutation::AddVertex { label, properties } => {
+                        match self.add_vertex(&label, properties) {
+                            Ok(id) => Some(Value::Vertex(id)),
+                            Err(_) => None,
+                        }
+                    }
+                    PendingMutation::AddEdge {
+                        label,
+                        from,
+                        to,
+                        properties,
+                    } => match self.add_edge(from, to, &label, properties) {
+                        Ok(id) => Some(Value::Edge(id)),
+                        Err(_) => None,
+                    },
+                    PendingMutation::SetVertexProperty { id, key, value } => {
+                        if self.set_vertex_property(id, &key, value).is_ok() {
+                            Some(Value::Vertex(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::SetEdgeProperty { id, key, value } => {
+                        if self.set_edge_property(id, &key, value).is_ok() {
+                            Some(Value::Edge(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::DropVertex { id } => {
+                        let _ = self.remove_vertex(id);
+                        None
+                    }
+                    PendingMutation::DropEdge { id } => {
+                        let _ = self.remove_edge(id);
+                        None
+                    }
+                };
+
+                if let Some(result) = result {
+                    if extract_id {
+                        let id_value = match result {
+                            Value::Vertex(vid) => Value::Int(vid.0 as i64),
+                            Value::Edge(eid) => Value::Int(eid.0 as i64),
+                            other => other,
+                        };
+                        final_results.push(id_value);
+                    } else {
+                        final_results.push(result);
+                    }
+                }
+            } else {
+                final_results.push(value);
+            }
+        }
+
+        final_results
+    }
+
     // =========================================================================
     // Persistence Operations
     // =========================================================================
