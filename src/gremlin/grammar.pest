@@ -31,11 +31,35 @@ null = { "null" }
 identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // ============================================================
-// Entry Point
+// Entry Points
 // ============================================================
 
-// Entry point: g.V().step1().step2()...
+// Single traversal entry point: g.V().step1().step2()...
 traversal = { SOI ~ graph_source ~ step* ~ terminal_step? ~ EOI }
+
+// Multi-statement script entry point
+script = { SOI ~ statement* ~ EOI }
+
+// A statement is either an assignment or a standalone traversal expression
+statement = { assignment | traversal_expression }
+
+// Assignment: identifier = g.traversal().terminal()
+assignment = { variable_name ~ "=" ~ traversal_body ~ terminal_step }
+
+// Traversal expression without assignment (just executed)
+traversal_expression = { traversal_body ~ terminal_step? }
+
+// The body of a traversal (without SOI/EOI)
+traversal_body = { graph_source ~ step* }
+
+// Variable name for assignment (distinct from identifier to avoid conflicts)
+variable_name = @{ !keyword ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// Reserved keywords that cannot be used as variable names
+keyword = { "g" | "true" | "false" | "null" | "P" | "TextP" | "__" | "none" }
+
+// Variable reference in from/to/V contexts
+variable_ref = { variable_name }
 
 // ============================================================
 // Graph Source
@@ -53,8 +77,10 @@ source_step = {
     | inject_step    // inject(value, value, ...)
 }
 
-v_step = { "V" ~ "(" ~ value_list? ~ ")" }
-e_step = { "E" ~ "(" ~ value_list? ~ ")" }
+// V() can accept: nothing (all), values (ids), or variable reference
+v_step = { "V" ~ "(" ~ (variable_ref | value_list)? ~ ")" }
+// E() can accept: nothing (all), values (ids), or variable reference
+e_step = { "E" ~ "(" ~ (variable_ref | value_list)? ~ ")" }
 add_v_source_step = { "addV" ~ "(" ~ string ~ ")" }
 add_e_source_step = { "addE" ~ "(" ~ string ~ ")" }
 inject_step = { "inject" ~ "(" ~ value_list? ~ ")" }
@@ -274,7 +300,8 @@ cardinality = { "Cardinality.single" | "Cardinality.list" | "Cardinality.set" | 
 
 from_step = { "from" ~ "(" ~ from_to_arg ~ ")" }
 to_step = { "to" ~ "(" ~ from_to_arg ~ ")" }
-from_to_arg = { anonymous_traversal | string | value }
+// from/to can accept: anonymous traversal, string label, variable reference, or value (id)
+from_to_arg = { anonymous_traversal | string | variable_ref | value }
 drop_step = { "drop" ~ "(" ~ ")" }
 
 // ============================================================

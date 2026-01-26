@@ -2,7 +2,7 @@
 //!
 //! This module transforms parsed Gremlin AST into executable traversal pipelines.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::gremlin::ast::*;
 use crate::gremlin::error::CompileError;
@@ -224,6 +224,12 @@ fn compile_add_e_source<'g>(
                     step: "from(__.traversal) - use from('label') with as() instead".to_string(),
                 });
             }
+            FromToArgs::Variable(_) => {
+                // Variables require compile_with_vars, not basic compile
+                return Err(CompileError::UnsupportedStep {
+                    step: "from(variable) - use execute_script() for variable support".to_string(),
+                });
+            }
         };
     }
 
@@ -252,6 +258,12 @@ fn compile_add_e_source<'g>(
             FromToArgs::Traversal(_) => {
                 return Err(CompileError::UnsupportedStep {
                     step: "to(__.traversal) - use to('label') with as() instead".to_string(),
+                });
+            }
+            FromToArgs::Variable(_) => {
+                // Variables require compile_with_vars, not basic compile
+                return Err(CompileError::UnsupportedStep {
+                    step: "to(variable) - use execute_script() for variable support".to_string(),
                 });
             }
         };
@@ -973,6 +985,12 @@ fn compile_add_e_with_endpoints<'g>(
                     step: "from(__.traversal) - use from('label') with as() instead".to_string(),
                 });
             }
+            FromToArgs::Variable(_) => {
+                // Variables require compile_with_vars, not basic compile
+                return Err(CompileError::UnsupportedStep {
+                    step: "from(variable) - use execute_script() for variable support".to_string(),
+                });
+            }
         };
     }
 
@@ -1002,6 +1020,12 @@ fn compile_add_e_with_endpoints<'g>(
                 // Traversal-based to (e.g., to(__.select('b'))) requires more complex handling
                 return Err(CompileError::UnsupportedStep {
                     step: "to(__.traversal) - use to('label') with as() instead".to_string(),
+                });
+            }
+            FromToArgs::Variable(_) => {
+                // Variables require compile_with_vars, not basic compile
+                return Err(CompileError::UnsupportedStep {
+                    step: "to(variable) - use execute_script() for variable support".to_string(),
                 });
             }
         };
@@ -1502,6 +1526,630 @@ impl Step {
             Step::Drop { .. } => "drop",
         }
     }
+}
+
+// ============================================================
+// Multi-Statement Script Execution
+// ============================================================
+
+/// Variable context for tracking bindings during script execution.
+///
+/// Variables are bound when assignments are executed and can be referenced
+/// in subsequent statements via g.V(variable), from(variable), or to(variable).
+///
+/// This type can be passed between `execute_script_with_context` calls to
+/// maintain state in a REPL-style workflow.
+#[derive(Debug, Default, Clone)]
+pub struct VariableContext {
+    /// Maps variable names to their bound values
+    bindings: HashMap<String, Value>,
+}
+
+impl VariableContext {
+    /// Create a new empty variable context.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Bind a value to a variable name.
+    pub fn bind(&mut self, name: String, value: Value) {
+        self.bindings.insert(name, value);
+    }
+
+    /// Look up a variable's value.
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        self.bindings.get(name)
+    }
+
+    /// Get a vertex ID from a variable.
+    ///
+    /// Returns Some(VertexId) if the variable exists and contains a vertex
+    /// (either as a Value::Vertex or extracting id from vertex properties).
+    pub fn get_vertex_id(&self, name: &str) -> Option<VertexId> {
+        self.get(name).and_then(|v| match v {
+            Value::Int(id) => Some(VertexId(*id as u64)),
+            Value::Vertex(vid) => Some(*vid),
+            Value::Map(map) => {
+                // Try to extract id from a vertex map representation
+                map.get("id").and_then(|id_val| match id_val {
+                    Value::Int(id) => Some(VertexId(*id as u64)),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+    }
+
+    /// Check if a variable exists.
+    pub fn contains(&self, name: &str) -> bool {
+        self.bindings.contains_key(name)
+    }
+
+    /// Get all variable names.
+    pub fn variables(&self) -> impl Iterator<Item = &str> {
+        self.bindings.keys().map(|s| s.as_str())
+    }
+
+    /// Get all bindings as an iterator.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
+        self.bindings.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Get the number of bound variables.
+    pub fn len(&self) -> usize {
+        self.bindings.len()
+    }
+
+    /// Check if the context is empty.
+    pub fn is_empty(&self) -> bool {
+        self.bindings.is_empty()
+    }
+}
+
+/// Result of executing a Gremlin script.
+///
+/// Contains both the execution result and the variable context after execution,
+/// enabling REPL-style workflows where the context can be passed to subsequent calls.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::prelude::*;
+/// use interstellar::gremlin::{ScriptResult, VariableContext};
+///
+/// let graph = Graph::new();
+/// let mut ctx = VariableContext::new();
+///
+/// // First command
+/// let result = graph.execute_script_with_context(
+///     "alice = g.addV('person').property('name', 'Alice').next()",
+///     ctx
+/// )?;
+/// ctx = result.variables;
+///
+/// // Second command (uses 'alice' from previous execution)
+/// let result = graph.execute_script_with_context(
+///     "g.V(alice).values('name').toList()",
+///     ctx
+/// )?;
+/// ```
+#[derive(Debug, Clone)]
+pub struct ScriptResult {
+    /// The result of the last statement in the script.
+    pub result: ExecutionResult,
+    /// The variable context after execution, containing all bound variables.
+    pub variables: VariableContext,
+}
+
+/// Execute a multi-statement Gremlin script with a fresh variable context.
+///
+/// This is a convenience wrapper around [`execute_script_with_context`] that
+/// starts with an empty variable context.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::gremlin::{parse_script, execute_script};
+/// use interstellar::prelude::*;
+///
+/// let graph = Graph::new();
+/// let script = parse_script(r#"
+///     alice = g.addV('person').property('name', 'Alice').next()
+///     bob = g.addV('person').property('name', 'Bob').next()
+///     g.addE('knows').from(alice).to(bob).next()
+///     g.V(alice).out('knows').values('name').toList()
+/// "#)?;
+///
+/// let result = execute_script(&script, &graph)?;
+/// // result.result contains the execution result
+/// // result.variables contains {alice: VertexId(...), bob: VertexId(...)}
+/// ```
+pub fn execute_script<'g>(
+    script: &Script,
+    g: &GraphTraversalSource<'g>,
+) -> Result<ScriptResult, CompileError> {
+    execute_script_with_context(script, g, VariableContext::new())
+}
+
+/// Execute a multi-statement Gremlin script with an existing variable context.
+///
+/// This function executes each statement in order, tracking variable bindings.
+/// Variables from the input context are available for reference, and new
+/// assignments are added to the returned context.
+///
+/// This enables REPL-style workflows where state is maintained across calls:
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::gremlin::{parse_script, execute_script_with_context, VariableContext};
+/// use interstellar::prelude::*;
+///
+/// let graph = Graph::new();
+/// let mut ctx = VariableContext::new();
+///
+/// // First REPL input
+/// let script1 = parse_script("alice = g.addV('person').next()")?;
+/// let result1 = execute_script_with_context(&script1, &g, ctx)?;
+/// ctx = result1.variables;  // alice is now bound
+///
+/// // Second REPL input (can reference alice)
+/// let script2 = parse_script("g.V(alice).label().next()")?;
+/// let result2 = execute_script_with_context(&script2, &g, ctx)?;
+/// ctx = result2.variables;
+/// ```
+pub fn execute_script_with_context<'g>(
+    script: &Script,
+    g: &GraphTraversalSource<'g>,
+    context: VariableContext,
+) -> Result<ScriptResult, CompileError> {
+    let mut ctx = context;
+    let mut last_result = ExecutionResult::Unit;
+
+    for statement in &script.statements {
+        match statement {
+            Statement::Assignment {
+                name, traversal, ..
+            } => {
+                // Compile and execute the traversal with variable context
+                let compiled = compile_with_vars(traversal, g, &ctx)?;
+                let result = compiled.execute();
+
+                // Bind the result to the variable
+                match result {
+                    ExecutionResult::Single(Some(value)) => {
+                        ctx.bind(name.clone(), value);
+                    }
+                    ExecutionResult::List(values) if values.len() == 1 => {
+                        ctx.bind(name.clone(), values.into_iter().next().unwrap());
+                    }
+                    ExecutionResult::List(values) if values.is_empty() => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "assignment".to_string(),
+                            message: format!(
+                                "assignment to '{}' requires single value, traversal returned empty",
+                                name
+                            ),
+                        });
+                    }
+                    ExecutionResult::List(values) => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "assignment".to_string(),
+                            message: format!(
+                                "assignment to '{}' requires single value, got {} values",
+                                name,
+                                values.len()
+                            ),
+                        });
+                    }
+                    _ => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "assignment".to_string(),
+                            message: format!(
+                                "assignment to '{}' requires .next() terminal to produce single value",
+                                name
+                            ),
+                        });
+                    }
+                }
+                last_result = ExecutionResult::Unit;
+            }
+            Statement::Traversal { traversal, .. } => {
+                let compiled = compile_with_vars(traversal, g, &ctx)?;
+                last_result = compiled.execute();
+            }
+        }
+    }
+
+    Ok(ScriptResult {
+        result: last_result,
+        variables: ctx,
+    })
+}
+
+/// Compile a traversal with variable context for resolving references.
+pub fn compile_with_vars<'g>(
+    ast: &GremlinTraversal,
+    g: &GraphTraversalSource<'g>,
+    ctx: &VariableContext,
+) -> Result<CompiledTraversal<'g>, CompileError> {
+    // Validate the AST structure first
+    validate_ast(ast)?;
+
+    // Handle addE as source specially - it needs to look ahead for from/to/property
+    if let SourceStep::AddE { label, .. } = &ast.source {
+        let (traversal, consumed) = compile_add_e_source_with_vars(g, label, &ast.steps, ctx)?;
+        // Compile remaining steps
+        let remaining = &ast.steps[consumed..];
+        let traversal = compile_steps_with_vars(remaining, traversal, ctx)?;
+        return Ok(CompiledTraversal {
+            traversal,
+            terminal: ast.terminal.clone(),
+        });
+    }
+
+    // Compile source step to get initial traversal
+    let mut traversal = compile_source_with_vars(&ast.source, g, ctx)?;
+
+    // Compile each step and append to traversal
+    traversal = compile_steps_with_vars(&ast.steps, traversal, ctx)?;
+
+    Ok(CompiledTraversal {
+        traversal,
+        terminal: ast.terminal.clone(),
+    })
+}
+
+/// Compile the source step with variable context support.
+fn compile_source_with_vars<'g>(
+    source: &SourceStep,
+    g: &GraphTraversalSource<'g>,
+    ctx: &VariableContext,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    match source {
+        SourceStep::V { ids, variable, .. } => {
+            if let Some(var_name) = variable {
+                // Resolve variable to vertex ID
+                let id =
+                    ctx.get_vertex_id(var_name)
+                        .ok_or_else(|| CompileError::InvalidArguments {
+                            step: "V".to_string(),
+                            message: format!("variable '{}' not found or not a vertex", var_name),
+                        })?;
+                Ok(g.v_ids(vec![id]))
+            } else if ids.is_empty() {
+                Ok(g.v())
+            } else {
+                let vertex_ids: Vec<VertexId> = ids
+                    .iter()
+                    .map(|lit| match lit {
+                        Literal::Int(n) => VertexId(*n as u64),
+                        Literal::String(s) => s.parse::<u64>().map(VertexId).unwrap_or(VertexId(0)),
+                        _ => VertexId(0),
+                    })
+                    .collect();
+                Ok(g.v_ids(vertex_ids))
+            }
+        }
+        SourceStep::E { ids, variable, .. } => {
+            if let Some(var_name) = variable {
+                // Resolve variable to edge ID
+                let id_val = ctx
+                    .get(var_name)
+                    .ok_or_else(|| CompileError::InvalidArguments {
+                        step: "E".to_string(),
+                        message: format!("variable '{}' not found", var_name),
+                    })?;
+                let id = match id_val {
+                    Value::Int(n) => EdgeId(*n as u64),
+                    Value::Edge(eid) => *eid,
+                    _ => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "E".to_string(),
+                            message: format!("variable '{}' is not an edge", var_name),
+                        });
+                    }
+                };
+                Ok(g.e_ids(vec![id]))
+            } else if ids.is_empty() {
+                Ok(g.e())
+            } else {
+                let edge_ids: Vec<EdgeId> = ids
+                    .iter()
+                    .map(|lit| match lit {
+                        Literal::Int(n) => EdgeId(*n as u64),
+                        Literal::String(s) => s.parse::<u64>().map(EdgeId).unwrap_or(EdgeId(0)),
+                        _ => EdgeId(0),
+                    })
+                    .collect();
+                Ok(g.e_ids(edge_ids))
+            }
+        }
+        SourceStep::AddV { label, .. } => Ok(g.add_v(label)),
+        SourceStep::AddE { label: _, .. } => Err(CompileError::UnsupportedStep {
+            step: "addE as source (use g.V().addE() pattern instead)".to_string(),
+        }),
+        SourceStep::Inject { values, .. } => {
+            let vals: Vec<Value> = values.iter().map(literal_to_value).collect();
+            Ok(g.inject(vals))
+        }
+    }
+}
+
+/// Compile addE as source with variable context support.
+fn compile_add_e_source_with_vars<'g>(
+    g: &GraphTraversalSource<'g>,
+    label: &str,
+    steps: &[Step],
+    ctx: &VariableContext,
+) -> Result<(BoundTraversal<'g, (), Value>, usize), CompileError> {
+    let mut from_args = None;
+    let mut to_args = None;
+    let mut properties = Vec::new();
+    let mut consumed = 0;
+
+    // Look ahead for from(), to(), and property() steps
+    for step in steps {
+        match step {
+            Step::From { args, .. } => {
+                from_args = Some(args.clone());
+                consumed += 1;
+            }
+            Step::To { args, .. } => {
+                to_args = Some(args.clone());
+                consumed += 1;
+            }
+            Step::Property { args, .. } => {
+                properties.push(args.clone());
+                consumed += 1;
+            }
+            _ => break,
+        }
+    }
+
+    // Build the edge using the source builder
+    let mut builder = g.add_e(label);
+
+    // Set from endpoint with variable support
+    if let Some(from) = from_args {
+        builder = match from {
+            FromToArgs::Label(label) => builder.from_label(label),
+            FromToArgs::Variable(var_name) => {
+                let id =
+                    ctx.get_vertex_id(&var_name)
+                        .ok_or_else(|| CompileError::InvalidArguments {
+                            step: "from".to_string(),
+                            message: format!("variable '{}' not found or not a vertex", var_name),
+                        })?;
+                builder.from_vertex(id)
+            }
+            FromToArgs::Id(lit) => {
+                let id = match lit {
+                    Literal::Int(i) => VertexId(i as u64),
+                    Literal::String(s) => s.parse::<u64>().map(VertexId).map_err(|_| {
+                        CompileError::InvalidArguments {
+                            step: "from".to_string(),
+                            message: format!("Invalid vertex ID: {}", s),
+                        }
+                    })?,
+                    _ => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "from".to_string(),
+                            message: "from() requires a label string or vertex ID".to_string(),
+                        });
+                    }
+                };
+                builder.from_vertex(id)
+            }
+            FromToArgs::Traversal(_) => {
+                return Err(CompileError::UnsupportedStep {
+                    step: "from(__.traversal) - use from('label') with as() instead".to_string(),
+                });
+            }
+        };
+    }
+
+    // Set to endpoint with variable support
+    if let Some(to) = to_args {
+        builder = match to {
+            FromToArgs::Label(label) => builder.to_label(label),
+            FromToArgs::Variable(var_name) => {
+                let id =
+                    ctx.get_vertex_id(&var_name)
+                        .ok_or_else(|| CompileError::InvalidArguments {
+                            step: "to".to_string(),
+                            message: format!("variable '{}' not found or not a vertex", var_name),
+                        })?;
+                builder.to_vertex(id)
+            }
+            FromToArgs::Id(lit) => {
+                let id = match lit {
+                    Literal::Int(i) => VertexId(i as u64),
+                    Literal::String(s) => s.parse::<u64>().map(VertexId).map_err(|_| {
+                        CompileError::InvalidArguments {
+                            step: "to".to_string(),
+                            message: format!("Invalid vertex ID: {}", s),
+                        }
+                    })?,
+                    _ => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "to".to_string(),
+                            message: "to() requires a label string or vertex ID".to_string(),
+                        });
+                    }
+                };
+                builder.to_vertex(id)
+            }
+            FromToArgs::Traversal(_) => {
+                return Err(CompileError::UnsupportedStep {
+                    step: "to(__.traversal) - use to('label') with as() instead".to_string(),
+                });
+            }
+        };
+    }
+
+    // Add properties
+    for prop in properties {
+        let val = literal_to_value(&prop.value);
+        builder = builder.property(&prop.key, val);
+    }
+
+    Ok((builder.build(), consumed))
+}
+
+/// Compile steps with variable context support.
+fn compile_steps_with_vars<'g>(
+    steps: &[Step],
+    mut traversal: BoundTraversal<'g, (), Value>,
+    ctx: &VariableContext,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let mut i = 0;
+    while i < steps.len() {
+        let step = &steps[i];
+
+        match step {
+            Step::AddE { label, .. } => {
+                // Look ahead for from(), to(), and property() steps
+                let mut from_args = None;
+                let mut to_args = None;
+                let mut properties = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() {
+                    match &steps[j] {
+                        Step::From { args, .. } => {
+                            from_args = Some(args.clone());
+                            j += 1;
+                        }
+                        Step::To { args, .. } => {
+                            to_args = Some(args.clone());
+                            j += 1;
+                        }
+                        Step::Property { args, .. } => {
+                            properties.push(args.clone());
+                            j += 1;
+                        }
+                        _ => break,
+                    }
+                }
+                traversal = compile_add_e_with_endpoints_and_vars(
+                    traversal,
+                    label,
+                    from_args,
+                    to_args,
+                    &properties,
+                    ctx,
+                )?;
+                i = j;
+                continue;
+            }
+            _ => {
+                // For all other steps, delegate to the regular compile_steps
+                // since they don't need variable resolution
+                traversal = compile_step(step, traversal)?;
+                i += 1;
+            }
+        }
+    }
+
+    Ok(traversal)
+}
+
+/// Compile addE with endpoints and variable context support.
+fn compile_add_e_with_endpoints_and_vars<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    label: &str,
+    from_args: Option<FromToArgs>,
+    to_args: Option<FromToArgs>,
+    properties: &[PropertyArgs],
+    ctx: &VariableContext,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let mut builder = traversal.add_e(label);
+
+    // Set from endpoint with variable support
+    if let Some(from) = from_args {
+        builder = match from {
+            FromToArgs::Label(label) => builder.from_label(label),
+            FromToArgs::Variable(var_name) => {
+                let id =
+                    ctx.get_vertex_id(&var_name)
+                        .ok_or_else(|| CompileError::InvalidArguments {
+                            step: "from".to_string(),
+                            message: format!("variable '{}' not found or not a vertex", var_name),
+                        })?;
+                builder.from_vertex(id)
+            }
+            FromToArgs::Id(lit) => {
+                let id = match lit {
+                    Literal::Int(i) => VertexId(i as u64),
+                    Literal::String(s) => s.parse::<u64>().map(VertexId).map_err(|_| {
+                        CompileError::InvalidArguments {
+                            step: "from".to_string(),
+                            message: format!("Invalid vertex ID: {}", s),
+                        }
+                    })?,
+                    _ => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "from".to_string(),
+                            message: "from() requires a label string or vertex ID".to_string(),
+                        });
+                    }
+                };
+                builder.from_vertex(id)
+            }
+            FromToArgs::Traversal(_) => {
+                return Err(CompileError::UnsupportedStep {
+                    step: "from(__.traversal) - use from('label') with as() instead".to_string(),
+                });
+            }
+        };
+    }
+
+    // Set to endpoint with variable support
+    if let Some(to) = to_args {
+        builder = match to {
+            FromToArgs::Label(label) => builder.to_label(label),
+            FromToArgs::Variable(var_name) => {
+                let id =
+                    ctx.get_vertex_id(&var_name)
+                        .ok_or_else(|| CompileError::InvalidArguments {
+                            step: "to".to_string(),
+                            message: format!("variable '{}' not found or not a vertex", var_name),
+                        })?;
+                builder.to_vertex(id)
+            }
+            FromToArgs::Id(lit) => {
+                let id = match lit {
+                    Literal::Int(i) => VertexId(i as u64),
+                    Literal::String(s) => s.parse::<u64>().map(VertexId).map_err(|_| {
+                        CompileError::InvalidArguments {
+                            step: "to".to_string(),
+                            message: format!("Invalid vertex ID: {}", s),
+                        }
+                    })?,
+                    _ => {
+                        return Err(CompileError::InvalidArguments {
+                            step: "to".to_string(),
+                            message: "to() requires a label string or vertex ID".to_string(),
+                        });
+                    }
+                };
+                builder.to_vertex(id)
+            }
+            FromToArgs::Traversal(_) => {
+                return Err(CompileError::UnsupportedStep {
+                    step: "to(__.traversal) - use to('label') with as() instead".to_string(),
+                });
+            }
+        };
+    }
+
+    // Add properties
+    for prop in properties {
+        let val = literal_to_value(&prop.value);
+        builder = builder.property(&prop.key, val);
+    }
+
+    Ok(builder.build())
 }
 
 #[cfg(test)]

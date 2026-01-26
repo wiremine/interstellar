@@ -93,6 +93,60 @@ use std::collections::{BTreeMap, HashMap};
 )]
 pub struct VertexId(pub u64);
 
+/// Trait for types that can be converted to a VertexId.
+///
+/// This enables ergonomic APIs that accept vertex references in multiple forms,
+/// eliminating the need for explicit `.id()` calls in common patterns.
+///
+/// # Implemented For
+///
+/// - `VertexId` - Returns itself
+/// - `&VertexId` - Dereferences and returns the ID
+/// - `u64` - Wraps in `VertexId`
+/// - `GraphVertex<G>` and `&GraphVertex<G>` - Extracts the vertex ID
+///
+/// # Example
+///
+/// ```rust
+/// use interstellar::prelude::*;
+/// use interstellar::value::IntoVertexId;
+/// use std::sync::Arc;
+/// use std::collections::HashMap;
+///
+/// let graph = Arc::new(Graph::new());
+/// let alice_id = graph.add_vertex("person", HashMap::new());
+///
+/// // All of these implement IntoVertexId:
+/// assert_eq!(alice_id.into_vertex_id(), alice_id);
+/// assert_eq!((&alice_id).into_vertex_id(), alice_id);
+/// assert_eq!(42u64.into_vertex_id(), VertexId(42));
+/// ```
+pub trait IntoVertexId {
+    /// Convert this value into a VertexId.
+    fn into_vertex_id(self) -> VertexId;
+}
+
+impl IntoVertexId for VertexId {
+    #[inline]
+    fn into_vertex_id(self) -> VertexId {
+        self
+    }
+}
+
+impl IntoVertexId for &VertexId {
+    #[inline]
+    fn into_vertex_id(self) -> VertexId {
+        *self
+    }
+}
+
+impl IntoVertexId for u64 {
+    #[inline]
+    fn into_vertex_id(self) -> VertexId {
+        VertexId(self)
+    }
+}
+
 /// A unique identifier for an edge in the graph.
 ///
 /// `EdgeId` is a lightweight, copy-able handle that uniquely identifies
@@ -1596,5 +1650,34 @@ mod tests {
             prop_assert!(!buf.is_empty());
             prop_assert_eq!(buf[0], v.discriminant());
         }
+    }
+
+    // =========================================================================
+    // IntoVertexId Tests
+    // =========================================================================
+
+    #[test]
+    fn into_vertex_id_from_vertex_id() {
+        use super::IntoVertexId;
+
+        let id = VertexId(42);
+        assert_eq!(id.into_vertex_id(), VertexId(42));
+    }
+
+    #[test]
+    fn into_vertex_id_from_ref_vertex_id() {
+        use super::IntoVertexId;
+
+        let id = VertexId(42);
+        assert_eq!((&id).into_vertex_id(), VertexId(42));
+    }
+
+    #[test]
+    fn into_vertex_id_from_u64() {
+        use super::IntoVertexId;
+
+        assert_eq!(42u64.into_vertex_id(), VertexId(42));
+        assert_eq!(0u64.into_vertex_id(), VertexId(0));
+        assert_eq!(u64::MAX.into_vertex_id(), VertexId(u64::MAX));
     }
 }

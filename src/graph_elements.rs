@@ -62,7 +62,7 @@ use std::sync::Arc;
 use crate::error::StorageError;
 use crate::graph_access::GraphAccess;
 use crate::storage::cow::Graph;
-use crate::value::{EdgeId, Value, VertexId};
+use crate::value::{EdgeId, IntoVertexId, Value, VertexId};
 
 #[cfg(feature = "mmap")]
 use crate::storage::CowMmapGraph;
@@ -621,6 +621,55 @@ impl<G: GraphAccess> Eq for GraphVertex<G> {}
 impl<G: GraphAccess> std::hash::Hash for GraphVertex<G> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
+    }
+}
+
+impl<G: GraphAccess> IntoVertexId for GraphVertex<G> {
+    /// Convert an owned GraphVertex to its VertexId.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::value::IntoVertexId;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let id = graph.add_vertex("person", HashMap::new());
+    /// let v = GraphVertex::new(id, graph.clone());
+    ///
+    /// assert_eq!(v.into_vertex_id(), id);
+    /// ```
+    #[inline]
+    fn into_vertex_id(self) -> VertexId {
+        self.id
+    }
+}
+
+impl<G: GraphAccess> IntoVertexId for &GraphVertex<G> {
+    /// Convert a borrowed GraphVertex reference to its VertexId.
+    ///
+    /// This is the most common use case, allowing patterns like:
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::value::IntoVertexId;
+    /// use interstellar::graph_elements::GraphVertex;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let id = graph.add_vertex("person", HashMap::new());
+    /// let v = GraphVertex::new(id, graph.clone());
+    ///
+    /// // Borrow the vertex (common pattern)
+    /// assert_eq!((&v).into_vertex_id(), id);
+    /// ```
+    #[inline]
+    fn into_vertex_id(self) -> VertexId {
+        self.id
     }
 }
 

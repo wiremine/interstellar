@@ -34,6 +34,146 @@ pub fn parse(input: &str) -> Result<GremlinTraversal, ParseError> {
     build_traversal(traversal_pair)
 }
 
+/// Parse a multi-statement Gremlin script into an AST.
+///
+/// Scripts support variable assignment and reference:
+/// ```gremlin
+/// alice = g.addV('person').property('name', 'Alice').next()
+/// bob = g.addV('person').property('name', 'Bob').next()
+/// g.addE('knows').from(alice).to(bob).next()
+/// g.V(alice).out('knows').values('name').toList()
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::gremlin::parse_script;
+///
+/// let script = parse_script(r#"
+///     alice = g.addV('person').property('name', 'Alice').next()
+///     g.V(alice).values('name').toList()
+/// "#)?;
+/// ```
+pub fn parse_script(input: &str) -> Result<Script, ParseError> {
+    if input.trim().is_empty() {
+        return Err(ParseError::Empty);
+    }
+
+    let pairs = GremlinParser::parse(Rule::script, input).map_err(ParseError::from_pest)?;
+
+    let script_pair = pairs.into_iter().next().ok_or(ParseError::Empty)?;
+    let span = Span::new(script_pair.as_span().start(), script_pair.as_span().end());
+
+    let mut statements = Vec::new();
+
+    for inner in script_pair.into_inner() {
+        match inner.as_rule() {
+            Rule::statement => {
+                statements.push(build_statement(inner)?);
+            }
+            Rule::EOI => {}
+            _ => {}
+        }
+    }
+
+    Ok(Script { statements, span })
+}
+
+fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
+    let span = Span::new(pair.as_span().start(), pair.as_span().end());
+
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::Syntax("Empty statement".to_string()))?;
+
+    match inner.as_rule() {
+        Rule::assignment => build_assignment(inner, span),
+        Rule::traversal_expression => build_traversal_expression(inner, span),
+        _ => Err(ParseError::Syntax(format!(
+            "Unknown statement type: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+fn build_assignment(pair: Pair<Rule>, span: Span) -> Result<Statement, ParseError> {
+    let mut parts = pair.into_inner();
+
+    // Variable name
+    let name_pair = parts
+        .next()
+        .ok_or_else(|| ParseError::Syntax("Assignment missing variable name".to_string()))?;
+    let name = name_pair.as_str().to_string();
+
+    // Traversal body
+    let body_pair = parts
+        .find(|p| p.as_rule() == Rule::traversal_body)
+        .ok_or_else(|| ParseError::Syntax("Assignment missing traversal body".to_string()))?;
+
+    // Terminal step
+    let terminal_pair = parts.find(|p| p.as_rule() == Rule::terminal_step);
+
+    let traversal = build_traversal_from_body(body_pair, terminal_pair)?;
+
+    Ok(Statement::Assignment {
+        name,
+        traversal,
+        span,
+    })
+}
+
+fn build_traversal_expression(pair: Pair<Rule>, span: Span) -> Result<Statement, ParseError> {
+    let mut inner_iter = pair.into_inner();
+
+    let body_pair = inner_iter
+        .find(|p| p.as_rule() == Rule::traversal_body)
+        .ok_or_else(|| ParseError::Syntax("Traversal expression missing body".to_string()))?;
+
+    let terminal_pair = inner_iter.find(|p| p.as_rule() == Rule::terminal_step);
+
+    let traversal = build_traversal_from_body(body_pair, terminal_pair)?;
+
+    Ok(Statement::Traversal { traversal, span })
+}
+
+fn build_traversal_from_body(
+    body_pair: Pair<Rule>,
+    terminal_pair: Option<Pair<Rule>>,
+) -> Result<GremlinTraversal, ParseError> {
+    let span = Span::new(body_pair.as_span().start(), body_pair.as_span().end());
+
+    let mut source: Option<SourceStep> = None;
+    let mut steps: Vec<Step> = Vec::new();
+
+    for inner in body_pair.into_inner() {
+        match inner.as_rule() {
+            Rule::graph_source => {
+                source = Some(build_source(inner)?);
+            }
+            Rule::step => {
+                steps.push(build_step(inner)?);
+            }
+            _ => {}
+        }
+    }
+
+    let source = source.ok_or(ParseError::MissingSource)?;
+
+    let terminal = if let Some(term_pair) = terminal_pair {
+        Some(build_terminal(term_pair)?)
+    } else {
+        None
+    };
+
+    Ok(GremlinTraversal {
+        source,
+        steps,
+        terminal,
+        span,
+    })
+}
+
 fn build_traversal(pair: Pair<Rule>) -> Result<GremlinTraversal, ParseError> {
     let span = Span::new(pair.as_span().start(), pair.as_span().end());
 
@@ -83,12 +223,20 @@ fn build_source(pair: Pair<Rule>) -> Result<SourceStep, ParseError> {
 
     match step_pair.as_rule() {
         Rule::v_step => {
-            let ids = build_value_list_opt(step_pair)?;
-            Ok(SourceStep::V { ids, span })
+            let (ids, variable) = build_vertex_source_args(step_pair)?;
+            Ok(SourceStep::V {
+                ids,
+                variable,
+                span,
+            })
         }
         Rule::e_step => {
-            let ids = build_value_list_opt(step_pair)?;
-            Ok(SourceStep::E { ids, span })
+            let (ids, variable) = build_vertex_source_args(step_pair)?;
+            Ok(SourceStep::E {
+                ids,
+                variable,
+                span,
+            })
         }
         Rule::add_v_source_step => {
             let label = extract_string(step_pair)?;
@@ -107,6 +255,39 @@ fn build_source(pair: Pair<Rule>) -> Result<SourceStep, ParseError> {
             step_pair.as_rule()
         ))),
     }
+}
+
+/// Build V() or E() source arguments, which can be:
+/// - Empty (all vertices/edges)
+/// - Variable reference (g.V(alice))
+/// - Value list (g.V(1, 2, 3))
+fn build_vertex_source_args(
+    pair: Pair<Rule>,
+) -> Result<(Vec<Literal>, Option<String>), ParseError> {
+    let mut ids = Vec::new();
+    let mut variable = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::variable_ref => {
+                // Extract the variable name from variable_ref -> variable_name
+                // First capture the string in case into_inner fails
+                let fallback = inner.as_str().to_string();
+                let var_name = inner
+                    .into_inner()
+                    .next()
+                    .map(|p| p.as_str().to_string())
+                    .unwrap_or(fallback);
+                variable = Some(var_name);
+            }
+            Rule::value_list => {
+                ids = collect_values_from_list(inner)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok((ids, variable))
 }
 
 fn build_step(pair: Pair<Rule>) -> Result<Step, ParseError> {
@@ -876,6 +1057,17 @@ fn build_from_to_args(pair: Pair<Rule>) -> Result<FromToArgs, ParseError> {
             build_anonymous_traversal(inner)?,
         ))),
         Rule::string => Ok(FromToArgs::Label(parse_string_value(inner)?)),
+        Rule::variable_ref => {
+            // Extract variable name from variable_ref -> variable_name
+            // Capture fallback first before consuming inner
+            let fallback = inner.as_str().to_string();
+            let var_name = inner
+                .into_inner()
+                .next()
+                .map(|p| p.as_str().to_string())
+                .unwrap_or(fallback);
+            Ok(FromToArgs::Variable(var_name))
+        }
         _ => Ok(FromToArgs::Id(build_value(inner)?)),
     }
 }

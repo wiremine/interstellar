@@ -1713,3 +1713,300 @@ fn test_mutate_drop_edge() {
     assert_eq!(graph.edge_count(), 0, "Edge was not dropped");
     assert_eq!(graph.vertex_count(), 2, "Vertices should still exist");
 }
+
+// ============================================================
+// Script Parsing Tests
+// ============================================================
+
+#[test]
+fn test_parse_script_single_statement() {
+    let script = parse_script("g.V().toList()").unwrap();
+    assert_eq!(script.statements.len(), 1);
+    assert!(matches!(&script.statements[0], Statement::Traversal { .. }));
+}
+
+#[test]
+fn test_parse_script_assignment() {
+    let script = parse_script("alice = g.addV('person').next()").unwrap();
+    assert_eq!(script.statements.len(), 1);
+    if let Statement::Assignment { name, .. } = &script.statements[0] {
+        assert_eq!(name, "alice");
+    } else {
+        panic!("Expected Assignment statement");
+    }
+}
+
+#[test]
+fn test_parse_script_multiple_statements() {
+    let script = parse_script(
+        r#"
+        alice = g.addV('person').next()
+        bob = g.addV('person').next()
+        g.V().toList()
+    "#,
+    )
+    .unwrap();
+    assert_eq!(script.statements.len(), 3);
+}
+
+#[test]
+fn test_parse_script_variable_in_v() {
+    let script = parse_script(
+        r#"
+        alice = g.addV('person').next()
+        g.V(alice).toList()
+    "#,
+    )
+    .unwrap();
+    assert_eq!(script.statements.len(), 2);
+
+    // Check that the second statement has a variable reference in V()
+    if let Statement::Traversal { traversal, .. } = &script.statements[1] {
+        if let SourceStep::V { variable, .. } = &traversal.source {
+            assert_eq!(variable.as_deref(), Some("alice"));
+        } else {
+            panic!("Expected V source step");
+        }
+    } else {
+        panic!("Expected Traversal statement");
+    }
+}
+
+#[test]
+fn test_parse_script_variable_in_from_to() {
+    let script = parse_script(
+        r#"
+        alice = g.addV('person').next()
+        bob = g.addV('person').next()
+        g.addE('knows').from(alice).to(bob).next()
+    "#,
+    )
+    .unwrap();
+    assert_eq!(script.statements.len(), 3);
+
+    // Check the third statement has variable references
+    if let Statement::Traversal { traversal, .. } = &script.statements[2] {
+        // Find the from and to steps
+        let mut found_from = false;
+        let mut found_to = false;
+        for step in &traversal.steps {
+            match step {
+                Step::From { args, .. } => {
+                    assert!(matches!(args, FromToArgs::Variable(v) if v == "alice"));
+                    found_from = true;
+                }
+                Step::To { args, .. } => {
+                    assert!(matches!(args, FromToArgs::Variable(v) if v == "bob"));
+                    found_to = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(found_from, "Expected from(alice)");
+        assert!(found_to, "Expected to(bob)");
+    } else {
+        panic!("Expected Traversal statement");
+    }
+}
+
+// ============================================================
+// Script Execution Tests
+// ============================================================
+
+#[test]
+fn test_execute_script_basic_workflow() {
+    let graph = crate::storage::Graph::new();
+
+    let script_result = graph
+        .execute_script(
+            r#"
+        alice = g.addV('person').property('name', 'Alice').next()
+        bob = g.addV('person').property('name', 'Bob').next()
+        g.addE('knows').from(alice).to(bob).next()
+        g.V(alice).out('knows').values('name').toList()
+    "#,
+        )
+        .unwrap();
+
+    // The result should be Bob's name
+    if let ExecutionResult::List(names) = script_result.result {
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], crate::value::Value::String("Bob".to_string()));
+    } else {
+        panic!("Expected List result, got {:?}", script_result.result);
+    }
+
+    // Verify variables are returned
+    assert!(script_result.variables.contains("alice"));
+    assert!(script_result.variables.contains("bob"));
+
+    // Verify graph state
+    assert_eq!(graph.vertex_count(), 2);
+    assert_eq!(graph.edge_count(), 1);
+}
+
+#[test]
+fn test_execute_script_variable_reference_in_v() {
+    let graph = crate::storage::Graph::new();
+
+    let script_result = graph
+        .execute_script(
+            r#"
+        v1 = g.addV('person').property('name', 'Test').next()
+        g.V(v1).values('name').toList()
+    "#,
+        )
+        .unwrap();
+
+    if let ExecutionResult::List(names) = script_result.result {
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], crate::value::Value::String("Test".to_string()));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_execute_script_multiple_edges() {
+    let graph = crate::storage::Graph::new();
+
+    let script_result = graph
+        .execute_script(
+            r#"
+        alice = g.addV('person').property('name', 'Alice').next()
+        bob = g.addV('person').property('name', 'Bob').next()
+        charlie = g.addV('person').property('name', 'Charlie').next()
+        g.addE('knows').from(alice).to(bob).next()
+        g.addE('knows').from(alice).to(charlie).next()
+        g.V(alice).out('knows').values('name').toList()
+    "#,
+        )
+        .unwrap();
+
+    if let ExecutionResult::List(names) = script_result.result {
+        assert_eq!(names.len(), 2);
+        let name_strings: Vec<String> = names
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert!(name_strings.contains(&"Bob".to_string()));
+        assert!(name_strings.contains(&"Charlie".to_string()));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_execute_script_empty_result() {
+    let graph = crate::storage::Graph::new();
+
+    // Create vertices but query for non-existent edges
+    let script_result = graph
+        .execute_script(
+            r#"
+        alice = g.addV('person').property('name', 'Alice').next()
+        g.V(alice).out('knows').values('name').toList()
+    "#,
+        )
+        .unwrap();
+
+    if let ExecutionResult::List(names) = script_result.result {
+        assert!(names.is_empty());
+    } else {
+        panic!("Expected empty List result");
+    }
+}
+
+#[test]
+fn test_execute_script_repl_style_workflow() {
+    use crate::gremlin::VariableContext;
+
+    let graph = crate::storage::Graph::new();
+
+    // First REPL command
+    let result1 = graph
+        .execute_script_with_context(
+            "alice = g.addV('person').property('name', 'Alice').next()",
+            VariableContext::new(),
+        )
+        .unwrap();
+
+    assert!(result1.variables.contains("alice"));
+    let ctx = result1.variables;
+
+    // Second REPL command (uses alice from previous)
+    let result2 = graph
+        .execute_script_with_context("bob = g.addV('person').property('name', 'Bob').next()", ctx)
+        .unwrap();
+
+    assert!(result2.variables.contains("alice")); // alice persists
+    assert!(result2.variables.contains("bob")); // bob added
+    let ctx = result2.variables;
+
+    // Third REPL command (uses both alice and bob)
+    let result3 = graph
+        .execute_script_with_context("g.addE('knows').from(alice).to(bob).next()", ctx)
+        .unwrap();
+
+    let ctx = result3.variables;
+
+    // Fourth REPL command (query using alice)
+    let result4 = graph
+        .execute_script_with_context("g.V(alice).out('knows').values('name').toList()", ctx)
+        .unwrap();
+
+    if let ExecutionResult::List(names) = result4.result {
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], crate::value::Value::String("Bob".to_string()));
+    } else {
+        panic!("Expected List result");
+    }
+}
+
+#[test]
+fn test_script_result_variables_are_accessible() {
+    let graph = crate::storage::Graph::new();
+
+    let script_result = graph
+        .execute_script(
+            r#"
+        a = g.addV('test').next()
+        b = g.addV('test').next()
+        c = g.addV('test').next()
+    "#,
+        )
+        .unwrap();
+
+    // Check all variables are present
+    assert_eq!(script_result.variables.len(), 3);
+    assert!(script_result.variables.contains("a"));
+    assert!(script_result.variables.contains("b"));
+    assert!(script_result.variables.contains("c"));
+
+    // Check values are vertex IDs
+    assert!(script_result.variables.get_vertex_id("a").is_some());
+    assert!(script_result.variables.get_vertex_id("b").is_some());
+    assert!(script_result.variables.get_vertex_id("c").is_some());
+}
+
+#[test]
+fn test_variable_context_basic() {
+    use crate::gremlin::VariableContext;
+    use crate::value::Value;
+
+    let mut ctx = VariableContext::new();
+
+    // Test bind and get
+    ctx.bind("test".to_string(), Value::Int(42));
+    assert!(ctx.contains("test"));
+    assert_eq!(ctx.get("test"), Some(&Value::Int(42)));
+
+    // Test get_vertex_id with Int
+    ctx.bind("vid".to_string(), Value::Int(123));
+    assert_eq!(ctx.get_vertex_id("vid"), Some(crate::value::VertexId(123)));
+
+    // Test variables iterator
+    let vars: Vec<&str> = ctx.variables().collect();
+    assert!(vars.contains(&"test"));
+    assert!(vars.contains(&"vid"));
+}

@@ -46,9 +46,19 @@ pub struct AnonymousTraversal {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceStep {
     /// g.V() - all vertices, g.V(id) - vertex by id, g.V(id, id, ...) - multiple
-    V { ids: Vec<Literal>, span: Span },
+    V {
+        ids: Vec<Literal>,
+        /// Variable reference (e.g., g.V(alice))
+        variable: Option<String>,
+        span: Span,
+    },
     /// g.E() - all edges, g.E(id) - edge by id
-    E { ids: Vec<Literal>, span: Span },
+    E {
+        ids: Vec<Literal>,
+        /// Variable reference (e.g., g.E(edge_var))
+        variable: Option<String>,
+        span: Span,
+    },
     /// g.addV('label') - create vertex
     AddV { label: String, span: Span },
     /// g.addE('label') - create edge
@@ -420,6 +430,8 @@ pub enum FromToArgs {
     Traversal(Box<AnonymousTraversal>),
     /// from(vertexId)
     Id(Literal),
+    /// from(variable) - reference to a script variable
+    Variable(String),
 }
 
 /// Predicate for filtering.
@@ -495,4 +507,70 @@ pub enum Literal {
     List(Vec<Literal>),
     /// Map of key-value pairs
     Map(Vec<(String, Literal)>),
+}
+
+// ============================================================
+// Multi-Statement Script Types
+// ============================================================
+
+/// A complete Gremlin script containing one or more statements.
+///
+/// Scripts support variable assignment and reference:
+/// ```gremlin
+/// alice = g.addV('person').property('name', 'Alice').next()
+/// bob = g.addV('person').property('name', 'Bob').next()
+/// g.addE('knows').from(alice).to(bob).next()
+/// g.V(alice).out('knows').values('name').toList()
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Script {
+    /// The statements in this script
+    pub statements: Vec<Statement>,
+    /// Source span for error reporting
+    pub span: Span,
+}
+
+/// A single statement in a Gremlin script.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    /// Variable assignment: `name = traversal`
+    Assignment {
+        /// The variable name being assigned to
+        name: String,
+        /// The traversal that produces the value
+        traversal: GremlinTraversal,
+        /// Source span for error reporting
+        span: Span,
+    },
+    /// Standalone traversal execution
+    Traversal {
+        /// The traversal to execute
+        traversal: GremlinTraversal,
+        /// Source span for error reporting
+        span: Span,
+    },
+}
+
+/// Extended source step vertex specification for variable support.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VertexSource {
+    /// All vertices (g.V())
+    All,
+    /// Specific vertex IDs (g.V(1, 2, 3))
+    Ids(Vec<Literal>),
+    /// Variable reference (g.V(alice))
+    Variable(String),
+}
+
+/// Extended edge endpoint specification for variable support.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EdgeEndpoint {
+    /// Explicit vertex ID
+    VertexId(Literal),
+    /// Reference to a step label (from('a'))
+    StepLabel(String),
+    /// Reference to a variable (from(alice))
+    Variable(String),
+    /// Sub-traversal that produces a vertex
+    Traversal(Box<AnonymousTraversal>),
 }

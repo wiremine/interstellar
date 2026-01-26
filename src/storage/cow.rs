@@ -95,7 +95,7 @@ use crate::traversal::{
     LabelStep, LimitStep, OutEStep, OutStep, OutVStep, SkipStep, Traversal, TraversalSource,
     Traverser, ValuesStep,
 };
-use crate::value::{EdgeId, Value, VertexId};
+use crate::value::{EdgeId, IntoVertexId, Value, VertexId};
 use std::marker::PhantomData;
 
 // =============================================================================
@@ -1896,6 +1896,270 @@ impl Graph {
             }
         })
     }
+
+    /// Execute a multi-statement Gremlin script with variable assignment support.
+    ///
+    /// This is a convenience wrapper around [`execute_script_with_context`] that
+    /// starts with an empty variable context.
+    ///
+    /// This method supports the full Gremlin script syntax including:
+    /// - Variable assignment: `alice = g.addV('person').property('name', 'Alice').next()`
+    /// - Variable references in V(): `g.V(alice)`
+    /// - Variable references in from/to: `g.addE('knows').from(alice).to(bob).next()`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::gremlin::{ExecutionResult, ScriptResult};
+    ///
+    /// let graph = Graph::new();
+    ///
+    /// // Execute a multi-statement script with variable assignments
+    /// let result = graph.execute_script(r#"
+    ///     alice = g.addV('person').property('name', 'Alice').next()
+    ///     bob = g.addV('person').property('name', 'Bob').next()
+    ///     g.addE('knows').from(alice).to(bob).next()
+    ///     g.V(alice).out('knows').values('name').toList()
+    /// "#).unwrap();
+    ///
+    /// // The result is from the last statement
+    /// if let ExecutionResult::List(names) = result.result {
+    ///     assert_eq!(names.len(), 1);
+    ///     assert_eq!(names[0], Value::String("Bob".to_string()));
+    /// }
+    ///
+    /// // Variables are available in result.variables
+    /// assert!(result.variables.contains("alice"));
+    /// assert!(result.variables.contains("bob"));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`] if:
+    /// - The script fails to parse
+    /// - A traversal fails to compile
+    /// - An assignment doesn't return a single value
+    /// - A variable reference cannot be resolved
+    #[cfg(feature = "gremlin")]
+    pub fn execute_script(
+        &self,
+        script: &str,
+    ) -> Result<crate::gremlin::ScriptResult, crate::gremlin::GremlinError> {
+        self.execute_script_with_context(script, crate::gremlin::VariableContext::new())
+    }
+
+    /// Execute a multi-statement Gremlin script with an existing variable context.
+    ///
+    /// This enables REPL-style workflows where variables persist across calls:
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use interstellar::gremlin::{ExecutionResult, ScriptResult, VariableContext};
+    ///
+    /// let graph = Graph::new();
+    /// let mut ctx = VariableContext::new();
+    ///
+    /// // First REPL command
+    /// let result = graph.execute_script_with_context(
+    ///     "alice = g.addV('person').property('name', 'Alice').next()",
+    ///     ctx
+    /// ).unwrap();
+    /// ctx = result.variables;  // alice is now bound
+    ///
+    /// // Second REPL command (can reference alice from previous)
+    /// let result = graph.execute_script_with_context(
+    ///     "g.V(alice).values('name').toList()",
+    ///     ctx
+    /// ).unwrap();
+    ///
+    /// if let ExecutionResult::List(names) = result.result {
+    ///     assert_eq!(names[0], Value::String("Alice".to_string()));
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`GremlinError`] if:
+    /// - The script fails to parse
+    /// - A traversal fails to compile
+    /// - An assignment doesn't return a single value
+    /// - A variable reference cannot be resolved
+    #[cfg(feature = "gremlin")]
+    pub fn execute_script_with_context(
+        &self,
+        script: &str,
+        context: crate::gremlin::VariableContext,
+    ) -> Result<crate::gremlin::ScriptResult, crate::gremlin::GremlinError> {
+        use crate::gremlin::{parse_script, ExecutionResult, ScriptResult, Statement};
+
+        // Parse the script
+        let ast = parse_script(script)?;
+
+        // Execute using our own mutation-aware execution
+        let mut ctx = context;
+        let mut last_result = ExecutionResult::Unit;
+
+        for statement in &ast.statements {
+            match statement {
+                Statement::Assignment {
+                    name, traversal, ..
+                } => {
+                    // Compile and execute the traversal
+                    let snapshot = self.snapshot();
+                    let g = snapshot.gremlin();
+                    let compiled = crate::gremlin::compile_with_vars(traversal, &g, &ctx)?;
+                    let terminal = compiled.terminal().cloned();
+                    let raw_values = compiled.traversal.to_list();
+
+                    // Process mutations and get results
+                    let final_results = self.process_mutations(raw_values);
+
+                    // Apply terminal semantics
+                    let result = match terminal {
+                        Some(crate::gremlin::TerminalStep::Next { count: None, .. }) => {
+                            ExecutionResult::Single(final_results.into_iter().next())
+                        }
+                        _ => ExecutionResult::List(final_results),
+                    };
+
+                    // Bind the result to the variable
+                    match result {
+                        ExecutionResult::Single(Some(value)) => {
+                            ctx.bind(name.clone(), value);
+                        }
+                        ExecutionResult::List(values) if values.len() == 1 => {
+                            ctx.bind(name.clone(), values.into_iter().next().unwrap());
+                        }
+                        _ => {
+                            return Err(crate::gremlin::GremlinError::Compile(
+                                crate::gremlin::CompileError::InvalidArguments {
+                                    step: "assignment".to_string(),
+                                    message: format!(
+                                        "assignment to '{}' requires single value from .next()",
+                                        name
+                                    ),
+                                },
+                            ));
+                        }
+                    }
+                    last_result = ExecutionResult::Unit;
+                }
+                Statement::Traversal { traversal, .. } => {
+                    // Compile and execute the traversal
+                    let snapshot = self.snapshot();
+                    let g = snapshot.gremlin();
+                    let compiled = crate::gremlin::compile_with_vars(traversal, &g, &ctx)?;
+                    let terminal = compiled.terminal().cloned();
+                    let raw_values = compiled.traversal.to_list();
+
+                    // Process mutations and get results
+                    let final_results = self.process_mutations(raw_values);
+
+                    // Return based on terminal step
+                    last_result = match terminal {
+                        None | Some(crate::gremlin::TerminalStep::ToList { .. }) => {
+                            ExecutionResult::List(final_results)
+                        }
+                        Some(crate::gremlin::TerminalStep::Next { count: None, .. }) => {
+                            ExecutionResult::Single(final_results.into_iter().next())
+                        }
+                        Some(crate::gremlin::TerminalStep::Next { count: Some(n), .. }) => {
+                            ExecutionResult::List(
+                                final_results.into_iter().take(n as usize).collect(),
+                            )
+                        }
+                        Some(crate::gremlin::TerminalStep::ToSet { .. }) => {
+                            ExecutionResult::Set(final_results.into_iter().collect())
+                        }
+                        Some(crate::gremlin::TerminalStep::Iterate { .. }) => ExecutionResult::Unit,
+                        Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
+                            ExecutionResult::Bool(!final_results.is_empty())
+                        }
+                    };
+                }
+            }
+        }
+
+        Ok(ScriptResult {
+            result: last_result,
+            variables: ctx,
+        })
+    }
+
+    /// Process raw traversal values, executing any pending mutations.
+    #[cfg(feature = "gremlin")]
+    fn process_mutations(&self, raw_values: Vec<Value>) -> Vec<Value> {
+        use crate::traversal::mutation::PendingMutation;
+
+        let mut final_results = Vec::with_capacity(raw_values.len());
+
+        for value in raw_values {
+            if let Some(mutation) = PendingMutation::from_value(&value) {
+                let extract_id = value
+                    .as_map()
+                    .map(|m| m.contains_key("__extract_id"))
+                    .unwrap_or(false);
+
+                let result = match mutation {
+                    PendingMutation::AddVertex { label, properties } => {
+                        let id = self.add_vertex(&label, properties);
+                        Some(Value::Vertex(id))
+                    }
+                    PendingMutation::AddEdge {
+                        label,
+                        from,
+                        to,
+                        properties,
+                    } => match self.add_edge(from, to, &label, properties) {
+                        Ok(id) => Some(Value::Edge(id)),
+                        Err(_) => None,
+                    },
+                    PendingMutation::SetVertexProperty { id, key, value } => {
+                        if self.set_vertex_property(id, &key, value).is_ok() {
+                            Some(Value::Vertex(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::SetEdgeProperty { id, key, value } => {
+                        if self.set_edge_property(id, &key, value).is_ok() {
+                            Some(Value::Edge(id))
+                        } else {
+                            None
+                        }
+                    }
+                    PendingMutation::DropVertex { id } => {
+                        let _ = self.remove_vertex(id);
+                        None
+                    }
+                    PendingMutation::DropEdge { id } => {
+                        let _ = self.remove_edge(id);
+                        None
+                    }
+                };
+
+                if let Some(result) = result {
+                    if extract_id {
+                        let id_value = match result {
+                            Value::Vertex(vid) => Value::Int(vid.0 as i64),
+                            Value::Edge(eid) => Value::Int(eid.0 as i64),
+                            other => other,
+                        };
+                        final_results.push(id_value);
+                    } else {
+                        final_results.push(result);
+                    }
+                }
+            } else {
+                final_results.push(value);
+            }
+        }
+
+        final_results
+    }
 }
 
 impl Default for Graph {
@@ -1976,6 +2240,42 @@ impl<'g> CowTraversalSource<'g> {
     /// Returns `GraphVertex` objects from terminal methods.
     pub fn v_id(&self, id: VertexId) -> CowBoundTraversal<'g, (), Value, VertexMarker> {
         self.v_ids([id])
+    }
+
+    /// Start traversal from a vertex reference.
+    ///
+    /// Accepts any type implementing `IntoVertexId`:
+    /// - `VertexId`
+    /// - `&GraphVertex`
+    /// - `GraphVertex`
+    /// - `u64`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let g = graph.gremlin(Arc::clone(&graph));
+    ///
+    /// let alice = g.add_v("Person").property("name", "Alice").next().unwrap();
+    /// let bob = g.add_v("Person").property("name", "Bob").next().unwrap();
+    /// g.add_e("knows").from(&alice).to(&bob).property("since", 2020i64).next();
+    ///
+    /// // Start traversal from a GraphVertex reference
+    /// let names: Vec<Value> = g.v_ref(&alice)
+    ///     .out_label("knows")
+    ///     .values("name")
+    ///     .to_list();
+    /// assert_eq!(names, vec![Value::String("Bob".to_string())]);
+    /// ```
+    pub fn v_ref(
+        &self,
+        vertex: impl IntoVertexId,
+    ) -> CowBoundTraversal<'g, (), Value, VertexMarker> {
+        self.v_id(vertex.into_vertex_id())
     }
 
     /// Start traversal from all edges.
@@ -2932,6 +3232,68 @@ impl<'g> CowAddEdgeBuilder<'g> {
         self
     }
 
+    /// Set the source vertex using any type that can be converted to VertexId.
+    ///
+    /// Accepts:
+    /// - `VertexId` directly
+    /// - `&GraphVertex` (reference to a vertex object)
+    /// - `GraphVertex` (owned vertex object)
+    /// - `u64` (raw ID value)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let alice = graph.add_vertex("Person", HashMap::new());
+    /// let bob = graph.add_vertex("Person", HashMap::new());
+    ///
+    /// let g = graph.gremlin(Arc::clone(&graph));
+    ///
+    /// // All of these work:
+    /// // Using VertexId directly
+    /// g.add_e("knows").from(alice).to(bob).next();
+    ///
+    /// // Or using GraphVertex references
+    /// let alice_v = g.add_v("Person").next().unwrap();
+    /// let bob_v = g.add_v("Person").next().unwrap();
+    /// g.add_e("knows").from(&alice_v).to(&bob_v).next();
+    /// ```
+    pub fn from(self, vertex: impl IntoVertexId) -> Self {
+        self.from_id(vertex.into_vertex_id())
+    }
+
+    /// Set the destination vertex using any type that can be converted to VertexId.
+    ///
+    /// Accepts:
+    /// - `VertexId` directly
+    /// - `&GraphVertex` (reference to a vertex object)
+    /// - `GraphVertex` (owned vertex object)
+    /// - `u64` (raw ID value)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let g = graph.gremlin(Arc::clone(&graph));
+    ///
+    /// let alice = g.add_v("Person").property("name", "Alice").next().unwrap();
+    /// let bob = g.add_v("Person").property("name", "Bob").next().unwrap();
+    ///
+    /// // Create edge using GraphVertex references
+    /// g.add_e("knows").from(&alice).to(&bob).next();
+    /// ```
+    pub fn to(self, vertex: impl IntoVertexId) -> Self {
+        self.to_id(vertex.into_vertex_id())
+    }
+
     /// Add a property to the edge.
     pub fn property(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.properties.insert(key.into(), value.into());
@@ -2998,6 +3360,34 @@ impl<'g, In> CowBoundAddEdgeBuilder<'g, In> {
     pub fn to_id(mut self, id: VertexId) -> Self {
         self.to = Some(id);
         self
+    }
+
+    /// Set the destination vertex using any type that can be converted to VertexId.
+    ///
+    /// Accepts:
+    /// - `VertexId` directly
+    /// - `&GraphVertex` (reference to a vertex object)
+    /// - `GraphVertex` (owned vertex object)
+    /// - `u64` (raw ID value)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use interstellar::prelude::*;
+    /// use std::sync::Arc;
+    /// use std::collections::HashMap;
+    ///
+    /// let graph = Arc::new(Graph::new());
+    /// let g = graph.gremlin(Arc::clone(&graph));
+    ///
+    /// let alice = g.add_v("Person").property("name", "Alice").next().unwrap();
+    /// let bob = g.add_v("Person").property("name", "Bob").next().unwrap();
+    ///
+    /// // Create edge from traversal using GraphVertex reference
+    /// g.v_ref(&alice).add_e("knows").to(&bob).next();
+    /// ```
+    pub fn to(self, vertex: impl IntoVertexId) -> Self {
+        self.to_id(vertex.into_vertex_id())
     }
 
     /// Add a property to the edge.
@@ -4493,5 +4883,231 @@ mod tests {
             friends[0].property("name"),
             Some(crate::value::Value::String("Bob".to_string()))
         );
+    }
+
+    // =========================================================================
+    // IntoVertexId / Gremlin Variable Assignment Tests (Spec 51)
+    // =========================================================================
+
+    #[test]
+    fn test_from_to_accept_graph_vertex() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        let alice = g.add_v("person").property("name", "Alice").next().unwrap();
+        let bob = g.add_v("person").property("name", "Bob").next().unwrap();
+
+        // Test from/to with GraphVertex reference
+        let edge = g.add_e("knows").from(&alice).to(&bob).next();
+        assert!(edge.is_some());
+
+        // Test v_ref with GraphVertex reference
+        let names: Vec<String> = g
+            .v_ref(&alice)
+            .out_label("knows")
+            .values("name")
+            .to_list()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(names, vec!["Bob"]);
+    }
+
+    #[test]
+    fn test_from_to_accept_vertex_id() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        let alice = g.add_v("person").next().unwrap();
+        let bob = g.add_v("person").next().unwrap();
+
+        // Test from/to with VertexId
+        let edge = g.add_e("knows").from(alice.id()).to(bob.id()).next();
+        assert!(edge.is_some());
+    }
+
+    #[test]
+    fn test_from_to_accept_u64() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        g.add_v("person").next();
+        g.add_v("person").next();
+
+        // Test from/to with u64 raw ID values
+        let edge = g.add_e("knows").from(0u64).to(1u64).next();
+        assert!(edge.is_some());
+    }
+
+    #[test]
+    fn test_v_ref_accepts_graph_vertex_ref() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        let alice = g
+            .add_v("person")
+            .property("name", "Alice")
+            .property("age", 30i64)
+            .next()
+            .unwrap();
+
+        // v_ref accepts &GraphVertex
+        let values = g.v_ref(&alice).values("name").to_list();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].as_str(), Some("Alice"));
+    }
+
+    #[test]
+    fn test_v_ref_accepts_vertex_id() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        let alice = g.add_v("person").property("name", "Alice").next().unwrap();
+
+        // v_ref accepts VertexId
+        let values = g.v_ref(alice.id()).values("name").to_list();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].as_str(), Some("Alice"));
+    }
+
+    #[test]
+    fn test_full_gremlin_workflow_with_variables() {
+        use std::sync::Arc;
+
+        // This test demonstrates the target pattern from Spec 51:
+        // alice = g.addV('person').property('name', 'Alice').next()
+        // bob = g.addV('person').property('name', 'Bob').next()
+        // g.addE('knows').from(alice).to(bob).next()
+        // g.V(alice).out('knows').values('name').toList()
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        // Create vertices and store references
+        let alice = g
+            .add_v("person")
+            .property("name", "Alice")
+            .property("age", 30i64)
+            .next()
+            .unwrap();
+        let bob = g
+            .add_v("person")
+            .property("name", "Bob")
+            .property("age", 25i64)
+            .next()
+            .unwrap();
+        let charlie = g
+            .add_v("person")
+            .property("name", "Charlie")
+            .property("age", 35i64)
+            .next()
+            .unwrap();
+        let acme = g
+            .add_v("company")
+            .property("name", "Acme Corp")
+            .next()
+            .unwrap();
+
+        // Create edges using the stored references (no .id() needed!)
+        g.add_e("knows")
+            .from(&alice)
+            .to(&bob)
+            .property("since", 2020i64)
+            .next();
+        g.add_e("knows")
+            .from(&bob)
+            .to(&charlie)
+            .property("since", 2021i64)
+            .next();
+        g.add_e("works_at").from(&alice).to(&acme).next();
+        g.add_e("works_at").from(&bob).to(&acme).next();
+
+        // Verify counts
+        assert_eq!(graph.vertex_count(), 4);
+        assert_eq!(graph.edge_count(), 4);
+
+        // Query using variables (no .id() needed!)
+        let alice_knows: Vec<String> = g
+            .v_ref(&alice)
+            .out_label("knows")
+            .values("name")
+            .to_list()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(alice_knows, vec!["Bob"]);
+
+        // Chain traversals
+        let alice_knows_knows: Vec<String> = g
+            .v_ref(&alice)
+            .out_label("knows")
+            .out_label("knows")
+            .values("name")
+            .to_list()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(alice_knows_knows, vec!["Charlie"]);
+
+        // Query company employees
+        let acme_employees: Vec<String> = g
+            .v_ref(&acme)
+            .in_label("works_at")
+            .values("name")
+            .to_list()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(acme_employees.len(), 2);
+        assert!(acme_employees.contains(&"Alice".to_string()));
+        assert!(acme_employees.contains(&"Bob".to_string()));
+    }
+
+    #[test]
+    fn test_bound_add_edge_builder_to_accepts_graph_vertex() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        let alice = g.add_v("person").property("name", "Alice").next().unwrap();
+        let bob = g.add_v("person").property("name", "Bob").next().unwrap();
+
+        // Create edge from traversal using .to() with GraphVertex reference
+        let edge = g.v_ref(&alice).add_e("knows").to(&bob).next();
+        assert!(edge.is_some());
+        assert_eq!(edge.unwrap().label(), Some("knows".to_string()));
+
+        assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_mixed_from_to_types() {
+        use std::sync::Arc;
+
+        let graph = Arc::new(Graph::new());
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        let alice = g.add_v("person").next().unwrap();
+        let bob_id = g.add_v("person").next().unwrap().id();
+
+        // Mix GraphVertex reference with VertexId
+        let edge = g.add_e("knows").from(&alice).to(bob_id).next();
+        assert!(edge.is_some());
+
+        // Mix VertexId with u64
+        let charlie = g.add_v("person").next().unwrap().id();
+        let edge2 = g.add_e("knows").from(charlie).to(1u64).next();
+        assert!(edge2.is_some());
     }
 }

@@ -47,9 +47,12 @@ mod error;
 mod parser;
 
 pub use ast::*;
-pub use compiler::{compile, CompiledTraversal, ExecutionResult};
+pub use compiler::{
+    compile, compile_with_vars, execute_script, execute_script_with_context, CompiledTraversal,
+    ExecutionResult, ScriptResult, VariableContext,
+};
 pub use error::{CompileError, GremlinError, ParseError};
-pub use parser::parse;
+pub use parser::{parse, parse_script};
 
 #[cfg(test)]
 mod tests;
