@@ -4,8 +4,6 @@ Predicates are functions that test values against conditions. They're used with 
 
 ## Usage
 
-### In Rust
-
 ```rust
 use interstellar::traversal::p;
 
@@ -16,16 +14,6 @@ g.v().has_where("age", p::gt(30))
 g.v().values("age").is_(p::between(20, 40))
 ```
 
-### In Rhai
-
-```javascript
-// Filter vertices where age > 30
-g.v().has_where("age", gt(30))
-
-// Filter values directly
-g.v().values("age").is_(between(20, 40))
-```
-
 ---
 
 ## Comparison Predicates
@@ -34,58 +22,44 @@ g.v().values("age").is_(between(20, 40))
 
 Test for equality or inequality.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::eq(value)` | `eq(value)` | Equal to value |
-| `p::neq(value)` | `neq(value)` | Not equal to value |
+| Rust | Description |
+|------|-------------|
+| `p::eq(value)` | Equal to value |
+| `p::neq(value)` | Not equal to value |
 
 ```rust
-// Rust
 g.v().has_where("status", p::eq("active"))
 g.v().has_where("type", p::neq("deleted"))
-```
-
-```javascript
-// Rhai
-g.v().has_where("status", eq("active"))
-g.v().has_where("type", neq("deleted"))
 ```
 
 ### lt / lte / gt / gte
 
 Numeric and string comparisons.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::lt(value)` | `lt(value)` | Less than |
-| `p::lte(value)` | `lte(value)` | Less than or equal |
-| `p::gt(value)` | `gt(value)` | Greater than |
-| `p::gte(value)` | `gte(value)` | Greater than or equal |
+| Rust | Description |
+|------|-------------|
+| `p::lt(value)` | Less than |
+| `p::lte(value)` | Less than or equal |
+| `p::gt(value)` | Greater than |
+| `p::gte(value)` | Greater than or equal |
 
 ```rust
-// Rust
 g.v().has_where("age", p::gt(21))
 g.v().has_where("score", p::lte(100))
-```
-
-```javascript
-// Rhai
-g.v().has_where("age", gt(21))
-g.v().has_where("score", lte(100))
 ```
 
 ### between / inside / outside
 
 Range predicates for numeric comparisons.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::between(start, end)` | `between(start, end)` | `start <= x < end` (half-open) |
-| `p::inside(start, end)` | `inside(start, end)` | `start < x < end` (exclusive) |
-| `p::outside(start, end)` | `outside(start, end)` | `x < start OR x > end` |
+| Rust | Description |
+|------|-------------|
+| `p::between(start, end)` | `start <= x < end` (half-open) |
+| `p::inside(start, end)` | `start < x < end` (exclusive) |
+| `p::outside(start, end)` | `x < start OR x > end` |
 
 ```rust
-// Rust - age between 18 and 65 (inclusive start, exclusive end)
+// age between 18 and 65 (inclusive start, exclusive end)
 g.v().has_where("age", p::between(18, 65))
 
 // Strictly between (exclusive both ends)
@@ -93,13 +67,6 @@ g.v().has_where("score", p::inside(0, 100))
 
 // Outside the range
 g.v().has_where("value", p::outside(10, 20))
-```
-
-```javascript
-// Rhai
-g.v().has_where("age", between(18, 65))
-g.v().has_where("score", inside(0, 100))
-g.v().has_where("value", outside(10, 20))
 ```
 
 **Range Semantics:**
@@ -114,21 +81,14 @@ g.v().has_where("value", outside(10, 20))
 
 Set membership predicates.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::within(&[values])` | `within([values])` | Value in set |
-| `p::without(&[values])` | `without([values])` | Value not in set |
+| Rust | Description |
+|------|-------------|
+| `p::within(&[values])` | Value in set |
+| `p::without(&[values])` | Value not in set |
 
 ```rust
-// Rust
 g.v().has_where("status", p::within(&["active", "pending"]))
 g.v().has_where("role", p::without(&["admin", "superuser"]))
-```
-
-```javascript
-// Rhai
-g.v().has_where("status", within(["active", "pending"]))
-g.v().has_where("role", without(["admin", "superuser"]))
 ```
 
 ---
@@ -139,83 +99,55 @@ g.v().has_where("role", without(["admin", "superuser"]))
 
 Substring matching.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::containing(str)` | `containing(str)` | Contains substring |
-| `p::not_containing(str)` | `not_containing(str)` | Does not contain |
+| Rust | Description |
+|------|-------------|
+| `p::containing(str)` | Contains substring |
+| `p::not_containing(str)` | Does not contain |
 
 ```rust
-// Rust
 g.v().has_where("name", p::containing("son"))
 g.v().has_where("email", p::not_containing("spam"))
-```
-
-```javascript
-// Rhai
-g.v().has_where("name", containing("son"))
-g.v().has_where("email", not_containing("spam"))
 ```
 
 ### starting_with / not_starting_with
 
 Prefix matching.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::starting_with(str)` | `starting_with(str)` | Starts with prefix |
-| `p::not_starting_with(str)` | `not_starting_with(str)` | Does not start with |
+| Rust | Description |
+|------|-------------|
+| `p::starting_with(str)` | Starts with prefix |
+| `p::not_starting_with(str)` | Does not start with |
 
 ```rust
-// Rust
 g.v().has_where("name", p::starting_with("Dr."))
 g.v().has_where("code", p::not_starting_with("TEST_"))
-```
-
-```javascript
-// Rhai
-g.v().has_where("name", starting_with("Dr."))
-g.v().has_where("code", not_starting_with("TEST_"))
 ```
 
 ### ending_with / not_ending_with
 
 Suffix matching.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::ending_with(str)` | `ending_with(str)` | Ends with suffix |
-| `p::not_ending_with(str)` | `not_ending_with(str)` | Does not end with |
+| Rust | Description |
+|------|-------------|
+| `p::ending_with(str)` | Ends with suffix |
+| `p::not_ending_with(str)` | Does not end with |
 
 ```rust
-// Rust
 g.v().has_where("email", p::ending_with("@gmail.com"))
 g.v().has_where("file", p::not_ending_with(".tmp"))
-```
-
-```javascript
-// Rhai
-g.v().has_where("email", ending_with("@gmail.com"))
-g.v().has_where("file", not_ending_with(".tmp"))
 ```
 
 ### regex
 
 Regular expression matching.
 
-| Rust | Rhai | Description |
-|------|------|-------------|
-| `p::regex(pattern)` | `regex(pattern)` | Matches regex pattern |
+| Rust | Description |
+|------|-------------|
+| `p::regex(pattern)` | Matches regex pattern |
 
 ```rust
-// Rust
 g.v().has_where("phone", p::regex(r"^\d{3}-\d{3}-\d{4}$"))
 g.v().has_where("email", p::regex(r".*@(gmail|yahoo)\.com$"))
-```
-
-```javascript
-// Rhai - note escaped backslashes in strings
-g.v().has_where("phone", regex("^\\d{3}-\\d{3}-\\d{4}$"))
-g.v().has_where("email", regex(".*@(gmail|yahoo)\\.com$"))
 ```
 
 **Common Regex Patterns:**
@@ -239,60 +171,33 @@ Combine predicates with logical operators.
 
 Both predicates must match.
 
-| Rust | Rhai |
-|------|------|
-| `p::and(p1, p2)` | `pred_and(p1, p2)` |
-
 ```rust
-// Rust - age 18-65
+// age 18-65
 g.v().has_where("age", p::and(p::gte(18), p::lt(65)))
-```
-
-```javascript
-// Rhai - age 18-65
-g.v().has_where("age", pred_and(gte(18), lt(65)))
 ```
 
 ### or
 
 Either predicate must match.
 
-| Rust | Rhai |
-|------|------|
-| `p::or(p1, p2)` | `pred_or(p1, p2)` |
-
 ```rust
-// Rust - status is active or pending
+// status is active or pending
 g.v().has_where("status", p::or(p::eq("active"), p::eq("pending")))
-```
-
-```javascript
-// Rhai
-g.v().has_where("status", pred_or(eq("active"), eq("pending")))
 ```
 
 ### not
 
 Negate a predicate.
 
-| Rust | Rhai |
-|------|------|
-| `p::not(p)` | `pred_not(p)` |
-
 ```rust
-// Rust - age is not 0
+// age is not 0
 g.v().has_where("age", p::not(p::eq(0)))
-```
-
-```javascript
-// Rhai
-g.v().has_where("age", pred_not(eq(0)))
 ```
 
 ### Complex Combinations
 
 ```rust
-// Rust: (age >= 18 AND age < 65) OR role == "admin"
+// (age >= 18 AND age < 65) OR role == "admin"
 g.v().has_where("age", p::or(
     p::and(p::gte(18), p::lt(65)),
     p::eq("admin")  // This would be on "role", shown for syntax
@@ -304,14 +209,6 @@ g.v()
         __.has_where("age", p::and(p::gte(18), p::lt(65))),
         __.has_value("role", "admin"),
     ])
-```
-
-```javascript
-// Rhai
-g.v().or_([
-    A.has_where("age", pred_and(gte(18), lt(65))),
-    A.has_value("role", "admin")
-])
 ```
 
 ---
@@ -371,12 +268,11 @@ p::gt(30).test(&Value::Null)         // false
 | Sets | `within`, `without` |
 | Text | `containing`, `starting_with`, `ending_with`, `regex` |
 | Negated text | `not_containing`, `not_starting_with`, `not_ending_with` |
-| Logical | `and`, `or`, `not` (Rhai: `pred_and`, `pred_or`, `pred_not`) |
+| Logical | `and`, `or`, `not` |
 
 ---
 
 ## See Also
 
 - [Gremlin API](gremlin.md) - Filter steps using predicates
-- [Rhai Scripting](rhai.md) - Predicates in Rhai scripts
 - [Querying Guide](../guides/querying.md) - Query patterns

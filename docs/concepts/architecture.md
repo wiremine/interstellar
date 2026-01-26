@@ -9,12 +9,12 @@ Interstellar is a high-performance graph database library for Rust. This documen
 │                        User Application                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │  Gremlin API │    │   GQL API    │    │   Rhai API   │      │
-│  │  (Fluent)    │    │  (SQL-like)  │    │  (Scripting) │      │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘      │
-│         │                   │                   │               │
-│         └───────────────────┼───────────────────┘               │
+│        ┌──────────────┐         ┌──────────────┐               │
+│        │  Gremlin API │         │   GQL API    │               │
+│        │  (Fluent)    │         │  (SQL-like)  │               │
+│        └──────┬───────┘         └──────┬───────┘               │
+│               │                        │                        │
+│               └────────────────────────┘                        │
 │                             ▼                                   │
 │                   ┌─────────────────┐                           │
 │                   │ Traversal Engine│                           │
@@ -35,15 +35,14 @@ Interstellar is a high-performance graph database library for Rust. This documen
 
 ### Query APIs
 
-Interstellar provides three ways to query graphs:
+Interstellar provides two ways to query graphs:
 
 | API | Style | Use Case |
 |-----|-------|----------|
 | **Gremlin** | Fluent/chainable | Rust applications, complex traversals |
 | **GQL** | SQL-like strings | Simpler queries, user-provided queries |
-| **Rhai** | Scripting | Dynamic queries, configuration |
 
-All three APIs compile to the same underlying traversal engine.
+Both APIs compile to the same underlying traversal engine.
 
 ### Traversal Engine
 
@@ -212,11 +211,9 @@ interstellar/
 │   │   ├── mod.rs          # Traversal types
 │   │   ├── step.rs         # Step trait and implementations
 │   │   └── p.rs            # Predicates
-│   ├── gql/
-│   │   ├── mod.rs          # GQL parser and compiler
-│   │   └── ...
-│   └── rhai/               # Rhai integration (feature-gated)
-│       └── mod.rs
+│   └── gql/
+│       ├── mod.rs          # GQL parser and compiler
+│       └── ...
 ```
 
 ---

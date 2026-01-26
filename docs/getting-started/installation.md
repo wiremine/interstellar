@@ -25,7 +25,6 @@ Interstellar uses Cargo features to enable optional functionality:
 | Feature | Description | Use Case |
 |---------|-------------|----------|
 | `mmap` | Memory-mapped persistent storage | Production databases, large graphs |
-| `rhai` | Embedded Rhai scripting engine | Dynamic queries, user-defined scripts |
 | `full-text` | Full-text search indexes | Text search capabilities |
 
 ### Enabling Features
@@ -37,11 +36,8 @@ Enable features in your `Cargo.toml`:
 # Persistent storage
 interstellar = { version = "0.1", features = ["mmap"] }
 
-# Scripting support
-interstellar = { version = "0.1", features = ["rhai"] }
-
 # Multiple features
-interstellar = { version = "0.1", features = ["mmap", "rhai"] }
+interstellar = { version = "0.1", features = ["mmap", "full-text"] }
 ```
 
 ## Verifying Installation

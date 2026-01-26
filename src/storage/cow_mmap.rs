@@ -2836,7 +2836,7 @@ impl<'g> CowMmapTraversalSource<'g> {
     /// Start untyped traversal from all vertices.
     ///
     /// Unlike `v()`, this returns `Value` from terminal methods instead of `PersistentVertex`.
-    /// Useful for Rhai integration and dynamic scenarios.
+    /// Useful for dynamic scenarios.
     pub fn v_untyped(&self) -> CowMmapBoundTraversal<'g, (), Value, Scalar> {
         CowMmapBoundTraversal::new_typed(
             self.graph,

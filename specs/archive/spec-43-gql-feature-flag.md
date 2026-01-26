@@ -95,13 +95,12 @@ default = ["graphson"]
 mmap = ["memmap2", "serde_json"]
 graphson = ["serde_json"]
 full-text = ["tantivy"]
-rhai = ["dep:rhai"]
 
 # NEW: GQL feature
 gql = ["pest", "pest_derive", "mathexpr"]
 
 # NEW: Full feature enabling everything
-full = ["mmap", "graphson", "gql", "full-text", "rhai"]
+full = ["mmap", "graphson", "gql", "full-text"]
 ```
 
 Note: The existing `inmemory` feature is removed as it was a no-op (defined as `inmemory = []` but never used in any `#[cfg]` attributes). In-memory storage is always available as the core functionality.
@@ -153,7 +152,6 @@ Update module-level documentation to note GQL is feature-gated:
 //! - `mmap`: Memory-mapped persistent storage
 //! - `gql`: GQL query language support
 //! - `full-text`: Full-text search with Tantivy
-//! - `rhai`: Rhai scripting support
 //! - `full`: Enable all features
 //!
 //! Note: In-memory graph storage is always available (core functionality).
@@ -299,7 +297,6 @@ Interstellar uses Cargo features to allow optional functionality:
 | `mmap` | Memory-mapped persistent storage | No |
 | `gql` | GQL query language | No |
 | `full-text` | Full-text search (Tantivy) | No |
-| `rhai` | Rhai scripting | No |
 | `full` | Enable all features | No |
 
 Note: In-memory graph storage is always available as core functionality (not feature-gated).

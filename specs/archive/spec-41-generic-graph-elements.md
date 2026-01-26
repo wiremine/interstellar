@@ -21,23 +21,11 @@ pub struct GraphEdge {
 }
 ```
 
-In the Rhai integration, mmap graphs fall back to returning raw `Value` types:
+Currently, mmap graphs cannot return rich element types and fall back to raw `Value` types:
 
 ```rust
-// src/rhai/traversal.rs
-fn value_to_rich_dynamic(&self, value: Value) -> Dynamic {
-    match &self.storage {
-        StorageAdapter::InMemory(graph) => match value {
-            Value::Vertex(id) => Dynamic::from(GraphVertex::new(id, Arc::clone(graph))),
-            Value::Edge(id) => Dynamic::from(GraphEdge::new(id, Arc::clone(graph))),
-            other => value_to_dynamic(other),
-        },
-        #[cfg(feature = "mmap")]
-        StorageAdapter::Mmap(_) => {
-            // Mmap doesn't support rich types yet, return Value
-            value_to_dynamic(value)
-        }
-    }
+// Without generic elements, mmap traversals return Value instead of rich types
+// This is inconsistent with in-memory Graph behavior
 }
 ```
 
@@ -602,83 +590,9 @@ impl<G: GraphAccess> GraphVertex<G> {
 
 ---
 
-## Part 4: Rhai Integration Updates
+## Part 4: [REMOVED - Rhai Integration]
 
-### 4.1 Updated value_to_rich_dynamic
-
-```rust
-// src/rhai/traversal.rs - UPDATE
-
-fn value_to_rich_dynamic(&self, value: Value) -> Dynamic {
-    match &self.storage {
-        StorageAdapter::InMemory(graph) => match value {
-            Value::Vertex(id) => {
-                Dynamic::from(GraphVertex::new(id, Arc::clone(graph)))
-            }
-            Value::Edge(id) => {
-                Dynamic::from(GraphEdge::new(id, Arc::clone(graph)))
-            }
-            other => value_to_dynamic(other),
-        },
-        #[cfg(feature = "mmap")]
-        StorageAdapter::Mmap(graph) => match value {
-            Value::Vertex(id) => {
-                Dynamic::from(GraphVertex::new(id, Arc::clone(graph)))
-            }
-            Value::Edge(id) => {
-                Dynamic::from(GraphEdge::new(id, Arc::clone(graph)))
-            }
-            other => value_to_dynamic(other),
-        },
-    }
-}
-```
-
-### 4.2 Rhai Type Registration
-
-Since Rhai doesn't support generic types directly, we need to register both concrete types:
-
-```rust
-// src/rhai/types.rs - UPDATE
-
-/// Register GraphVertex<Arc<Graph>> for in-memory graphs.
-fn register_graph_vertex_inmemory(engine: &mut Engine) {
-    engine.register_type_with_name::<GraphVertex<Arc<Graph>>>("GraphVertex");
-    
-    engine.register_get("id", |v: &mut GraphVertex<Arc<Graph>>| v.id());
-    engine.register_fn("label", |v: &mut GraphVertex<Arc<Graph>>| -> Dynamic {
-        match v.label() {
-            Some(label) => Dynamic::from(label),
-            None => Dynamic::UNIT,
-        }
-    });
-    engine.register_fn("property", |v: &mut GraphVertex<Arc<Graph>>, key: ImmutableString| -> Dynamic {
-        match v.property(key.as_str()) {
-            Some(val) => value_to_dynamic(val),
-            None => Dynamic::UNIT,
-        }
-    });
-    engine.register_fn("exists", |v: &mut GraphVertex<Arc<Graph>>| v.exists());
-    engine.register_fn("to_value", |v: &mut GraphVertex<Arc<Graph>>| v.to_value());
-}
-
-/// Register GraphVertex<Arc<CowMmapGraph>> for mmap graphs.
-#[cfg(feature = "mmap")]
-fn register_graph_vertex_mmap(engine: &mut Engine) {
-    engine.register_type_with_name::<GraphVertex<Arc<CowMmapGraph>>>("MmapGraphVertex");
-    
-    engine.register_get("id", |v: &mut GraphVertex<Arc<CowMmapGraph>>| v.id());
-    engine.register_fn("label", |v: &mut GraphVertex<Arc<CowMmapGraph>>| -> Dynamic {
-        match v.label() {
-            Some(label) => Dynamic::from(label),
-            None => Dynamic::UNIT,
-        }
-    });
-    // ... same methods as in-memory version ...
-}
-```
-
-**Alternative: Macro-based registration** to reduce duplication:
+*Note: The Rhai scripting integration has been removed from the codebase. This section previously covered Rhai-specific type registration and is no longer applicable.*
 
 ```rust
 macro_rules! register_graph_vertex {
@@ -755,23 +669,15 @@ impl<'g, In> CowBoundTraversal<'g, In, VertexMarker, Arc<CowMmapGraph>> {
 
 **Effort**: 2-3 days
 
-### Phase 3: Update Rhai Integration
-- Update `value_to_rich_dynamic` to handle mmap case
-- Register both in-memory and mmap vertex/edge types with Rhai
-- Update existing tests
-
-**Effort**: 1-2 days
-
-### Phase 4: Update CowBoundTraversal
+### Phase 3: Update CowBoundTraversal
 - Add graph type parameter to `CowBoundTraversal`
 - Implement typed terminal methods for both graph types
 - Update `CowMmapBoundTraversal` similarly
 
 **Effort**: 2-3 days
 
-### Phase 5: Testing and Documentation
+### Phase 4: Testing and Documentation
 - Add tests for mmap-based `GraphVertex`/`GraphEdge`
-- Add integration tests for Rhai with mmap graphs
 - Update documentation and examples
 
 **Effort**: 1-2 days
@@ -788,8 +694,6 @@ impl<'g, In> CowBoundTraversal<'g, In, VertexMarker, Arc<CowMmapGraph>> {
 | **Core Changes** | `src/graph_elements.rs` | Generic types |
 | **Storage** | `src/storage/cow.rs` | Implement trait, update traversal |
 | | `src/storage/cow_mmap.rs` | Implement trait, update traversal |
-| **Rhai** | `src/rhai/traversal.rs` | Update rich type conversion |
-| | `src/rhai/types.rs` | Register mmap types |
 | **Tests** | `tests/storage/cow.rs` | Update type annotations |
 | | New mmap graph element tests | New tests |
 
@@ -797,7 +701,6 @@ impl<'g, In> CowBoundTraversal<'g, In, VertexMarker, Arc<CowMmapGraph>> {
 
 1. **Type signature changes**: `GraphVertex` → `GraphVertex<G>`
 2. **Import changes**: Users may need to specify type parameters or use aliases
-3. **Rhai type names**: May need different names for in-memory vs mmap
 
 ### Backward Compatibility
 
@@ -825,13 +728,10 @@ Most code that uses in-memory graphs will continue to work unchanged.
 
 ### Open Questions
 
-1. **Rhai type naming**: Should mmap vertices appear as `GraphVertex` or `MmapGraphVertex` in Rhai scripts?
-   - **Proposal**: Use `GraphVertex` for both since they have identical APIs
-
-2. **Trait method signature**: Should `GraphAccess` methods return owned `Vertex`/`Edge` or references?
+1. **Trait method signature**: Should `GraphAccess` methods return owned `Vertex`/`Edge` or references?
    - **Proposal**: Return owned types for simplicity; the cost is minimal for these small structs
 
-3. **Traversal execution**: How should `GraphVertexTraversal<G>` execute traversals generically?
+2. **Traversal execution**: How should `GraphVertexTraversal<G>` execute traversals generically?
    - **Proposal**: Add a `gremlin_source()` method to `GraphAccess` that returns a traversal source
 
 ---
@@ -875,27 +775,6 @@ fn type_alias_convenience() {
     assert!(v.exists());
 }
 
-#[cfg(feature = "mmap")]
-#[test]
-fn rhai_mmap_rich_types() {
-    let dir = tempfile::tempdir().unwrap();
-    let graph = Arc::new(CowMmapGraph::create(dir.path()).unwrap());
-    graph.add_vertex("person", HashMap::from([
-        ("name".to_string(), "Alice".into()),
-    ]));
-    
-    let engine = RhaiEngine::new();
-    let result: String = engine.eval_with_mmap_graph(
-        graph,
-        r#"
-            let g = graph.gremlin();
-            let v = g.v().first();
-            v.label()
-        "#,
-    ).unwrap();
-    
-    assert_eq!(result, "person");
-}
 ```
 
 ---
@@ -907,7 +786,6 @@ This spec extends `GraphVertex` and `GraphEdge` to work with any storage backend
 1. **Adding `GraphAccess` trait**: Abstracts graph read/write operations
 2. **Making element types generic**: `GraphVertex<G>` and `GraphEdge<G>`
 3. **Implementing for both backends**: `Arc<Graph>` and `Arc<CowMmapGraph>`
-4. **Updating Rhai integration**: Both backends return rich types
 
 ### Estimated Effort
 
@@ -915,10 +793,9 @@ This spec extends `GraphVertex` and `GraphEdge` to work with any storage backend
 |-------|--------|
 | Phase 1: GraphAccess trait | 1-2 days |
 | Phase 2: Generic types | 2-3 days |
-| Phase 3: Rhai updates | 1-2 days |
-| Phase 4: Traversal updates | 2-3 days |
-| Phase 5: Testing/docs | 1-2 days |
-| **Total** | **7-12 days** |
+| Phase 3: Traversal updates | 2-3 days |
+| Phase 4: Testing/docs | 1-2 days |
+| **Total** | **6-10 days** |
 
 ### Key Benefits
 

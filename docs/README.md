@@ -14,9 +14,8 @@ New to Interstellar? Start here:
 
 Detailed API documentation for all query interfaces:
 
-- [Gremlin API](api/gremlin.md) - Fluent traversal API reference (Rust & Rhai)
+- [Gremlin API](api/gremlin.md) - Fluent traversal API reference
 - [GQL API](api/gql.md) - Graph Query Language reference
-- [Rhai Scripting](api/rhai.md) - Embedded scripting for dynamic queries
 - [Predicates](api/predicates.md) - Predicate functions (`eq`, `gt`, `within`, etc.)
 
 ## Concepts

@@ -74,7 +74,6 @@ Use target-based conditional compilation to support WASM:
 |----------|-----------|
 | wasm-bindgen exports | Future spec - JS API design needs separate consideration |
 | Feature flag for WASM | Automatic target detection is simpler |
-| Rhai on WASM | Use JavaScript bindings instead |
 | CI testing for WASM | Local testing only for now |
 
 ### 1.5 Future Work
@@ -105,7 +104,6 @@ Use target-based conditional compilation to support WASM:
 | `graphson` (file I/O) | Yes | No | Compile-time excluded |
 | `mmap` | Yes | No | Requires OS syscalls |
 | `full-text` | Yes | No | Tantivy incompatible |
-| `rhai` | Yes | No | Use JS bindings instead |
 
 ---
 
@@ -231,7 +229,6 @@ When users try to enable incompatible features on WASM, they'll get compile erro
 |---------|--------------|------------|
 | `mmap` | `memmap2` crate | Missing OS APIs |
 | `full-text` | `tantivy` crate | Missing file I/O, threading |
-| `rhai` | `rhai` crate | Potential sync issues |
 
 ### 5.2 Documentation
 
@@ -244,7 +241,6 @@ Add WASM compatibility notes to feature documentation in `src/lib.rs`:
 //! - `mmap`: Memory-mapped persistent storage (**not available on WASM**)
 //! - `gql`: GQL query language
 //! - `full-text`: Full-text search with Tantivy (**not available on WASM**)
-//! - `rhai`: Rhai scripting (**not available on WASM**)
 //! - `full`: Enable all features
 //!
 //! ## WASM Support

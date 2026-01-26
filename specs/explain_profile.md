@@ -876,4 +876,3 @@ Not in scope for initial implementation, but potential future work:
 3. **Memory Profiling**: Track peak memory per step
 4. **Async Profiling**: Support for async traversal execution
 5. **Flame Graph Export**: Export profile data for visualization tools
-6. **Rhai Integration**: Expose `explain()` and `profile()` to Rhai scripts

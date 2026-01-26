@@ -13,7 +13,6 @@ cargo run --example quickstart_gql
 
 # Examples requiring features
 cargo run --example storage --features mmap
-cargo run --example scripting --features rhai
 cargo run --example nba --features mmap
 ```
 
@@ -74,27 +73,6 @@ cargo run --example storage --features mmap
 - Data durability across restarts
 - Batch mode for high-performance writes
 - When to use persistent vs. in-memory storage
-
----
-
-## Scripting Examples
-
-### scripting
-
-**File:** `examples/scripting.rs`  
-**Requires:** `rhai` feature
-
-Demonstrates embedded Rhai scripting for dynamic queries.
-
-```bash
-cargo run --example scripting --features rhai
-```
-
-**What it covers:**
-- Setting up the Rhai engine
-- Executing queries from strings
-- Passing graphs to scripts
-- Building dynamic queries at runtime
 
 ---
 

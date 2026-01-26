@@ -202,8 +202,7 @@ graphson = ["serde_json"]
 gql = []
 mmap = ["memmap2"]
 full-text = ["tantivy"]
-rhai = ["dep:rhai"]
-full = ["graphson", "gql", "mmap", "full-text", "rhai"]
+full = ["graphson", "gql", "mmap", "full-text"]
 
 # NEW: WASM JavaScript bindings
 wasm = ["wasm-bindgen", "serde-wasm-bindgen", "js-sys"]

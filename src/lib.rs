@@ -257,7 +257,6 @@
 //! | `mmap` | Memory-mapped persistent storage | No |
 //! | `gql` | GQL query language support | No |
 //! | `full-text` | Full-text search with Tantivy | No |
-//! | `rhai` | Rhai scripting support | No |
 //! | `full` | Enable all features | No |
 //!
 //! Note: In-memory graph storage is always available (core functionality).
@@ -397,9 +396,6 @@ pub use graph_access::GraphAccess;
 
 #[cfg(kani)]
 mod kani_proofs;
-
-#[cfg(feature = "rhai")]
-pub mod rhai;
 
 /// The prelude module re-exports commonly used types.
 ///

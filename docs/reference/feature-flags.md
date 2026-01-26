@@ -8,7 +8,6 @@ Interstellar uses Cargo feature flags to enable optional functionality. This all
 |---------|---------|-------------|
 | `inmemory` | Yes | In-memory HashMap-based storage |
 | `mmap` | No | Memory-mapped persistent storage |
-| `rhai` | No | Rhai scripting engine integration |
 | `full-text` | No | Full-text search via Tantivy |
 
 ## Feature Details
@@ -70,41 +69,6 @@ graph.begin_batch().unwrap();
 graph.commit_batch().unwrap();
 ```
 
-### rhai
-
-Embedded Rhai scripting engine for dynamic queries.
-
-```toml
-[dependencies]
-interstellar = { version = "0.1", features = ["rhai"] }
-```
-
-**Provides:**
-- `RhaiEngine` for script execution
-- Gremlin-style traversal API in scripts
-- All predicates available as functions
-- Anonymous traversal support
-
-**Dependencies added:**
-- `rhai` (with `sync` feature) - Rhai scripting language
-
-**Example:**
-
-```rust
-use interstellar::rhai::RhaiEngine;
-
-let engine = RhaiEngine::new();
-
-let results: Vec<String> = engine.eval_with_graph(&graph, r#"
-    let g = graph.traversal();
-    g.v()
-        .has_label("person")
-        .has_where("age", gt(25))
-        .values("name")
-        .to_list()
-"#).unwrap();
-```
-
 ### full-text
 
 Full-text search indexing via Tantivy.
@@ -130,8 +94,8 @@ Enable multiple features with a comma-separated list:
 
 ```toml
 [dependencies]
-# Memory-mapped storage + Rhai scripting
-interstellar = { version = "0.1", features = ["mmap", "rhai"] }
+# Memory-mapped storage + full-text search
+interstellar = { version = "0.1", features = ["mmap", "full-text"] }
 ```
 
 Or using array syntax:
@@ -139,7 +103,7 @@ Or using array syntax:
 ```toml
 [dependencies.interstellar]
 version = "0.1"
-features = ["mmap", "rhai"]
+features = ["mmap", "full-text"]
 ```
 
 ## Disabling Default Features
@@ -162,7 +126,7 @@ For development and testing, the defaults are usually sufficient:
 interstellar = "0.1"
 
 [dev-dependencies]
-interstellar = { version = "0.1", features = ["mmap", "rhai"] }
+interstellar = { version = "0.1", features = ["mmap"] }
 ```
 
 ### Production Configuration
@@ -186,11 +150,8 @@ cargo test
 # With mmap support
 cargo test --features mmap
 
-# With Rhai scripting
-cargo test --features rhai
-
 # All features (recommended for CI)
-cargo test --features "mmap,rhai"
+cargo test --features "mmap,full-text"
 ```
 
 ## Benchmarking with Features
@@ -213,7 +174,7 @@ cargo build
 cargo build --release --features mmap
 
 # All features
-cargo build --features "mmap,rhai"
+cargo build --features "mmap,full-text"
 ```
 
 ## Conditional Compilation
@@ -223,9 +184,6 @@ Use `#[cfg(feature = "...")]` for feature-specific code:
 ```rust
 #[cfg(feature = "mmap")]
 use interstellar::storage::MmapGraph;
-
-#[cfg(feature = "rhai")]
-use interstellar::rhai::RhaiEngine;
 
 fn main() {
     #[cfg(feature = "mmap")]
@@ -244,15 +202,13 @@ fn main() {
 
 ## Feature Matrix
 
-| Capability | inmemory | mmap | rhai | full-text |
-|------------|----------|------|------|-----------|
-| `Graph` | Yes | - | - | - |
-| `MmapGraph` | - | Yes | - | - |
-| `RhaiEngine` | - | - | Yes | - |
-| Text indexes | - | - | - | Yes |
-| Persistence | No | Yes | - | - |
-| Scripting | - | - | Yes | - |
-| Search | - | - | - | Yes |
+| Capability | inmemory | mmap | full-text |
+|------------|----------|------|-----------|
+| `Graph` | Yes | - | - |
+| `MmapGraph` | - | Yes | - |
+| Text indexes | - | - | Yes |
+| Persistence | No | Yes | - |
+| Search | - | - | Yes |
 
 ## Dependency Tree
 
@@ -285,14 +241,6 @@ interstellar
 └── serde_json
 ```
 
-### With rhai
-
-```
-interstellar
-├── (default dependencies)
-└── rhai (with sync)
-```
-
 ### With full-text
 
 ```
@@ -305,4 +253,3 @@ interstellar
 
 - [Installation](../getting-started/installation.md) - Getting started with features
 - [Storage Backends](../concepts/storage-backends.md) - Detailed storage documentation
-- [Rhai Scripting](../api/rhai.md) - Rhai API reference

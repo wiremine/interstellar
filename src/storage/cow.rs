@@ -2076,13 +2076,13 @@ impl<'g> CowTraversalSource<'g> {
     // =========================================================================
     //
     // These methods return `CowBoundTraversal<..., Scalar>` which always yields
-    // `Value` from terminal methods. This is useful for Rhai integration and
-    // other dynamic scenarios where compile-time type tracking isn't needed.
+    // `Value` from terminal methods. This is useful for dynamic scenarios
+    // where compile-time type tracking isn't needed.
 
     /// Start untyped traversal from all vertices.
     ///
     /// Unlike `v()`, this returns `Value` from terminal methods instead of `GraphVertex`.
-    /// Useful for Rhai integration and dynamic scenarios.
+    /// Useful for dynamic scenarios.
     pub fn v_untyped(&self) -> CowBoundTraversal<'g, (), Value, Scalar> {
         CowBoundTraversal::new_typed(
             self.graph,
