@@ -4710,4 +4710,53 @@ mod tests {
             panic!("Expected List result");
         }
     }
+
+    #[test]
+    fn test_gremlin_fluent_api_mutations() {
+        // Test that gremlin() fluent API supports mutations (not just query/mutate text API)
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fluent_mutations.db");
+        let graph = Arc::new(CowMmapGraph::open(&path).unwrap());
+
+        // Create traversal source
+        let g = graph.gremlin(Arc::clone(&graph));
+
+        // Test add_v mutation via fluent API
+        let alice = g.add_v("Person").property("name", "Alice").next();
+        assert!(alice.is_some(), "Should return a PersistentVertex");
+        assert_eq!(graph.vertex_count(), 1, "Vertex should be created");
+
+        // Create another vertex
+        let bob = g.add_v("Person").property("name", "Bob").next();
+        assert!(bob.is_some());
+        assert_eq!(graph.vertex_count(), 2);
+
+        // Get IDs for edge creation
+        let alice_id = alice.unwrap().id();
+        let bob_id = bob.unwrap().id();
+
+        // Test add_e mutation via fluent API
+        let edge = g.add_e("KNOWS").from_id(alice_id).to_id(bob_id).next();
+        assert!(edge.is_some(), "Should return a PersistentEdge");
+        assert_eq!(graph.edge_count(), 1, "Edge should be created");
+
+        // Test read traversal via fluent API
+        let people = g.v().has_label("Person").to_list();
+        assert_eq!(people.len(), 2, "Should find 2 people");
+
+        // Test traversal + navigation
+        let friends = g.v_id(alice_id).out_label("KNOWS").to_list();
+        assert_eq!(friends.len(), 1, "Alice should know 1 person");
+        assert_eq!(friends[0].id(), bob_id);
+
+        // Test property mutation on existing vertex via fluent API
+        g.v_id(alice_id).property("age", 30i64).iterate();
+        let alice_vertex = graph.get_vertex(alice_id).unwrap();
+        assert_eq!(alice_vertex.properties.get("age"), Some(&Value::Int(30)));
+
+        // Test drop mutation via fluent API
+        g.v_id(bob_id).drop().iterate();
+        assert_eq!(graph.vertex_count(), 1, "Bob should be deleted");
+        assert_eq!(graph.edge_count(), 0, "Edge should be cascade deleted");
+    }
 }
