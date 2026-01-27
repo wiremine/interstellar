@@ -781,6 +781,15 @@ impl Traversal {
         self.add_step(traversal::DedupByLabelStep::new())
     }
 
+    /// Remove duplicates based on the result of a traversal.
+    ///
+    /// @param traversal - Anonymous traversal to compute dedup key
+    #[wasm_bindgen(js_name = "dedupBy")]
+    pub fn dedup_by(self, sub: Traversal) -> Traversal {
+        let core_traversal = sub.into_core_traversal();
+        self.add_step(traversal::DedupByTraversalStep::new(core_traversal))
+    }
+
     /// Limit results to the first n elements.
     ///
     /// @param n - Maximum number of elements
@@ -1241,20 +1250,18 @@ impl Traversal {
 
     /// Get the minimum value.
     ///
-    /// Note: MinStep is not yet implemented - this returns self unchanged for now.
+    /// Finds the minimum among numeric (Int, Float) or string values.
+    /// Non-comparable values are skipped.
     pub fn min(self) -> Traversal {
-        // TODO: MinStep not yet available in traversal module
-        // For now, pass through unchanged
-        self
+        self.add_step_with_type(traversal::MinStep::new(), TraversalType::Value)
     }
 
     /// Get the maximum value.
     ///
-    /// Note: MaxStep is not yet implemented - this returns self unchanged for now.
+    /// Finds the maximum among numeric (Int, Float) or string values.
+    /// Non-comparable values are skipped.
     pub fn max(self) -> Traversal {
-        // TODO: MaxStep not yet available in traversal module
-        // For now, pass through unchanged
-        self
+        self.add_step_with_type(traversal::MaxStep::new(), TraversalType::Value)
     }
 
     /// Count the number of elements (as a step, not terminal).

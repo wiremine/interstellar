@@ -38,6 +38,8 @@ mod builders;
 mod error;
 mod graph;
 mod predicate;
+#[cfg(test)]
+mod tests;
 mod traversal;
 mod types;
 

@@ -115,7 +115,7 @@ pub use typed::{TypedTraversal, TypedTraversalSource};
 // Re-export aggregate types
 pub use aggregate::{
     BoundGroupBuilder, BoundGroupCountBuilder, GroupBuilder, GroupCountBuilder, GroupCountStep,
-    GroupKey, GroupStep, GroupValue,
+    GroupKey, GroupStep, GroupValue, MaxStep, MinStep,
 };
 
 // Re-export branch types

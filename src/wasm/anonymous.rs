@@ -113,6 +113,25 @@ impl AnonymousFactory {
         Traversal::anonymous_with_step(traversal::DedupStep::new())
     }
 
+    /// Remove duplicates based on a property key.
+    #[wasm_bindgen(js_name = "dedupByKey")]
+    pub fn dedup_by_key(key: &str) -> Traversal {
+        Traversal::anonymous_with_step(traversal::DedupByKeyStep::new(key))
+    }
+
+    /// Remove duplicates based on element label.
+    #[wasm_bindgen(js_name = "dedupByLabel")]
+    pub fn dedup_by_label() -> Traversal {
+        Traversal::anonymous_with_step(traversal::DedupByLabelStep::new())
+    }
+
+    /// Remove duplicates based on the result of a traversal.
+    #[wasm_bindgen(js_name = "dedupBy")]
+    pub fn dedup_by(sub: Traversal) -> Traversal {
+        let core_traversal = sub.into_core_traversal();
+        Traversal::anonymous_with_step(traversal::DedupByTraversalStep::new(core_traversal))
+    }
+
     /// Limit results to the first n elements.
     pub fn limit(n: JsValue) -> Result<Traversal, JsError> {
         let num = js_to_u64(n)?;
@@ -315,6 +334,16 @@ impl AnonymousFactory {
     /// Count the number of elements.
     pub fn count() -> Traversal {
         Traversal::anonymous_with_step(traversal::aggregate::CountStep::new())
+    }
+
+    /// Get the minimum value.
+    pub fn min() -> Traversal {
+        Traversal::anonymous_with_step(traversal::MinStep::new())
+    }
+
+    /// Get the maximum value.
+    pub fn max() -> Traversal {
+        Traversal::anonymous_with_step(traversal::MaxStep::new())
     }
 
     // =========================================================================

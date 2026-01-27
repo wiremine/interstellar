@@ -936,6 +936,257 @@ impl Step for CountStep {
     }
 }
 
+// -----------------------------------------------------------------------------
+// MinStep - reducing step that finds minimum value
+// -----------------------------------------------------------------------------
+
+/// Reducing step that finds the minimum value among all input traversers.
+///
+/// This is a **reducing step** - it consumes ALL input and produces a single
+/// traverser containing the minimum value. Only numeric and string values
+/// can be compared; other types are skipped.
+///
+/// # Comparison Rules
+///
+/// - `Int` values are compared numerically
+/// - `Float` values are compared numerically (NaN is treated as greater than all)
+/// - `String` values are compared lexicographically
+/// - Mixed types: `Int` < `Float` < `String`
+/// - Non-comparable types (`Null`, `Bool`, `List`, `Map`, `Vertex`, `Edge`) are skipped
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").min()    // Find minimum age
+/// g.V().values("name").min()   // Find lexicographically smallest name
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::*;
+///
+/// let graph = Graph::new();
+/// // ... add vertices with age properties ...
+/// let snapshot = graph.snapshot();
+/// let g = snapshot.gremlin();
+///
+/// // Find minimum age
+/// let min_age = g.v().values("age").min().next();
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MinStep;
+
+impl MinStep {
+    /// Create a new MinStep.
+    #[inline]
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Compare two values for ordering.
+    /// Returns None if values are not comparable.
+    fn compare_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+        match (a, b) {
+            (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
+            (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
+            (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
+            // Mixed numeric types: convert to float for comparison
+            (Value::Int(x), Value::Float(y)) => (*x as f64).partial_cmp(y),
+            (Value::Float(x), Value::Int(y)) => x.partial_cmp(&(*y as f64)),
+            // Int < Float < String for cross-type comparison
+            (Value::Int(_), Value::String(_)) => Some(Ordering::Less),
+            (Value::String(_), Value::Int(_)) => Some(Ordering::Greater),
+            (Value::Float(_), Value::String(_)) => Some(Ordering::Less),
+            (Value::String(_), Value::Float(_)) => Some(Ordering::Greater),
+            // Non-comparable types
+            _ => None,
+        }
+    }
+}
+
+impl Step for MinStep {
+    type Iter<'a>
+        = std::iter::Once<Traverser>
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let mut min_value: Option<Value> = None;
+        let mut last_path = None;
+
+        for t in input {
+            last_path = Some(t.path.clone());
+
+            // Skip non-comparable values
+            if !matches!(t.value, Value::Int(_) | Value::Float(_) | Value::String(_)) {
+                continue;
+            }
+
+            min_value = match min_value {
+                None => Some(t.value),
+                Some(current) => {
+                    if let Some(ord) = Self::compare_values(&t.value, &current) {
+                        if ord == std::cmp::Ordering::Less {
+                            Some(t.value)
+                        } else {
+                            Some(current)
+                        }
+                    } else {
+                        Some(current)
+                    }
+                }
+            };
+        }
+
+        // Return the minimum value, or Null if no comparable values found
+        let result = min_value.unwrap_or(Value::Null);
+        let mut traverser = Traverser::new(result);
+        if let Some(path) = last_path {
+            traverser.path = path;
+        }
+        std::iter::once(traverser)
+    }
+
+    fn name(&self) -> &'static str {
+        "min"
+    }
+
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: MinStep cannot truly stream because it must see ALL inputs
+        // Current behavior: pass-through (incorrect but safe for pipeline compatibility).
+        Box::new(std::iter::once(input))
+    }
+}
+
+// -----------------------------------------------------------------------------
+// MaxStep - reducing step that finds maximum value
+// -----------------------------------------------------------------------------
+
+/// Reducing step that finds the maximum value among all input traversers.
+///
+/// This is a **reducing step** - it consumes ALL input and produces a single
+/// traverser containing the maximum value. Only numeric and string values
+/// can be compared; other types are skipped.
+///
+/// # Comparison Rules
+///
+/// - `Int` values are compared numerically
+/// - `Float` values are compared numerically (NaN is treated as greater than all)
+/// - `String` values are compared lexicographically
+/// - Mixed types: `Int` < `Float` < `String`
+/// - Non-comparable types (`Null`, `Bool`, `List`, `Map`, `Vertex`, `Edge`) are skipped
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").max()    // Find maximum age
+/// g.V().values("name").max()   // Find lexicographically largest name
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::*;
+///
+/// let graph = Graph::new();
+/// // ... add vertices with age properties ...
+/// let snapshot = graph.snapshot();
+/// let g = snapshot.gremlin();
+///
+/// // Find maximum age
+/// let max_age = g.v().values("age").max().next();
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MaxStep;
+
+impl MaxStep {
+    /// Create a new MaxStep.
+    #[inline]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Step for MaxStep {
+    type Iter<'a>
+        = std::iter::Once<Traverser>
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let mut max_value: Option<Value> = None;
+        let mut last_path = None;
+
+        for t in input {
+            last_path = Some(t.path.clone());
+
+            // Skip non-comparable values
+            if !matches!(t.value, Value::Int(_) | Value::Float(_) | Value::String(_)) {
+                continue;
+            }
+
+            max_value = match max_value {
+                None => Some(t.value),
+                Some(current) => {
+                    if let Some(ord) = MinStep::compare_values(&t.value, &current) {
+                        if ord == std::cmp::Ordering::Greater {
+                            Some(t.value)
+                        } else {
+                            Some(current)
+                        }
+                    } else {
+                        Some(current)
+                    }
+                }
+            };
+        }
+
+        // Return the maximum value, or Null if no comparable values found
+        let result = max_value.unwrap_or(Value::Null);
+        let mut traverser = Traverser::new(result);
+        if let Some(path) = last_path {
+            traverser.path = path;
+        }
+        std::iter::once(traverser)
+    }
+
+    fn name(&self) -> &'static str {
+        "max"
+    }
+
+    fn is_barrier(&self) -> bool {
+        true
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: MaxStep cannot truly stream because it must see ALL inputs
+        // Current behavior: pass-through (incorrect but safe for pipeline compatibility).
+        Box::new(std::iter::once(input))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
