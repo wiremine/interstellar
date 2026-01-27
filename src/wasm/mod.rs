@@ -34,6 +34,7 @@
 //! - GraphSON serialization (string-based)
 
 mod anonymous;
+mod builders;
 mod error;
 mod graph;
 mod predicate;
@@ -42,6 +43,7 @@ mod types;
 
 // Re-export main types for wasm-bindgen
 pub use anonymous::AnonymousFactory;
+pub use builders::{GroupBuilder, GroupCountBuilder, OrderBuilder, ProjectBuilder, RepeatBuilder};
 pub use graph::Graph;
 pub use predicate::P;
 pub use traversal::Traversal;

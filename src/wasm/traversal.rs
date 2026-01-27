@@ -402,7 +402,7 @@ pub(crate) enum TraversalType {
 
 /// Source type for initial traversal start.
 #[derive(Clone)]
-enum TraversalSource {
+pub(crate) enum TraversalSource {
     AllVertices,
     VertexIds(Vec<VertexId>),
     AllEdges,
@@ -418,13 +418,13 @@ enum TraversalSource {
 #[wasm_bindgen]
 pub struct Traversal {
     /// The graph this traversal operates on
-    graph: Arc<InnerGraph>,
+    pub(crate) graph: Arc<InnerGraph>,
     /// Source of initial traversers
-    source: TraversalSource,
+    pub(crate) source: TraversalSource,
     /// Accumulated steps (type-erased)
-    steps: Vec<Box<dyn DynStep>>,
+    pub(crate) steps: Vec<Box<dyn DynStep>>,
     /// Current output type
-    output_type: TraversalType,
+    pub(crate) output_type: TraversalType,
 }
 
 impl Clone for Traversal {
@@ -512,8 +512,39 @@ impl Traversal {
         self.steps
     }
 
+    /// Convert this WASM Traversal into a core Traversal<Value, Value>.
+    ///
+    /// This is used when passing anonymous traversals to branch steps
+    /// like `where()`, `union()`, `repeat()`, etc.
+    pub(crate) fn into_core_traversal(self) -> crate::traversal::Traversal<Value, Value> {
+        crate::traversal::Traversal {
+            steps: self.steps,
+            source: None,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Create an anonymous traversal (no source, empty steps).
+    ///
+    /// Used by the `__` factory for creating traversal fragments.
+    #[allow(dead_code)]
+    pub(crate) fn anonymous(graph: Arc<InnerGraph>) -> Self {
+        Self {
+            graph,
+            source: TraversalSource::Anonymous,
+            steps: Vec::new(),
+            output_type: TraversalType::Value,
+        }
+    }
+
     /// Add a step to the traversal pipeline.
     fn add_step<S: DynStep + 'static>(mut self, step: S) -> Self {
+        self.steps.push(Box::new(step));
+        self
+    }
+
+    /// Add a step to the traversal pipeline (pub(crate) for anonymous factory).
+    pub(crate) fn add_step_internal<S: DynStep + 'static>(mut self, step: S) -> Self {
         self.steps.push(Box::new(step));
         self
     }
@@ -818,6 +849,106 @@ impl Traversal {
     }
 
     // =========================================================================
+    // Branch / Conditional Steps
+    // =========================================================================
+
+    /// Filter based on the result of a traversal (must produce results).
+    ///
+    /// @param traversal - Anonymous traversal to test
+    #[wasm_bindgen(js_name = "where_")]
+    pub fn where_(self, sub: Traversal) -> Traversal {
+        let core_traversal = sub.into_core_traversal();
+        self.add_step(traversal::WhereStep::new(core_traversal))
+    }
+
+    /// Filter to elements where the traversal produces NO results.
+    ///
+    /// @param traversal - Anonymous traversal that must be empty
+    pub fn not(self, sub: Traversal) -> Traversal {
+        let core_traversal = sub.into_core_traversal();
+        self.add_step(traversal::NotStep::new(core_traversal))
+    }
+
+    /// Filter where ALL traversals produce results.
+    ///
+    /// @param traversals - Array of anonymous traversals (AND logic)
+    #[wasm_bindgen(js_name = "and_")]
+    pub fn and_(self, traversals: Vec<Traversal>) -> Traversal {
+        let core_traversals: Vec<_> = traversals
+            .into_iter()
+            .map(|t| t.into_core_traversal())
+            .collect();
+        self.add_step(traversal::AndStep::new(core_traversals))
+    }
+
+    /// Filter where ANY traversal produces results.
+    ///
+    /// @param traversals - Array of anonymous traversals (OR logic)
+    #[wasm_bindgen(js_name = "or_")]
+    pub fn or_(self, traversals: Vec<Traversal>) -> Traversal {
+        let core_traversals: Vec<_> = traversals
+            .into_iter()
+            .map(|t| t.into_core_traversal())
+            .collect();
+        self.add_step(traversal::OrStep::new(core_traversals))
+    }
+
+    /// Execute multiple traversals and combine results.
+    ///
+    /// @param traversals - Traversals to execute in parallel
+    pub fn union(self, traversals: Vec<Traversal>) -> Traversal {
+        let core_traversals: Vec<_> = traversals
+            .into_iter()
+            .map(|t| t.into_core_traversal())
+            .collect();
+        self.add_step(traversal::UnionStep::new(core_traversals))
+    }
+
+    /// Return the result of the first traversal that produces output.
+    ///
+    /// @param traversals - Traversals to try in order
+    pub fn coalesce(self, traversals: Vec<Traversal>) -> Traversal {
+        let core_traversals: Vec<_> = traversals
+            .into_iter()
+            .map(|t| t.into_core_traversal())
+            .collect();
+        self.add_step(traversal::CoalesceStep::new(core_traversals))
+    }
+
+    /// Conditional branching.
+    ///
+    /// @param condition - Traversal to test condition
+    /// @param if_true - Traversal if condition produces results
+    /// @param if_false - Traversal if condition produces no results
+    pub fn choose(
+        self,
+        condition: Traversal,
+        if_true: Traversal,
+        if_false: Traversal,
+    ) -> Traversal {
+        let cond = condition.into_core_traversal();
+        let t_branch = if_true.into_core_traversal();
+        let f_branch = if_false.into_core_traversal();
+        self.add_step(traversal::ChooseStep::new(cond, t_branch, f_branch))
+    }
+
+    /// Execute traversal, but pass through original if no results.
+    ///
+    /// @param traversal - Optional traversal
+    pub fn optional(self, sub: Traversal) -> Traversal {
+        let core_traversal = sub.into_core_traversal();
+        self.add_step(traversal::OptionalStep::new(core_traversal))
+    }
+
+    /// Execute traversal in local scope (per element).
+    ///
+    /// @param traversal - Traversal to execute locally
+    pub fn local(self, sub: Traversal) -> Traversal {
+        let core_traversal = sub.into_core_traversal();
+        self.add_step(traversal::LocalStep::new(core_traversal))
+    }
+
+    // =========================================================================
     // Navigation Steps
     // =========================================================================
 
@@ -989,6 +1120,50 @@ impl Traversal {
         ))
     }
 
+    /// Get a value map including id and label tokens.
+    #[wasm_bindgen(js_name = "valueMapWithTokens")]
+    pub fn value_map_with_tokens(self) -> Traversal {
+        self.add_step_with_type(
+            traversal::ValueMapStep::new().with_tokens(),
+            TraversalType::Value,
+        )
+    }
+
+    /// Get all properties as Property objects.
+    pub fn properties(self) -> Traversal {
+        self.add_step_with_type(traversal::PropertiesStep::new(), TraversalType::Value)
+    }
+
+    /// Get specific properties as Property objects.
+    ///
+    /// @param keys - Property names
+    #[wasm_bindgen(js_name = "propertiesKeys")]
+    pub fn properties_keys(self, keys: JsValue) -> Result<Traversal, JsError> {
+        let key_vec = js_array_to_strings(keys)?;
+        Ok(self.add_step_with_type(
+            traversal::PropertiesStep::with_keys(key_vec),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Get a map of property name to Property objects.
+    #[wasm_bindgen(js_name = "propertyMap")]
+    pub fn property_map(self) -> Traversal {
+        self.add_step_with_type(traversal::PropertyMapStep::new(), TraversalType::Value)
+    }
+
+    /// Get a property map with specific keys.
+    ///
+    /// @param keys - Property names to include
+    #[wasm_bindgen(js_name = "propertyMapKeys")]
+    pub fn property_map_keys(self, keys: JsValue) -> Result<Traversal, JsError> {
+        let key_vec = js_array_to_strings(keys)?;
+        Ok(self.add_step_with_type(
+            traversal::PropertyMapStep::with_keys(key_vec),
+            TraversalType::Value,
+        ))
+    }
+
     /// Get a complete element map (id, label, and all properties).
     #[wasm_bindgen(js_name = "elementMap")]
     pub fn element_map(self) -> Traversal {
@@ -1089,6 +1264,79 @@ impl Traversal {
             crate::traversal::aggregate::CountStep::new(),
             TraversalType::Value,
         )
+    }
+
+    // =========================================================================
+    // Builder Steps (Order, Project, Group, Repeat)
+    // =========================================================================
+
+    /// Start an order operation.
+    ///
+    /// @returns OrderBuilder for specifying sort criteria
+    ///
+    /// @example
+    /// ```typescript
+    /// graph.V().order().byKeyDesc('age').build().toList();
+    /// ```
+    pub fn order(self) -> crate::wasm::builders::OrderBuilder {
+        crate::wasm::builders::OrderBuilder::new(self)
+    }
+
+    /// Project each element into a map with named keys.
+    ///
+    /// @param keys - Output keys (as array of strings)
+    /// @returns ProjectBuilder for specifying projections
+    ///
+    /// @example
+    /// ```typescript
+    /// graph.V()
+    ///     .project(['name', 'friends'])
+    ///     .byKey('name')
+    ///     .byTraversal(__.out('knows').count())
+    ///     .build()
+    ///     .toList();
+    /// ```
+    pub fn project(self, keys: JsValue) -> Result<crate::wasm::builders::ProjectBuilder, JsError> {
+        let key_vec = js_array_to_strings(keys)?;
+        Ok(crate::wasm::builders::ProjectBuilder::new(self, key_vec))
+    }
+
+    /// Group elements into a map.
+    ///
+    /// @returns GroupBuilder for specifying key and value
+    ///
+    /// @example
+    /// ```typescript
+    /// graph.V().group().byKey('age').valuesByKey('name').build().toList();
+    /// ```
+    pub fn group(self) -> crate::wasm::builders::GroupBuilder {
+        crate::wasm::builders::GroupBuilder::new(self)
+    }
+
+    /// Count elements by group.
+    ///
+    /// @returns GroupCountBuilder for specifying key
+    ///
+    /// @example
+    /// ```typescript
+    /// graph.V().groupCount().byLabel().build().toList();
+    /// ```
+    #[wasm_bindgen(js_name = "groupCount")]
+    pub fn group_count(self) -> crate::wasm::builders::GroupCountBuilder {
+        crate::wasm::builders::GroupCountBuilder::new(self)
+    }
+
+    /// Start a repeat loop.
+    ///
+    /// @param traversal - Traversal to repeat
+    /// @returns RepeatBuilder for specifying termination
+    ///
+    /// @example
+    /// ```typescript
+    /// graph.V_(startId).repeat(__.out('knows')).times(3n).build().toList();
+    /// ```
+    pub fn repeat(self, sub: Traversal) -> crate::wasm::builders::RepeatBuilder {
+        crate::wasm::builders::RepeatBuilder::new(self, sub)
     }
 
     // =========================================================================

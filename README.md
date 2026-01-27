@@ -543,9 +543,60 @@ cargo run --example storage --features mmap
 | `gql` | GQL query language | No |
 | `gremlin` | Gremlin text query parser | No |
 | `full-text` | Full-text search (Tantivy) | No |
-| `full` | Enable all features | No |
+| `wasm` | WebAssembly/JavaScript bindings | No |
+| `full` | Enable all features (except wasm) | No |
 
 In-memory graph storage is always available as core functionality.
+
+### WebAssembly Support
+
+Enable the `wasm` feature to compile Interstellar for browsers and Node.js:
+
+```toml
+[dependencies]
+interstellar = { version = "0.1", features = ["wasm"] }
+```
+
+Build with wasm-pack:
+
+```bash
+wasm-pack build --target web --features wasm
+```
+
+Usage in JavaScript/TypeScript:
+
+```typescript
+import init, { Graph, P, __ } from 'interstellar-graph';
+
+await init();
+
+const graph = new Graph();
+const alice = graph.addVertex('person', { name: 'Alice', age: 30n });
+const bob = graph.addVertex('person', { name: 'Bob', age: 25n });
+graph.addEdge(alice, bob, 'knows', { since: 2020n });
+
+// Gremlin-style traversal
+const friends = graph.V_(alice)
+    .outLabels(['knows'])
+    .values('name')
+    .toList();
+console.log(friends); // ['Bob']
+
+// With predicates
+const adults = graph.V()
+    .hasLabel('person')
+    .hasWhere('age', P.gte(18n))
+    .values('name')
+    .toList();
+
+// With anonymous traversals
+const withFriends = graph.V()
+    .hasLabel('person')
+    .where_(__.out())  // Has at least one outgoing edge
+    .toList();
+```
+
+See [spec-45-wasm-bindgen.md](specs/spec-45-wasm-bindgen.md) for full API documentation.
 
 ## Building
 
@@ -571,6 +622,22 @@ cargo fmt --check                               # Check formatting
 ```
 
 > **Note**: The `full-text` feature (tantivy) has a known upstream dependency conflict and is excluded from the full test suite.
+
+### WASM Testing
+
+The `wasm` feature requires browser or Node.js testing via wasm-pack:
+
+```bash
+# Install wasm-pack (one-time setup)
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Run tests in headless browser
+wasm-pack test --headless --firefox --features wasm
+wasm-pack test --headless --chrome --features wasm
+
+# Run tests in Node.js
+wasm-pack test --node --features wasm
+```
 
 ## Benchmarks
 

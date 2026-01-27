@@ -369,4 +369,66 @@ impl AnonymousFactory {
     pub fn drop() -> Traversal {
         Traversal::anonymous_with_step(traversal::DropStep::new())
     }
+
+    // =========================================================================
+    // Branch Steps
+    // =========================================================================
+
+    /// Filter based on the result of a traversal.
+    #[wasm_bindgen(js_name = "where_")]
+    pub fn where_(sub: Traversal) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let core_traversal = sub.into_core_traversal();
+        t.add_step_internal(traversal::WhereStep::new(core_traversal))
+    }
+
+    /// Filter to elements where the traversal produces NO results.
+    pub fn not(sub: Traversal) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let core_traversal = sub.into_core_traversal();
+        t.add_step_internal(traversal::NotStep::new(core_traversal))
+    }
+
+    /// Execute multiple traversals and combine results.
+    pub fn union(traversals: Vec<Traversal>) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let core_traversals: Vec<_> = traversals
+            .into_iter()
+            .map(|tr| tr.into_core_traversal())
+            .collect();
+        t.add_step_internal(traversal::UnionStep::new(core_traversals))
+    }
+
+    /// Return the result of the first traversal that produces output.
+    pub fn coalesce(traversals: Vec<Traversal>) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let core_traversals: Vec<_> = traversals
+            .into_iter()
+            .map(|tr| tr.into_core_traversal())
+            .collect();
+        t.add_step_internal(traversal::CoalesceStep::new(core_traversals))
+    }
+
+    /// Conditional branching.
+    pub fn choose(condition: Traversal, if_true: Traversal, if_false: Traversal) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let cond = condition.into_core_traversal();
+        let t_branch = if_true.into_core_traversal();
+        let f_branch = if_false.into_core_traversal();
+        t.add_step_internal(traversal::ChooseStep::new(cond, t_branch, f_branch))
+    }
+
+    /// Execute traversal, but pass through original if no results.
+    pub fn optional(sub: Traversal) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let core_traversal = sub.into_core_traversal();
+        t.add_step_internal(traversal::OptionalStep::new(core_traversal))
+    }
+
+    /// Execute traversal in local scope (per element).
+    pub fn local(sub: Traversal) -> Traversal {
+        let t = Traversal::anonymous_with_step(traversal::IdentityStep);
+        let core_traversal = sub.into_core_traversal();
+        t.add_step_internal(traversal::LocalStep::new(core_traversal))
+    }
 }
