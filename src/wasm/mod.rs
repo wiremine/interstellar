@@ -33,6 +33,7 @@
 //! - GQL query language support (when `gql` feature is enabled)
 //! - GraphSON serialization (string-based)
 
+mod anonymous;
 mod error;
 mod graph;
 mod predicate;
@@ -40,6 +41,7 @@ mod traversal;
 mod types;
 
 // Re-export main types for wasm-bindgen
+pub use anonymous::AnonymousFactory;
 pub use graph::Graph;
 pub use predicate::P;
 pub use traversal::Traversal;

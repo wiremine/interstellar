@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interstellar Graph Database - WASM Demo</title>
+    <!-- D3.js for graph visualization -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         :root {
-            /* Clean, professional dark theme */
             --bg-color: #0f0f0f;
             --card-bg: #1a1a1a;
             --card-border: #2a2a2a;
@@ -31,28 +32,34 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background: var(--bg-color);
             color: var(--text-color);
-            min-height: 100vh;
-            padding: 24px;
-            line-height: 1.6;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         
-        .container {
-            max-width: 1280px;
-            margin: 0 auto;
-        }
-        
+        /* Header - Fixed at top */
         header {
-            text-align: center;
-            margin-bottom: 32px;
-            padding: 32px;
+            flex-shrink: 0;
             background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 16px;
+            border-bottom: 1px solid var(--card-border);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            z-index: 100;
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
         }
         
         h1 {
-            font-size: 2.5rem;
-            margin-bottom: 8px;
+            font-size: 1.5rem;
             font-weight: 700;
             color: #fff;
         }
@@ -61,19 +68,13 @@
             color: var(--primary);
         }
         
-        .subtitle {
-            color: var(--text-muted);
-            font-size: 1.1rem;
-        }
-        
         .status {
             display: inline-flex;
             align-items: center;
-            padding: 6px 16px;
-            border-radius: 24px;
-            font-size: 0.875rem;
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 0.75rem;
             font-weight: 500;
-            margin-top: 16px;
         }
         
         .status.loading {
@@ -94,333 +95,613 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
         
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .card {
-            background: var(--card-bg);
-            border-radius: 12px;
-            padding: 24px;
-            border: 1px solid var(--card-border);
-        }
-        
-        .card h2 {
-            color: #fff;
-            margin-bottom: 16px;
-            font-size: 1.125rem;
-            font-weight: 600;
+        .header-right {
             display: flex;
             align-items: center;
-            gap: 10px;
-        }
-        
-        .card h2::before {
-            content: '';
-            display: inline-block;
-            width: 3px;
-            height: 18px;
-            background: var(--primary);
-            border-radius: 2px;
-        }
-        
-        button {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.875rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-        
-        button:hover {
-            background: var(--primary-hover);
-            transform: translateY(-1px);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .output {
-            background: var(--code-bg);
-            border-radius: 8px;
-            padding: 16px;
-            margin-top: 16px;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 0.8125rem;
-            max-height: 280px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            border: 1px solid var(--code-border);
-            color: #a3a3a3;
-        }
-        
-        .output.success {
-            border-color: var(--success);
-        }
-        
-        .output.error {
-            border-color: var(--error);
+            gap: 16px;
         }
         
         .stats {
             display: flex;
             gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 16px;
+            align-items: center;
         }
         
         .stat {
-            background: var(--code-bg);
-            border: 1px solid var(--code-border);
-            padding: 16px 28px;
-            border-radius: 10px;
-            text-align: center;
-            min-width: 100px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.875rem;
         }
         
         .stat-value {
-            font-size: 2rem;
             font-weight: 700;
             color: var(--primary);
             font-variant-numeric: tabular-nums;
         }
         
         .stat-label {
-            font-size: 0.8125rem;
             color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-top: 4px;
         }
         
-        .code-sample {
-            background: var(--code-bg);
-            border-radius: 8px;
-            padding: 14px;
-            margin: 12px 0;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
             font-size: 0.8125rem;
-            overflow-x: auto;
-            border: 1px solid var(--code-border);
-            line-height: 1.5;
+            font-weight: 500;
+            transition: all 0.2s ease;
         }
         
-        .code-sample .comment {
-            color: #525252;
+        button:hover {
+            background: var(--primary-hover);
         }
         
-        .code-sample .keyword {
-            color: #f472b6;
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
         
-        .code-sample .string {
-            color: #86efac;
+        button.secondary {
+            background: var(--card-border);
         }
         
-        .code-sample .function {
-            color: #93c5fd;
+        button.secondary:hover {
+            background: #3a3a3a;
         }
         
-        .code-sample .number {
-            color: #fbbf24;
-        }
-
-        .buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .full-width {
-            grid-column: 1 / -1;
-        }
-
-        #consoleOutput {
-            min-height: 180px;
-        }
-
         .loading-spinner {
             display: inline-block;
-            width: 14px;
-            height: 14px;
+            width: 12px;
+            height: 12px;
             border: 2px solid currentColor;
             border-radius: 50%;
             border-top-color: transparent;
             animation: spin 0.8s linear infinite;
-            margin-right: 8px;
+            margin-right: 6px;
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-
-        footer {
-            text-align: center;
-            margin-top: 40px;
-            padding: 24px;
-            color: var(--text-muted);
-            font-size: 0.875rem;
-        }
-
-        footer a {
-            color: var(--primary);
-            text-decoration: none;
-        }
-
-        footer a:hover {
-            text-decoration: underline;
-        }
-
-        /* Scrollbar styling */
-        .output::-webkit-scrollbar {
-            width: 8px;
+        
+        /* Tabs - Fixed below header */
+        .tabs {
+            flex-shrink: 0;
+            display: flex;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--card-border);
+            z-index: 100;
         }
         
-        .output::-webkit-scrollbar-track {
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            border-radius: 0;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            position: relative;
+            transition: color 0.2s;
+        }
+        
+        .tab:hover {
+            color: var(--text-color);
+            background: none;
+        }
+        
+        .tab.active {
+            color: var(--primary);
+        }
+        
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--primary);
+        }
+        
+        /* Tab Content */
+        .tab-content {
+            flex: 1;
+            display: none;
+            overflow: hidden;
+        }
+        
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Console Tab - Integrated REPL */
+        #console-tab {
+            padding: 0;
+            gap: 0;
+            background: var(--code-bg);
+            overflow: hidden;
+        }
+        
+        .repl-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.5;
+            min-height: 0; /* Allow flex child to shrink */
+        }
+        
+        #consoleOutput {
+            flex: 1;
+            padding: 12px 16px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 0; /* Allow scrolling */
+        }
+        
+        .output-entry {
+            margin-bottom: 8px;
+        }
+        
+        .output-query {
+            color: var(--text-muted);
+        }
+        
+        .output-query::before {
+            content: '> ';
+            color: var(--primary);
+        }
+        
+        .output-query code {
+            color: #93c5fd;
+        }
+        
+        .output-result {
+            color: var(--success);
+            padding-left: 18px;
+            margin-top: 2px;
+        }
+        
+        .output-result.error {
+            color: var(--error);
+        }
+        
+        .output-result.info {
+            color: var(--text-muted);
+        }
+        
+        .output-time {
+            color: #525252;
+            font-size: 0.6875rem;
+            padding-left: 18px;
+        }
+        
+        /* REPL Input - Fixed at bottom */
+        .repl-input-area {
+            flex-shrink: 0;
+            border-top: 1px solid var(--code-border);
+            background: var(--card-bg);
+            padding: 10px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .repl-input-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        
+        .repl-prompt {
+            color: var(--primary);
+            font-weight: 600;
+            padding-top: 6px;
+            user-select: none;
+        }
+        
+        #queryInput {
+            flex: 1;
+            background: var(--code-bg);
+            color: var(--text-color);
+            border: 1px solid var(--code-border);
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: 1.5;
+            resize: none;
+            min-height: 32px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        #queryInput:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        #queryInput::placeholder {
+            color: #555;
+        }
+        
+        .repl-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding-left: 18px;
+        }
+        
+        .repl-actions select {
+            background: var(--code-bg);
+            color: var(--text-color);
+            border: 1px solid var(--code-border);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        
+        .repl-actions select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .repl-hint {
+            font-size: 0.6875rem;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+        
+        kbd {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-family: inherit;
+            font-size: 0.625rem;
+        }
+        
+        /* Visualization Tab */
+        #visualization-tab {
+            position: relative;
+        }
+        
+        .viz-toolbar {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+        
+        .viz-toolbar button {
+            padding: 6px 12px;
+            font-size: 0.75rem;
+        }
+        
+        #graphCanvas {
+            width: 100%;
+            height: 100%;
+            background: var(--bg-color);
+        }
+        
+        #graphCanvas .node {
+            cursor: pointer;
+        }
+        
+        #graphCanvas .node circle {
+            stroke: #fff;
+            stroke-width: 1.5px;
+        }
+        
+        #graphCanvas .node text {
+            font-size: 11px;
+            fill: var(--text-color);
+            pointer-events: none;
+        }
+        
+        #graphCanvas .link {
+            stroke: #555;
+            stroke-opacity: 0.6;
+        }
+        
+        #graphCanvas .link-label {
+            font-size: 9px;
+            fill: var(--text-muted);
+        }
+        
+        /* Properties Panel */
+        .properties-panel {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 280px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 16px;
+            z-index: 10;
+            display: none;
+        }
+        
+        .properties-panel.visible {
+            display: block;
+        }
+        
+        .properties-panel h3 {
+            font-size: 0.875rem;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .properties-panel .close-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 1rem;
+        }
+        
+        .properties-panel .close-btn:hover {
+            color: var(--text-color);
+            background: none;
+        }
+        
+        .property-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--code-border);
+            font-size: 0.8125rem;
+        }
+        
+        .property-row:last-child {
+            border-bottom: none;
+        }
+        
+        .property-key {
+            color: var(--text-muted);
+        }
+        
+        .property-value {
+            color: var(--text-color);
+            font-family: 'SF Mono', monospace;
+            font-size: 0.75rem;
+        }
+        
+        .properties-panel .actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .properties-panel button {
+            flex: 1;
+            padding: 6px 12px;
+            font-size: 0.75rem;
+        }
+        
+        .properties-panel button.danger {
+            background: var(--error);
+        }
+        
+        .properties-panel button.danger:hover {
+            background: #dc2626;
+        }
+        
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            gap: 12px;
+        }
+        
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            opacity: 0.5;
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
             background: var(--code-bg);
         }
         
-        .output::-webkit-scrollbar-thumb {
+        ::-webkit-scrollbar-thumb {
             background: #333;
             border-radius: 4px;
         }
         
-        .output::-webkit-scrollbar-thumb:hover {
+        ::-webkit-scrollbar-thumb:hover {
             background: #444;
+        }
+        
+        /* Node colors by label */
+        .node-person { fill: #3b82f6; }
+        .node-product { fill: #22c55e; }
+        .node-company { fill: #f59e0b; }
+        .node-default { fill: #8b5cf6; }
+        
+        /* Edge colors by label */
+        .edge-knows { stroke: #6b7280; }
+        .edge-purchased { stroke: #f59e0b; }
+        .edge-works_at { stroke: #ec4899; }
+        .edge-default { stroke: #6b7280; }
+        
+        /* Selected state */
+        .node.selected circle {
+            stroke: var(--primary);
+            stroke-width: 3px;
+        }
+        
+        .link.selected {
+            stroke: var(--primary) !important;
+            stroke-width: 3px;
+        }
+        
+        /* Legend */
+        .legend {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.75rem;
+            z-index: 10;
+        }
+        
+        .legend-title {
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1><span>Interstellar</span> Graph Database</h1>
-            <p class="subtitle">High-performance graph traversal in WebAssembly</p>
+    <header>
+        <div class="header-left">
+            <h1><span>Interstellar</span> Graph</h1>
             <span id="status" class="status loading">
-                <span class="loading-spinner"></span>Loading WASM...
+                <span class="loading-spinner"></span>Loading...
             </span>
-        </header>
-
-        <div class="grid">
-            <!-- Graph Stats -->
-            <div class="card">
-                <h2>Graph Statistics</h2>
-                <div class="stats">
-                    <div class="stat">
-                        <div class="stat-value" id="vertexCount">0</div>
-                        <div class="stat-label">Vertices</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-value" id="edgeCount">0</div>
-                        <div class="stat-label">Edges</div>
-                    </div>
+        </div>
+        <div class="header-right">
+            <div class="stats">
+                <div class="stat">
+                    <span class="stat-value" id="vertexCount">0</span>
+                    <span class="stat-label">vertices</span>
                 </div>
-                <div class="buttons">
-                    <button id="btnRefreshStats" disabled>Refresh Stats</button>
+                <div class="stat">
+                    <span class="stat-value" id="edgeCount">0</span>
+                    <span class="stat-label">edges</span>
                 </div>
             </div>
-
-            <!-- Quick Actions -->
-            <div class="card">
-                <h2>Quick Actions</h2>
-                <div class="buttons">
-                    <button id="btnCreateSample" disabled>Create Sample Graph</button>
-                    <button id="btnClearGraph" disabled>Clear Graph</button>
+            <button id="btnCreateSample" disabled>Create Sample Graph</button>
+            <button id="btnClearGraph" class="secondary" disabled>Clear</button>
+        </div>
+    </header>
+    
+    <div class="tabs">
+        <button class="tab active" data-tab="console">Console</button>
+        <button class="tab" data-tab="visualization">Graph Visualization</button>
+    </div>
+    
+    <!-- Console Tab -->
+    <div id="console-tab" class="tab-content active">
+        <div class="repl-container">
+            <div id="consoleOutput">
+                <div class="output-entry">
+                    <div class="output-result info">Interstellar Graph Console</div>
+                    <div class="output-result info">Type queries below or select an example. Press Enter to run.</div>
                 </div>
-                <div class="output" id="actionOutput">Ready to create a sample graph...</div>
             </div>
-
-            <!-- Add Vertex -->
-            <div class="card">
-                <h2>Add Vertex</h2>
-                <div class="code-sample">
-                    <span class="keyword">const</span> id = graph.<span class="function">addVertex</span>(<span class="string">'person'</span>, {<br>
-                    &nbsp;&nbsp;name: <span class="string">'Alice'</span>,<br>
-                    &nbsp;&nbsp;age: <span class="number">30n</span><br>
-                    });
+            <div class="repl-input-area">
+                <div class="repl-input-row">
+                    <span class="repl-prompt">&gt;</span>
+                    <textarea id="queryInput" rows="1" placeholder="graph.V().toList()"></textarea>
                 </div>
-                <div class="buttons">
-                    <button id="btnAddPerson" disabled>Add Person</button>
-                    <button id="btnAddProduct" disabled>Add Product</button>
+                <div class="repl-actions">
+                    <select id="queryExamples">
+                        <option value="">Examples...</option>
+                        <optgroup label="Read">
+                            <option value="graph.V().toList()">All vertices</option>
+                            <option value="graph.V().toCount()">Count vertices</option>
+                            <option value="graph.V().hasLabel('person').values('name').toList()">Person names</option>
+                            <option value="graph.V().hasLabel('person').elementMap().toList()">Person details</option>
+                            <option value="graph.V().hasLabel('person').hasWhere('age', P.gte(25)).values('name').toList()">Age >= 25</option>
+                            <option value="graph.V().hasLabel('person').outLabels(['knows']).values('name').toList()">Friends</option>
+                            <option value="graph.V().hasLabel('person').values('name').fold().first()">Fold names</option>
+                            <option value="graph.V().hasLabel('person').values('age').sum().first()">Sum ages</option>
+                        </optgroup>
+                        <optgroup label="Mutate">
+                            <option value="graph.V().addV('person').property('name', 'NewPerson').property('age', 28).toList()">Add person</option>
+                            <option value="graph.V().addV('product').property('name', 'Widget').property('price', 99).toList()">Add product</option>
+                            <option value="graph.V().hasLabel('person').hasValue('name', 'NewPerson').drop().iterate()">Delete NewPerson</option>
+                        </optgroup>
+                    </select>
+                    <button id="btnRunQuery" disabled>Run</button>
+                    <button id="btnClearOutput" class="secondary">Clear</button>
+                    <span class="repl-hint"><kbd>Enter</kbd> run &middot; <kbd>Shift+Enter</kbd> newline</span>
                 </div>
-                <div class="output" id="addVertexOutput">Click a button to add a vertex...</div>
-            </div>
-
-            <!-- Traversal Queries -->
-            <div class="card">
-                <h2>Traversal Queries</h2>
-                <div class="code-sample">
-                    <span class="comment">// Get all person names</span><br>
-                    graph.<span class="function">V</span>().<span class="function">hasLabel</span>(<span class="string">'person'</span>)<br>
-                    &nbsp;&nbsp;.<span class="function">values</span>(<span class="string">'name'</span>).<span class="function">toList</span>();
-                </div>
-                <div class="buttons">
-                    <button id="btnGetAllVertices" disabled>Get All Vertices</button>
-                    <button id="btnGetPersonNames" disabled>Get Person Names</button>
-                    <button id="btnGetFriends" disabled>Get Friends of Alice</button>
-                    <button id="btnCountByLabel" disabled>Count by Label</button>
-                </div>
-                <div class="output" id="traversalOutput">Run a traversal query...</div>
-            </div>
-
-            <!-- Predicate Filters -->
-            <div class="card">
-                <h2>Predicate Filters</h2>
-                <div class="code-sample">
-                    <span class="comment">// Filter with predicates</span><br>
-                    graph.<span class="function">V</span>().<span class="function">hasLabel</span>(<span class="string">'person'</span>)<br>
-                    &nbsp;&nbsp;.<span class="function">hasWhere</span>(<span class="string">'age'</span>, P.<span class="function">gte</span>(<span class="number">25n</span>))<br>
-                    &nbsp;&nbsp;.<span class="function">values</span>(<span class="string">'name'</span>).<span class="function">toList</span>();
-                </div>
-                <div class="buttons">
-                    <button id="btnFilterAge" disabled>Age >= 25</button>
-                    <button id="btnFilterName" disabled>Name starts with 'A'</button>
-                </div>
-                <div class="output" id="predicateOutput">Run a predicate filter...</div>
-            </div>
-
-            <!-- Edge Navigation -->
-            <div class="card">
-                <h2>Edge Navigation</h2>
-                <div class="code-sample">
-                    <span class="comment">// Navigate relationships</span><br>
-                    graph.<span class="function">V</span>().<span class="function">hasLabel</span>(<span class="string">'person'</span>)<br>
-                    &nbsp;&nbsp;.<span class="function">outLabels</span>([<span class="string">'knows'</span>])<br>
-                    &nbsp;&nbsp;.<span class="function">values</span>(<span class="string">'name'</span>).<span class="function">toList</span>();
-                </div>
-                <div class="buttons">
-                    <button id="btnOutgoing" disabled>Outgoing (knows)</button>
-                    <button id="btnIncoming" disabled>Incoming (knows)</button>
-                    <button id="btnBoth" disabled>Both Directions</button>
-                </div>
-                <div class="output" id="navigationOutput">Navigate graph edges...</div>
-            </div>
-
-            <!-- Console Output -->
-            <div class="card full-width">
-                <h2>Console Output</h2>
-                <div class="output" id="consoleOutput">Initializing Interstellar WASM module...</div>
             </div>
         </div>
-
-        <footer>
-            <p>Interstellar Graph Database - Built with Rust + WebAssembly</p>
-            <p><a href="https://github.com/anomalyco/interstellar">View on GitHub</a></p>
-        </footer>
+    </div>
+    
+    <!-- Visualization Tab -->
+    <div id="visualization-tab" class="tab-content">
+        <div class="viz-toolbar">
+            <button id="btnZoomIn">Zoom In</button>
+            <button id="btnZoomOut">Zoom Out</button>
+            <button id="btnFitGraph">Fit to Screen</button>
+            <button id="btnResetLayout">Reset Layout</button>
+        </div>
+        
+        <svg id="graphCanvas"></svg>
+        
+        <div class="legend">
+            <div class="legend-title">Node Types</div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #3b82f6;"></div>
+                <span>Person</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #22c55e;"></div>
+                <span>Product</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #f59e0b;"></div>
+                <span>Company</span>
+            </div>
+        </div>
+        
+        <div id="propertiesPanel" class="properties-panel">
+            <h3>
+                <span id="propTitle">Properties</span>
+                <button class="close-btn" id="btnCloseProps">&times;</button>
+            </h3>
+            <div id="propContent"></div>
+            <div class="actions">
+                <button id="btnDeleteSelected" class="danger">Delete</button>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="app.js"></script>

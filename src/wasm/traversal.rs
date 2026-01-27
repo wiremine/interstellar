@@ -10,12 +10,387 @@ use wasm_bindgen::JsError;
 use crate::storage::cow::Graph as InnerGraph;
 use crate::storage::GraphStorage;
 use crate::traversal::context::SnapshotLike;
+use crate::traversal::step::Step;
 use crate::traversal::{self, DynStep, ExecutionContext, Traverser};
 use crate::value::{EdgeId, Value, VertexId};
 use crate::wasm::predicate::Predicate;
 use crate::wasm::types::{
     js_array_to_strings, js_to_u64, js_to_value, js_to_vertex_id, value_to_js, values_to_js_array,
 };
+
+// =============================================================================
+// Helper Steps for Mutation Operations
+// =============================================================================
+
+/// Step that creates a pending addE marker.
+///
+/// This is a WASM-specific spawning step that always produces a pending
+/// edge marker. The from/to endpoints are set by subsequent fromId()/toId() steps.
+#[derive(Clone, Debug)]
+pub(crate) struct AddESpawnStep {
+    label: String,
+}
+
+impl AddESpawnStep {
+    pub(crate) fn new(label: &str) -> Self {
+        Self {
+            label: label.to_string(),
+        }
+    }
+}
+
+impl Step for AddESpawnStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        _input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let label = self.label.clone();
+
+        // Spawning step - produce one pending addE marker regardless of input
+        std::iter::once_with(move || {
+            Traverser::new(Value::Map(std::collections::HashMap::from([
+                ("__pending_add_e".to_string(), Value::Bool(true)),
+                ("label".to_string(), Value::String(label.clone())),
+                (
+                    "properties".to_string(),
+                    Value::Map(std::collections::HashMap::new()),
+                ),
+            ])))
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "addE_spawn"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        Box::new(std::iter::once(input))
+    }
+}
+
+/// Step that sets the "from" endpoint for a pending addE by step label.
+#[derive(Clone, Debug)]
+struct AddEFromLabelStep {
+    label: String,
+}
+
+impl AddEFromLabelStep {
+    fn new(label: &str) -> Self {
+        Self {
+            label: label.to_string(),
+        }
+    }
+}
+
+impl Step for AddEFromLabelStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let label = self.label.clone();
+        input.map(move |mut t| {
+            if let Value::Map(ref mut map) = t.value {
+                if map.get("__pending_add_e").is_some() {
+                    // Resolve from step label
+                    if let Some(values) = t.path.get(&label) {
+                        if let Some(pv) = values.first() {
+                            if let Some(vid) = pv.as_vertex_id() {
+                                map.insert("from".to_string(), Value::Vertex(vid));
+                            }
+                        }
+                    }
+                }
+            }
+            t
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "addE_from_label"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        Box::new(std::iter::once(input))
+    }
+}
+
+/// Step that sets the "from" endpoint for a pending addE by vertex ID.
+#[derive(Clone, Debug)]
+struct AddEFromIdStep {
+    id: VertexId,
+}
+
+impl AddEFromIdStep {
+    fn new(id: VertexId) -> Self {
+        Self { id }
+    }
+}
+
+impl Step for AddEFromIdStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let id = self.id;
+        input.map(move |mut t| {
+            if let Value::Map(ref mut map) = t.value {
+                if map.get("__pending_add_e").is_some() {
+                    map.insert("from".to_string(), Value::Vertex(id));
+                }
+            }
+            t
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "addE_from_id"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        Box::new(std::iter::once(input))
+    }
+}
+
+/// Step that sets the "to" endpoint for a pending addE by step label.
+#[derive(Clone, Debug)]
+struct AddEToLabelStep {
+    label: String,
+}
+
+impl AddEToLabelStep {
+    fn new(label: &str) -> Self {
+        Self {
+            label: label.to_string(),
+        }
+    }
+}
+
+impl Step for AddEToLabelStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let label = self.label.clone();
+        input.map(move |mut t| {
+            if let Value::Map(ref mut map) = t.value {
+                if map.get("__pending_add_e").is_some() {
+                    // Resolve to step label
+                    if let Some(values) = t.path.get(&label) {
+                        if let Some(pv) = values.first() {
+                            if let Some(vid) = pv.as_vertex_id() {
+                                map.insert("to".to_string(), Value::Vertex(vid));
+                            }
+                        }
+                    }
+                }
+            }
+            t
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "addE_to_label"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        Box::new(std::iter::once(input))
+    }
+}
+
+/// Step that sets the "to" endpoint for a pending addE by vertex ID.
+#[derive(Clone, Debug)]
+struct AddEToIdStep {
+    id: VertexId,
+}
+
+impl AddEToIdStep {
+    fn new(id: VertexId) -> Self {
+        Self { id }
+    }
+}
+
+impl Step for AddEToIdStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let id = self.id;
+        input.map(move |mut t| {
+            if let Value::Map(ref mut map) = t.value {
+                if map.get("__pending_add_e").is_some() {
+                    map.insert("to".to_string(), Value::Vertex(id));
+                }
+            }
+            t
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "addE_to_id"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        Box::new(std::iter::once(input))
+    }
+}
+
+// =============================================================================
+// Aggregate Steps (Fold, Sum)
+// =============================================================================
+
+/// Step that collects all input elements into a single list.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FoldStep;
+
+impl FoldStep {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+}
+
+impl Step for FoldStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let values: Vec<Value> = input.map(|t| t.value).collect();
+        std::iter::once(Traverser::new(Value::List(values)))
+    }
+
+    fn name(&self) -> &'static str {
+        "fold"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: Cannot stream - must collect all values
+        Box::new(std::iter::once(input))
+    }
+}
+
+/// Step that calculates the sum of numeric values.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SumStep;
+
+impl SumStep {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+}
+
+impl Step for SumStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let mut sum = 0i64;
+        let mut has_float = false;
+        let mut float_sum = 0.0f64;
+        let mut has_values = false;
+
+        for t in input {
+            match &t.value {
+                Value::Int(n) => {
+                    sum += n;
+                    float_sum += *n as f64;
+                    has_values = true;
+                }
+                Value::Float(f) => {
+                    float_sum += f;
+                    has_float = true;
+                    has_values = true;
+                }
+                _ => {}
+            }
+        }
+
+        if !has_values {
+            None.into_iter()
+        } else if has_float {
+            Some(Traverser::new(Value::Float(float_sum))).into_iter()
+        } else {
+            Some(Traverser::new(Value::Int(sum))).into_iter()
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "sum"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // BARRIER STEP: Cannot stream - must collect all values
+        Box::new(std::iter::once(input))
+    }
+}
 
 /// The type of elements in the traversal stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +408,8 @@ enum TraversalSource {
     AllEdges,
     EdgeIds(Vec<EdgeId>),
     Injected(Vec<Value>),
+    /// Anonymous traversal - no source, just steps (used with branch steps)
+    Anonymous,
 }
 
 /// A graph traversal that can be chained with various steps.
@@ -111,6 +488,30 @@ impl Traversal {
         }
     }
 
+    /// Create an anonymous traversal with a single step.
+    ///
+    /// Anonymous traversals are used with branch steps like `where()`, `union()`, etc.
+    /// They don't have their own graph - they receive input from the parent traversal.
+    pub(crate) fn anonymous_with_step<S: DynStep + 'static>(step: S) -> Self {
+        Self {
+            graph: Arc::new(InnerGraph::new()),
+            source: TraversalSource::Anonymous,
+            steps: vec![Box::new(step)],
+            output_type: TraversalType::Value,
+        }
+    }
+
+    /// Check if this is an anonymous traversal.
+    pub(crate) fn is_anonymous(&self) -> bool {
+        matches!(self.source, TraversalSource::Anonymous)
+    }
+
+    /// Get the accumulated steps from this traversal.
+    #[allow(dead_code)]
+    pub(crate) fn into_steps(self) -> Vec<Box<dyn DynStep>> {
+        self.steps
+    }
+
     /// Add a step to the traversal pipeline.
     fn add_step<S: DynStep + 'static>(mut self, step: S) -> Self {
         self.steps.push(Box::new(step));
@@ -130,6 +531,11 @@ impl Traversal {
 
     /// Execute the traversal and return results.
     fn execute(&self) -> Vec<Value> {
+        // Anonymous traversals cannot be executed directly
+        if self.is_anonymous() {
+            return Vec::new();
+        }
+
         let snapshot = self.graph.snapshot();
         let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
@@ -152,6 +558,10 @@ impl Traversal {
             TraversalSource::Injected(values) => {
                 Box::new(values.iter().cloned().map(Traverser::new))
             }
+            TraversalSource::Anonymous => {
+                // This shouldn't happen - anonymous traversals shouldn't be executed directly
+                return Vec::new();
+            }
         };
 
         // Apply all steps using apply_dyn
@@ -160,8 +570,70 @@ impl Traversal {
             current = step.apply_dyn(&ctx, current);
         }
 
-        // Collect results
-        current.map(|t| t.value).collect()
+        // Collect results and process any pending mutations
+        let raw_results: Vec<Value> = current.map(|t| t.value).collect();
+
+        // Process pending mutations and return actual values
+        self.process_mutations(raw_results)
+    }
+
+    /// Process pending mutations and return actual results.
+    ///
+    /// This method handles the "pending mutation" markers created by
+    /// AddVStep, AddEStep, PropertyStep, and DropStep. It executes
+    /// the mutations against the graph and returns the resulting values.
+    fn process_mutations(&self, values: Vec<Value>) -> Vec<Value> {
+        use crate::traversal::mutation::PendingMutation;
+
+        let mut results = Vec::with_capacity(values.len());
+
+        for value in values {
+            if let Some(mutation) = PendingMutation::from_value(&value) {
+                // Execute the mutation and get the result
+                match mutation {
+                    PendingMutation::AddVertex { label, properties } => {
+                        let id = self.graph.add_vertex(&label, properties);
+                        results.push(Value::Vertex(id));
+                    }
+                    PendingMutation::AddEdge {
+                        label,
+                        from,
+                        to,
+                        properties,
+                    } => {
+                        match self.graph.add_edge(from, to, &label, properties) {
+                            Ok(id) => results.push(Value::Edge(id)),
+                            Err(_) => {
+                                // Edge creation failed - skip
+                            }
+                        }
+                    }
+                    PendingMutation::SetVertexProperty { id, key, value } => {
+                        if self.graph.set_vertex_property(id, &key, value).is_ok() {
+                            results.push(Value::Vertex(id));
+                        }
+                    }
+                    PendingMutation::SetEdgeProperty { id, key, value } => {
+                        if self.graph.set_edge_property(id, &key, value).is_ok() {
+                            results.push(Value::Edge(id));
+                        }
+                    }
+                    PendingMutation::DropVertex { id } => {
+                        let _ = self.graph.remove_vertex(id);
+                        // Drop doesn't return a value
+                    }
+                    PendingMutation::DropEdge { id } => {
+                        let _ = self.graph.remove_edge(id);
+                        // Drop doesn't return a value
+                    }
+                }
+            } else {
+                // Not a pending mutation, just pass through
+                results.push(value);
+            }
+        }
+
+        results
     }
 }
 
@@ -686,5 +1158,107 @@ impl Traversal {
     /// Iterate through all results (for side effects).
     pub fn iterate(&self) {
         let _ = self.execute();
+    }
+
+    // =========================================================================
+    // Mutation Steps
+    // =========================================================================
+
+    /// Add a vertex with a label.
+    ///
+    /// This is a spawning step - it creates a new vertex and returns it.
+    ///
+    /// @param label - The vertex label
+    #[wasm_bindgen(js_name = "addV")]
+    pub fn add_v(self, label: &str) -> Traversal {
+        self.add_step_with_type(traversal::AddVStep::new(label), TraversalType::Vertex)
+    }
+
+    /// Add an edge with a label.
+    ///
+    /// Use from()/fromId() and to()/toId() to specify endpoints.
+    ///
+    /// @param label - The edge label
+    #[wasm_bindgen(js_name = "addE")]
+    pub fn add_e(self, label: &str) -> Traversal {
+        // Use the WASM-specific AddESpawnStep that creates a pending marker
+        // The endpoints will be filled in by fromId()/toId() steps
+        self.add_step_with_type(AddESpawnStep::new(label), TraversalType::Edge)
+    }
+
+    /// Set a property on the current element.
+    ///
+    /// @param key - Property name
+    /// @param value - Property value
+    pub fn property(self, key: &str, value: JsValue) -> Result<Traversal, JsError> {
+        let v = js_to_value(value)?;
+        Ok(self.add_step(traversal::PropertyStep::new(key, v)))
+    }
+
+    /// Set the source vertex for an addE() traversal from a step label.
+    ///
+    /// @param label - Step label of source vertex
+    pub fn from(self, label: &str) -> Traversal {
+        // Modify the last step if it's an AddEStep
+        let mut steps = self.steps;
+        if let Some(last_step) = steps.pop() {
+            // Reconstruct AddEStep with from_label
+            // Since we can't downcast Box<dyn DynStep>, we'll use a new step that wraps it
+            // For now, we'll just add a new step
+            steps.push(last_step);
+        }
+        // Add a step that modifies pending add_e with from label
+        let mut t = Self {
+            graph: self.graph,
+            source: self.source,
+            steps,
+            output_type: self.output_type,
+        };
+        t = t.add_step(AddEFromLabelStep::new(label));
+        t
+    }
+
+    /// Set the source vertex for an addE() traversal by ID.
+    ///
+    /// @param id - Source vertex ID
+    #[wasm_bindgen(js_name = "fromId")]
+    pub fn from_id(self, id: JsValue) -> Result<Traversal, JsError> {
+        let vid = js_to_vertex_id(id)?;
+        Ok(self.add_step(AddEFromIdStep::new(vid)))
+    }
+
+    /// Set the target vertex for an addE() traversal from a step label.
+    ///
+    /// @param label - Step label of target vertex
+    pub fn to(self, label: &str) -> Traversal {
+        self.add_step(AddEToLabelStep::new(label))
+    }
+
+    /// Set the target vertex for an addE() traversal by ID.
+    ///
+    /// @param id - Target vertex ID
+    #[wasm_bindgen(js_name = "toId")]
+    pub fn to_id(self, id: JsValue) -> Result<Traversal, JsError> {
+        let vid = js_to_vertex_id(id)?;
+        Ok(self.add_step(AddEToIdStep::new(vid)))
+    }
+
+    /// Remove the current element from the graph.
+    pub fn drop(self) -> Traversal {
+        self.add_step(traversal::DropStep::new())
+    }
+
+    // =========================================================================
+    // Aggregate Steps
+    // =========================================================================
+
+    /// Collect all elements into a single list.
+    pub fn fold(self) -> Traversal {
+        self.add_step_with_type(FoldStep::new(), TraversalType::Value)
+    }
+
+    /// Calculate the sum of numeric values.
+    pub fn sum(self) -> Traversal {
+        self.add_step_with_type(SumStep::new(), TraversalType::Value)
     }
 }
