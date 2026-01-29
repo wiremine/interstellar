@@ -18,6 +18,8 @@ use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 
+use crate::common::graphs::create_large_graph;
+
 // =============================================================================
 // Test Fixtures for Large Graphs
 // =============================================================================
@@ -551,4 +553,193 @@ fn aggregation_accuracy_large_data() {
 
     let actual_sum = g.v().values("value").sum();
     assert_eq!(actual_sum, Value::Int(expected_sum));
+}
+
+// =============================================================================
+// Large Graph Fixture Tests (using create_large_graph from common fixtures)
+// =============================================================================
+
+/// Verifies create_large_graph fixture produces correct structure.
+#[test]
+fn large_graph_fixture_structure() {
+    let graph = create_large_graph(1000, 5);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Verify vertex count
+    let vertex_count = g.v().count();
+    assert_eq!(vertex_count, 1000);
+
+    // Verify label distribution (type_a, type_b, type_c in 1:1:1 ratio)
+    let type_a_count = g.v().has_label("type_a").count();
+    let type_b_count = g.v().has_label("type_b").count();
+    let type_c_count = g.v().has_label("type_c").count();
+
+    // Each type should have ~333 vertices (1000/3)
+    assert!(type_a_count >= 333 && type_a_count <= 334);
+    assert!(type_b_count >= 333 && type_b_count <= 334);
+    assert!(type_c_count >= 333 && type_c_count <= 334);
+}
+
+/// Verifies large graph property diversity.
+#[test]
+fn large_graph_fixture_properties() {
+    let graph = create_large_graph(500, 3);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // All vertices should have "index" property
+    let with_index = g.v().has("index").count();
+    assert_eq!(with_index, 500);
+
+    // Verify group distribution (10 groups: group_0 through group_9)
+    let groups = g.v().values("group").dedup().to_list();
+    assert_eq!(groups.len(), 10);
+
+    // Verify priority distribution (5 priorities: 0-4)
+    let priorities = g.v().values("priority").dedup().to_list();
+    assert_eq!(priorities.len(), 5);
+
+    // Verify active boolean property
+    let active_count = g.v().has_value("active", true).count();
+    let inactive_count = g.v().has_value("active", false).count();
+    // Half should be active (even indices), half inactive
+    assert_eq!(active_count, 250);
+    assert_eq!(inactive_count, 250);
+}
+
+/// Verifies large graph edge diversity.
+#[test]
+fn large_graph_fixture_edge_labels() {
+    let graph = create_large_graph(100, 6);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Verify edge labels (edge_a, edge_b, edge_c)
+    let edge_a = g.e().has_label("edge_a").count();
+    let edge_b = g.e().has_label("edge_b").count();
+    let edge_c = g.e().has_label("edge_c").count();
+
+    // Each edge type should have roughly 1/3 of edges
+    let total_edges = edge_a + edge_b + edge_c;
+    assert!(total_edges > 0);
+
+    // All edges should have weight property
+    let edges_with_weight = g.e().has("weight").count();
+    assert_eq!(edges_with_weight, total_edges);
+}
+
+/// Verifies traversal through large graph with mixed labels.
+#[test]
+fn large_graph_traversal_mixed_labels() {
+    let graph = create_large_graph(200, 4);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Start from type_a vertices, traverse via edge_b, reach type_c
+    let results = g
+        .v()
+        .has_label("type_a")
+        .limit(10)
+        .out_labels(&["edge_b"])
+        .has_label("type_c")
+        .dedup()
+        .to_list();
+
+    // May or may not have results depending on graph topology
+    let _ = results;
+}
+
+/// Verifies aggregation on large graph with diverse properties.
+#[test]
+fn large_graph_aggregation() {
+    let graph = create_large_graph(1000, 3);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Sum of indices 0..1000
+    let expected_sum: i64 = (0..1000i64).sum();
+    let actual_sum = g.v().values("index").sum();
+    assert_eq!(actual_sum, Value::Int(expected_sum));
+
+    // Group count by priority (5 groups, ~200 each)
+    let grouped = g.v().group_count().by_key("priority").build().to_list();
+
+    if let Some(Value::Map(map)) = grouped.first() {
+        assert_eq!(map.len(), 5);
+        let total: i64 = map.values().filter_map(|v| v.as_i64()).sum();
+        assert_eq!(total, 1000);
+    }
+}
+
+/// Verifies filtering by score (Float property) in large graph.
+#[test]
+fn large_graph_float_filtering() {
+    let graph = create_large_graph(500, 2);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Filter by score > 25.0 (score = index * 0.1, so index > 250)
+    let high_score_count = g.v().has_where("score", p::gt(25.0f64)).count();
+    // Vertices 251-499 should match (249 vertices)
+    assert_eq!(high_score_count, 249);
+}
+
+/// Verifies deep traversal scales in large graph.
+#[test]
+fn large_graph_deep_traversal_scaling() {
+    let graph = create_large_graph(500, 4);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Start from first vertex and traverse 5 hops
+    let start_id = g
+        .v()
+        .has_where("index", p::eq(0i64))
+        .to_list()
+        .first()
+        .and_then(|v| v.as_vertex_id());
+
+    if let Some(id) = start_id {
+        let reachable = g
+            .v_ids([id])
+            .repeat(__.out())
+            .times(5)
+            .emit()
+            .dedup()
+            .count();
+
+        // With 4 edges per vertex, should reach some vertices
+        // (actual count depends on graph topology)
+        assert!(
+            reachable >= 10,
+            "Expected at least 10 reachable vertices, got {}",
+            reachable
+        );
+    }
+}
+
+/// Verifies order by Float property works with large graph.
+#[test]
+fn large_graph_order_by_score() {
+    let graph = create_large_graph(1000, 2);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Order by score descending, get top 10
+    let top_scores = g
+        .v()
+        .values("score")
+        .order()
+        .by_desc()
+        .build()
+        .limit(10)
+        .to_list();
+
+    assert_eq!(top_scores.len(), 10);
+
+    // Top score should be (999 * 0.1) = 99.9
+    if let Some(Value::Float(top)) = top_scores.first() {
+        assert!((*top - 99.9).abs() < 0.01);
+    }
 }

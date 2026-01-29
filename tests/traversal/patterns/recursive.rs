@@ -8,76 +8,11 @@
 
 #![allow(unused_variables)]
 
-use std::collections::HashMap;
-
 use interstellar::p;
-use interstellar::storage::Graph;
 use interstellar::traversal::__;
-use interstellar::value::{Value, VertexId};
+use interstellar::value::Value;
 
-use crate::common::graphs::create_small_graph;
-
-// =============================================================================
-// Helper: Create hierarchical graph for recursive tests
-// =============================================================================
-
-fn create_org_graph() -> (Graph, VertexId, VertexId, VertexId, VertexId, VertexId) {
-    let graph = Graph::new();
-
-    // CEO
-    let ceo = graph.add_vertex("employee", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("CEO".to_string()));
-        props.insert("level".to_string(), Value::Int(0));
-        props
-    });
-
-    // CTO reports to CEO
-    let cto = graph.add_vertex("employee", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("CTO".to_string()));
-        props.insert("level".to_string(), Value::Int(1));
-        props
-    });
-    graph
-        .add_edge(cto, ceo, "reports_to", HashMap::new())
-        .unwrap();
-
-    // Manager reports to CTO
-    let manager = graph.add_vertex("employee", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Manager".to_string()));
-        props.insert("level".to_string(), Value::Int(2));
-        props
-    });
-    graph
-        .add_edge(manager, cto, "reports_to", HashMap::new())
-        .unwrap();
-
-    // Dev1 reports to Manager
-    let dev1 = graph.add_vertex("employee", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Dev1".to_string()));
-        props.insert("level".to_string(), Value::Int(3));
-        props
-    });
-    graph
-        .add_edge(dev1, manager, "reports_to", HashMap::new())
-        .unwrap();
-
-    // Dev2 reports to Manager
-    let dev2 = graph.add_vertex("employee", {
-        let mut props = HashMap::new();
-        props.insert("name".to_string(), Value::String("Dev2".to_string()));
-        props.insert("level".to_string(), Value::Int(3));
-        props
-    });
-    graph
-        .add_edge(dev2, manager, "reports_to", HashMap::new())
-        .unwrap();
-
-    (graph, ceo, cto, manager, dev1, dev2)
-}
+use crate::common::graphs::{create_org_graph, create_small_graph};
 
 // =============================================================================
 // Fixed Depth with times()
@@ -174,19 +109,20 @@ fn repeat_times_from_multiple_starts() {
 
 #[test]
 fn repeat_until_condition_met() {
-    let (graph, ceo, cto, manager, dev1, _dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
     // Go up reporting chain until reaching level 0 (CEO)
+    // dev1 -> eng_mgr1 -> cto -> ceo
     let results = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]))
         .until(__.has_where("level", p::eq(0i64)))
         .to_list();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].as_vertex_id(), Some(ceo));
+    assert_eq!(results[0].as_vertex_id(), Some(org.ceo));
 }
 
 #[test]
@@ -232,19 +168,20 @@ fn repeat_until_immediate_match() {
 
 #[test]
 fn repeat_emit_all_intermediate() {
-    let (graph, ceo, cto, manager, dev1, _dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
     // Emit all vertices in the path up the chain
+    // dev1 -> eng_mgr1 -> cto -> ceo (3 hops)
     let results = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]))
         .times(3)
         .emit()
         .to_list();
 
-    // Should emit: Manager, CTO, CEO (3 levels up)
+    // Should emit: eng_mgr1, cto, ceo (3 levels up)
     assert_eq!(results.len(), 3);
 }
 
@@ -274,13 +211,14 @@ fn repeat_emit_first() {
 
 #[test]
 fn repeat_emit_if_condition() {
-    let (graph, ceo, cto, manager, dev1, _dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
-    // Only emit vertices at level 1 or higher
+    // Only emit vertices at level 1 or lower (executives)
+    // dev1 -> eng_mgr1(2) -> cto(1) -> ceo(0)
     let results = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]))
         .times(3)
         .emit_if(__.has_where("level", p::lte(1i64)))
@@ -292,19 +230,20 @@ fn repeat_emit_if_condition() {
 
 #[test]
 fn repeat_emit_with_until() {
-    let (graph, ceo, cto, manager, dev1, _dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
     // Emit intermediates until reaching CEO
+    // dev1 -> eng_mgr1 -> cto -> ceo
     let results = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]))
         .until(__.has_where("level", p::eq(0i64)))
         .emit()
         .to_list();
 
-    // Should emit Manager, CTO, CEO
+    // Should emit eng_mgr1, cto, ceo
     assert!(results.len() >= 3);
 }
 
@@ -424,13 +363,13 @@ fn repeat_both_multiple_hops() {
 
 #[test]
 fn repeat_with_filter_inside() {
-    let (graph, ceo, cto, manager, dev1, _dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
     // Repeat with filter applied each iteration
     let results = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]).has_label("employee"))
         .times(3)
         .to_list();
@@ -440,13 +379,14 @@ fn repeat_with_filter_inside() {
 
 #[test]
 fn repeat_with_values_inside() {
-    let (graph, ceo, cto, manager, dev1, _dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
     // Get names at each level
+    // dev1 -> eng_mgr1 -> cto -> ceo
     let names = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]))
         .times(3)
         .emit()
@@ -454,7 +394,7 @@ fn repeat_with_values_inside() {
         .to_list();
 
     assert_eq!(names.len(), 3);
-    assert!(names.contains(&Value::String("Manager".to_string())));
+    assert!(names.contains(&Value::String("Eng Manager 1".to_string())));
     assert!(names.contains(&Value::String("CTO".to_string())));
     assert!(names.contains(&Value::String("CEO".to_string())));
 }
@@ -519,49 +459,51 @@ fn chained_repeat_equivalent_pattern() {
 
 #[test]
 fn find_all_descendants() {
-    let (graph, ceo, cto, manager, dev1, dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
     // Find all people who report (directly or indirectly) to CEO
+    // CEO has 9 reports: cto, cfo, eng_mgr1, eng_mgr2, fin_mgr, dev1, dev2, dev3, accountant
     let reports = g
-        .v_ids([ceo])
+        .v_ids([org.ceo])
         .repeat(__.in_labels(&["reports_to"]))
         .times(4)
         .emit()
         .to_list();
 
-    // Should find CTO, Manager, Dev1, Dev2
-    assert_eq!(reports.len(), 4);
+    // Should find all 9 employees below CEO
+    assert_eq!(reports.len(), 9);
 }
 
 #[test]
 fn find_all_ancestors() {
-    let (graph, ceo, cto, manager, dev1, dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
-    // Find all managers above Dev1
+    // Find all managers above dev1
+    // dev1 -> eng_mgr1 -> cto -> ceo
     let managers = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .repeat(__.out_labels(&["reports_to"]))
         .times(3)
         .emit()
         .to_list();
 
-    // Manager, CTO, CEO
+    // eng_mgr1, cto, ceo
     assert_eq!(managers.len(), 3);
 }
 
 #[test]
 fn count_hierarchy_depth() {
-    let (graph, ceo, cto, manager, dev1, dev2) = create_org_graph();
-    let snapshot = graph.snapshot();
+    let org = create_org_graph();
+    let snapshot = org.snapshot();
     let g = snapshot.gremlin();
 
-    // Count levels from Dev1 to CEO - must enable with_path() first
+    // Count levels from dev1 to CEO - must enable with_path() first
     let path = g
-        .v_ids([dev1])
+        .v_ids([org.dev1])
         .with_path()
         .repeat(__.out_labels(&["reports_to"]))
         .until(__.has_where("level", p::eq(0i64)))
@@ -569,7 +511,7 @@ fn count_hierarchy_depth() {
         .to_list();
 
     if let Value::List(p) = &path[0] {
-        // Dev1 -> Manager -> CTO -> CEO = 4 vertices in path = 3 edges = depth 3
+        // dev1 -> eng_mgr1 -> cto -> ceo = 4 vertices in path = 3 edges = depth 3
         assert_eq!(p.len(), 4);
     }
 }

@@ -15,7 +15,7 @@ use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::Value;
 
-use crate::common::graphs::{create_empty_graph, create_small_graph};
+use crate::common::graphs::{create_empty_graph, create_property_test_graph, create_small_graph};
 
 // =============================================================================
 // Empty Traversal Handling (10+ tests)
@@ -789,4 +789,218 @@ fn list_property_handling() {
     // values() returns List values
     let tags = g.v().values("tags").to_list();
     assert_eq!(tags.len(), 2);
+}
+
+// =============================================================================
+// Property Test Graph Scenarios (using create_property_test_graph fixture)
+// =============================================================================
+
+#[test]
+fn property_test_graph_all_vertex_types() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // The fixture creates 6 vertices with different property patterns
+    let vertex_count = g.v().count();
+    assert_eq!(vertex_count, 6);
+
+    // Each vertex has a distinct label
+    let complete = g.v().has_label("complete").count();
+    let strings_only = g.v().has_label("strings_only").count();
+    let numbers_only = g.v().has_label("numbers_only").count();
+    let booleans = g.v().has_label("booleans").count();
+    let sparse = g.v().has_label("sparse").count();
+    let nested = g.v().has_label("nested").count();
+
+    assert_eq!(complete, 1);
+    assert_eq!(strings_only, 1);
+    assert_eq!(numbers_only, 1);
+    assert_eq!(booleans, 1);
+    assert_eq!(sparse, 1);
+    assert_eq!(nested, 1);
+}
+
+#[test]
+fn property_test_graph_string_properties() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // strings_only vertex has name, description, empty_string, unicode
+    let names = g.v().has_label("strings_only").values("name").to_list();
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0], Value::String("StringVertex".to_string()));
+
+    // Empty string is a valid property value
+    let empty = g
+        .v()
+        .has_label("strings_only")
+        .values("empty_string")
+        .to_list();
+    assert_eq!(empty.len(), 1);
+    assert_eq!(empty[0], Value::String("".to_string()));
+
+    // Unicode strings work correctly
+    let unicode = g.v().has_label("strings_only").values("unicode").to_list();
+    assert_eq!(unicode.len(), 1);
+    assert_eq!(unicode[0], Value::String("こんにちは 🌍".to_string()));
+}
+
+#[test]
+fn property_test_graph_numeric_edge_cases() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // numbers_only vertex has extreme values
+    let large_int = g
+        .v()
+        .has_label("numbers_only")
+        .values("large_int")
+        .to_list();
+    assert_eq!(large_int.len(), 1);
+    assert_eq!(large_int[0], Value::Int(i64::MAX));
+
+    let small_int = g
+        .v()
+        .has_label("numbers_only")
+        .values("small_int")
+        .to_list();
+    assert_eq!(small_int.len(), 1);
+    assert_eq!(small_int[0], Value::Int(i64::MIN));
+
+    let zero = g.v().has_label("numbers_only").values("zero").to_list();
+    assert_eq!(zero.len(), 1);
+    assert_eq!(zero[0], Value::Int(0));
+
+    // Tiny float preserves precision
+    let tiny = g
+        .v()
+        .has_label("numbers_only")
+        .values("tiny_float")
+        .to_list();
+    assert_eq!(tiny.len(), 1);
+    if let Value::Float(f) = tiny[0] {
+        assert!((f - 0.000001).abs() < 1e-12);
+    } else {
+        panic!("Expected Float, got {:?}", tiny[0]);
+    }
+}
+
+#[test]
+fn property_test_graph_boolean_filtering() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Filter by boolean property
+    let active = g
+        .v()
+        .has_label("booleans")
+        .has_value("is_active", true)
+        .count();
+    assert_eq!(active, 1);
+
+    let deleted = g
+        .v()
+        .has_label("booleans")
+        .has_value("is_deleted", false)
+        .count();
+    assert_eq!(deleted, 1);
+}
+
+#[test]
+fn property_test_graph_null_property_exists() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // sparse vertex has null_value property
+    let nulls = g.v().has_label("sparse").values("null_value").to_list();
+    assert_eq!(nulls.len(), 1);
+    assert_eq!(nulls[0], Value::Null);
+
+    // has() finds vertex even if property is null
+    let with_null = g.v().has_label("sparse").has("null_value").count();
+    assert_eq!(with_null, 1);
+}
+
+#[test]
+fn property_test_graph_list_property() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // complete vertex has list_prop
+    let list = g.v().has_label("complete").values("list_prop").to_list();
+    assert_eq!(list.len(), 1);
+    if let Value::List(items) = &list[0] {
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::Int(1));
+        assert_eq!(items[1], Value::Int(2));
+        assert_eq!(items[2], Value::Int(3));
+    } else {
+        panic!("Expected List, got {:?}", list[0]);
+    }
+}
+
+#[test]
+fn property_test_graph_map_property() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // complete vertex has map_prop
+    let map = g.v().has_label("complete").values("map_prop").to_list();
+    assert_eq!(map.len(), 1);
+    if let Value::Map(m) = &map[0] {
+        assert!(m.contains_key("nested_key"));
+        assert_eq!(
+            m.get("nested_key"),
+            Some(&Value::String("nested_value".to_string()))
+        );
+    } else {
+        panic!("Expected Map, got {:?}", map[0]);
+    }
+}
+
+#[test]
+fn property_test_graph_cross_label_property_query() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Query for int_prop across all vertices - only complete and numbers_only have numeric props
+    let int_prop_count = g.v().has("int_prop").count();
+    assert_eq!(int_prop_count, 1); // Only complete has int_prop
+
+    // Query all vertices that have any "name" property
+    let with_name = g.v().has("name").count();
+    assert_eq!(with_name, 1); // Only strings_only has "name"
+}
+
+#[test]
+fn property_test_graph_sparse_vs_complete() {
+    let graph = create_property_test_graph();
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // complete has 7 properties, sparse has only 2
+    let complete_props = g
+        .v()
+        .has_label("complete")
+        .has("string_prop")
+        .has("int_prop")
+        .has("float_prop")
+        .has("bool_prop")
+        .count();
+    assert_eq!(complete_props, 1);
+
+    // sparse vertex is missing all these properties
+    let sparse_has_int = g.v().has_label("sparse").has("int_prop").count();
+    assert_eq!(sparse_has_int, 0);
+
+    let sparse_has_string = g.v().has_label("sparse").has("string_prop").count();
+    assert_eq!(sparse_has_string, 0);
 }

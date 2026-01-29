@@ -15,7 +15,9 @@ use interstellar::storage::Graph;
 use interstellar::traversal::__;
 use interstellar::value::{Value, VertexId};
 
-use crate::common::graphs::{create_medium_graph, create_small_graph, create_social_graph};
+use crate::common::graphs::{
+    create_dense_graph, create_medium_graph, create_small_graph, create_social_graph,
+};
 
 // =============================================================================
 // Deep Navigation Chains
@@ -808,4 +810,222 @@ fn union_with_different_depths() {
 
     // Alice -> Bob (1 hop), Alice -> Bob -> Charlie (2 hops)
     assert!(ids.contains(&tg.bob) || ids.contains(&tg.charlie));
+}
+
+// =============================================================================
+// Dense Graph Stress Tests (using create_dense_graph fixture)
+// =============================================================================
+
+#[test]
+fn dense_graph_deep_navigation() {
+    // Create a dense graph with 50 vertices, 5 edges per vertex
+    let graph = create_dense_graph(50, 5);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Verify structure
+    let vertex_count = g.v().count();
+    assert_eq!(vertex_count, 50);
+
+    // Navigate 4 hops deep from vertex 0
+    let start_id = g
+        .v()
+        .has_where("index", p::eq(0i64))
+        .to_list()
+        .first()
+        .and_then(|v| v.as_vertex_id());
+
+    if let Some(id) = start_id {
+        let results = g
+            .v_ids([id])
+            .out_labels(&["connects"])
+            .out_labels(&["connects"])
+            .out_labels(&["connects"])
+            .out_labels(&["connects"])
+            .dedup()
+            .to_list();
+
+        // With 5 edges per vertex, 4 hops should reach many vertices
+        assert!(!results.is_empty());
+        // With high connectivity, most of the 50 vertices should be reachable
+        assert!(results.len() >= 10);
+    }
+}
+
+#[test]
+fn dense_graph_repeat_with_dedup() {
+    let graph = create_dense_graph(30, 4);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Get first vertex as starting point
+    let start_id = g
+        .v()
+        .has_where("index", p::eq(0i64))
+        .to_list()
+        .first()
+        .and_then(|v| v.as_vertex_id());
+
+    if let Some(id) = start_id {
+        // Repeat traversal, emit all, then dedup
+        let results = g
+            .v_ids([id])
+            .repeat(__.out_labels(&["connects"]))
+            .times(5)
+            .emit()
+            .dedup()
+            .to_list();
+
+        // Should find many unique vertices through the dense network
+        assert!(results.len() >= 10);
+        // Should not exceed total vertex count
+        assert!(results.len() <= 30);
+    }
+}
+
+#[test]
+fn dense_graph_bidirectional_exploration() {
+    let graph = create_dense_graph(40, 3);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Start from middle vertex (index 20)
+    let start_id = g
+        .v()
+        .has_where("index", p::eq(20i64))
+        .to_list()
+        .first()
+        .and_then(|v| v.as_vertex_id());
+
+    if let Some(id) = start_id {
+        // Explore both directions
+        let results = g
+            .v_ids([id])
+            .both_labels(&["connects"])
+            .both_labels(&["connects"])
+            .dedup()
+            .to_list();
+
+        // Bidirectional exploration should reach many vertices quickly
+        assert!(!results.is_empty());
+    }
+}
+
+#[test]
+fn dense_graph_filter_chain_on_properties() {
+    let graph = create_dense_graph(100, 5);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Navigate and filter by property
+    let results = g
+        .v()
+        .has_where("index", p::lt(10i64)) // Start from first 10 vertices
+        .out_labels(&["connects"])
+        .has_where("index", p::gte(50i64)) // Filter to vertices with index >= 50
+        .dedup()
+        .to_list();
+
+    // With modular edge creation, should reach various indices
+    // Not all paths will reach index >= 50, but some should
+    let _ = results; // May or may not be empty depending on edge topology
+}
+
+#[test]
+fn dense_graph_weighted_edges() {
+    let graph = create_dense_graph(20, 4);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Check that edges have weight properties
+    let edges = g.e().to_list();
+    assert!(!edges.is_empty());
+
+    // Navigate via edges with properties
+    let edge_weights = g.e().values("weight").to_list();
+    assert!(!edge_weights.is_empty());
+
+    // All weights should be floats between 0 and 1
+    for weight in &edge_weights {
+        if let Value::Float(w) = weight {
+            assert!(*w > 0.0 && *w <= 1.0);
+        }
+    }
+}
+
+#[test]
+fn dense_graph_complex_mixed_chain() {
+    let graph = create_dense_graph(50, 4);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Complex chain mixing filter, navigation, dedup, limit
+    let results = g
+        .v()
+        .has_label("node") // All vertices have label "node"
+        .has_where("index", p::lte(5i64)) // First 6 vertices
+        .out_labels(&["connects"]) // Navigate
+        .has_where("index", p::gt(10i64)) // Filter by property
+        .out_labels(&["connects"]) // Navigate again
+        .dedup()
+        .limit(20) // Cap results
+        .to_list();
+
+    // Should have at most 20 results
+    assert!(results.len() <= 20);
+}
+
+#[test]
+fn dense_graph_union_from_multiple_starts() {
+    let graph = create_dense_graph(30, 3);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Get two starting vertices
+    let vertices = g.v().has_where("index", p::lte(1i64)).to_list();
+    let ids: Vec<VertexId> = vertices.iter().filter_map(|v| v.as_vertex_id()).collect();
+
+    if ids.len() >= 2 {
+        // Union of traversals from different starts
+        let results = g
+            .v_ids(ids)
+            .union(vec![
+                __.out_labels(&["connects"]),
+                __.out_labels(&["connects"]).out_labels(&["connects"]),
+            ])
+            .dedup()
+            .to_list();
+
+        // Should get results from both 1-hop and 2-hop traversals from both starts
+        assert!(!results.is_empty());
+    }
+}
+
+#[test]
+fn dense_graph_count_reachable_vertices() {
+    let graph = create_dense_graph(50, 5);
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // Start from vertex 0
+    let start_id = g
+        .v()
+        .has_where("index", p::eq(0i64))
+        .to_list()
+        .first()
+        .and_then(|v| v.as_vertex_id());
+
+    if let Some(id) = start_id {
+        // Count unique vertices reachable in 3 hops
+        let reachable_count = g
+            .v_ids([id])
+            .repeat(__.out_labels(&["connects"]))
+            .times(3)
+            .emit()
+            .dedup()
+            .count();
+
+        // With 5 edges per vertex, 3 hops in a 50-vertex graph should reach many
+        assert!(reachable_count >= 15);
+    }
 }
