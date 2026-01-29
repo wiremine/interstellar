@@ -75,6 +75,10 @@ harness = false
 name = "quickstart_gremlin"
 
 [[example]]
+name = "quickstart_gremlin_script"
+required-features = ["gremlin"]
+
+[[example]]
 name = "quickstart_gql"
 required-features = ["gql"]
 

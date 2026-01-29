@@ -71,3 +71,18 @@ mod aggregate_coverage;
 
 #[path = "traversal/properties_coverage.rs"]
 mod properties_coverage;
+
+#[path = "traversal/edge_cases.rs"]
+mod edge_cases;
+
+#[path = "traversal/patterns/mod.rs"]
+mod patterns;
+
+#[path = "traversal/composition.rs"]
+mod composition;
+
+#[path = "traversal/semantics.rs"]
+mod semantics;
+
+#[path = "traversal/performance.rs"]
+mod performance;
