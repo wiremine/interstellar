@@ -1,0 +1,67 @@
+{
+  "name": "@interstellar/node",
+  "version": "0.1.0",
+  "description": "High-performance graph database for Node.js",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "author": "Interstellar Contributors",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropic/interstellar"
+  },
+  "keywords": [
+    "graph",
+    "database",
+    "gremlin",
+    "traversal",
+    "native",
+    "performance"
+  ],
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "napi": {
+    "name": "interstellar",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "aarch64-apple-darwin",
+        "armv7-unknown-linux-gnueabihf"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">= 16"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "optionalDependencies": {
+    "@interstellar/node-win32-x64-msvc": "0.1.0",
+    "@interstellar/node-darwin-x64": "0.1.0",
+    "@interstellar/node-darwin-arm64": "0.1.0",
+    "@interstellar/node-linux-x64-gnu": "0.1.0",
+    "@interstellar/node-linux-x64-musl": "0.1.0",
+    "@interstellar/node-linux-arm64-gnu": "0.1.0",
+    "@interstellar/node-linux-arm64-musl": "0.1.0",
+    "@interstellar/node-linux-arm-gnueabihf": "0.1.0"
+  }
+}

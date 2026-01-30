@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "interstellar-node"]
+
 [package]
 name = "interstellar"
 version = "0.1.0"

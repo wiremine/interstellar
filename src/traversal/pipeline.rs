@@ -97,6 +97,28 @@ impl<In, Out> Traversal<In, Out> {
         }
     }
 
+    /// Create an anonymous traversal from pre-boxed steps.
+    ///
+    /// This is useful for FFI bindings that accumulate steps as boxed
+    /// trait objects and need to construct a traversal at the end.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let steps: Vec<Box<dyn DynStep>> = vec![
+    ///     Box::new(OutStep::new()),
+    ///     Box::new(HasLabelStep::single("person")),
+    /// ];
+    /// let traversal: Traversal<Value, Value> = Traversal::from_steps(steps);
+    /// ```
+    pub fn from_steps(steps: Vec<Box<dyn DynStep>>) -> Self {
+        Self {
+            steps,
+            source: None,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Create a traversal with a source (for bound traversals).
     ///
     /// This is typically called by `GraphTraversalSource` methods like

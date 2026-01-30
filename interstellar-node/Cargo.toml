@@ -1,0 +1,37 @@
+[package]
+name = "interstellar-node"
+version = "0.1.0"
+edition = "2021"
+description = "Native Node.js bindings for Interstellar graph database"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["graph", "database", "gremlin", "nodejs", "napi"]
+categories = ["database", "api-bindings"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+interstellar = { path = ".." }
+napi = { version = "2", default-features = false, features = [
+    "napi8",
+    "async",
+    "serde-json",
+    "error_anyhow"
+] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"
+
+[features]
+default = ["mmap"]
+mmap = ["interstellar/mmap"]
+graphson = ["interstellar/graphson"]
+gql = ["interstellar/gql"]
+
+[profile.release]
+lto = true
+strip = "symbols"
+opt-level = 3
+codegen-units = 1
