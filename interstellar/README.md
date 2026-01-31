@@ -1,5 +1,9 @@
 # Interstellar
 
+> **Early Development Notice**
+>
+> Interstellar is in early development and is **not recommended for production use**. APIs may change without notice, and the project has not been audited for security or performance at scale.
+
 A high-performance Rust graph database with dual query APIs: Gremlin-style fluent traversals and GQL (Graph Query Language).
 
 ## Features
@@ -576,7 +580,7 @@ const bob = graph.addVertex('person', { name: 'Bob', age: 25n });
 graph.addEdge(alice, bob, 'knows', { since: 2020n });
 
 // Gremlin-style traversal
-const friends = graph.V_(alice)
+const friends = graph.V([alice])
     .outLabels(['knows'])
     .values('name')
     .toList();
@@ -708,3 +712,7 @@ See the [docs/](docs/) directory for comprehensive documentation:
 ## License
 
 MIT
+
+## Development Approach
+
+This project uses **spec-driven development** with AI assistance. Most code is generated or reviewed by LLMs (primarily Claude Opus 4.5). While we aim for high quality and test coverage, this approach is experimental.

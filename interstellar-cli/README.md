@@ -1,6 +1,10 @@
 # Interstellar CLI
 
-A command-line interface for the [Interstellar](https://github.com/example/interstellar) graph database.
+> **Early Development Notice**
+>
+> Interstellar is in early development and is **not recommended for production use**. APIs may change without notice, and the project has not been audited for security or performance at scale.
+
+A command-line interface for the [Interstellar](../interstellar/) graph database.
 
 ## Installation
 
@@ -117,49 +121,25 @@ Edge Labels:
   mentored_by: 1
 ```
 
-### import (Phase 4)
+## Planned Commands
 
-Import data from files.
+The following commands are planned for future releases:
 
-```bash
-interstellar import <db-path> <file> [OPTIONS]
-```
+### import (Phase 4 - Planned)
 
-**Options:**
-- `--label <label>` - Label for imported vertices
-- `--edges` - Treat file as edge data
-- `--from-col <col>` - Source column for edges (default: `from`)
-- `--to-col <col>` - Target column for edges (default: `to`)
-- `--batch-size <n>` - Batch commit size (default: 10000)
+Import data from files (CSV, JSON).
 
-### export (Phase 4)
+### export (Phase 4 - Planned)
 
 Export database to files.
 
-```bash
-interstellar export <db-path> <output> [OPTIONS]
-```
-
-**Options:**
-- `--label <label>` - Export only vertices with specific label
-- `--format <fmt>` - Output format: `json`, `csv`
-- `--pretty` - Pretty-print JSON
-
-### schema (Phase 5)
+### schema (Phase 5 - Planned)
 
 Display inferred schema.
 
-```bash
-interstellar schema <path> [OPTIONS]
-```
-
-### serve (Phase 6)
+### serve (Phase 6 - Planned)
 
 Start web UI server.
-
-```bash
-interstellar serve <path> [OPTIONS]
-```
 
 ## GQL Query Language
 
@@ -185,7 +165,7 @@ RETURN t.name, count(n) AS members
 
 ## Gremlin Scripting
 
-Interstellar supports Gremlin-style traversals via the Rhai scripting engine. This mode is available for both **in-memory and persistent graphs**.
+Interstellar supports Gremlin-style traversals via a native parser. This mode is available for both **in-memory and persistent graphs**.
 
 ```bash
 # Start REPL in Gremlin mode
@@ -402,3 +382,7 @@ interstellar create ./royals.db --with-sample british_royals --no-repl
 ## License
 
 MIT
+
+## Development Approach
+
+This project uses **spec-driven development** with AI assistance. Most code is generated or reviewed by LLMs (primarily Claude Opus 4.5). While we aim for high quality and test coverage, this approach is experimental.
