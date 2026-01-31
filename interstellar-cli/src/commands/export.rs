@@ -70,6 +70,7 @@ pub fn execute(db_path: PathBuf, output_path: PathBuf, pretty: bool) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use interstellar::storage::Graph;
     use interstellar::Value;
     use std::collections::HashMap;
@@ -167,7 +168,7 @@ mod tests {
         execute(db_path.clone(), output_path.clone(), true).unwrap();
 
         // Import into new database
-        let db_path2 = temp_dir.path().join("test2.db");
+        let _db_path2 = temp_dir.path().join("test2.db");
         let json = fs::read_to_string(&output_path).unwrap();
         let imported = graphson::from_str(&json).unwrap();
 

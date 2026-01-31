@@ -1,5 +1,5 @@
 [workspace]
-members = ["interstellar", "interstellar-node", "interstellar-wasm"]
+members = ["interstellar", "interstellar-cli", "interstellar-node", "interstellar-wasm"]
 resolver = "2"
 
 [profile.release]

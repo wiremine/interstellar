@@ -381,7 +381,12 @@ impl JsGraph {
     #[napi]
     pub fn gql(&self, env: Env, query: String) -> Result<JsUnknown> {
         self.backend.with_snapshot(|snapshot| {
-            let results = interstellar::gql::execute(snapshot, &query)
+            // Parse the GQL statement
+            let stmt = interstellar::gql::parse_statement(&query)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+            // Compile and execute the statement against the snapshot
+            let results = interstellar::gql::compile_statement(&stmt, snapshot)
                 .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
             crate::value::values_to_js_array(env, results)
