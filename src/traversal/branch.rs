@@ -281,6 +281,154 @@ impl Step for NotStep {
     }
 }
 
+/// Filter by comparing current value to a labeled path value (not equal).
+///
+/// Emits input traverser only if the current value is NOT equal to the value
+/// stored at the specified path label.
+///
+/// # Example
+///
+/// ```ignore
+/// // Find customers who are not Alice
+/// g.v().as_("alice").out().in_().where_neq("alice").to_list()
+/// ```
+#[derive(Clone)]
+pub struct WhereNeqStep {
+    label: String,
+}
+
+impl WhereNeqStep {
+    /// Create a new WhereNeqStep that compares to the given label.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+        }
+    }
+}
+
+impl Step for WhereNeqStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let label = self.label.clone();
+        input.filter(move |t| {
+            // Get the labeled value from the path
+            if let Some(labeled_values) = t.path.get(&label) {
+                // Compare current value to the first labeled value
+                if let Some(labeled_value) = labeled_values.first() {
+                    return t.value != labeled_value.to_value();
+                }
+            }
+            // If label not found, pass through (conservative behavior)
+            true
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "where_neq"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Get the labeled value from the path
+        if let Some(labeled_values) = input.path.get(&self.label) {
+            // Compare current value to the first labeled value
+            if let Some(labeled_value) = labeled_values.first() {
+                if input.value != labeled_value.to_value() {
+                    return Box::new(std::iter::once(input));
+                } else {
+                    return Box::new(std::iter::empty());
+                }
+            }
+        }
+        // If label not found, pass through (conservative behavior)
+        Box::new(std::iter::once(input))
+    }
+}
+
+/// Filter by comparing current value to a labeled path value (equal).
+///
+/// Emits input traverser only if the current value IS equal to the value
+/// stored at the specified path label.
+///
+/// # Example
+///
+/// ```ignore
+/// // Find vertices that match a previously labeled vertex
+/// g.v().as_("start").out().in_().where_eq("start").to_list()
+/// ```
+#[derive(Clone)]
+pub struct WhereEqStep {
+    label: String,
+}
+
+impl WhereEqStep {
+    /// Create a new WhereEqStep that compares to the given label.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+        }
+    }
+}
+
+impl Step for WhereEqStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        let label = self.label.clone();
+        input.filter(move |t| {
+            // Get the labeled value from the path
+            if let Some(labeled_values) = t.path.get(&label) {
+                // Compare current value to the first labeled value
+                if let Some(labeled_value) = labeled_values.first() {
+                    return t.value == labeled_value.to_value();
+                }
+            }
+            // If label not found, filter out (conservative behavior for equality)
+            false
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "where_eq"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        // Get the labeled value from the path
+        if let Some(labeled_values) = input.path.get(&self.label) {
+            // Compare current value to the first labeled value
+            if let Some(labeled_value) = labeled_values.first() {
+                if input.value == labeled_value.to_value() {
+                    return Box::new(std::iter::once(input));
+                }
+            }
+        }
+        // If label not found or not equal, filter out
+        Box::new(std::iter::empty())
+    }
+}
+
 /// Filter by multiple sub-traversals (AND logic).
 ///
 /// Emits input traverser only if ALL sub-traversals produce at least one result.

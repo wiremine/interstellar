@@ -12,3 +12,4 @@ pub mod conditionals;
 pub mod neighborhood;
 pub mod paths;
 pub mod recursive;
+pub mod similar_customers;

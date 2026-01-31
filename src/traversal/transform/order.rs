@@ -31,6 +31,8 @@ pub enum OrderKey {
     Property(String, Order),
     /// Order by the result of a sub-traversal
     Traversal(Traversal<Value, Value>, Order),
+    /// Order by the value of a single-entry Map (e.g., after group_count().unfold())
+    MapValue(Order),
 }
 
 // -----------------------------------------------------------------------------
@@ -129,6 +131,12 @@ impl OrderStep {
                     let cmp = Self::compare_option_values(&va, &vb);
                     Self::apply_order(cmp, *order)
                 }
+                OrderKey::MapValue(order) => {
+                    let va = Self::extract_map_value(&a.value);
+                    let vb = Self::extract_map_value(&b.value);
+                    let cmp = Self::compare_option_values(&va, &vb);
+                    Self::apply_order(cmp, *order)
+                }
             };
 
             if ord != CmpOrdering::Equal {
@@ -137,6 +145,16 @@ impl OrderStep {
         }
 
         CmpOrdering::Equal
+    }
+
+    /// Extract the value from a single-entry Map.
+    /// Returns None if the value is not a Map or has no entries.
+    #[inline]
+    fn extract_map_value(value: &Value) -> Option<Value> {
+        match value {
+            Value::Map(map) => map.values().next().cloned(),
+            _ => None,
+        }
     }
 
     /// Compare two values.
@@ -324,6 +342,24 @@ impl<In> OrderBuilder<In> {
         self
     }
 
+    /// Sort by Map value ascending.
+    ///
+    /// For single-entry Maps (e.g., after `group_count().unfold()`), sorts by the value.
+    /// This is useful for sorting count results or grouped values.
+    pub fn by_value_asc(mut self) -> Self {
+        self.order_keys.push(OrderKey::MapValue(Order::Asc));
+        self
+    }
+
+    /// Sort by Map value descending.
+    ///
+    /// For single-entry Maps (e.g., after `group_count().unfold()`), sorts by the value.
+    /// This is useful for sorting count results or grouped values in descending order.
+    pub fn by_value_desc(mut self) -> Self {
+        self.order_keys.push(OrderKey::MapValue(Order::Desc));
+        self
+    }
+
     /// Build the final traversal with the OrderStep.
     pub fn build(mut self) -> Traversal<In, Value> {
         // If no order keys were specified, default to natural ascending
@@ -419,6 +455,24 @@ impl<'g, In> BoundOrderBuilder<'g, In> {
     pub fn by_traversal(mut self, t: Traversal<Value, Value>, desc: bool) -> Self {
         let order = if desc { Order::Desc } else { Order::Asc };
         self.order_keys.push(OrderKey::Traversal(t, order));
+        self
+    }
+
+    /// Sort by Map value ascending.
+    ///
+    /// For single-entry Maps (e.g., after `group_count().unfold()`), sorts by the value.
+    /// This is useful for sorting count results or grouped values.
+    pub fn by_value_asc(mut self) -> Self {
+        self.order_keys.push(OrderKey::MapValue(Order::Asc));
+        self
+    }
+
+    /// Sort by Map value descending.
+    ///
+    /// For single-entry Maps (e.g., after `group_count().unfold()`), sorts by the value.
+    /// This is useful for sorting count results or grouped values in descending order.
+    pub fn by_value_desc(mut self) -> Self {
+        self.order_keys.push(OrderKey::MapValue(Order::Desc));
         self
     }
 

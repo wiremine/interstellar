@@ -968,6 +968,188 @@ pub fn mean() -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(MeanStep::new())
 }
 
+/// Collect all traversers into a single list value.
+///
+/// This is a **barrier step** - it collects ALL input before producing
+/// a single `Value::List` containing all collected values.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().out().fold()  // Collect all outgoing vertices into a list
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Fold all values into a list
+/// let folded = __.fold();
+///
+/// // Use with project to count and collect
+/// let t = g.v().out().fold()
+///     .project(&["count", "items"])
+///     .by(__.count_local())
+///     .by(__.identity())
+///     .build();
+/// ```
+#[inline]
+pub fn fold() -> Traversal<Value, Value> {
+    use crate::traversal::transform::FoldStep;
+    Traversal::<Value, Value>::new().add_step(FoldStep::new())
+}
+
+/// Sum all numeric input values.
+///
+/// This is a **barrier step** - it collects ALL input before producing
+/// the sum as a single `Value::Int` or `Value::Float`.
+///
+/// # Behavior
+///
+/// - Sums all numeric values (`Value::Int` and `Value::Float`)
+/// - Non-numeric values are silently ignored
+/// - If all inputs are integers, returns `Value::Int`
+/// - If any input is a float, returns `Value::Float`
+/// - Empty input returns `Value::Int(0)`
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").sum()  // Sum all ages
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Sum numeric values
+/// let total = __.sum();
+/// ```
+#[inline]
+pub fn sum() -> Traversal<Value, Value> {
+    use crate::traversal::transform::SumStep;
+    Traversal::<Value, Value>::new().add_step(SumStep::new())
+}
+
+/// Count elements within each collection value (local scope).
+///
+/// Unlike the global `count()` which counts traversers in the stream,
+/// `count_local()` counts elements *within* each traverser's collection value.
+/// This implements Gremlin's `count(local)` semantics.
+///
+/// # Behavior
+///
+/// - `Value::List`: Returns the number of elements in the list
+/// - `Value::Map`: Returns the number of entries in the map
+/// - `Value::String`: Returns the length of the string
+/// - Other values: Returns 1
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().out().fold().count(local)  // Count items in each folded list
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Count elements in a folded list
+/// let count = __.count_local();
+/// ```
+#[inline]
+pub fn count_local() -> Traversal<Value, Value> {
+    use crate::traversal::transform::CountLocalStep;
+    Traversal::<Value, Value>::new().add_step(CountLocalStep::new())
+}
+
+/// Sum elements within each collection value (local scope).
+///
+/// Unlike the global `sum()` which sums across all traversers,
+/// `sum_local()` sums elements *within* each traverser's collection value.
+/// This implements Gremlin's `sum(local)` semantics.
+///
+/// # Behavior
+///
+/// - `Value::List`: Sums all numeric elements in the list
+/// - `Value::Int`/`Value::Float`: Returns the value unchanged
+/// - Other values: Returns 0
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("scores").fold().sum(local)  // Sum scores within each list
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Sum elements in a folded list
+/// let total = __.sum_local();
+/// ```
+#[inline]
+pub fn sum_local() -> Traversal<Value, Value> {
+    use crate::traversal::transform::SumLocalStep;
+    Traversal::<Value, Value>::new().add_step(SumLocalStep::new())
+}
+
+/// Extract keys from Map values.
+///
+/// For each traverser with a Map value, extracts the keys.
+/// Single-entry maps return the key directly; multi-entry maps
+/// return a List of keys. Non-Map values are filtered out.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().group().by(label).unfold().select(keys)
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Get group keys after grouping
+/// let keys = __.select_keys();
+/// ```
+#[inline]
+pub fn select_keys() -> Traversal<Value, Value> {
+    use crate::traversal::transform::SelectKeysStep;
+    Traversal::<Value, Value>::new().add_step(SelectKeysStep::new())
+}
+
+/// Extract values from Map values.
+///
+/// For each traverser with a Map value, extracts the values.
+/// Single-entry maps return the value directly; multi-entry maps
+/// return a List of values. Non-Map values are filtered out.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().group().by(label).unfold().select(values)
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Get group values after grouping
+/// let values = __.select_values();
+/// ```
+#[inline]
+pub fn select_values() -> Traversal<Value, Value> {
+    use crate::traversal::transform::SelectValuesStep;
+    Traversal::<Value, Value>::new().add_step(SelectValuesStep::new())
+}
+
 /// Sort traversers using a fluent builder.
 ///
 /// This is a **barrier step** - it collects ALL input before producing sorted output.
@@ -2125,6 +2307,42 @@ impl AnonymousTraversal {
     #[inline]
     pub fn mean(&self) -> Traversal<Value, Value> {
         mean()
+    }
+
+    /// Collect all traversers into a single list value.
+    #[inline]
+    pub fn fold(&self) -> Traversal<Value, Value> {
+        fold()
+    }
+
+    /// Sum all numeric input values.
+    #[inline]
+    pub fn sum(&self) -> Traversal<Value, Value> {
+        sum()
+    }
+
+    /// Count elements within each collection value (local scope).
+    #[inline]
+    pub fn count_local(&self) -> Traversal<Value, Value> {
+        count_local()
+    }
+
+    /// Sum elements within each collection value (local scope).
+    #[inline]
+    pub fn sum_local(&self) -> Traversal<Value, Value> {
+        sum_local()
+    }
+
+    /// Extract keys from Map values.
+    #[inline]
+    pub fn select_keys(&self) -> Traversal<Value, Value> {
+        select_keys()
+    }
+
+    /// Extract values from Map values.
+    #[inline]
+    pub fn select_values(&self) -> Traversal<Value, Value> {
+        select_values()
     }
 
     /// Sort traversers using a fluent builder.

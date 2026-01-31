@@ -342,6 +342,160 @@ impl crate::traversal::step::Step for SelectStep {
     }
 }
 
+// -----------------------------------------------------------------------------
+// SelectKeysStep - extract keys from a Map value
+// -----------------------------------------------------------------------------
+
+/// Transform step that extracts keys from Map values.
+///
+/// For each traverser with a Map value, this step emits the keys.
+/// If the Map has a single entry, emits that key directly.
+/// If the Map has multiple entries, emits a List of keys.
+/// Non-Map values are filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// // After unfold() on a grouped result, get just the label keys
+/// g.v().group().by_label().unfold().select_keys().to_list()
+/// // Returns: ["person", "software", ...]
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SelectKeysStep;
+
+impl SelectKeysStep {
+    /// Create a new SelectKeysStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::Step for SelectKeysStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        input.filter_map(|t| match &t.value {
+            Value::Map(map) => {
+                let keys: Vec<Value> = map.keys().map(|k| Value::String(k.clone())).collect();
+                if keys.len() == 1 {
+                    Some(t.with_value(keys.into_iter().next().unwrap()))
+                } else {
+                    Some(t.with_value(Value::List(keys)))
+                }
+            }
+            _ => None, // Filter out non-Map values
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "select_keys"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        match &input.value {
+            Value::Map(map) => {
+                let keys: Vec<Value> = map.keys().map(|k| Value::String(k.clone())).collect();
+                if keys.len() == 1 {
+                    Box::new(std::iter::once(
+                        input.with_value(keys.into_iter().next().unwrap()),
+                    ))
+                } else {
+                    Box::new(std::iter::once(input.with_value(Value::List(keys))))
+                }
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// SelectValuesStep - extract values from a Map value
+// -----------------------------------------------------------------------------
+
+/// Transform step that extracts values from Map values.
+///
+/// For each traverser with a Map value, this step emits the values.
+/// If the Map has a single entry, emits that value directly.
+/// If the Map has multiple entries, emits a List of values.
+/// Non-Map values are filtered out.
+///
+/// # Example
+///
+/// ```ignore
+/// // After unfold() on a grouped result, get just the grouped values
+/// g.v().group().by_label().unfold().select_values().to_list()
+/// // Returns: [[v1, v2], [v3], ...]  (lists of vertices per label)
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SelectValuesStep;
+
+impl SelectValuesStep {
+    /// Create a new SelectValuesStep.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl crate::traversal::step::Step for SelectValuesStep {
+    type Iter<'a>
+        = impl Iterator<Item = Traverser> + 'a
+    where
+        Self: 'a;
+
+    fn apply<'a>(
+        &'a self,
+        _ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> Self::Iter<'a> {
+        input.filter_map(|t| match &t.value {
+            Value::Map(map) => {
+                let values: Vec<Value> = map.values().cloned().collect();
+                if values.len() == 1 {
+                    Some(t.with_value(values.into_iter().next().unwrap()))
+                } else {
+                    Some(t.with_value(Value::List(values)))
+                }
+            }
+            _ => None, // Filter out non-Map values
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "select_values"
+    }
+
+    fn apply_streaming(
+        &self,
+        _ctx: crate::traversal::context::StreamingContext,
+        input: Traverser,
+    ) -> Box<dyn Iterator<Item = Traverser> + Send + 'static> {
+        match &input.value {
+            Value::Map(map) => {
+                let values: Vec<Value> = map.values().cloned().collect();
+                if values.len() == 1 {
+                    Box::new(std::iter::once(
+                        input.with_value(values.into_iter().next().unwrap()),
+                    ))
+                } else {
+                    Box::new(std::iter::once(input.with_value(Value::List(values))))
+                }
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

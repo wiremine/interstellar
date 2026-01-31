@@ -1,4 +1,4 @@
-pub use collection::{MeanStep, UnfoldStep};
+pub use collection::{CountLocalStep, FoldStep, MeanStep, SumLocalStep, SumStep, UnfoldStep};
 pub use constant::ConstantStep;
 #[cfg(feature = "gql")]
 pub use functional::{BoundMathBuilder, MathBuilder, MathStep};
@@ -7,7 +7,7 @@ pub use functional::{
 };
 pub use metadata::{IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, ValueStep};
 pub use order::{BoundOrderBuilder, Order, OrderBuilder, OrderKey, OrderStep};
-pub use path::{AsStep, PathStep, SelectStep};
+pub use path::{AsStep, PathStep, SelectKeysStep, SelectStep, SelectValuesStep};
 pub use properties::{ElementMapStep, PropertiesStep, PropertyMapStep, ValueMapStep};
 pub use values::ValuesStep;
 

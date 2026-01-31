@@ -166,10 +166,11 @@ pub use step::{
 
 // Re-export transform types
 pub use transform::{
-    AsStep, BoundOrderBuilder, BoundProjectBuilder, ConstantStep, ElementMapStep, FlatMapStep,
-    IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, MapStep, MeanStep, Order, OrderBuilder,
-    OrderKey, OrderStep, PathStep, ProjectBuilder, ProjectStep, Projection, PropertiesStep,
-    PropertyMapStep, SelectStep, UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
+    AsStep, BoundOrderBuilder, BoundProjectBuilder, ConstantStep, CountLocalStep, ElementMapStep,
+    FlatMapStep, FoldStep, IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, MapStep, MeanStep,
+    Order, OrderBuilder, OrderKey, OrderStep, PathStep, ProjectBuilder, ProjectStep, Projection,
+    PropertiesStep, PropertyMapStep, SelectKeysStep, SelectStep, SelectValuesStep, SumLocalStep,
+    SumStep, UnfoldStep, ValueMapStep, ValueStep, ValuesStep,
 };
 #[cfg(feature = "gql")]
 pub use transform::{BoundMathBuilder, MathBuilder, MathStep};

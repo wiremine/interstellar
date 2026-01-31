@@ -81,8 +81,15 @@ pub enum GroupValue {
     /// Extract a property value from the traverser.
     Property(String),
 
-    /// Apply a traversal to compute the group value.
+    /// Apply a traversal to compute the group value (per-element).
+    /// Each traverser's value is computed independently.
     Traversal(Box<Traversal<crate::Value, crate::Value>>),
+
+    /// Apply a reducing/folding traversal to the entire group.
+    /// All traversers in the group are fed into the traversal together,
+    /// and the final result (e.g., from count(), sum(), dedup()) is used.
+    /// This enables patterns like `.by(select('x').dedup().count())`.
+    Fold(Box<Traversal<crate::Value, crate::Value>>),
 }
 
 impl GroupValue {
@@ -242,7 +249,128 @@ impl GroupStep {
                     Some(Value::List(results))
                 }
             }
+            GroupValue::Fold(_) => {
+                // Fold is handled specially in apply_with_fold, not here
+                // If we get here, just use identity as fallback
+                Some(traverser.value.clone())
+            }
         }
+    }
+
+    /// Apply grouping with per-element value collection.
+    /// Used for Identity, Property, and Traversal value collectors.
+    fn apply_per_element<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> std::iter::Once<Traverser> {
+        // Collect all input into groups (barrier)
+        let mut groups: HashMap<Value, Vec<Value>> = HashMap::new();
+        let mut last_path = None;
+
+        for traverser in input {
+            last_path = Some(traverser.path.clone());
+
+            // Get the grouping key
+            if let Some(key) = self.get_key(ctx, &traverser) {
+                // Skip non-hashable keys (List, Map)
+                if matches!(key, Value::List(_) | Value::Map(_)) {
+                    continue;
+                }
+
+                // Get the value to collect
+                if let Some(value) = self.get_value(ctx, &traverser) {
+                    groups.entry(key).or_default().push(value);
+                }
+            }
+        }
+
+        // Convert groups to a single Value::Map
+        let mut result_map: HashMap<String, Value> = HashMap::new();
+        for (key, values) in groups {
+            let key_str = value_to_map_key(&key);
+            result_map.insert(key_str, Value::List(values));
+        }
+
+        // Emit a single traverser with the grouped result
+        let result_value = Value::Map(result_map);
+        let result_traverser = Traverser {
+            value: result_value,
+            path: last_path.unwrap_or_default(),
+            loops: 0,
+            sack: None,
+            bulk: 1,
+        };
+
+        std::iter::once(result_traverser)
+    }
+
+    /// Apply grouping with a reducing/folding traversal per group.
+    /// Used for Fold value collector - runs the traversal on ALL traversers in each group.
+    fn apply_with_fold<'a>(
+        &'a self,
+        ctx: &'a ExecutionContext<'a>,
+        input: Box<dyn Iterator<Item = Traverser> + 'a>,
+    ) -> std::iter::Once<Traverser> {
+        // First, collect all traversers by their grouping key
+        let mut groups: HashMap<Value, Vec<Traverser>> = HashMap::new();
+        let mut last_path = None;
+
+        for traverser in input {
+            last_path = Some(traverser.path.clone());
+
+            // Get the grouping key
+            if let Some(key) = self.get_key(ctx, &traverser) {
+                // Skip non-hashable keys (List, Map)
+                if matches!(key, Value::List(_) | Value::Map(_)) {
+                    continue;
+                }
+
+                groups.entry(key).or_default().push(traverser);
+            }
+        }
+
+        // Now run the fold traversal on each group
+        let fold_traversal = match &self.value_collector {
+            GroupValue::Fold(t) => t.as_ref(),
+            _ => unreachable!("apply_with_fold called without Fold value collector"),
+        };
+
+        let mut result_map: HashMap<String, Value> = HashMap::new();
+
+        for (key, traversers) in groups {
+            let key_str = value_to_map_key(&key);
+
+            // Run the fold traversal on ALL traversers in this group
+            let fold_input = Box::new(traversers.into_iter());
+            let fold_results: Vec<Value> = execute_traversal_from(ctx, fold_traversal, fold_input)
+                .map(|t| t.value)
+                .collect();
+
+            // The fold result is typically a single value (from count(), sum(), etc.)
+            // but could be multiple values - in that case, wrap in a List
+            let fold_result = if fold_results.is_empty() {
+                Value::Null
+            } else if fold_results.len() == 1 {
+                fold_results.into_iter().next().unwrap()
+            } else {
+                Value::List(fold_results)
+            };
+
+            result_map.insert(key_str, fold_result);
+        }
+
+        // Emit a single traverser with the grouped result
+        let result_value = Value::Map(result_map);
+        let result_traverser = Traverser {
+            value: result_value,
+            path: last_path.unwrap_or_default(),
+            loops: 0,
+            sack: None,
+            bulk: 1,
+        };
+
+        std::iter::once(result_traverser)
     }
 }
 
@@ -263,49 +391,16 @@ impl Step for GroupStep {
         ctx: &'a ExecutionContext<'a>,
         input: Box<dyn Iterator<Item = Traverser> + 'a>,
     ) -> Self::Iter<'a> {
-        // Collect all input into groups (barrier)
-        // Use Value directly as key since it implements Hash + Eq
-        let mut groups: HashMap<Value, Vec<Value>> = HashMap::new();
-        let mut last_path = None;
+        // Check if we're using a Fold value collector - requires different grouping strategy
+        let is_fold = matches!(self.value_collector, GroupValue::Fold(_));
 
-        for traverser in input {
-            last_path = Some(traverser.path.clone());
-
-            // Get the grouping key
-            if let Some(key) = self.get_key(ctx, &traverser) {
-                // Skip non-hashable keys (List, Map) - while Value does implement Hash,
-                // using complex nested structures as keys is semantically questionable
-                // and matches Gremlin's behavior
-                if matches!(key, Value::List(_) | Value::Map(_)) {
-                    continue;
-                }
-
-                // Get the value to collect
-                if let Some(value) = self.get_value(ctx, &traverser) {
-                    groups.entry(key).or_default().push(value);
-                }
-            }
+        if is_fold {
+            // For Fold: collect traversers by key, then run fold traversal per group
+            self.apply_with_fold(ctx, input)
+        } else {
+            // For Identity/Property/Traversal: collect values per-element
+            self.apply_per_element(ctx, input)
         }
-
-        // Convert groups to a single Value::Map
-        // Value::Map uses String keys, so convert Value keys to strings
-        let mut result_map: HashMap<String, Value> = HashMap::new();
-        for (key, values) in groups {
-            let key_str = value_to_map_key(&key);
-            result_map.insert(key_str, Value::List(values));
-        }
-
-        // Emit a single traverser with the grouped result
-        let result_value = Value::Map(result_map);
-        let result_traverser = Traverser {
-            value: result_value,
-            path: last_path.unwrap_or_default(),
-            loops: 0,
-            sack: None,
-            bulk: 1,
-        };
-
-        std::iter::once(result_traverser)
     }
 
     fn name(&self) -> &'static str {
@@ -403,6 +498,34 @@ impl<In> GroupBuilder<In> {
     /// Collect values from a sub-traversal.
     pub fn by_value_traversal(mut self, t: Traversal<Value, Value>) -> Self {
         self.value_collector = Some(GroupValue::Traversal(Box::new(t)));
+        self
+    }
+
+    /// Collect values using a reducing/folding traversal.
+    ///
+    /// Unlike `by_value_traversal()` which applies the traversal to each element
+    /// independently, `by_value_fold()` runs the traversal on ALL traversers in
+    /// each group together. This enables patterns like:
+    ///
+    /// ```groovy
+    /// .group().by(select('key')).by(select('categories').dedup().count())
+    /// ```
+    ///
+    /// The fold traversal typically ends with a reducing step like `count()`,
+    /// `sum()`, `min()`, `max()`, or uses `dedup()` to aggregate unique values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Count unique categories per customer
+    /// g.v().has_label("Person")
+    ///     .group()
+    ///     .by_traversal(__.select_one("customer"))
+    ///     .by_value_fold(__.select_one("category").dedup().count())
+    ///     .build()
+    /// ```
+    pub fn by_value_fold(mut self, t: Traversal<Value, Value>) -> Self {
+        self.value_collector = Some(GroupValue::Fold(Box::new(t)));
         self
     }
 
@@ -504,6 +627,34 @@ impl<'g, In> BoundGroupBuilder<'g, In> {
     /// Collect values from a sub-traversal.
     pub fn by_value_traversal(mut self, t: Traversal<Value, Value>) -> Self {
         self.value_collector = Some(GroupValue::Traversal(Box::new(t)));
+        self
+    }
+
+    /// Collect values using a reducing/folding traversal.
+    ///
+    /// Unlike `by_value_traversal()` which applies the traversal to each element
+    /// independently, `by_value_fold()` runs the traversal on ALL traversers in
+    /// each group together. This enables patterns like:
+    ///
+    /// ```groovy
+    /// .group().by(select('key')).by(select('categories').dedup().count())
+    /// ```
+    ///
+    /// The fold traversal typically ends with a reducing step like `count()`,
+    /// `sum()`, `min()`, `max()`, or uses `dedup()` to aggregate unique values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Count unique categories per customer
+    /// g.v().has_label("Person")
+    ///     .group()
+    ///     .by_traversal(__.select_one("customer"))
+    ///     .by_value_fold(__.select_one("category").dedup().count())
+    ///     .build()
+    /// ```
+    pub fn by_value_fold(mut self, t: Traversal<Value, Value>) -> Self {
+        self.value_collector = Some(GroupValue::Fold(Box::new(t)));
         self
     }
 

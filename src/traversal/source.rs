@@ -2053,6 +2053,48 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(SelectStep::single(label))
     }
 
+    /// Extract keys from Map values.
+    ///
+    /// For each traverser with a Map value, emits the key(s).
+    /// If the Map has a single entry, returns that key directly as a String.
+    /// If the Map has multiple entries, returns a List of keys.
+    /// Non-Map values are filtered out.
+    ///
+    /// This is commonly used after `unfold()` on grouped results to get just the grouping keys.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get the label keys from a grouped result
+    /// let labels = g.v().group().by_label().unfold().select_keys().to_list();
+    /// // Returns: ["person", "software", ...]
+    /// ```
+    pub fn select_keys(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::SelectKeysStep;
+        self.add_step(SelectKeysStep::new())
+    }
+
+    /// Extract values from Map values.
+    ///
+    /// For each traverser with a Map value, emits the value(s).
+    /// If the Map has a single entry, returns that value directly.
+    /// If the Map has multiple entries, returns a List of values.
+    /// Non-Map values are filtered out.
+    ///
+    /// This is commonly used after `unfold()` on grouped results to get just the grouped values.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get the vertex lists from a grouped result
+    /// let vertex_lists = g.v().group().by_label().unfold().select_values().to_list();
+    /// // Returns: [[v1, v2], [v3], ...]  (lists of vertices per label)
+    /// ```
+    pub fn select_values(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::SelectValuesStep;
+        self.add_step(SelectValuesStep::new())
+    }
+
     /// Unroll collections into individual elements.
     ///
     /// This is a flatMap operation that:
@@ -2362,6 +2404,50 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     ) -> BoundTraversal<'g, In, Value> {
         use crate::traversal::branch::NotStep;
         self.add_step(NotStep::new(sub))
+    }
+
+    /// Filter by comparing current value to a labeled path value (not equal).
+    ///
+    /// Emits input traverser only if the current value is NOT equal to the value
+    /// stored at the specified path label. This is useful for excluding the
+    /// starting vertex when doing circular traversals.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find customers who are not Alice
+    /// let others = g.v_ids([alice])
+    ///     .with_path()
+    ///     .as_("alice")
+    ///     .out().in_()
+    ///     .where_neq("alice")  // Exclude Alice herself
+    ///     .to_list();
+    /// ```
+    pub fn where_neq(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::WhereNeqStep;
+        self.add_step(WhereNeqStep::new(label))
+    }
+
+    /// Filter by comparing current value to a labeled path value (equal).
+    ///
+    /// Emits input traverser only if the current value IS equal to the value
+    /// stored at the specified path label. This is useful for finding vertices
+    /// that match a previously visited vertex.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find vertices that loop back to a labeled vertex
+    /// let cycles = g.v_ids([start])
+    ///     .with_path()
+    ///     .as_("start")
+    ///     .out().out()
+    ///     .where_eq("start")  // Only keep paths that return to start
+    ///     .to_list();
+    /// ```
+    pub fn where_eq(self, label: &str) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::branch::WhereEqStep;
+        self.add_step(WhereEqStep::new(label))
     }
 
     /// Filter by multiple sub-traversals (AND logic).

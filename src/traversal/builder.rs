@@ -1070,6 +1070,180 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::MeanStep::new())
     }
 
+    /// Count the number of traversers.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing a count.
+    /// Produces a single `Value::Int` containing the count.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Count how many people the current vertex knows
+    /// let t = __.out("knows").count();
+    /// // Used in group().by_value_traversal(t) to count per group
+    /// ```
+    pub fn count(self) -> Traversal<In, Value> {
+        self.add_step(aggregate::CountStep::new())
+    }
+
+    /// Collect all input traversers into a single list.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing
+    /// a single `Value::List` containing all values.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().fold()              // Collect all vertices into a list
+    /// g.V().values("age").fold() // Collect all ages into a list
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Collect all vertex IDs into a list
+    /// let all_ids = __.id().fold();
+    ///
+    /// // Fold is often paired with unfold for per-element processing
+    /// let t = __.fold().project(&["count", "items"])
+    ///     .by(__.count_local())
+    ///     .by(__.identity())
+    ///     .build();
+    /// ```
+    pub fn fold(self) -> Traversal<In, Value> {
+        self.add_step(transform::FoldStep::new())
+    }
+
+    /// Sum all numeric input values.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing
+    /// the sum as a single `Value::Int` or `Value::Float`.
+    ///
+    /// # Behavior
+    ///
+    /// - Sums all numeric values (`Value::Int` and `Value::Float`)
+    /// - Non-numeric values are silently ignored
+    /// - If all inputs are integers, returns `Value::Int`
+    /// - If any input is a float, returns `Value::Float`
+    /// - Empty input returns `Value::Int(0)`
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().values("age").sum()  // Sum all ages
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sum all transaction amounts
+    /// let total = __.values("amount").sum();
+    /// ```
+    pub fn sum(self) -> Traversal<In, Value> {
+        self.add_step(transform::SumStep::new())
+    }
+
+    /// Count elements within each collection value (local scope).
+    ///
+    /// Unlike the global `count()` which counts traversers in the stream,
+    /// `count_local()` counts elements *within* each traverser's collection value.
+    /// This implements Gremlin's `count(local)` semantics.
+    ///
+    /// # Behavior
+    ///
+    /// - `Value::List`: Returns the number of elements in the list
+    /// - `Value::Map`: Returns the number of entries in the map
+    /// - `Value::String`: Returns the length of the string
+    /// - Other values: Returns 1
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().out().fold().count(local)  // Count items in each folded list
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Count friends per person after folding
+    /// let friend_counts = __.fold().count_local();
+    /// ```
+    pub fn count_local(self) -> Traversal<In, Value> {
+        self.add_step(transform::CountLocalStep::new())
+    }
+
+    /// Sum elements within each collection value (local scope).
+    ///
+    /// Unlike the global `sum()` which sums across all traversers,
+    /// `sum_local()` sums elements *within* each traverser's collection value.
+    /// This implements Gremlin's `sum(local)` semantics.
+    ///
+    /// # Behavior
+    ///
+    /// - `Value::List`: Sums all numeric elements in the list
+    /// - `Value::Int`/`Value::Float`: Returns the value unchanged
+    /// - Other values: Returns 0
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().values("scores").fold().sum(local)  // Sum scores per vertex
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Sum transaction amounts per user after folding
+    /// let totals = __.values("amount").fold().sum_local();
+    /// ```
+    pub fn sum_local(self) -> Traversal<In, Value> {
+        self.add_step(transform::SumLocalStep::new())
+    }
+
+    /// Extract keys from Map values.
+    ///
+    /// For each traverser with a Map value, extracts the keys.
+    /// Single-entry maps return the key directly; multi-entry maps
+    /// return a List of keys. Non-Map values are filtered out.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().group().by(label).unfold().select(keys)
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get group keys after grouping
+    /// let labels = __.unfold().select_keys();
+    /// ```
+    pub fn select_keys(self) -> Traversal<In, Value> {
+        self.add_step(transform::SelectKeysStep::new())
+    }
+
+    /// Extract values from Map values.
+    ///
+    /// For each traverser with a Map value, extracts the values.
+    /// Single-entry maps return the value directly; multi-entry maps
+    /// return a List of values. Non-Map values are filtered out.
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().group().by(label).unfold().select(values)
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Get group values after grouping
+    /// let groups = __.unfold().select_values();
+    /// ```
+    pub fn select_values(self) -> Traversal<In, Value> {
+        self.add_step(transform::SelectValuesStep::new())
+    }
+
     /// Sort traversers using a fluent builder.
     ///
     /// This is a **barrier step** - it collects ALL input before producing sorted output.
@@ -1476,6 +1650,40 @@ impl<In> Traversal<In, Value> {
     /// ```
     pub fn not(self, sub: Traversal<Value, Value>) -> Traversal<In, Value> {
         self.add_step(branch::NotStep::new(sub))
+    }
+
+    /// Filter by comparing current value to a labeled path value (not equal).
+    ///
+    /// Emits input traverser only if the current value is NOT equal to the value
+    /// stored at the specified path label.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that excludes a labeled vertex
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .in_labels(&["knows"]).where_neq("alice");
+    /// let not_alice = g.v().as_("alice").append(anon).to_list();
+    /// ```
+    pub fn where_neq(self, label: &str) -> Traversal<In, Value> {
+        self.add_step(branch::WhereNeqStep::new(label))
+    }
+
+    /// Filter by comparing current value to a labeled path value (equal).
+    ///
+    /// Emits input traverser only if the current value IS equal to the value
+    /// stored at the specified path label.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create an anonymous traversal that matches a labeled vertex
+    /// let anon = Traversal::<Value, Value>::new()
+    ///     .in_labels(&["knows"]).where_eq("alice");
+    /// let is_alice = g.v().as_("alice").append(anon).to_list();
+    /// ```
+    pub fn where_eq(self, label: &str) -> Traversal<In, Value> {
+        self.add_step(branch::WhereEqStep::new(label))
     }
 
     /// Filter by multiple sub-traversals (AND logic) (for anonymous traversals).
