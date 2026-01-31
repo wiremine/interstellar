@@ -7,6 +7,7 @@ A high-performance graph database with multiple language bindings.
 | Package | Description | Language |
 |---------|-------------|----------|
 | [interstellar](./interstellar/) | Core graph database library | Rust |
+| [interstellar-cli](./interstellar-cli/) | Command-line interface with REPL | Rust |
 | [interstellar-node](./interstellar-node/) | Native Node.js bindings via napi-rs | JavaScript/TypeScript |
 | [interstellar-wasm](./interstellar-wasm/) | WebAssembly bindings | JavaScript/TypeScript |
 
@@ -19,6 +20,22 @@ A high-performance graph database with multiple language bindings.
 - **Thread-Safe**: All backends support concurrent read access
 
 ## Quick Start
+
+### CLI
+
+```bash
+# Install
+cargo install --path interstellar-cli
+
+# Create a database with sample data
+interstellar create ./my-graph.db --with-sample marvel
+
+# Query with GQL
+interstellar query ./my-graph.db --gql "MATCH (n:Character) RETURN n.name"
+
+# Interactive REPL
+interstellar query ./my-graph.db
+```
 
 ### Rust
 
@@ -82,6 +99,7 @@ cargo build
 
 # Build specific package
 cargo build -p interstellar
+cargo build -p interstellar-cli
 cargo build -p interstellar-node
 cargo build -p interstellar-wasm
 
@@ -92,8 +110,14 @@ cargo build -p interstellar --features "gremlin,gql,mmap"
 ## Testing
 
 ```bash
+# All workspace tests
+cargo test --workspace --features "gremlin,gql,mmap"
+
 # Rust tests (core library)
 cargo test -p interstellar --features "gremlin,gql,mmap"
+
+# CLI tests
+cargo test -p interstellar-cli
 
 # Node.js tests
 cd interstellar-node && npm test
@@ -112,6 +136,10 @@ wasm-pack build interstellar-wasm --target web
 │   ├── benches/            # Benchmarks
 │   ├── examples/           # Example programs
 │   └── docs/               # User documentation
+│
+├── interstellar-cli/       # Command-line interface
+│   ├── src/                # CLI source code
+│   └── specs/              # CLI specifications
 │
 ├── interstellar-node/      # Node.js native bindings (napi-rs)
 │   ├── src/                # Rust bindings code
@@ -135,6 +163,7 @@ wasm-pack build interstellar-wasm --target web
 ## Documentation
 
 - **Core Library**: See [interstellar/README.md](./interstellar/README.md) for detailed Rust API docs
+- **CLI**: See [interstellar-cli/README.md](./interstellar-cli/README.md) for command reference
 - **Node.js Bindings**: See [interstellar-node/](./interstellar-node/) for JavaScript API
 - **User Guides**: See [interstellar/docs/](./interstellar/docs/) for comprehensive documentation
 
