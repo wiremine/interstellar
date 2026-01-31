@@ -321,6 +321,38 @@ fn compile_steps<'g>(
                 i = j;
                 continue;
             }
+            Step::Group { .. } => {
+                // Look ahead for by() steps (up to 2: key and value)
+                let mut by_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() && by_steps.len() < 2 {
+                    if let Step::By { args, .. } = &steps[j] {
+                        by_steps.push(args.clone());
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+                traversal = compile_group_with_by(traversal, &by_steps)?;
+                i = j;
+                continue;
+            }
+            Step::GroupCount { .. } => {
+                // Look ahead for by() step (only key)
+                let mut by_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() && by_steps.len() < 1 {
+                    if let Step::By { args, .. } = &steps[j] {
+                        by_steps.push(args.clone());
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+                traversal = compile_group_count_with_by(traversal, &by_steps)?;
+                i = j;
+                continue;
+            }
             Step::Repeat { traversal: sub, .. } => {
                 // Look ahead for times(), until(), emit()
                 let mut times_count = None;
@@ -673,30 +705,13 @@ fn compile_step<'g>(
 
         // Transform - Collection
         Step::Unfold { .. } => Ok(traversal.unfold()),
-        Step::Fold { .. } => {
-            // fold() collects into a list
-            Err(CompileError::UnsupportedStep {
-                step: "fold (use aggregate pattern instead)".to_string(),
-            })
-        }
+        Step::Fold { .. } => Ok(traversal.fold()),
 
-        // Transform - Aggregation (these are terminal-like but return traversals)
-        Step::Count { .. } => {
-            // count() in middle of traversal - wrap in constant
-            // This is tricky - count() is usually terminal
-            Err(CompileError::UnsupportedStep {
-                step: "count as non-terminal (use terminal .count() method)".to_string(),
-            })
-        }
-        Step::Sum { .. } => Err(CompileError::UnsupportedStep {
-            step: "sum as non-terminal".to_string(),
-        }),
-        Step::Max { .. } => Err(CompileError::UnsupportedStep {
-            step: "max as non-terminal".to_string(),
-        }),
-        Step::Min { .. } => Err(CompileError::UnsupportedStep {
-            step: "min as non-terminal".to_string(),
-        }),
+        // Transform - Aggregation (barrier steps that return traversals)
+        Step::Count { .. } => Ok(traversal.count()),
+        Step::Sum { .. } => Ok(traversal.sum()),
+        Step::Max { .. } => Ok(traversal.max()),
+        Step::Min { .. } => Ok(traversal.min()),
         Step::Mean { .. } => Ok(traversal.mean()),
 
         // Transform - Misc
@@ -772,6 +787,8 @@ fn compile_step<'g>(
         // These should be handled by compile_steps lookahead
         Step::Order { .. }
         | Step::Project { .. }
+        | Step::Group { .. }
+        | Step::GroupCount { .. }
         | Step::Repeat { .. }
         | Step::Times { .. }
         | Step::Until { .. }
@@ -899,6 +916,110 @@ fn compile_project_with_by<'g>(
                 return Err(CompileError::InvalidArguments {
                     step: "project".to_string(),
                     message: "project().by() only supports key or traversal".to_string(),
+                });
+            }
+        };
+    }
+
+    Ok(builder.build())
+}
+
+/// Compile group() with following by() steps.
+///
+/// In Gremlin, `group().by('key').by('value')` groups by 'key' and collects 'value'.
+/// - First by() specifies the key selector
+/// - Second by() specifies the value collector
+fn compile_group_with_by<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    by_steps: &[ByArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let mut builder = traversal.group();
+
+    // First by() is the key selector
+    if let Some(by) = by_steps.first() {
+        builder = match by {
+            ByArgs::Identity => builder.by_label(), // Default to label when identity
+            ByArgs::Key(k) => builder.by_key(k),
+            ByArgs::Traversal(sub) => {
+                let anon = compile_anonymous_traversal(sub)?;
+                builder.by_traversal(anon)
+            }
+            _ => {
+                return Err(CompileError::InvalidArguments {
+                    step: "group".to_string(),
+                    message: "group().by() key selector only supports key or traversal".to_string(),
+                });
+            }
+        };
+    }
+
+    // Second by() is the value collector
+    if let Some(by) = by_steps.get(1) {
+        builder = match by {
+            ByArgs::Identity => builder.by_value(),
+            ByArgs::Key(k) => builder.by_value_key(k),
+            ByArgs::Traversal(sub) => {
+                let anon = compile_anonymous_traversal(sub)?;
+                // Check if the traversal ends with a reducing step (count, sum, etc.)
+                // If so, use by_value_fold for correct semantics
+                if is_reducing_traversal(sub) {
+                    builder.by_value_fold(anon)
+                } else {
+                    builder.by_value_traversal(anon)
+                }
+            }
+            _ => {
+                return Err(CompileError::InvalidArguments {
+                    step: "group".to_string(),
+                    message: "group().by() value collector only supports key or traversal"
+                        .to_string(),
+                });
+            }
+        };
+    }
+
+    Ok(builder.build())
+}
+
+/// Check if a traversal ends with a reducing step (count, sum, min, max, fold, dedup).
+fn is_reducing_traversal(trav: &AnonymousTraversal) -> bool {
+    if let Some(last_step) = trav.steps.last() {
+        matches!(
+            last_step,
+            Step::Count { .. }
+                | Step::Sum { .. }
+                | Step::Min { .. }
+                | Step::Max { .. }
+                | Step::Fold { .. }
+                | Step::Dedup { .. }
+        )
+    } else {
+        false
+    }
+}
+
+/// Compile groupCount() with following by() step.
+///
+/// In Gremlin, `groupCount().by('key')` counts occurrences grouped by 'key'.
+fn compile_group_count_with_by<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    by_steps: &[ByArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let mut builder = traversal.group_count();
+
+    // by() specifies the key selector
+    if let Some(by) = by_steps.first() {
+        builder = match by {
+            ByArgs::Identity => builder.by_label(), // Default to label when identity
+            ByArgs::Key(k) => builder.by_key(k),
+            ByArgs::Traversal(sub) => {
+                let anon = compile_anonymous_traversal(sub)?;
+                builder.by_traversal(anon)
+            }
+            _ => {
+                return Err(CompileError::InvalidArguments {
+                    step: "groupCount".to_string(),
+                    message: "groupCount().by() only supports key or traversal".to_string(),
                 });
             }
         };
@@ -1255,6 +1376,11 @@ fn compile_anonymous_step(
             }
         }
         Step::Unfold { .. } => Ok(traversal.append(__.unfold())),
+        Step::Fold { .. } => Ok(traversal.append(__.fold())),
+        Step::Count { .. } => Ok(traversal.append(__.count())),
+        Step::Sum { .. } => Ok(traversal.append(__.sum())),
+        Step::Min { .. } => Ok(traversal.append(__.min())),
+        Step::Max { .. } => Ok(traversal.append(__.max())),
 
         // For unsupported steps in anonymous context
         _ => Err(CompileError::UnsupportedStep {
@@ -1495,6 +1621,8 @@ impl Step {
             Step::Max { .. } => "max",
             Step::Min { .. } => "min",
             Step::Mean { .. } => "mean",
+            Step::Group { .. } => "group",
+            Step::GroupCount { .. } => "groupCount",
             Step::Order { .. } => "order",
             Step::Math { .. } => "math",
             Step::Constant { .. } => "constant",

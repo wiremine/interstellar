@@ -111,7 +111,7 @@ step_body = {
     id_step | label_step | key_step | value_step |
     path_step | select_step | project_step | by_step |
     unfold_step | fold_step |
-    count_step | sum_step | max_step | min_step | mean_step |
+    count_step | sum_step | max_step | min_step | mean_step | group_step | group_count_step |
     order_step | math_step | constant_step | identity_step | index_step | loops_step |
     // Branch
     choose_step | union_step | coalesce_step | optional_step | local_step | branch_step | option_step |
@@ -228,6 +228,8 @@ sum_step = { "sum" ~ "(" ~ ")" }
 max_step = { "max" ~ "(" ~ ")" }
 min_step = { "min" ~ "(" ~ ")" }
 mean_step = { "mean" ~ "(" ~ ")" }
+group_step = { "group" ~ "(" ~ ")" }
+group_count_step = { "groupCount" ~ "(" ~ ")" }
 order_step = { "order" ~ "(" ~ ")" }
 math_step = { "math" ~ "(" ~ string ~ ")" }
 constant_step = { "constant" ~ "(" ~ value ~ ")" }

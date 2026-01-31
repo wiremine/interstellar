@@ -1143,6 +1143,62 @@ impl<In> Traversal<In, Value> {
         self.add_step(transform::SumStep::new())
     }
 
+    /// Find the minimum value across all traversers.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing
+    /// the minimum value.
+    ///
+    /// # Behavior
+    ///
+    /// - Compares numeric values (`Value::Int` and `Value::Float`)
+    /// - Also compares strings lexicographically
+    /// - Non-comparable values are skipped
+    /// - Empty input returns `Value::Null`
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().values("age").min()  // Find minimum age
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find minimum transaction amount
+    /// let min_amount = __.values("amount").min();
+    /// ```
+    pub fn min(self) -> Traversal<In, Value> {
+        self.add_step(aggregate::MinStep::new())
+    }
+
+    /// Find the maximum value across all traversers.
+    ///
+    /// This is a **barrier step** - it collects ALL input before producing
+    /// the maximum value.
+    ///
+    /// # Behavior
+    ///
+    /// - Compares numeric values (`Value::Int` and `Value::Float`)
+    /// - Also compares strings lexicographically
+    /// - Non-comparable values are skipped
+    /// - Empty input returns `Value::Null`
+    ///
+    /// # Gremlin Equivalent
+    ///
+    /// ```groovy
+    /// g.V().values("age").max()  // Find maximum age
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find maximum transaction amount
+    /// let max_amount = __.values("amount").max();
+    /// ```
+    pub fn max(self) -> Traversal<In, Value> {
+        self.add_step(aggregate::MaxStep::new())
+    }
+
     /// Count elements within each collection value (local scope).
     ///
     /// Unlike the global `count()` which counts traversers in the stream,

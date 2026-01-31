@@ -468,6 +468,8 @@ fn build_step(pair: Pair<Rule>) -> Result<Step, ParseError> {
         Rule::max_step => Ok(Step::Max { span }),
         Rule::min_step => Ok(Step::Min { span }),
         Rule::mean_step => Ok(Step::Mean { span }),
+        Rule::group_step => Ok(Step::Group { span }),
+        Rule::group_count_step => Ok(Step::GroupCount { span }),
         Rule::order_step => Ok(Step::Order { span }),
         Rule::math_step => {
             let expression = extract_string(inner)?;

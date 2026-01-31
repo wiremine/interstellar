@@ -202,6 +202,10 @@ pub enum Step {
     Min { span: Span },
     /// mean()
     Mean { span: Span },
+    /// group()
+    Group { span: Span },
+    /// groupCount()
+    GroupCount { span: Span },
     /// order()
     Order { span: Span },
     /// math('a + b')

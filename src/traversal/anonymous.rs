@@ -1033,6 +1033,95 @@ pub fn sum() -> Traversal<Value, Value> {
     Traversal::<Value, Value>::new().add_step(SumStep::new())
 }
 
+/// Count all input traversers.
+///
+/// This is a **barrier step** - it collects ALL input before producing
+/// a single `Value::Int` containing the count.
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().count()  // Count all vertices
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Count traversers
+/// let count = __.count();
+/// ```
+#[inline]
+pub fn count() -> Traversal<Value, Value> {
+    use crate::traversal::aggregate::CountStep;
+    Traversal::<Value, Value>::new().add_step(CountStep::new())
+}
+
+/// Find the minimum value across all traversers.
+///
+/// This is a **barrier step** - it collects ALL input before producing
+/// the minimum value.
+///
+/// # Behavior
+///
+/// - Compares numeric values (`Value::Int` and `Value::Float`)
+/// - Also compares strings lexicographically
+/// - Non-comparable values are skipped
+/// - Empty input returns `Value::Null`
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").min()  // Find minimum age
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Find minimum value
+/// let min_val = __.min();
+/// ```
+#[inline]
+pub fn min() -> Traversal<Value, Value> {
+    use crate::traversal::aggregate::MinStep;
+    Traversal::<Value, Value>::new().add_step(MinStep::new())
+}
+
+/// Find the maximum value across all traversers.
+///
+/// This is a **barrier step** - it collects ALL input before producing
+/// the maximum value.
+///
+/// # Behavior
+///
+/// - Compares numeric values (`Value::Int` and `Value::Float`)
+/// - Also compares strings lexicographically
+/// - Non-comparable values are skipped
+/// - Empty input returns `Value::Null`
+///
+/// # Gremlin Equivalent
+///
+/// ```groovy
+/// g.V().values("age").max()  // Find maximum age
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use interstellar::traversal::__;
+///
+/// // Find maximum value
+/// let max_val = __.max();
+/// ```
+#[inline]
+pub fn max() -> Traversal<Value, Value> {
+    use crate::traversal::aggregate::MaxStep;
+    Traversal::<Value, Value>::new().add_step(MaxStep::new())
+}
+
 /// Count elements within each collection value (local scope).
 ///
 /// Unlike the global `count()` which counts traversers in the stream,
