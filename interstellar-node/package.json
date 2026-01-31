@@ -1,6 +1,6 @@
 {
   "name": "@interstellar/node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "High-performance graph database for Node.js",
   "main": "index.js",
   "types": "index.d.ts",
@@ -8,7 +8,11 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropic/interstellar"
+    "url": "https://github.com/wiremine/interstellar"
+  },
+  "homepage": "https://github.com/wiremine/interstellar/tree/main/interstellar-node",
+  "bugs": {
+    "url": "https://github.com/wiremine/interstellar/issues"
   },
   "keywords": [
     "graph",
@@ -55,13 +59,14 @@
     "vitest": "^1.0.0"
   },
   "optionalDependencies": {
-    "@interstellar/node-win32-x64-msvc": "0.1.0",
-    "@interstellar/node-darwin-x64": "0.1.0",
-    "@interstellar/node-darwin-arm64": "0.1.0",
-    "@interstellar/node-linux-x64-gnu": "0.1.0",
-    "@interstellar/node-linux-x64-musl": "0.1.0",
-    "@interstellar/node-linux-arm64-gnu": "0.1.0",
-    "@interstellar/node-linux-arm64-musl": "0.1.0",
-    "@interstellar/node-linux-arm-gnueabihf": "0.1.0"
+    "@interstellar/node-win32-x64-msvc": "0.1.1",
+    "@interstellar/node-darwin-x64": "0.1.1",
+    "@interstellar/node-darwin-arm64": "0.1.1",
+    "@interstellar/node-darwin-universal": "0.1.1",
+    "@interstellar/node-linux-x64-gnu": "0.1.1",
+    "@interstellar/node-linux-x64-musl": "0.1.1",
+    "@interstellar/node-linux-arm64-gnu": "0.1.1",
+    "@interstellar/node-linux-arm64-musl": "0.1.1",
+    "@interstellar/node-linux-arm-gnueabihf": "0.1.1"
   }
 }

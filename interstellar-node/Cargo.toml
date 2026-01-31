@@ -5,6 +5,7 @@ edition = "2021"
 description = "Native Node.js bindings for Interstellar graph database"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/wiremine/interstellar"
+homepage = "https://github.com/wiremine/interstellar"
 readme = "README.md"
 keywords = ["graph", "database", "gremlin", "nodejs", "napi"]
 categories = ["database", "api-bindings"]

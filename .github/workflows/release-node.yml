@@ -1,0 +1,274 @@
+name: Release Node.js Package
+
+on:
+  push:
+    tags:
+      - 'node-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.1.1)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (do not publish)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          # macOS
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            build: npm run build -- --target x86_64-apple-darwin
+
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: npm run build -- --target aarch64-apple-darwin
+
+          # Windows
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: npm run build -- --target x86_64-pc-windows-msvc
+
+          # Linux GNU
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: npm run build -- --target x86_64-unknown-linux-gnu
+
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-aarch64-linux-gnu
+              export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+              export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+              npm run build -- --target aarch64-unknown-linux-gnu
+
+          - host: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            build: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-arm-linux-gnueabihf
+              export CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc
+              export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
+              npm run build -- --target armv7-unknown-linux-gnueabihf
+
+          # Linux musl
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            build: |
+              sudo apt-get update
+              sudo apt-get install -y musl-tools
+              npm run build -- --target x86_64-unknown-linux-musl
+
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            build: |
+              docker run --rm -v $(pwd):/build -w /build \
+                messense/rust-musl-cross:aarch64-musl \
+                bash -c "cd interstellar-node && npm run build -- --target aarch64-unknown-linux-musl"
+            docker: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust toolchain
+        if: ${{ !matrix.settings.docker }}
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.settings.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.settings.target }}-cargo-
+
+      - name: Install dependencies
+        working-directory: interstellar-node
+        run: npm ci
+
+      - name: Build
+        working-directory: interstellar-node
+        run: ${{ matrix.settings.build }}
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: interstellar-node/*.node
+          if-no-files-found: error
+
+  # Create macOS universal binary
+  universal-macos:
+    name: Universal macOS Binary
+    runs-on: macos-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: interstellar-node
+        run: npm ci
+
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-x86_64-apple-darwin
+          path: interstellar-node/artifacts
+
+      - name: Download aarch64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-aarch64-apple-darwin
+          path: interstellar-node/artifacts
+
+      - name: Create universal binary
+        working-directory: interstellar-node
+        run: |
+          npm run universal
+          ls -la *.node || true
+
+      - name: Upload universal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-universal-apple-darwin
+          path: interstellar-node/*.node
+          if-no-files-found: warn
+
+  # Run tests before publishing
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: interstellar-node
+        run: npm ci
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: interstellar-node
+
+      - name: Run tests
+        working-directory: interstellar-node
+        run: npm test
+
+  # Publish to npm
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - universal-macos
+      - test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: interstellar-node
+        run: npm ci
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: interstellar-node/artifacts
+
+      - name: List artifacts
+        working-directory: interstellar-node
+        run: ls -R artifacts/
+
+      - name: Move artifacts
+        working-directory: interstellar-node
+        run: npm run artifacts
+
+      - name: List binaries
+        working-directory: interstellar-node
+        run: ls -la npm/
+
+      - name: Publish (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        working-directory: interstellar-node
+        run: |
+          npm run prepublishOnly
+          echo "Dry run - would publish the following packages:"
+          ls -la npm/
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: interstellar-node
+        run: |
+          npm run prepublishOnly
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Create GitHub release
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*.node
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
