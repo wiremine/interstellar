@@ -1,7 +1,16 @@
 [package]
 name = "interstellar"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "A high-performance graph database with Gremlin-style traversals and GQL query language"
+license = "MIT"
+repository = "https://github.com/wiremine/interstellar"
+homepage = "https://github.com/wiremine/interstellar"
+documentation = "https://docs.rs/interstellar"
+readme = "README.md"
+keywords = ["graph", "database", "gremlin", "gql", "traversal"]
+categories = ["database", "data-structures"]
+rust-version = "1.75"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

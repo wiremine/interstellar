@@ -1,18 +1,20 @@
 [package]
 name = "interstellar-node"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Native Node.js bindings for Interstellar graph database"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/wiremine/interstellar"
 readme = "README.md"
 keywords = ["graph", "database", "gremlin", "nodejs", "napi"]
 categories = ["database", "api-bindings"]
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-interstellar = { path = "../interstellar" }
+interstellar = { version = "0.1.1", path = "../interstellar" }
 napi = { version = "2", default-features = false, features = [
     "napi8",
     "async",

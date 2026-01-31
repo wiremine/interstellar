@@ -1,19 +1,22 @@
 [package]
 name = "interstellar-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Command-line interface for the Interstellar graph database"
 license = "MIT"
-repository = "https://github.com/example/interstellar-cli"
+repository = "https://github.com/wiremine/interstellar"
+homepage = "https://github.com/wiremine/interstellar"
+readme = "README.md"
 keywords = ["graph", "database", "cli", "gql", "gremlin"]
 categories = ["command-line-utilities", "database"]
+rust-version = "1.75"
 
 [[bin]]
 name = "interstellar"
 path = "src/main.rs"
 
 [dependencies]
-interstellar = { path = "../interstellar", features = ["mmap", "gremlin", "gql", "graphson"] }
+interstellar = { version = "0.1.1", path = "../interstellar", features = ["mmap", "gremlin", "gql", "graphson"] }
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "1"
 anyhow = "1"

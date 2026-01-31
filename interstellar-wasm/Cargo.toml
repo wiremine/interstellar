@@ -1,15 +1,21 @@
 [package]
 name = "interstellar-wasm"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "WebAssembly bindings for Interstellar graph database"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/wiremine/interstellar"
+homepage = "https://github.com/wiremine/interstellar"
+readme = "README.md"
+keywords = ["graph", "database", "wasm", "webassembly", "gremlin"]
+categories = ["database", "wasm", "web-programming"]
+rust-version = "1.75"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-interstellar = { path = "../interstellar", features = ["wasm", "graphson"] }
+interstellar = { version = "0.1.1", path = "../interstellar", features = ["wasm", "graphson"] }
 wasm-bindgen = "0.2"
 
 [dev-dependencies]
