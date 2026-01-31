@@ -4,7 +4,12 @@
 
 # Interstellar
 
-A high-performance graph database with multiple language bindings.
+
+A high-performance graph database written in Rust with multiple language bindings.
+
+> **Early Development Notice**
+>
+> Interstellar is in early development and is **not recommended for production use**. APIs may change without notice, and the project has not been audited for security or performance at scale.
 
 ## Packages
 
@@ -174,3 +179,7 @@ wasm-pack build interstellar-wasm --target web
 ## License
 
 MIT
+
+## Development Approach
+
+This project uses **spec-driven development** with AI assistance. Most code is generated or reviewed by LLMs (primarily Claude Opus 4.5). While we aim for high quality and test coverage, this approach is experimental.
