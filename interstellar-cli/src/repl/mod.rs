@@ -290,14 +290,6 @@ impl Repl {
         Ok(())
     }
 
-    /// Get the current prompt based on mode.
-    fn get_prompt(&self) -> String {
-        match self.mode {
-            QueryMode::Gql => self.config.prompt_gql.clone(),
-            QueryMode::Gremlin => self.config.prompt_gremlin.clone(),
-        }
-    }
-
     /// Check if the line is a dot-command.
     fn is_dot_command(&self, line: &str) -> bool {
         let prefix = &self.config.command_prefix;
@@ -329,6 +321,14 @@ impl Repl {
         // Simple queries: single line without common multi-line keywords at start
         let upper = query.to_uppercase();
         !query.contains('\n') && !upper.ends_with("WHERE") && !upper.ends_with("RETURN")
+    }
+
+    /// Get the current prompt based on mode.
+    fn get_prompt(&self) -> String {
+        match self.mode {
+            QueryMode::Gql => self.config.prompt_gql.clone(),
+            QueryMode::Gremlin => self.config.prompt_gremlin.clone(),
+        }
     }
 
     /// Print welcome message.
@@ -996,6 +996,30 @@ impl PersistentRepl {
                 let file = parts.get(1).copied();
                 self.cmd_output(file)
             }
+            "queries" => self.cmd_queries(),
+            "query" => {
+                let name = parts.get(1).copied();
+                self.cmd_query(name)
+            }
+            "save" => {
+                // .save <name> <query>
+                // The query may contain spaces, so join all parts after the name
+                let name = parts.get(1).copied();
+                let query_text = if parts.len() > 2 {
+                    Some(parts[2..].join(" "))
+                } else {
+                    None
+                };
+                self.cmd_save(name, query_text.as_deref())
+            }
+            "delete" => {
+                let name = parts.get(1).copied();
+                self.cmd_delete_query(name)
+            }
+            "run" => {
+                let name = parts.get(1).copied();
+                self.cmd_run_query(name)
+            }
             _ => {
                 eprintln!(
                     "Unknown command: {}. Type .help for available commands.",
@@ -1034,6 +1058,16 @@ impl PersistentRepl {
             "  {}output <file>     Redirect output to file ({}output stdout to reset)",
             prefix, prefix
         );
+        println!();
+        println!("Saved Query Commands:");
+        println!("  {}queries           List all saved queries", prefix);
+        println!("  {}query <name>      Show a saved query", prefix);
+        println!(
+            "  {}save <name> <q>   Save current mode query (use quotes for spaces)",
+            prefix
+        );
+        println!("  {}delete <name>     Delete a saved query", prefix);
+        println!("  {}run <name>        Execute a saved query", prefix);
         println!();
         println!("Current mode: {}", self.mode);
         println!(
@@ -1318,5 +1352,163 @@ impl PersistentRepl {
         }
 
         Ok(())
+    }
+
+    // === Saved Query Commands ===
+
+    fn cmd_queries(&self) -> Result<()> {
+        let queries = self.graph().list_queries();
+        if queries.is_empty() {
+            println!("No saved queries.");
+            println!("Use .save <name> <query> to save a query.");
+        } else {
+            println!(
+                "{:<4} {:<20} {:<8} {}",
+                "ID", "Name", "Type", "Description"
+            );
+            println!("{:-<4} {:-<20} {:-<8} {:-<40}", "", "", "", "");
+            for q in &queries {
+                let desc = if q.description.len() > 40 {
+                    format!("{}...", &q.description[..37])
+                } else {
+                    q.description.clone()
+                };
+                println!("{:<4} {:<20} {:<8} {}", q.id, q.name, q.query_type, desc);
+            }
+            println!();
+            println!("Total: {} queries", queries.len());
+        }
+        Ok(())
+    }
+
+    fn cmd_query(&self, name: Option<&str>) -> Result<()> {
+        let name = match name {
+            Some(n) => n,
+            None => {
+                eprintln!("Usage: .query <name>");
+                return Ok(());
+            }
+        };
+
+        match self.graph().get_query(name) {
+            Some(q) => {
+                println!("Name:        {}", q.name);
+                println!("ID:          {}", q.id);
+                println!("Type:        {}", q.query_type);
+                if !q.description.is_empty() {
+                    println!("Description: {}", q.description);
+                }
+                println!("Query:       {}", q.query);
+                if !q.parameters.is_empty() {
+                    let params: Vec<_> = q.parameters.iter().map(|p| format!("${}", p.name)).collect();
+                    println!("Parameters:  {}", params.join(", "));
+                }
+            }
+            None => {
+                eprintln!("Query '{}' not found.", name);
+            }
+        }
+        Ok(())
+    }
+
+    fn cmd_save(&mut self, name: Option<&str>, query_text: Option<&str>) -> Result<()> {
+        use interstellar::query::QueryType;
+
+        let name = match name {
+            Some(n) => n,
+            None => {
+                eprintln!("Usage: .save <name> <query>");
+                eprintln!("Example: .save find_people g.V().hasLabel('person').toList()");
+                return Ok(());
+            }
+        };
+
+        let query = match query_text {
+            Some(q) => q.to_string(),
+            None => {
+                eprintln!("Usage: .save <name> <query>");
+                eprintln!("Example: .save find_people g.V().hasLabel('person').toList()");
+                return Ok(());
+            }
+        };
+
+        let query_type = match self.mode {
+            QueryMode::Gremlin => QueryType::Gremlin,
+            QueryMode::Gql => QueryType::Gql,
+        };
+
+        match self.graph().save_query(name, query_type, "", &query) {
+            Ok(id) => {
+                // Checkpoint to persist
+                if let Err(e) = self.graph().checkpoint() {
+                    eprintln!("Warning: Failed to checkpoint: {}", e);
+                }
+                println!("Saved query '{}' (id: {}) as {:?}", name, id, query_type);
+            }
+            Err(e) => {
+                eprintln!("Failed to save query: {}", e);
+            }
+        }
+        Ok(())
+    }
+
+    fn cmd_delete_query(&self, name: Option<&str>) -> Result<()> {
+        let name = match name {
+            Some(n) => n,
+            None => {
+                eprintln!("Usage: .delete <name>");
+                return Ok(());
+            }
+        };
+
+        match self.graph().delete_query(name) {
+            Ok(()) => {
+                // Checkpoint to persist
+                if let Err(e) = self.graph().checkpoint() {
+                    eprintln!("Warning: Failed to checkpoint: {}", e);
+                }
+                println!("Deleted query '{}'", name);
+            }
+            Err(e) => {
+                eprintln!("Failed to delete query: {}", e);
+            }
+        }
+        Ok(())
+    }
+
+    fn cmd_run_query(&mut self, name: Option<&str>) -> Result<()> {
+        use interstellar::query::QueryType;
+
+        let name = match name {
+            Some(n) => n,
+            None => {
+                eprintln!("Usage: .run <name>");
+                return Ok(());
+            }
+        };
+
+        let query = match self.graph().get_query(name) {
+            Some(q) => q,
+            None => {
+                eprintln!("Query '{}' not found.", name);
+                return Ok(());
+            }
+        };
+
+        println!("Running: {}", query.query);
+
+        // Switch mode temporarily if needed and execute
+        let original_mode = self.mode;
+        self.mode = match query.query_type {
+            QueryType::Gremlin => QueryMode::Gremlin,
+            QueryType::Gql => QueryMode::Gql,
+        };
+
+        let result = self.execute_query(&query.query);
+
+        // Restore original mode
+        self.mode = original_mode;
+
+        result
     }
 }

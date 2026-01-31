@@ -168,6 +168,93 @@ pub enum Commands {
         #[arg(long)]
         open: bool,
     },
+
+    /// Manage saved queries
+    SavedQuery {
+        #[command(subcommand)]
+        action: SavedQueryAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SavedQueryAction {
+    /// Save a new query
+    Save {
+        /// Database path
+        #[arg(env = "INTERSTELLAR_DB")]
+        path: PathBuf,
+
+        /// Query name
+        name: String,
+
+        /// Query text
+        query: String,
+
+        /// Query description
+        #[arg(long, short)]
+        description: Option<String>,
+
+        /// Query is Gremlin (default is GQL)
+        #[arg(long)]
+        gremlin: bool,
+    },
+
+    /// Get a saved query by name
+    Get {
+        /// Database path
+        #[arg(env = "INTERSTELLAR_DB")]
+        path: PathBuf,
+
+        /// Query name
+        name: String,
+
+        /// Output format
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+    },
+
+    /// List all saved queries
+    List {
+        /// Database path
+        #[arg(env = "INTERSTELLAR_DB")]
+        path: PathBuf,
+
+        /// Output format
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+    },
+
+    /// Delete a saved query
+    Delete {
+        /// Database path
+        #[arg(env = "INTERSTELLAR_DB")]
+        path: PathBuf,
+
+        /// Query name
+        name: String,
+    },
+
+    /// Run a saved query
+    Run {
+        /// Database path
+        #[arg(env = "INTERSTELLAR_DB")]
+        path: PathBuf,
+
+        /// Query name
+        name: String,
+
+        /// Output format
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+
+        /// Limit number of results
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Show query execution time
+        #[arg(long)]
+        timing: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
@@ -282,6 +369,57 @@ fn run() -> Result<(), CliError> {
             // Serve command is Phase 6, stub for now
             eprintln!("Serve command not yet implemented (Phase 6)");
             eprintln!("Database: {:?}, Port: {}, Open: {}", path, port, open);
+        }
+
+        Some(Commands::SavedQuery { action }) => {
+            use interstellar::query::QueryType;
+
+            match action {
+                SavedQueryAction::Save {
+                    path,
+                    name,
+                    query,
+                    description,
+                    gremlin,
+                } => {
+                    let query_type = if gremlin {
+                        QueryType::Gremlin
+                    } else {
+                        QueryType::Gql
+                    };
+                    commands::saved_query::save(path, name, query, description, query_type)?;
+                }
+                SavedQueryAction::Get {
+                    path,
+                    name,
+                    format: get_format,
+                } => {
+                    let format = get_format.unwrap_or(format);
+                    commands::saved_query::get(path, name, format)?;
+                }
+                SavedQueryAction::List {
+                    path,
+                    format: list_format,
+                } => {
+                    let format = list_format.unwrap_or(format);
+                    commands::saved_query::list(path, format)?;
+                }
+                SavedQueryAction::Delete { path, name } => {
+                    commands::saved_query::delete(path, name)?;
+                }
+                SavedQueryAction::Run {
+                    path,
+                    name,
+                    format: run_format,
+                    limit: run_limit,
+                    timing: run_timing,
+                } => {
+                    let format = run_format.unwrap_or(format);
+                    let limit = run_limit.unwrap_or(limit);
+                    let timing = run_timing || timing;
+                    commands::saved_query::run(path, name, vec![], format, limit, timing)?;
+                }
+            }
         }
 
         None => {

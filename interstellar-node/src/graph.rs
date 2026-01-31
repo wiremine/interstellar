@@ -394,6 +394,171 @@ impl JsGraph {
     }
 }
 
+// ============================================================================
+// Saved Query Methods (mmap-backed persistent graphs only)
+// ============================================================================
+
+#[cfg(feature = "mmap")]
+#[napi]
+impl JsGraph {
+    /// Save a query to the database for later execution.
+    ///
+    /// Only available for persistent (mmap-backed) graphs.
+    ///
+    /// @param name - Unique name for the query
+    /// @param queryText - The query string (Gremlin or GQL)
+    /// @param queryType - Query language: "gremlin" or "gql" (default: "gql")
+    /// @param description - Optional description of the query
+    /// @returns The query ID
+    ///
+    /// @example
+    /// ```javascript
+    /// const graph = Graph.open('./my_graph.db');
+    /// const id = graph.saveQuery('find_alice', 'g.V().has("name", "Alice")', 'gremlin', 'Find Alice');
+    /// ```
+    #[napi(js_name = "saveQuery")]
+    pub fn save_query(
+        &self,
+        name: String,
+        query_text: String,
+        query_type: Option<String>,
+        description: Option<String>,
+    ) -> Result<u32> {
+        use interstellar::query::QueryType;
+
+        match &self.backend {
+            GraphBackend::Mmap(graph) => {
+                let qt = match query_type.as_deref() {
+                    Some("gremlin") | Some("Gremlin") => QueryType::Gremlin,
+                    _ => QueryType::Gql,
+                };
+                let desc = description.unwrap_or_default();
+                graph
+                    .save_query(&name, qt, &desc, &query_text)
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+            }
+            GraphBackend::InMemory(_) => Err(Error::new(
+                Status::GenericFailure,
+                "Saved queries are only supported for persistent (mmap-backed) graphs",
+            )),
+        }
+    }
+
+    /// Get a saved query by name.
+    ///
+    /// @param name - The query name
+    /// @returns The saved query object, or null if not found
+    ///
+    /// @example
+    /// ```javascript
+    /// const query = graph.getQuery('find_alice');
+    /// if (query) {
+    ///     console.log(query.queryText);
+    /// }
+    /// ```
+    #[napi(js_name = "getQuery")]
+    pub fn get_query(&self, env: Env, name: String) -> Result<Option<Object>> {
+        match &self.backend {
+            GraphBackend::Mmap(graph) => match graph.get_query(&name) {
+                Some(q) => Ok(Some(saved_query_to_js(env, &q)?)),
+                None => Ok(None),
+            },
+            GraphBackend::InMemory(_) => Err(Error::new(
+                Status::GenericFailure,
+                "Saved queries are only supported for persistent (mmap-backed) graphs",
+            )),
+        }
+    }
+
+    /// Get a saved query by ID.
+    ///
+    /// @param id - The query ID
+    /// @returns The saved query object, or null if not found
+    #[napi(js_name = "getQueryById")]
+    pub fn get_query_by_id(&self, env: Env, id: u32) -> Result<Option<Object>> {
+        match &self.backend {
+            GraphBackend::Mmap(graph) => match graph.get_query_by_id(id) {
+                Some(q) => Ok(Some(saved_query_to_js(env, &q)?)),
+                None => Ok(None),
+            },
+            GraphBackend::InMemory(_) => Err(Error::new(
+                Status::GenericFailure,
+                "Saved queries are only supported for persistent (mmap-backed) graphs",
+            )),
+        }
+    }
+
+    /// List all saved queries.
+    ///
+    /// @returns Array of saved query objects
+    ///
+    /// @example
+    /// ```javascript
+    /// const queries = graph.listQueries();
+    /// for (const q of queries) {
+    ///     console.log(`${q.name}: ${q.description}`);
+    /// }
+    /// ```
+    #[napi(js_name = "listQueries")]
+    pub fn list_queries(&self, env: Env) -> Result<Vec<Object>> {
+        match &self.backend {
+            GraphBackend::Mmap(graph) => {
+                let queries = graph.list_queries();
+                queries.iter().map(|q| saved_query_to_js(env, q)).collect()
+            }
+            GraphBackend::InMemory(_) => Err(Error::new(
+                Status::GenericFailure,
+                "Saved queries are only supported for persistent (mmap-backed) graphs",
+            )),
+        }
+    }
+
+    /// Delete a saved query by name.
+    ///
+    /// @param name - The query name to delete
+    ///
+    /// @example
+    /// ```javascript
+    /// graph.deleteQuery('find_alice');
+    /// ```
+    #[napi(js_name = "deleteQuery")]
+    pub fn delete_query(&self, name: String) -> Result<()> {
+        match &self.backend {
+            GraphBackend::Mmap(graph) => graph
+                .delete_query(&name)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string())),
+            GraphBackend::InMemory(_) => Err(Error::new(
+                Status::GenericFailure,
+                "Saved queries are only supported for persistent (mmap-backed) graphs",
+            )),
+        }
+    }
+}
+
+/// Convert a SavedQuery to a JavaScript object.
+#[cfg(feature = "mmap")]
+fn saved_query_to_js(env: Env, query: &interstellar::query::SavedQuery) -> Result<Object> {
+    let mut obj = env.create_object()?;
+
+    obj.set("id", query.id)?;
+    obj.set("name", query.name.as_str())?;
+    obj.set("queryType", format!("{}", query.query_type))?;
+    obj.set("description", query.description.as_str())?;
+    obj.set("queryText", query.query.as_str())?;
+
+    // Convert parameters to array of objects
+    let mut params = env.create_array(query.parameters.len() as u32)?;
+    for (i, param) in query.parameters.iter().enumerate() {
+        let mut param_obj = env.create_object()?;
+        param_obj.set("name", param.name.as_str())?;
+        param_obj.set("paramType", format!("{:?}", param.param_type))?;
+        params.set(i as u32, param_obj)?;
+    }
+    obj.set("parameters", params)?;
+
+    Ok(obj)
+}
+
 impl Default for JsGraph {
     fn default() -> Self {
         Self::new()
