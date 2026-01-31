@@ -21,6 +21,7 @@ use crate::value::Value;
 
 pub mod arena;
 pub mod freelist;
+pub mod query;
 pub mod records;
 pub mod recovery;
 pub mod wal;
@@ -119,6 +120,9 @@ pub struct MmapGraph {
 
     /// Path to the database file (for deriving index specs path)
     db_path: std::path::PathBuf,
+
+    /// In-memory query index for name/ID lookups
+    query_index: Arc<RwLock<query::QueryIndex>>,
 }
 
 impl MmapGraph {
@@ -239,6 +243,7 @@ impl MmapGraph {
                 indexes: Arc::new(RwLock::new(HashMap::new())),
                 index_specs: Arc::new(RwLock::new(Vec::new())),
                 db_path: path.to_path_buf(),
+                query_index: Arc::new(RwLock::new(query::QueryIndex::new())),
             };
 
             // Rebuild in-memory indexes from disk data (includes recovered data)
@@ -265,6 +270,7 @@ impl MmapGraph {
             indexes: Arc::new(RwLock::new(HashMap::new())),
             index_specs: Arc::new(RwLock::new(Vec::new())),
             db_path: path.to_path_buf(),
+            query_index: Arc::new(RwLock::new(query::QueryIndex::new())),
         };
 
         // Rebuild in-memory indexes from disk data
@@ -771,6 +777,9 @@ impl MmapGraph {
                 Self::write_header(&file, &header)?;
             }
         }
+
+        // Rebuild query index from disk
+        self.load_query_index()?;
 
         Ok(())
     }
@@ -4230,6 +4239,561 @@ impl MmapGraph {
             // Insert new value
             let _ = index.insert(new_value.clone(), id.0);
         }
+    }
+}
+
+// =========================================================================
+// Query Storage Operations
+// =========================================================================
+
+impl MmapGraph {
+    /// Save a new query to the library.
+    ///
+    /// Validates the query name and stores the query in the query region.
+    /// Parameters are extracted from the query text.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique query name (alphanumeric, underscores, hyphens)
+    /// * `query_type` - Language type (Gremlin or GQL)
+    /// * `description` - Human-readable description
+    /// * `query_text` - Query text (may contain $param placeholders)
+    ///
+    /// # Returns
+    ///
+    /// The assigned query ID on success.
+    ///
+    /// # Errors
+    ///
+    /// - `QueryError::AlreadyExists` - Name already in use
+    /// - `QueryError::InvalidName` - Name contains invalid characters
+    /// - `QueryError::StorageFull` - Cannot allocate space for query
+    pub fn save_query(
+        &self,
+        name: &str,
+        query_type: crate::query::QueryType,
+        description: &str,
+        query_text: &str,
+    ) -> Result<u32, crate::error::QueryError> {
+        use crate::error::QueryError;
+        use crate::query::validate_query_name;
+
+        // Validate the query name
+        validate_query_name(name).map_err(QueryError::InvalidName)?;
+
+        // Check if name already exists
+        {
+            let query_index = self.query_index.read();
+            if query_index.contains_name(name) {
+                return Err(QueryError::AlreadyExists(name.to_string()));
+            }
+        }
+
+        // Extract parameters from query (simplified - just look for $name patterns)
+        let parameters = Self::extract_parameters(query_text);
+
+        // Calculate record size
+        let record_size =
+            query::QueryStore::calculate_record_size(name, description, query_text, &parameters);
+
+        // Ensure query region exists and has space
+        let write_offset = self.ensure_query_space(record_size as u64)?;
+
+        // Allocate query ID
+        let query_id = self.allocate_query_id()?;
+
+        // Serialize the query
+        let data = query::QueryStore::serialize_query(
+            query_id,
+            query_type,
+            name,
+            description,
+            query_text,
+            &parameters,
+        );
+
+        // Write to disk
+        self.write_query_data(write_offset, &data)?;
+
+        // Update header with new query_store_end
+        self.update_query_header(write_offset + data.len() as u64)?;
+
+        // Update in-memory index
+        {
+            let mut query_index = self.query_index.write();
+            query_index.insert(name.to_string(), query_id, write_offset);
+        }
+
+        Ok(query_id)
+    }
+
+    /// Get a query by name.
+    ///
+    /// Returns `None` if no query exists with the given name.
+    pub fn get_query(&self, name: &str) -> Option<crate::query::SavedQuery> {
+        let offset = {
+            let query_index = self.query_index.read();
+            query_index.get_offset_by_name(name)?
+        };
+
+        self.read_query_at_offset(offset)
+    }
+
+    /// Get a query by ID.
+    ///
+    /// Returns `None` if no query exists with the given ID.
+    pub fn get_query_by_id(&self, id: u32) -> Option<crate::query::SavedQuery> {
+        let offset = {
+            let query_index = self.query_index.read();
+            query_index.get_offset(id)?
+        };
+
+        self.read_query_at_offset(offset)
+    }
+
+    /// List all saved queries.
+    ///
+    /// Returns queries in no particular order.
+    pub fn list_queries(&self) -> Vec<crate::query::SavedQuery> {
+        let offsets: Vec<u64> = {
+            let query_index = self.query_index.read();
+            query_index.offsets().collect()
+        };
+
+        offsets
+            .into_iter()
+            .filter_map(|offset| self.read_query_at_offset(offset))
+            .collect()
+    }
+
+    /// Delete a query by name.
+    ///
+    /// This performs a soft delete by setting the deleted flag.
+    ///
+    /// # Errors
+    ///
+    /// - `QueryError::NotFound` - Query does not exist
+    pub fn delete_query(&self, name: &str) -> Result<(), crate::error::QueryError> {
+        use crate::error::QueryError;
+
+        let (query_id, offset) = {
+            let query_index = self.query_index.read();
+            let id = query_index
+                .get_id(name)
+                .ok_or_else(|| QueryError::NotFound(name.to_string()))?;
+            let offset = query_index
+                .get_offset(id)
+                .ok_or_else(|| QueryError::NotFound(name.to_string()))?;
+            (id, offset)
+        };
+
+        // Set the deleted flag in the record on disk
+        self.mark_query_deleted(offset)?;
+
+        // Remove from in-memory index
+        {
+            let mut query_index = self.query_index.write();
+            query_index.remove(name);
+        }
+
+        // Decrement query count in header
+        self.decrement_query_count()?;
+
+        // Log query ID for debugging (avoid unused warning)
+        let _ = query_id;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // Query Storage Helpers
+    // =========================================================================
+
+    /// Extract parameters from query text using simple regex-like pattern matching.
+    fn extract_parameters(query_text: &str) -> Vec<crate::query::QueryParameter> {
+        use crate::query::{ParameterType, QueryParameter};
+
+        let mut params = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // Simple parameter extraction: find $name patterns
+        let bytes = query_text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'$' && i + 1 < bytes.len() {
+                // Find parameter name
+                let start = i + 1;
+                let mut end = start;
+                while end < bytes.len()
+                    && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
+                {
+                    end += 1;
+                }
+
+                if end > start {
+                    if let Ok(name) = std::str::from_utf8(&bytes[start..end]) {
+                        if !seen.contains(name) {
+                            seen.insert(name.to_string());
+                            params.push(QueryParameter::new(name, ParameterType::Any));
+                        }
+                    }
+                }
+                i = end;
+            } else {
+                i += 1;
+            }
+        }
+
+        params
+    }
+
+    /// Ensure the query region exists and has enough space for a new query.
+    ///
+    /// Returns the offset where the new query should be written.
+    fn ensure_query_space(&self, size: u64) -> Result<u64, crate::error::QueryError> {
+        use crate::error::QueryError;
+        use records::QUERY_REGION_HEADER_SIZE;
+
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+        drop(mmap);
+
+        // Check if query region exists
+        if !header.has_query_region() {
+            // Initialize new query region
+            return self.initialize_query_region(size);
+        }
+
+        // Calculate available space
+        let query_store_offset = header.query_store_offset();
+        let query_store_end = header.query_store_end();
+        let file_size = {
+            let file = self.file.read();
+            file.metadata()
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?
+                .len()
+        };
+
+        // Calculate where new query would go
+        let write_offset = if query_store_end > query_store_offset + QUERY_REGION_HEADER_SIZE as u64
+        {
+            query_store_end
+        } else {
+            query_store_offset + QUERY_REGION_HEADER_SIZE as u64
+        };
+
+        // Check if we need to grow
+        if write_offset + size > file_size {
+            self.grow_query_region(size)?;
+        }
+
+        Ok(write_offset)
+    }
+
+    /// Initialize a new query region at the end of the file.
+    fn initialize_query_region(&self, initial_size: u64) -> Result<u64, crate::error::QueryError> {
+        use crate::error::QueryError;
+        use query::DEFAULT_QUERY_REGION_SIZE;
+        use records::QUERY_REGION_HEADER_SIZE;
+
+        let region_size = initial_size
+            .max(DEFAULT_QUERY_REGION_SIZE)
+            .max(QUERY_REGION_HEADER_SIZE as u64 + initial_size);
+
+        // Get current file size
+        let current_size = {
+            let file = self.file.read();
+            file.metadata()
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?
+                .len()
+        };
+
+        let query_region_offset = current_size;
+        let new_file_size = current_size + region_size;
+
+        // Extend the file
+        {
+            let file = self.file.write();
+            file.set_len(new_file_size)
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+        }
+
+        // Write query region header
+        let region_header = query::QueryStore::create_region_header();
+        {
+            let file = self.file.write();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileExt;
+                file.write_all_at(&region_header, query_region_offset)
+                    .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+            }
+            #[cfg(not(unix))]
+            {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut f = &*file;
+                f.seek(SeekFrom::Start(query_region_offset))
+                    .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+                f.write_all(&region_header)
+                    .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+            }
+        }
+
+        // Update file header with query region info
+        {
+            let mmap = self.mmap.read();
+            let mut header = Self::read_header(&mmap);
+            drop(mmap);
+
+            header.set_query_store_offset(query_region_offset);
+            header.set_query_store_end(query_region_offset + QUERY_REGION_HEADER_SIZE as u64);
+            header.set_query_count(0);
+            header.set_next_query_id(1);
+
+            let file = self.file.write();
+            Self::write_header(&file, &header).map_err(QueryError::Storage)?;
+        }
+
+        // Remap
+        self.remap().map_err(QueryError::Storage)?;
+
+        // Return offset after region header
+        Ok(query_region_offset + QUERY_REGION_HEADER_SIZE as u64)
+    }
+
+    /// Grow the query region to accommodate more queries.
+    fn grow_query_region(&self, additional_size: u64) -> Result<(), crate::error::QueryError> {
+        use crate::error::QueryError;
+        use query::MIN_QUERY_REGION_GROWTH;
+
+        let growth = additional_size.max(MIN_QUERY_REGION_GROWTH);
+
+        let file = self.file.write();
+        let current_size = file
+            .metadata()
+            .map_err(|e| QueryError::Storage(StorageError::Io(e)))?
+            .len();
+        let new_size = current_size + growth;
+
+        file.set_len(new_size)
+            .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+        drop(file);
+
+        self.remap().map_err(QueryError::Storage)?;
+
+        Ok(())
+    }
+
+    /// Allocate a new query ID.
+    fn allocate_query_id(&self) -> Result<u32, crate::error::QueryError> {
+        use crate::error::QueryError;
+
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        let query_id = header.next_query_id();
+        header.set_next_query_id(query_id + 1);
+        header.set_query_count(header.query_count() + 1);
+
+        let file = self.file.write();
+        Self::write_header(&file, &header).map_err(QueryError::Storage)?;
+        drop(file);
+
+        self.remap().map_err(QueryError::Storage)?;
+
+        Ok(query_id)
+    }
+
+    /// Write query data to disk at the specified offset.
+    fn write_query_data(&self, offset: u64, data: &[u8]) -> Result<(), crate::error::QueryError> {
+        use crate::error::QueryError;
+
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(data, offset)
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut f = &*file;
+            f.seek(SeekFrom::Start(offset))
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+            f.write_all(data)
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+        }
+
+        drop(file);
+        self.remap().map_err(QueryError::Storage)?;
+
+        Ok(())
+    }
+
+    /// Update the query store end offset in the header.
+    fn update_query_header(&self, new_end: u64) -> Result<(), crate::error::QueryError> {
+        use crate::error::QueryError;
+
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        header.set_query_store_end(new_end);
+
+        let file = self.file.write();
+        Self::write_header(&file, &header).map_err(QueryError::Storage)?;
+        drop(file);
+
+        self.remap().map_err(QueryError::Storage)?;
+
+        Ok(())
+    }
+
+    /// Read a query from disk at the specified offset.
+    fn read_query_at_offset(&self, offset: u64) -> Option<crate::query::SavedQuery> {
+        let mmap = self.mmap.read();
+
+        if offset as usize >= mmap.len() {
+            return None;
+        }
+
+        // Read enough bytes to determine record size
+        let slice = &mmap[offset as usize..];
+        query::QueryStore::deserialize_query(slice).ok()
+    }
+
+    /// Mark a query as deleted by setting the deleted flag.
+    fn mark_query_deleted(&self, offset: u64) -> Result<(), crate::error::QueryError> {
+        use crate::error::QueryError;
+        use records::QUERY_FLAG_DELETED;
+
+        // The flags field is at offset 4 in the QueryRecord (after id)
+        let flags_offset = offset + 4;
+
+        // Read current flags
+        let current_flags = self.read_u16_at(flags_offset)?;
+
+        // Set deleted flag
+        let new_flags = current_flags | QUERY_FLAG_DELETED;
+        let flag_bytes = new_flags.to_le_bytes();
+
+        // Write back
+        let file = self.file.write();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            file.write_all_at(&flag_bytes, flags_offset)
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut f = &*file;
+            f.seek(SeekFrom::Start(flags_offset))
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+            f.write_all(&flag_bytes)
+                .map_err(|e| QueryError::Storage(StorageError::Io(e)))?;
+        }
+
+        drop(file);
+        self.remap().map_err(QueryError::Storage)?;
+
+        Ok(())
+    }
+
+    /// Helper to read a u16 value from mmap at a given offset.
+    fn read_u16_at(&self, offset: u64) -> Result<u16, crate::error::QueryError> {
+        use crate::error::QueryError;
+
+        let mmap = self.mmap.read();
+        let offset = offset as usize;
+
+        if offset + 2 > mmap.len() {
+            return Err(QueryError::Storage(StorageError::CorruptedData));
+        }
+
+        let bytes: [u8; 2] = mmap[offset..offset + 2].try_into().unwrap();
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    /// Decrement the query count in the header.
+    fn decrement_query_count(&self) -> Result<(), crate::error::QueryError> {
+        use crate::error::QueryError;
+
+        let mmap = self.mmap.read();
+        let mut header = Self::read_header(&mmap);
+        drop(mmap);
+
+        let count = header.query_count();
+        header.set_query_count(count.saturating_sub(1));
+
+        let file = self.file.write();
+        Self::write_header(&file, &header).map_err(QueryError::Storage)?;
+        drop(file);
+
+        self.remap().map_err(QueryError::Storage)?;
+
+        Ok(())
+    }
+
+    /// Load query index from disk on database open.
+    ///
+    /// This scans the query region and rebuilds the in-memory index.
+    pub(crate) fn load_query_index(&self) -> Result<(), StorageError> {
+        use records::QUERY_RECORD_HEADER_SIZE;
+
+        let mmap = self.mmap.read();
+        let header = Self::read_header(&mmap);
+
+        if !header.has_query_region() {
+            return Ok(());
+        }
+
+        let query_store_offset = header.query_store_offset();
+        let query_store_end = header.query_store_end();
+        drop(mmap);
+
+        // Skip region header
+        let mut offset = query_store_offset + records::QUERY_REGION_HEADER_SIZE as u64;
+
+        let mut query_index = self.query_index.write();
+        query_index.clear();
+
+        while offset < query_store_end {
+            let mmap = self.mmap.read();
+
+            if offset as usize + QUERY_RECORD_HEADER_SIZE > mmap.len() {
+                break;
+            }
+
+            // Read record header to get ID, flags, and size
+            let slice = &mmap[offset as usize..];
+            let record = records::QueryRecord::from_bytes(slice);
+
+            let id = record.id;
+            let record_size = record.record_size as u64;
+
+            // Skip if deleted
+            if record.is_deleted() {
+                offset += record_size;
+                continue;
+            }
+
+            // Deserialize to get name
+            if let Ok(saved_query) = query::QueryStore::deserialize_query(slice) {
+                query_index.insert(saved_query.name, id, offset);
+            }
+
+            offset += record_size;
+        }
+
+        Ok(())
     }
 }
 

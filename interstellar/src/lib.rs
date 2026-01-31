@@ -400,6 +400,8 @@ pub mod graphson;
 #[cfg(feature = "gremlin")]
 pub mod gremlin;
 pub mod index;
+#[cfg(feature = "mmap")]
+pub mod query;
 pub mod schema;
 pub mod storage;
 // Internal time abstraction for WASM compatibility

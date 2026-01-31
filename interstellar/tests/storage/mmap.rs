@@ -2705,3 +2705,303 @@ fn test_multiple_property_updates_same_vertex() {
     assert_eq!(vertex.properties.get("age"), Some(&Value::Int(31)));
     assert_eq!(vertex.properties.get("active"), Some(&Value::Bool(true)));
 }
+
+// =============================================================================
+// Query Storage Tests
+// =============================================================================
+
+use interstellar::query::QueryType;
+
+/// Test saving and retrieving a Gremlin query.
+#[test]
+fn test_save_and_get_gremlin_query() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Save a query - returns query ID
+    let query_id = graph
+        .save_query(
+            "find_person",
+            QueryType::Gremlin,
+            "Find person by name",
+            "g.V().hasLabel('person').has('name', $name)",
+        )
+        .expect("save query");
+
+    assert!(query_id > 0);
+
+    // Retrieve by name
+    let retrieved = graph.get_query("find_person").expect("query should exist");
+    assert_eq!(retrieved.name, "find_person");
+    assert_eq!(
+        retrieved.query,
+        "g.V().hasLabel('person').has('name', $name)"
+    );
+    assert_eq!(retrieved.query_type, QueryType::Gremlin);
+    assert_eq!(retrieved.id, query_id);
+    assert!(
+        !retrieved.parameters.is_empty(),
+        "should extract $name parameter"
+    );
+
+    // Retrieve by ID
+    let by_id = graph
+        .get_query_by_id(query_id)
+        .expect("query by id should exist");
+    assert_eq!(by_id.name, "find_person");
+}
+
+/// Test saving and retrieving a GQL query.
+#[test]
+fn test_save_and_get_gql_query() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let query_id = graph
+        .save_query(
+            "match_nodes",
+            QueryType::Gql,
+            "Find people older than min_age",
+            "MATCH (n:Person) WHERE n.age > $min_age RETURN n",
+        )
+        .expect("save query");
+
+    let retrieved = graph.get_query("match_nodes").expect("query should exist");
+    assert_eq!(retrieved.name, "match_nodes");
+    assert_eq!(retrieved.query_type, QueryType::Gql);
+    assert_eq!(retrieved.description, "Find people older than min_age");
+    assert_eq!(retrieved.id, query_id);
+}
+
+/// Test listing all saved queries.
+#[test]
+fn test_list_queries() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Initially no queries
+    let queries = graph.list_queries();
+    assert!(queries.is_empty());
+
+    // Add some queries
+    graph
+        .save_query("query1", QueryType::Gremlin, "", "g.V()")
+        .expect("save query1");
+    graph
+        .save_query("query2", QueryType::Gremlin, "", "g.E()")
+        .expect("save query2");
+    graph
+        .save_query("query3", QueryType::Gql, "", "MATCH (n) RETURN n")
+        .expect("save query3");
+
+    let queries = graph.list_queries();
+    assert_eq!(queries.len(), 3);
+
+    let names: Vec<_> = queries.iter().map(|q| q.name.as_str()).collect();
+    assert!(names.contains(&"query1"));
+    assert!(names.contains(&"query2"));
+    assert!(names.contains(&"query3"));
+}
+
+/// Test deleting a query.
+#[test]
+fn test_delete_query() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let query_id = graph
+        .save_query("to_delete", QueryType::Gremlin, "", "g.V()")
+        .expect("save query");
+
+    // Query exists
+    assert!(graph.get_query("to_delete").is_some());
+
+    // Delete it
+    graph.delete_query("to_delete").expect("delete query");
+
+    // Query no longer exists
+    assert!(graph.get_query("to_delete").is_none());
+
+    // Get by ID should also return None now
+    assert!(graph.get_query_by_id(query_id).is_none());
+
+    // List should be empty
+    let queries = graph.list_queries();
+    assert!(queries.is_empty());
+}
+
+/// Test that duplicate query names are rejected.
+#[test]
+fn test_duplicate_query_name_rejected() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    graph
+        .save_query("my_query", QueryType::Gremlin, "", "g.V()")
+        .expect("save first query");
+
+    // Try to save with same name
+    let result = graph.save_query("my_query", QueryType::Gremlin, "", "g.E()");
+    assert!(result.is_err(), "should reject duplicate name");
+}
+
+/// Test query name validation.
+#[test]
+fn test_query_name_validation() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Empty name should fail
+    let result = graph.save_query("", QueryType::Gremlin, "", "g.V()");
+    assert!(result.is_err(), "empty name should be rejected");
+
+    // Name with spaces should fail
+    let result = graph.save_query("my query", QueryType::Gremlin, "", "g.V()");
+    assert!(result.is_err(), "name with spaces should be rejected");
+
+    // Valid names should work
+    graph
+        .save_query("valid_name", QueryType::Gremlin, "", "g.V()")
+        .expect("underscore name");
+    graph
+        .save_query("valid-name-2", QueryType::Gremlin, "", "g.V()")
+        .expect("hyphen name");
+    graph
+        .save_query("CamelCase", QueryType::Gremlin, "", "g.V()")
+        .expect("camel case name");
+}
+
+/// Test query persistence across reopens.
+#[test]
+fn test_query_persistence() {
+    let (dir, db_path) = temp_db();
+
+    // First session: save queries
+    {
+        let graph = MmapGraph::open(&db_path).expect("open graph");
+
+        graph
+            .save_query(
+                "persistent_query",
+                QueryType::Gremlin,
+                "A persistent query",
+                "g.V().count()",
+            )
+            .expect("save query");
+
+        graph.checkpoint().expect("checkpoint");
+    }
+
+    // Second session: verify queries persisted
+    {
+        let graph = MmapGraph::open(&db_path).expect("reopen graph");
+
+        let query = graph
+            .get_query("persistent_query")
+            .expect("query should exist");
+        assert_eq!(query.name, "persistent_query");
+        assert_eq!(query.query, "g.V().count()");
+        assert_eq!(query.query_type, QueryType::Gremlin);
+    }
+
+    drop(dir);
+}
+
+/// Test parameter extraction from query text.
+#[test]
+fn test_query_parameter_extraction() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Query with multiple parameters
+    graph
+        .save_query(
+            "parameterized",
+            QueryType::Gremlin,
+            "",
+            "g.V().has('name', $name).has('age', $age).has('active', $is_active)",
+        )
+        .expect("save query");
+
+    let query = graph
+        .get_query("parameterized")
+        .expect("query should exist");
+    assert_eq!(query.parameters.len(), 3);
+
+    let param_names: Vec<_> = query.parameters.iter().map(|p| p.name.as_str()).collect();
+    assert!(param_names.contains(&"name"));
+    assert!(param_names.contains(&"age"));
+    assert!(param_names.contains(&"is_active"));
+}
+
+/// Test saving query with unicode characters.
+#[test]
+fn test_query_with_unicode() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    graph
+        .save_query(
+            "unicode_query",
+            QueryType::Gremlin,
+            "Query with Japanese text 日本語",
+            "g.V().has('name', '日本語')",
+        )
+        .expect("save query");
+
+    let retrieved = graph
+        .get_query("unicode_query")
+        .expect("query should exist");
+    assert_eq!(retrieved.query, "g.V().has('name', '日本語')");
+    assert_eq!(retrieved.description, "Query with Japanese text 日本語");
+}
+
+/// Test getting a non-existent query.
+#[test]
+fn test_get_nonexistent_query() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    assert!(graph.get_query("does_not_exist").is_none());
+    assert!(graph.get_query_by_id(99999).is_none());
+}
+
+/// Test deleting a non-existent query.
+#[test]
+fn test_delete_nonexistent_query() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    let result = graph.delete_query("does_not_exist");
+    assert!(result.is_err());
+}
+
+/// Test saving many queries.
+#[test]
+fn test_save_many_queries() {
+    let (_dir, db_path) = temp_db();
+    let graph = MmapGraph::open(&db_path).expect("open graph");
+
+    // Save 100 queries
+    for i in 0..100 {
+        graph
+            .save_query(
+                &format!("query_{}", i),
+                QueryType::Gremlin,
+                "",
+                &format!("g.V().has('index', {})", i),
+            )
+            .expect(&format!("save query {}", i));
+    }
+
+    // Verify all are listed
+    let queries = graph.list_queries();
+    assert_eq!(queries.len(), 100);
+
+    // Verify random access works
+    let q42 = graph.get_query("query_42").expect("query_42 should exist");
+    assert_eq!(q42.query, "g.V().has('index', 42)");
+
+    let q99 = graph.get_query("query_99").expect("query_99 should exist");
+    assert_eq!(q99.query, "g.V().has('index', 99)");
+}

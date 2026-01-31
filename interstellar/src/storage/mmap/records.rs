@@ -416,6 +416,81 @@ impl FileHeader {
         }
         self.header_crc32 == self.compute_crc32()
     }
+
+    // =========================================================================
+    // Query Storage Metadata Helpers
+    // =========================================================================
+    //
+    // The _reserved field (36 bytes at offset 156) is used to store query
+    // storage metadata without changing the struct layout:
+    //
+    // Offset 0-7:   query_store_offset (u64) - Byte offset to query region start
+    // Offset 8-15:  query_store_end (u64)    - Byte offset to query data end
+    // Offset 16-19: query_count (u32)        - Number of active queries
+    // Offset 20-23: next_query_id (u32)      - Next query ID to allocate
+    // Offset 24-35: Reserved for future use (12 bytes, must be zero)
+
+    /// Get the byte offset to the query region start.
+    ///
+    /// Returns 0 if no query region has been allocated.
+    #[inline]
+    pub fn query_store_offset(&self) -> u64 {
+        u64::from_le_bytes(self._reserved[0..8].try_into().unwrap())
+    }
+
+    /// Set the byte offset to the query region start.
+    #[inline]
+    pub fn set_query_store_offset(&mut self, offset: u64) {
+        self._reserved[0..8].copy_from_slice(&offset.to_le_bytes());
+    }
+
+    /// Get the byte offset to the query data end (exclusive).
+    ///
+    /// This is the current write position in the query region.
+    #[inline]
+    pub fn query_store_end(&self) -> u64 {
+        u64::from_le_bytes(self._reserved[8..16].try_into().unwrap())
+    }
+
+    /// Set the byte offset to the query data end.
+    #[inline]
+    pub fn set_query_store_end(&mut self, end: u64) {
+        self._reserved[8..16].copy_from_slice(&end.to_le_bytes());
+    }
+
+    /// Get the number of active (non-deleted) queries.
+    #[inline]
+    pub fn query_count(&self) -> u32 {
+        u32::from_le_bytes(self._reserved[16..20].try_into().unwrap())
+    }
+
+    /// Set the number of active (non-deleted) queries.
+    #[inline]
+    pub fn set_query_count(&mut self, count: u32) {
+        self._reserved[16..20].copy_from_slice(&count.to_le_bytes());
+    }
+
+    /// Get the next query ID to allocate.
+    ///
+    /// Query IDs are never reused, even after deletion.
+    #[inline]
+    pub fn next_query_id(&self) -> u32 {
+        u32::from_le_bytes(self._reserved[20..24].try_into().unwrap())
+    }
+
+    /// Set the next query ID to allocate.
+    #[inline]
+    pub fn set_next_query_id(&mut self, id: u32) {
+        self._reserved[20..24].copy_from_slice(&id.to_le_bytes());
+    }
+
+    /// Check if the query region has been initialized.
+    ///
+    /// Returns true if query_store_offset is non-zero.
+    #[inline]
+    pub fn has_query_region(&self) -> bool {
+        self.query_store_offset() != 0
+    }
 }
 
 impl Default for FileHeader {
@@ -831,6 +906,356 @@ impl StringEntry {
             result.copy_from_slice(slice);
             result
         }
+    }
+}
+
+// =============================================================================
+// Query Storage Structures
+// =============================================================================
+
+/// Magic number identifying query region ("QRYS" in ASCII)
+pub const QUERY_REGION_MAGIC: u32 = 0x51525953;
+
+/// Query region format version
+pub const QUERY_REGION_VERSION: u32 = 1;
+
+/// Size of the query region header in bytes
+pub const QUERY_REGION_HEADER_SIZE: usize = 16;
+
+/// Size of the query record header in bytes (fixed portion)
+pub const QUERY_RECORD_HEADER_SIZE: usize = 36;
+
+/// Size of the parameter entry header in bytes
+pub const PARAMETER_ENTRY_HEADER_SIZE: usize = 4;
+
+/// Query flag: marks a deleted query
+pub const QUERY_FLAG_DELETED: u16 = 0x0001;
+
+/// Query type mask (bits 1-2)
+pub const QUERY_TYPE_MASK: u16 = 0x0006;
+
+/// Query type shift (to extract type from flags)
+pub const QUERY_TYPE_SHIFT: u16 = 1;
+
+/// Query type: Gremlin (value 1, stored as bits 1-2 = 0b01)
+pub const QUERY_TYPE_GREMLIN: u16 = 1;
+
+/// Query type: GQL (value 2, stored as bits 1-2 = 0b10)
+pub const QUERY_TYPE_GQL: u16 = 2;
+
+/// Query region header (16 bytes)
+///
+/// This header is placed at the start of the query storage region.
+///
+/// # Layout
+///
+/// ```text
+/// Offset | Size | Field
+/// -------|------|-------------------
+/// 0      | 4    | magic
+/// 4      | 4    | version
+/// 8      | 8    | first_query
+/// ```
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct QueryRegionHeader {
+    /// Magic number (must be 0x51525953 "QRYS")
+    pub magic: u32,
+
+    /// Query region format version
+    pub version: u32,
+
+    /// Offset to first query record (u64::MAX if empty)
+    pub first_query: u64,
+}
+
+impl QueryRegionHeader {
+    /// Create a new empty query region header
+    pub fn new() -> Self {
+        Self {
+            magic: QUERY_REGION_MAGIC,
+            version: QUERY_REGION_VERSION,
+            first_query: u64::MAX,
+        }
+    }
+
+    /// Read query region header from bytes
+    ///
+    /// # Safety
+    ///
+    /// Uses `read_unaligned` because the struct is `#[repr(C, packed)]`.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= QUERY_REGION_HEADER_SIZE,
+            "Buffer too small for QueryRegionHeader"
+        );
+
+        unsafe {
+            let ptr = bytes.as_ptr() as *const QueryRegionHeader;
+            ptr.read_unaligned()
+        }
+    }
+
+    /// Write query region header to bytes
+    ///
+    /// # Safety
+    ///
+    /// Creates a byte slice from the packed struct.
+    pub fn to_bytes(&self) -> [u8; QUERY_REGION_HEADER_SIZE] {
+        unsafe {
+            let ptr = self as *const QueryRegionHeader as *const u8;
+            let slice = std::slice::from_raw_parts(ptr, QUERY_REGION_HEADER_SIZE);
+            let mut result = [0u8; QUERY_REGION_HEADER_SIZE];
+            result.copy_from_slice(slice);
+            result
+        }
+    }
+
+    /// Check if the magic number is valid
+    pub fn is_valid(&self) -> bool {
+        self.magic == QUERY_REGION_MAGIC
+    }
+}
+
+impl Default for QueryRegionHeader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Query record header (36 bytes fixed + variable data)
+///
+/// Queries are stored as variable-length records in a dedicated region.
+/// The header contains metadata, and variable data follows immediately after.
+///
+/// # Layout
+///
+/// ```text
+/// Offset | Size | Field
+/// -------|------|-------------------
+/// 0      | 4    | id
+/// 4      | 2    | flags
+/// 6      | 2    | param_count
+/// 8      | 2    | name_len
+/// 10     | 2    | description_len
+/// 12     | 4    | query_len
+/// 16     | 4    | record_size
+/// 20     | 8    | next
+/// 28     | 8    | prev
+/// ```
+///
+/// # Variable data layout (immediately follows header)
+///
+/// ```text
+/// Offset              | Size              | Content
+/// --------------------|-------------------|------------------
+/// 0                   | name_len          | Query name (UTF-8)
+/// name_len            | description_len   | Description (UTF-8)
+/// name_len+desc_len   | query_len         | Query text (UTF-8)
+/// ...                 | param_count * N   | Parameter entries
+/// ```
+///
+/// # Flags
+///
+/// - bit 0: deleted flag
+/// - bits 1-2: query type (0=reserved, 1=gremlin, 2=gql)
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct QueryRecord {
+    /// Query ID (unique, never reused)
+    pub id: u32,
+
+    /// Flags bitfield
+    pub flags: u16,
+
+    /// Number of parameters
+    pub param_count: u16,
+
+    /// Length of name string (UTF-8 bytes)
+    pub name_len: u16,
+
+    /// Length of description string (UTF-8 bytes)
+    pub description_len: u16,
+
+    /// Length of query text (UTF-8 bytes)
+    pub query_len: u32,
+
+    /// Total record size including header and all variable data
+    pub record_size: u32,
+
+    /// Offset to next record (u64::MAX if last)
+    pub next: u64,
+
+    /// Offset to previous record (u64::MAX if first)
+    pub prev: u64,
+}
+
+impl QueryRecord {
+    /// Create a new query record
+    pub fn new(
+        id: u32,
+        query_type: u16,
+        param_count: u16,
+        name_len: u16,
+        description_len: u16,
+        query_len: u32,
+        record_size: u32,
+    ) -> Self {
+        let flags = (query_type << QUERY_TYPE_SHIFT) & QUERY_TYPE_MASK;
+        Self {
+            id,
+            flags,
+            param_count,
+            name_len,
+            description_len,
+            query_len,
+            record_size,
+            next: u64::MAX,
+            prev: u64::MAX,
+        }
+    }
+
+    /// Check if this query is deleted
+    pub fn is_deleted(&self) -> bool {
+        self.flags & QUERY_FLAG_DELETED != 0
+    }
+
+    /// Mark this query as deleted
+    pub fn mark_deleted(&mut self) {
+        self.flags |= QUERY_FLAG_DELETED;
+    }
+
+    /// Get the query type (1 = Gremlin, 2 = GQL)
+    pub fn query_type(&self) -> u16 {
+        (self.flags & QUERY_TYPE_MASK) >> QUERY_TYPE_SHIFT
+    }
+
+    /// Read query record from bytes
+    ///
+    /// # Safety
+    ///
+    /// Uses `read_unaligned` because the struct is `#[repr(C, packed)]`.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= QUERY_RECORD_HEADER_SIZE,
+            "Buffer too small for QueryRecord"
+        );
+
+        unsafe {
+            let ptr = bytes.as_ptr() as *const QueryRecord;
+            ptr.read_unaligned()
+        }
+    }
+
+    /// Write query record to bytes
+    ///
+    /// # Safety
+    ///
+    /// Creates a byte slice from the packed struct.
+    pub fn to_bytes(&self) -> [u8; QUERY_RECORD_HEADER_SIZE] {
+        unsafe {
+            let ptr = self as *const QueryRecord as *const u8;
+            let slice = std::slice::from_raw_parts(ptr, QUERY_RECORD_HEADER_SIZE);
+            let mut result = [0u8; QUERY_RECORD_HEADER_SIZE];
+            result.copy_from_slice(slice);
+            result
+        }
+    }
+}
+
+/// Parameter entry header (4 bytes + variable name)
+///
+/// Each parameter is stored with its name and inferred type.
+///
+/// # Layout
+///
+/// ```text
+/// Offset | Size | Field
+/// -------|------|-------------------
+/// 0      | 2    | name_len
+/// 2      | 1    | value_type
+/// 3      | 1    | _reserved
+/// 4      | N    | name bytes (UTF-8)
+/// ```
+///
+/// # Value Types
+///
+/// - 0x00 = Null
+/// - 0x01 = Bool
+/// - 0x02 = Int
+/// - 0x03 = Float
+/// - 0x04 = String
+/// - 0x05 = List
+/// - 0x06 = Map
+/// - 0x07 = Vertex
+/// - 0x08 = Edge
+/// - 0xFF = Any (unknown/unconstrained)
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct ParameterEntry {
+    /// Parameter name length
+    pub name_len: u16,
+
+    /// Expected value type (Value discriminant, 0xFF = any)
+    pub value_type: u8,
+
+    /// Reserved for future use (alignment)
+    pub _reserved: u8,
+}
+
+/// Value type discriminant for "any" type (unconstrained)
+pub const PARAMETER_TYPE_ANY: u8 = 0xFF;
+
+impl ParameterEntry {
+    /// Create a new parameter entry
+    pub fn new(name_len: u16, value_type: u8) -> Self {
+        Self {
+            name_len,
+            value_type,
+            _reserved: 0,
+        }
+    }
+
+    /// Create a new parameter entry with "any" type
+    pub fn new_any(name_len: u16) -> Self {
+        Self::new(name_len, PARAMETER_TYPE_ANY)
+    }
+
+    /// Read parameter entry from bytes
+    ///
+    /// # Safety
+    ///
+    /// Uses `read_unaligned` because the struct is `#[repr(C, packed)]`.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= PARAMETER_ENTRY_HEADER_SIZE,
+            "Buffer too small for ParameterEntry"
+        );
+
+        unsafe {
+            let ptr = bytes.as_ptr() as *const ParameterEntry;
+            ptr.read_unaligned()
+        }
+    }
+
+    /// Write parameter entry to bytes
+    ///
+    /// # Safety
+    ///
+    /// Creates a byte slice from the packed struct.
+    pub fn to_bytes(&self) -> [u8; PARAMETER_ENTRY_HEADER_SIZE] {
+        unsafe {
+            let ptr = self as *const ParameterEntry as *const u8;
+            let slice = std::slice::from_raw_parts(ptr, PARAMETER_ENTRY_HEADER_SIZE);
+            let mut result = [0u8; PARAMETER_ENTRY_HEADER_SIZE];
+            result.copy_from_slice(slice);
+            result
+        }
+    }
+
+    /// Total size of this parameter entry including the name
+    pub fn total_size(&self) -> usize {
+        PARAMETER_ENTRY_HEADER_SIZE + self.name_len as usize
     }
 }
 
@@ -1888,5 +2313,458 @@ mod tests {
         assert_eq!(DEFAULT_PAGE_SIZE, 4096);
         assert_eq!(ENDIAN_LITTLE, 1);
         assert_eq!(ENDIAN_BIG, 2);
+    }
+
+    // =========================================================================
+    // QueryRegionHeader Tests
+    // =========================================================================
+
+    #[test]
+    fn test_query_region_header_size() {
+        assert_eq!(
+            std::mem::size_of::<QueryRegionHeader>(),
+            QUERY_REGION_HEADER_SIZE,
+            "QueryRegionHeader size must be exactly 16 bytes"
+        );
+    }
+
+    #[test]
+    fn test_query_region_header_alignment() {
+        // Verify packed struct layout
+        // magic: u32 (4 bytes)
+        // version: u32 (4 bytes)
+        // first_query: u64 (8 bytes)
+        // Total: 4 + 4 + 8 = 16 bytes
+        assert_eq!(
+            std::mem::size_of::<QueryRegionHeader>(),
+            4 + 4 + 8,
+            "QueryRegionHeader fields should sum to 16 bytes"
+        );
+    }
+
+    #[test]
+    fn test_query_region_header_new() {
+        let header = QueryRegionHeader::new();
+
+        let magic = header.magic;
+        let version = header.version;
+        let first_query = header.first_query;
+
+        assert_eq!(magic, QUERY_REGION_MAGIC);
+        assert_eq!(version, QUERY_REGION_VERSION);
+        assert_eq!(first_query, u64::MAX);
+        assert!(header.is_valid());
+    }
+
+    #[test]
+    fn test_query_region_header_roundtrip() {
+        let mut header = QueryRegionHeader::new();
+        header.first_query = 1024;
+
+        let orig_magic = header.magic;
+        let orig_version = header.version;
+        let orig_first_query = header.first_query;
+
+        let bytes = header.to_bytes();
+        assert_eq!(bytes.len(), QUERY_REGION_HEADER_SIZE);
+
+        let recovered = QueryRegionHeader::from_bytes(&bytes);
+
+        let rec_magic = recovered.magic;
+        let rec_version = recovered.version;
+        let rec_first_query = recovered.first_query;
+
+        assert_eq!(rec_magic, orig_magic);
+        assert_eq!(rec_version, orig_version);
+        assert_eq!(rec_first_query, orig_first_query);
+    }
+
+    #[test]
+    fn test_query_region_header_invalid_magic() {
+        let mut header = QueryRegionHeader::new();
+        header.magic = 0x12345678;
+        assert!(!header.is_valid());
+    }
+
+    // =========================================================================
+    // QueryRecord Tests
+    // =========================================================================
+
+    #[test]
+    fn test_query_record_size() {
+        assert_eq!(
+            std::mem::size_of::<QueryRecord>(),
+            QUERY_RECORD_HEADER_SIZE,
+            "QueryRecord size must be exactly 36 bytes"
+        );
+    }
+
+    #[test]
+    fn test_query_record_alignment() {
+        // Verify packed struct layout
+        // id: u32 (4 bytes)
+        // flags: u16 (2 bytes)
+        // param_count: u16 (2 bytes)
+        // name_len: u16 (2 bytes)
+        // description_len: u16 (2 bytes)
+        // query_len: u32 (4 bytes)
+        // record_size: u32 (4 bytes)
+        // next: u64 (8 bytes)
+        // prev: u64 (8 bytes)
+        // Total: 4 + 2 + 2 + 2 + 2 + 4 + 4 + 8 + 8 = 36 bytes
+        assert_eq!(
+            std::mem::size_of::<QueryRecord>(),
+            4 + 2 + 2 + 2 + 2 + 4 + 4 + 8 + 8,
+            "QueryRecord fields should sum to 36 bytes"
+        );
+    }
+
+    #[test]
+    fn test_query_record_new() {
+        let record = QueryRecord::new(
+            42,                 // id
+            QUERY_TYPE_GREMLIN, // query_type
+            2,                  // param_count
+            10,                 // name_len
+            50,                 // description_len
+            100,                // query_len
+            200,                // record_size
+        );
+
+        let id = record.id;
+        let param_count = record.param_count;
+        let name_len = record.name_len;
+        let description_len = record.description_len;
+        let query_len = record.query_len;
+        let record_size = record.record_size;
+        let next = record.next;
+        let prev = record.prev;
+
+        assert_eq!(id, 42);
+        assert_eq!(record.query_type(), QUERY_TYPE_GREMLIN);
+        assert_eq!(param_count, 2);
+        assert_eq!(name_len, 10);
+        assert_eq!(description_len, 50);
+        assert_eq!(query_len, 100);
+        assert_eq!(record_size, 200);
+        assert_eq!(next, u64::MAX);
+        assert_eq!(prev, u64::MAX);
+        assert!(!record.is_deleted());
+    }
+
+    #[test]
+    fn test_query_record_query_types() {
+        let gremlin = QueryRecord::new(1, QUERY_TYPE_GREMLIN, 0, 0, 0, 0, 0);
+        let gql = QueryRecord::new(2, QUERY_TYPE_GQL, 0, 0, 0, 0, 0);
+
+        assert_eq!(gremlin.query_type(), QUERY_TYPE_GREMLIN);
+        assert_eq!(gql.query_type(), QUERY_TYPE_GQL);
+    }
+
+    #[test]
+    fn test_query_record_deleted_flag() {
+        let mut record = QueryRecord::new(1, QUERY_TYPE_GREMLIN, 0, 0, 0, 0, 0);
+
+        assert!(!record.is_deleted());
+
+        record.mark_deleted();
+        assert!(record.is_deleted());
+
+        // Query type should be preserved after marking deleted
+        assert_eq!(record.query_type(), QUERY_TYPE_GREMLIN);
+    }
+
+    #[test]
+    fn test_query_record_roundtrip() {
+        let mut record = QueryRecord::new(123, QUERY_TYPE_GQL, 3, 20, 100, 500, 700);
+        record.next = 1000;
+        record.prev = 500;
+
+        let orig_id = record.id;
+        let orig_flags = record.flags;
+        let orig_param_count = record.param_count;
+        let orig_name_len = record.name_len;
+        let orig_description_len = record.description_len;
+        let orig_query_len = record.query_len;
+        let orig_record_size = record.record_size;
+        let orig_next = record.next;
+        let orig_prev = record.prev;
+
+        let bytes = record.to_bytes();
+        assert_eq!(bytes.len(), QUERY_RECORD_HEADER_SIZE);
+
+        let recovered = QueryRecord::from_bytes(&bytes);
+
+        let rec_id = recovered.id;
+        let rec_flags = recovered.flags;
+        let rec_param_count = recovered.param_count;
+        let rec_name_len = recovered.name_len;
+        let rec_description_len = recovered.description_len;
+        let rec_query_len = recovered.query_len;
+        let rec_record_size = recovered.record_size;
+        let rec_next = recovered.next;
+        let rec_prev = recovered.prev;
+
+        assert_eq!(rec_id, orig_id);
+        assert_eq!(rec_flags, orig_flags);
+        assert_eq!(rec_param_count, orig_param_count);
+        assert_eq!(rec_name_len, orig_name_len);
+        assert_eq!(rec_description_len, orig_description_len);
+        assert_eq!(rec_query_len, orig_query_len);
+        assert_eq!(rec_record_size, orig_record_size);
+        assert_eq!(rec_next, orig_next);
+        assert_eq!(rec_prev, orig_prev);
+    }
+
+    #[test]
+    fn test_query_record_byte_order() {
+        let record = QueryRecord::new(
+            0x01020304u32,
+            QUERY_TYPE_GREMLIN,
+            0x0506u16,
+            0x0708u16,
+            0x090Au16,
+            0x0B0C0D0Eu32,
+            0x0F101112u32,
+        );
+
+        let bytes = record.to_bytes();
+
+        // id starts at offset 0
+        let id_bytes: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        assert_eq!(id_bytes[0], 0x04); // Little-endian: LSB first
+        assert_eq!(id_bytes[3], 0x01);
+    }
+
+    // =========================================================================
+    // ParameterEntry Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parameter_entry_size() {
+        assert_eq!(
+            std::mem::size_of::<ParameterEntry>(),
+            PARAMETER_ENTRY_HEADER_SIZE,
+            "ParameterEntry size must be exactly 4 bytes"
+        );
+    }
+
+    #[test]
+    fn test_parameter_entry_alignment() {
+        // Verify packed struct layout
+        // name_len: u16 (2 bytes)
+        // value_type: u8 (1 byte)
+        // _reserved: u8 (1 byte)
+        // Total: 2 + 1 + 1 = 4 bytes
+        assert_eq!(
+            std::mem::size_of::<ParameterEntry>(),
+            2 + 1 + 1,
+            "ParameterEntry fields should sum to 4 bytes"
+        );
+    }
+
+    #[test]
+    fn test_parameter_entry_new() {
+        let entry = ParameterEntry::new(10, 0x02); // 0x02 = Int type
+
+        let name_len = entry.name_len;
+        let value_type = entry.value_type;
+        let reserved = entry._reserved;
+
+        assert_eq!(name_len, 10);
+        assert_eq!(value_type, 0x02);
+        assert_eq!(reserved, 0);
+    }
+
+    #[test]
+    fn test_parameter_entry_new_any() {
+        let entry = ParameterEntry::new_any(15);
+
+        let name_len = entry.name_len;
+        let value_type = entry.value_type;
+
+        assert_eq!(name_len, 15);
+        assert_eq!(value_type, PARAMETER_TYPE_ANY);
+    }
+
+    #[test]
+    fn test_parameter_entry_roundtrip() {
+        let entry = ParameterEntry::new(25, 0x04); // 0x04 = String type
+
+        let orig_name_len = entry.name_len;
+        let orig_value_type = entry.value_type;
+
+        let bytes = entry.to_bytes();
+        assert_eq!(bytes.len(), PARAMETER_ENTRY_HEADER_SIZE);
+
+        let recovered = ParameterEntry::from_bytes(&bytes);
+
+        let rec_name_len = recovered.name_len;
+        let rec_value_type = recovered.value_type;
+
+        assert_eq!(rec_name_len, orig_name_len);
+        assert_eq!(rec_value_type, orig_value_type);
+    }
+
+    #[test]
+    fn test_parameter_entry_total_size() {
+        let entry = ParameterEntry::new(20, 0x02);
+        assert_eq!(entry.total_size(), PARAMETER_ENTRY_HEADER_SIZE + 20);
+    }
+
+    #[test]
+    fn test_parameter_entry_byte_order() {
+        let entry = ParameterEntry::new(0x0102u16, 0xAB);
+
+        let bytes = entry.to_bytes();
+
+        // name_len starts at offset 0
+        let name_len_bytes: [u8; 2] = [bytes[0], bytes[1]];
+        assert_eq!(name_len_bytes[0], 0x02); // Little-endian: LSB first
+        assert_eq!(name_len_bytes[1], 0x01);
+
+        // value_type at offset 2
+        assert_eq!(bytes[2], 0xAB);
+
+        // _reserved at offset 3
+        assert_eq!(bytes[3], 0x00);
+    }
+
+    // =========================================================================
+    // Query Storage Constants Tests
+    // =========================================================================
+
+    #[test]
+    fn test_query_storage_constants() {
+        assert_eq!(QUERY_REGION_MAGIC, 0x51525953);
+        assert_eq!(QUERY_REGION_VERSION, 1);
+        assert_eq!(QUERY_REGION_HEADER_SIZE, 16);
+        assert_eq!(QUERY_RECORD_HEADER_SIZE, 36);
+        assert_eq!(PARAMETER_ENTRY_HEADER_SIZE, 4);
+        assert_eq!(QUERY_FLAG_DELETED, 0x0001);
+        assert_eq!(QUERY_TYPE_MASK, 0x0006);
+        assert_eq!(QUERY_TYPE_SHIFT, 1);
+        assert_eq!(QUERY_TYPE_GREMLIN, 1);
+        assert_eq!(QUERY_TYPE_GQL, 2);
+        assert_eq!(PARAMETER_TYPE_ANY, 0xFF);
+    }
+
+    // =========================================================================
+    // FileHeader Query Metadata Helper Tests
+    // =========================================================================
+
+    #[test]
+    fn test_file_header_query_metadata_default() {
+        let header = FileHeader::new();
+
+        // New headers should have no query region
+        assert!(!header.has_query_region());
+        assert_eq!(header.query_store_offset(), 0);
+        assert_eq!(header.query_store_end(), 0);
+        assert_eq!(header.query_count(), 0);
+        assert_eq!(header.next_query_id(), 0);
+    }
+
+    #[test]
+    fn test_file_header_query_metadata_setters() {
+        let mut header = FileHeader::new();
+
+        // Set query metadata
+        header.set_query_store_offset(1000);
+        header.set_query_store_end(2000);
+        header.set_query_count(5);
+        header.set_next_query_id(10);
+
+        // Verify values
+        assert!(header.has_query_region());
+        assert_eq!(header.query_store_offset(), 1000);
+        assert_eq!(header.query_store_end(), 2000);
+        assert_eq!(header.query_count(), 5);
+        assert_eq!(header.next_query_id(), 10);
+    }
+
+    #[test]
+    fn test_file_header_query_metadata_roundtrip() {
+        let mut header = FileHeader::new();
+
+        // Set various query metadata values
+        header.set_query_store_offset(0x123456789ABCDEF0);
+        header.set_query_store_end(0xFEDCBA9876543210);
+        header.set_query_count(0x12345678);
+        header.set_next_query_id(0x87654321);
+        header.update_crc32();
+
+        // Serialize and deserialize
+        let bytes = header.to_bytes();
+        let recovered = FileHeader::from_bytes(&bytes);
+
+        // Verify query metadata survives roundtrip
+        assert_eq!(recovered.query_store_offset(), 0x123456789ABCDEF0);
+        assert_eq!(recovered.query_store_end(), 0xFEDCBA9876543210);
+        assert_eq!(recovered.query_count(), 0x12345678);
+        assert_eq!(recovered.next_query_id(), 0x87654321);
+        assert!(recovered.has_query_region());
+    }
+
+    #[test]
+    fn test_file_header_query_metadata_crc_after_change() {
+        let mut header = FileHeader::new();
+
+        // Initially valid CRC
+        assert!(header.validate_crc32());
+
+        // Modify query metadata (changes _reserved bytes)
+        header.set_query_store_offset(1000);
+
+        // CRC should now be invalid (reserved bytes are not included in CRC)
+        // Actually, the CRC covers bytes 0-151, and _reserved starts at 156
+        // So CRC should still be valid since _reserved isn't in the CRC range
+        assert!(header.validate_crc32());
+    }
+
+    #[test]
+    fn test_file_header_query_metadata_byte_layout() {
+        let mut header = FileHeader::new();
+
+        // Set known values to verify byte layout
+        header.set_query_store_offset(0x0807060504030201);
+        header.set_query_store_end(0x100F0E0D0C0B0A09);
+        header.set_query_count(0x14131211);
+        header.set_next_query_id(0x18171615);
+
+        let bytes = header.to_bytes();
+
+        // _reserved starts at offset 156
+        // query_store_offset at _reserved[0..8]
+        assert_eq!(bytes[156], 0x01); // LSB
+        assert_eq!(bytes[163], 0x08); // MSB
+
+        // query_store_end at _reserved[8..16]
+        assert_eq!(bytes[164], 0x09); // LSB
+        assert_eq!(bytes[171], 0x10); // MSB
+
+        // query_count at _reserved[16..20]
+        assert_eq!(bytes[172], 0x11); // LSB
+        assert_eq!(bytes[175], 0x14); // MSB
+
+        // next_query_id at _reserved[20..24]
+        assert_eq!(bytes[176], 0x15); // LSB
+        assert_eq!(bytes[179], 0x18); // MSB
+    }
+
+    #[test]
+    fn test_file_header_has_query_region() {
+        let mut header = FileHeader::new();
+
+        // No query region initially
+        assert!(!header.has_query_region());
+
+        // Setting offset to non-zero indicates query region exists
+        header.set_query_store_offset(1);
+        assert!(header.has_query_region());
+
+        // Setting back to zero
+        header.set_query_store_offset(0);
+        assert!(!header.has_query_region());
     }
 }

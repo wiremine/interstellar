@@ -341,7 +341,7 @@ fn compile_steps<'g>(
                 // Look ahead for by() step (only key)
                 let mut by_steps = Vec::new();
                 let mut j = i + 1;
-                while j < steps.len() && by_steps.len() < 1 {
+                while j < steps.len() && by_steps.is_empty() {
                     if let Step::By { args, .. } = &steps[j] {
                         by_steps.push(args.clone());
                         j += 1;

@@ -2080,6 +2080,122 @@ impl CowMmapGraph {
     pub fn mmap_graph(&self) -> &MmapGraph {
         &self.mmap
     }
+
+    // =========================================================================
+    // Query Storage Methods
+    // =========================================================================
+
+    /// Save a named query to persistent storage.
+    ///
+    /// Queries can be Gremlin or GQL, with optional parameters using `$param` syntax.
+    /// Parameters are automatically extracted from the query text.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique query name (letters, digits, underscores, hyphens)
+    /// * `query_type` - [`QueryType::Gremlin`] or [`QueryType::Gql`]
+    /// * `description` - Human-readable description
+    /// * `query_text` - The query text (may contain `$param` placeholders)
+    ///
+    /// # Returns
+    ///
+    /// The assigned query ID on success.
+    ///
+    /// # Errors
+    ///
+    /// - [`QueryError::AlreadyExists`] - Name already in use
+    /// - [`QueryError::InvalidName`] - Name contains invalid characters
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    /// use interstellar::query::QueryType;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// let query_id = graph.save_query(
+    ///     "find_person",
+    ///     QueryType::Gremlin,
+    ///     "Find a person by name",
+    ///     "g.V().hasLabel('person').has('name', $name)",
+    /// ).unwrap();
+    /// ```
+    pub fn save_query(
+        &self,
+        name: &str,
+        query_type: crate::query::QueryType,
+        description: &str,
+        query_text: &str,
+    ) -> Result<u32, crate::error::QueryError> {
+        self.mmap
+            .save_query(name, query_type, description, query_text)
+    }
+
+    /// Get a saved query by name.
+    ///
+    /// Returns `None` if no query exists with the given name.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// if let Some(query) = graph.get_query("find_person") {
+    ///     println!("Query: {}", query.query);
+    /// }
+    /// ```
+    pub fn get_query(&self, name: &str) -> Option<crate::query::SavedQuery> {
+        self.mmap.get_query(name)
+    }
+
+    /// Get a saved query by ID.
+    ///
+    /// Returns `None` if no query exists with the given ID.
+    pub fn get_query_by_id(&self, id: u32) -> Option<crate::query::SavedQuery> {
+        self.mmap.get_query_by_id(id)
+    }
+
+    /// List all saved queries.
+    ///
+    /// Returns queries in no particular order.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    ///
+    /// for query in graph.list_queries() {
+    ///     println!("{}: {}", query.name, query.description);
+    /// }
+    /// ```
+    pub fn list_queries(&self) -> Vec<crate::query::SavedQuery> {
+        self.mmap.list_queries()
+    }
+
+    /// Delete a saved query by name.
+    ///
+    /// This performs a soft delete - the space is not immediately reclaimed.
+    ///
+    /// # Errors
+    ///
+    /// - [`QueryError::NotFound`] - Query does not exist
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use interstellar::storage::cow_mmap::CowMmapGraph;
+    ///
+    /// let graph = CowMmapGraph::open("my_graph.db").unwrap();
+    /// graph.delete_query("old_query").unwrap();
+    /// ```
+    pub fn delete_query(&self, name: &str) -> Result<(), crate::error::QueryError> {
+        self.mmap.delete_query(name)
+    }
 }
 
 // =============================================================================

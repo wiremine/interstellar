@@ -880,6 +880,162 @@ pub enum MutationError {
 }
 
 // =============================================================================
+// QueryError
+// =============================================================================
+
+/// Errors related to query storage and execution.
+///
+/// `QueryError` represents failures when saving, retrieving, or executing
+/// named queries in the persistent query library.
+///
+/// # Variants
+///
+/// | Variant | Cause | Recovery |
+/// |---------|-------|----------|
+/// | [`AlreadyExists`](Self::AlreadyExists) | Query name already in use | Use different name or delete existing |
+/// | [`NotFound`](Self::NotFound) | Query doesn't exist | Check name spelling |
+/// | [`InvalidSyntax`](Self::InvalidSyntax) | Query failed to parse | Fix query syntax |
+/// | [`MissingParameter`](Self::MissingParameter) | Required param not provided | Add missing parameter |
+/// | [`TypeMismatch`](Self::TypeMismatch) | Parameter has wrong type | Use correct value type |
+/// | [`UnexpectedParameter`](Self::UnexpectedParameter) | Unknown param provided | Remove extra parameter |
+/// | [`StorageFull`](Self::StorageFull) | No space for query | Delete old queries |
+/// | [`InvalidName`](Self::InvalidName) | Name format invalid | Use valid characters |
+/// | [`Storage`](Self::Storage) | Underlying storage error | See [`StorageError`] |
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use interstellar::error::QueryError;
+///
+/// fn save_query(graph: &MmapGraph) -> Result<(), QueryError> {
+///     graph.save_query(
+///         "my_query",
+///         QueryType::Gremlin,
+///         "description",
+///         "g.V().count()"
+///     )?;
+///     Ok(())
+/// }
+///
+/// match save_query(&graph) {
+///     Ok(()) => println!("Query saved"),
+///     Err(QueryError::AlreadyExists(name)) => {
+///         println!("Query '{}' already exists", name);
+///     }
+///     Err(QueryError::InvalidSyntax(msg)) => {
+///         println!("Syntax error: {}", msg);
+///     }
+///     Err(e) => println!("Error: {}", e),
+/// }
+/// ```
+#[derive(Debug, thiserror::Error)]
+pub enum QueryError {
+    /// Query with this name already exists.
+    ///
+    /// Each query must have a unique name. To replace an existing query,
+    /// either delete it first or use `update_query()`.
+    ///
+    /// # Recovery
+    ///
+    /// - Use a different name
+    /// - Delete the existing query first
+    /// - Use `update_query()` to modify the existing query
+    #[error("query already exists: {0}")]
+    AlreadyExists(String),
+
+    /// Query not found.
+    ///
+    /// No query exists with the given name or ID.
+    ///
+    /// # Recovery
+    ///
+    /// - Check the query name for typos
+    /// - Use `list_queries()` to see available queries
+    #[error("query not found: {0}")]
+    NotFound(String),
+
+    /// Query syntax is invalid.
+    ///
+    /// The query failed to parse. The message contains details about
+    /// the parse error location and expected syntax.
+    ///
+    /// # Recovery
+    ///
+    /// - Check the query syntax
+    /// - Verify parameter placeholders use `$name` format
+    /// - Test the query in isolation before saving
+    #[error("invalid query syntax: {0}")]
+    InvalidSyntax(String),
+
+    /// Missing required parameter.
+    ///
+    /// A parameter defined in the query was not provided in the
+    /// parameter bindings when executing.
+    ///
+    /// # Recovery
+    ///
+    /// - Add the missing parameter to the bindings
+    /// - Use `get_query()` to see required parameters
+    #[error("missing parameter: {0}")]
+    MissingParameter(String),
+
+    /// Parameter type mismatch.
+    ///
+    /// A parameter was provided with an incompatible type.
+    /// The error includes the parameter name, expected type, and actual type.
+    ///
+    /// # Recovery
+    ///
+    /// - Provide a value of the correct type
+    /// - Use `get_query()` to see expected parameter types
+    #[error("parameter type mismatch for '{0}': expected {1}, got {2}")]
+    TypeMismatch(String, String, String),
+
+    /// Unexpected parameter provided.
+    ///
+    /// A parameter was provided that is not defined in the query.
+    ///
+    /// # Recovery
+    ///
+    /// - Remove the extra parameter
+    /// - Check parameter name spelling
+    #[error("unexpected parameter: {0}")]
+    UnexpectedParameter(String),
+
+    /// Query storage is full.
+    ///
+    /// The query region cannot accommodate more queries and cannot grow.
+    ///
+    /// # Recovery
+    ///
+    /// - Delete unused queries
+    /// - Compact the query storage (future feature)
+    #[error("query storage full")]
+    StorageFull,
+
+    /// Invalid query name.
+    ///
+    /// The query name doesn't meet validation requirements:
+    /// - Must start with letter or underscore
+    /// - May contain letters, digits, underscores, hyphens
+    /// - Maximum 64 characters
+    ///
+    /// # Recovery
+    ///
+    /// - Use only valid characters
+    /// - Ensure name starts with letter or underscore
+    /// - Shorten the name if too long
+    #[error("invalid query name: {0}")]
+    InvalidName(String),
+
+    /// A storage operation failed during query operation.
+    ///
+    /// This wraps a [`StorageError`] that occurred during the query operation.
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -979,5 +1135,41 @@ mod tests {
         assert!(debug.contains("file_version: 5"));
         assert!(debug.contains("min_supported: 1"));
         assert!(debug.contains("max_supported: 2"));
+    }
+
+    #[test]
+    fn query_error_display_variants() {
+        let exists_err = QueryError::AlreadyExists("my_query".to_string());
+        let not_found_err = QueryError::NotFound("missing_query".to_string());
+        let syntax_err = QueryError::InvalidSyntax("unexpected token".to_string());
+        let missing_param_err = QueryError::MissingParameter("name".to_string());
+        let type_err = QueryError::TypeMismatch(
+            "age".to_string(),
+            "integer".to_string(),
+            "string".to_string(),
+        );
+        let unexpected_err = QueryError::UnexpectedParameter("extra".to_string());
+        let full_err = QueryError::StorageFull;
+        let name_err = QueryError::InvalidName("123bad".to_string());
+
+        assert!(format!("{}", exists_err).contains("already exists"));
+        assert!(format!("{}", exists_err).contains("my_query"));
+        assert!(format!("{}", not_found_err).contains("not found"));
+        assert!(format!("{}", not_found_err).contains("missing_query"));
+        assert!(format!("{}", syntax_err).contains("invalid query syntax"));
+        assert!(format!("{}", missing_param_err).contains("missing parameter"));
+        assert!(format!("{}", type_err).contains("type mismatch"));
+        assert!(format!("{}", type_err).contains("age"));
+        assert!(format!("{}", unexpected_err).contains("unexpected parameter"));
+        assert!(format!("{}", full_err).contains("storage full"));
+        assert!(format!("{}", name_err).contains("invalid query name"));
+    }
+
+    #[test]
+    fn query_error_wraps_storage() {
+        let storage = StorageError::VertexNotFound(VertexId(1));
+        let query_err: QueryError = storage.into();
+        assert!(matches!(query_err, QueryError::Storage(_)));
+        assert!(format!("{}", query_err).contains("storage error"));
     }
 }
