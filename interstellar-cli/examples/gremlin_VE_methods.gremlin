@@ -1,0 +1,65 @@
+# g.V() and g.E() Source Steps (TinkerPop Gremlin syntax)
+# Run: ./target/debug/interstellar query /tmp/test-db --gremlin --file examples/gremlin_VE_methods.gremlin
+#
+# V() and E() are the primary entry points for Gremlin traversals.
+
+# =============================================================================
+# g.V() - Vertex Source Step
+# =============================================================================
+
+# Get all vertices
+g.V().toList()
+
+# Get vertex by ID
+g.V(0).valueMap().toList()
+
+# Get multiple vertices by ID
+g.V(0, 1, 2).valueMap().toList()
+
+# Get all vertex labels (unique)
+g.V().label().dedup().toList()
+
+# =============================================================================
+# g.E() - Edge Source Step
+# =============================================================================
+
+# Get all edges
+g.E().toList()
+
+# Get edge by ID
+g.E(0).valueMap().toList()
+
+# Get all edge labels (unique)
+g.E().label().dedup().toList()
+
+# =============================================================================
+# COMBINING WITH TRAVERSAL STEPS
+# =============================================================================
+
+# From vertices, traverse to connected vertices
+g.V().out().toList()           # All outgoing neighbors
+g.V().in().toList()            # All incoming neighbors
+g.V().both().toList()          # All neighbors (both directions)
+
+# From vertices, traverse to edges
+g.V().outE().toList()          # All outgoing edges
+g.V().inE().toList()           # All incoming edges
+g.V().bothE().toList()         # All edges (both directions)
+
+# From edges, traverse to vertices
+g.E().outV().toList()          # Source vertex of each edge
+g.E().inV().toList()           # Target vertex of each edge
+g.E().bothV().toList()         # Both vertices of each edge
+
+# =============================================================================
+# FILTERING AT SOURCE
+# =============================================================================
+
+# Start from specific vertex by property
+g.V().has('name', 'Alice').out().values('name').toList()
+
+# Start from vertices with specific label
+g.V().hasLabel('person').values('name').toList()
+
+# Start from edges with specific label
+g.E().hasLabel('knows').valueMap().toList()

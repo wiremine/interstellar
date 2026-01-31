@@ -1,0 +1,31 @@
+# Basic vertex creation and querying (TinkerPop Gremlin syntax)
+# Run: ./target/debug/interstellar query /tmp/test-db --gremlin --file examples/basic_vertices.gremlin
+
+# Create person vertices with properties
+g.addV('person').property('name', 'Alice').property('age', 30).next()
+g.addV('person').property('name', 'Bob').property('age', 25).next()
+g.addV('person').property('name', 'Charlie').property('age', 35).next()
+
+# Create a company vertex
+g.addV('company').property('name', 'TechCorp').property('industry', 'Technology').next()
+
+# Query all vertices (returns vertex references like v[0], v[1], etc.)
+g.V().toList()
+
+# Get all vertex labels
+g.V().label().dedup().toList()
+
+# Get names of all people
+g.V().hasLabel('person').values('name').toList()
+
+# Pretty print - get all properties as maps
+g.V().hasLabel('person').valueMap().toList()
+
+# Filter by property value
+g.V().has('name', 'Alice').valueMap().toList()
+
+# Filter with predicates (age > 28)
+g.V().hasLabel('person').has('age', P.gt(28)).values('name').toList()
+
+# Check if any vertices exist
+g.V().hasLabel('person').hasNext()

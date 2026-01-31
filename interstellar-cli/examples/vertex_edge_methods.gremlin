@@ -1,0 +1,92 @@
+# Vertex and Edge Query Methods (TinkerPop Gremlin syntax)
+# Run: ./target/debug/interstellar query /tmp/test-db --gremlin --file examples/vertex_edge_methods.gremlin
+#
+# This file demonstrates various ways to query and display vertex/edge data.
+
+# =============================================================================
+# VIEWING VERTEX DATA
+# =============================================================================
+
+# Get vertex references (shows v[id] format)
+g.V().toList()
+
+# Get all properties as a map (RECOMMENDED for viewing data)
+g.V().valueMap().toList()
+# Output: [{name: [Alice], age: [30]}, {name: [Bob], age: [25]}]
+
+# Get specific properties only
+g.V().valueMap('name', 'age').toList()
+
+# Get a single property value
+g.V().values('name').toList()
+# Output: [Alice, Bob, Charlie]
+
+# Get multiple property values (flattened)
+g.V().values('name', 'age').toList()
+
+# Include vertex ID and label with properties
+g.V().valueMap(true).toList()
+
+# =============================================================================
+# VIEWING EDGE DATA
+# =============================================================================
+
+# Get edge references (shows e[id] format)
+g.E().toList()
+
+# Get all edge properties
+g.E().valueMap().toList()
+
+# Get edge labels
+g.E().label().toList()
+
+# Get unique edge labels
+g.E().label().dedup().toList()
+
+# =============================================================================
+# FILTERING AND SELECTING
+# =============================================================================
+
+# Filter vertices by label
+g.V().hasLabel('person').valueMap().toList()
+
+# Filter by property value
+g.V().has('name', 'Alice').valueMap().toList()
+
+# Filter with predicates
+g.V().has('age', P.gt(25)).valueMap().toList()
+g.V().has('age', P.gte(25)).valueMap().toList()
+g.V().has('age', P.lt(30)).valueMap().toList()
+g.V().has('age', P.between(25, 35)).valueMap().toList()
+
+# Combine filters
+g.V().hasLabel('person').has('age', P.gt(25)).valueMap().toList()
+
+# =============================================================================
+# ORDERING AND LIMITING
+# =============================================================================
+
+# Order by property (ascending)
+g.V().hasLabel('person').order().by('age').valueMap().toList()
+
+# Order descending
+g.V().hasLabel('person').order().by('age', desc).valueMap().toList()
+
+# Limit results
+g.V().limit(2).valueMap().toList()
+
+# Skip and limit (pagination)
+g.V().skip(1).limit(2).valueMap().toList()
+
+# =============================================================================
+# AGGREGATION
+# =============================================================================
+
+# Check existence
+g.V().hasLabel('person').hasNext()
+
+# Get first matching vertex
+g.V().hasLabel('person').next()
+
+# Get unique labels
+g.V().label().dedup().toList()

@@ -1,0 +1,22 @@
+# Build artifacts
+/target/
+
+# Binary
+interstellar
+
+# Test/temp files
+*.wal
+test
+test.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Ignore database files
+*.db

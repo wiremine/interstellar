@@ -12,7 +12,7 @@ categories = ["database", "api-bindings"]
 crate-type = ["cdylib"]
 
 [dependencies]
-interstellar = { path = ".." }
+interstellar = { path = "../interstellar" }
 napi = { version = "2", default-features = false, features = [
     "napi8",
     "async",
@@ -29,9 +29,3 @@ default = ["mmap"]
 mmap = ["interstellar/mmap"]
 graphson = ["interstellar/graphson"]
 gql = ["interstellar/gql"]
-
-[profile.release]
-lto = true
-strip = "symbols"
-opt-level = 3
-codegen-units = 1

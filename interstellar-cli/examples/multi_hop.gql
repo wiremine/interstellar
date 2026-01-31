@@ -1,0 +1,9 @@
+-- Multi-hop traversal with GQL
+-- Run: interstellar query --memory --file examples/multi_hop.gql
+
+-- Create chain: Alice -> Bob -> Charlie
+CREATE (:Person {name: 'Alice'})-[:knows]->(:Person {name: 'Bob'})-[:knows]->(:Person {name: 'Charlie'});
+
+-- Two-hop: friends of friends of Alice
+MATCH (a:Person {name: 'Alice'})-[:knows]->()-[:knows]->(fof)
+RETURN fof.name;

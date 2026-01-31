@@ -1,0 +1,10 @@
+-- Basic vertex creation and querying with GQL
+-- Run: interstellar query --memory --file examples/basic_vertices.gql
+
+-- Create some people
+CREATE (:Person {name: 'Alice', age: 30});
+CREATE (:Person {name: 'Bob', age: 25});
+CREATE (:Person {name: 'Charlie', age: 35});
+
+-- Count vertices
+MATCH (n) RETURN count(n);

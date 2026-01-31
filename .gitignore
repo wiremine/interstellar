@@ -10,5 +10,18 @@
 lcov.info
 target/llvm-cov/
 
+# Database files
 *.db
 *.wal
+
+# WASM build outputs
+/pkg/
+/pkg-web/
+/pkg-node/
+interstellar-wasm/pkg/
+
+# Node modules
+node_modules/
+
+# CI artifacts
+clippy-report.json

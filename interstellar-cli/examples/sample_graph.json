@@ -1,0 +1,97 @@
+{
+  "@type": "tinker:graph",
+  "@value": {
+    "vertices": [
+      {
+        "@type": "g:Vertex",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 1},
+          "label": "person",
+          "properties": {
+            "name": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 1}, "label": "name", "value": "Alice"}}],
+            "age": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 2}, "label": "age", "value": {"@type": "g:Int64", "@value": 30}}}]
+          }
+        }
+      },
+      {
+        "@type": "g:Vertex",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 2},
+          "label": "person",
+          "properties": {
+            "name": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 3}, "label": "name", "value": "Bob"}}],
+            "age": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 4}, "label": "age", "value": {"@type": "g:Int64", "@value": 25}}}]
+          }
+        }
+      },
+      {
+        "@type": "g:Vertex",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 3},
+          "label": "person",
+          "properties": {
+            "name": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 5}, "label": "name", "value": "Charlie"}}],
+            "age": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 6}, "label": "age", "value": {"@type": "g:Int64", "@value": 35}}}]
+          }
+        }
+      },
+      {
+        "@type": "g:Vertex",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 4},
+          "label": "company",
+          "properties": {
+            "name": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 7}, "label": "name", "value": "TechCorp"}}],
+            "industry": [{"@type": "g:VertexProperty", "@value": {"id": {"@type": "g:Int64", "@value": 8}, "label": "industry", "value": "Technology"}}]
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "@type": "g:Edge",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 1},
+          "label": "knows",
+          "outV": {"@type": "g:Int64", "@value": 1},
+          "outVLabel": "person",
+          "inV": {"@type": "g:Int64", "@value": 2},
+          "inVLabel": "person"
+        }
+      },
+      {
+        "@type": "g:Edge",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 2},
+          "label": "knows",
+          "outV": {"@type": "g:Int64", "@value": 2},
+          "outVLabel": "person",
+          "inV": {"@type": "g:Int64", "@value": 3},
+          "inVLabel": "person"
+        }
+      },
+      {
+        "@type": "g:Edge",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 3},
+          "label": "works_at",
+          "outV": {"@type": "g:Int64", "@value": 1},
+          "outVLabel": "person",
+          "inV": {"@type": "g:Int64", "@value": 4},
+          "inVLabel": "company"
+        }
+      },
+      {
+        "@type": "g:Edge",
+        "@value": {
+          "id": {"@type": "g:Int64", "@value": 4},
+          "label": "works_at",
+          "outV": {"@type": "g:Int64", "@value": 2},
+          "outVLabel": "person",
+          "inV": {"@type": "g:Int64", "@value": 4},
+          "inVLabel": "company"
+        }
+      }
+    ]
+  }
+}

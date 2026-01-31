@@ -44,14 +44,49 @@ cargo +nightly llvm-cov --branch --html --open # Generate and open in browser
 ## Project Structure
 
 ```
-src/
-├── lib.rs           # Public API, prelude
-├── graph.rs         # Graph, GraphSnapshot, GraphMut
-├── value.rs         # Value enum, VertexId, EdgeId
-├── error.rs         # Error types (thiserror)
-├── storage/         # GraphStorage trait + backends
-├── traversal/       # Fluent API steps
-└── algorithms/      # BFS, DFS, path algorithms
+./
+├── Cargo.toml                  # Workspace root
+├── Cargo.lock
+├── AGENTS.md
+├── README.md
+│
+├── interstellar/               # Core Rust library
+│   ├── Cargo.toml
+│   ├── src/
+│   │   ├── lib.rs              # Public API, prelude
+│   │   ├── value.rs            # Value enum, VertexId, EdgeId
+│   │   ├── error.rs            # Error types (thiserror)
+│   │   ├── graph_elements.rs   # Vertex, Edge types
+│   │   ├── graph_access.rs     # Graph access traits
+│   │   ├── storage/            # GraphStorage trait + backends
+│   │   ├── traversal/          # Fluent API steps
+│   │   ├── gremlin/            # Gremlin parser
+│   │   ├── gql/                # GQL query language
+│   │   ├── wasm/               # WASM bindings
+│   │   └── algorithms/         # BFS, DFS, path algorithms
+│   ├── benches/                # Criterion benchmarks
+│   ├── tests/                  # Integration tests
+│   ├── examples/               # Example programs
+│   └── docs/                   # User documentation
+│
+├── interstellar-node/          # Node.js native bindings (napi-rs)
+│   ├── Cargo.toml
+│   ├── src/
+│   └── package.json
+│
+├── interstellar-wasm/          # WASM bindings (thin wrapper)
+│   ├── Cargo.toml
+│   └── src/lib.rs
+│
+├── specs/                      # Implementation specifications
+│   ├── plans/                  # Development plans
+│   └── archive/                # Completed/historical specs
+│
+├── guiding-documents/          # Architecture & design documents
+│
+└── todos/                      # Task tracking
+    ├── code-reviews/           # Code review notes
+    └── perf-improvements/      # Performance work
 ```
 
 ## Code Style
@@ -147,8 +182,6 @@ proptest! {
 }
 ```
 
-
-
 Report output: `target/llvm-cov/html/index.html`
 
 ## Key Design Principles
@@ -179,9 +212,9 @@ tempfile = "3.10"
 
 ## Reference Documentation
 
-- `overview/overview.md` - Main design document
-- `overview/storage.md` - Storage architecture
-- `overview/algorithms.md` - Traversal execution
-- `overview/gremlin.md` - Gremlin API mapping
-- `overview/anonymous_traversal.md` - `__` factory patterns
+- `guiding-documents/overview.md` - Main design document
+- `guiding-documents/storage.md` - Storage architecture
+- `guiding-documents/algorithms.md` - Traversal execution
+- `guiding-documents/gremlin.md` - Gremlin API mapping
+- `guiding-documents/anonymous_traversal.md` - `__` factory patterns
 - `specs/implementation.md` - Implementation phases

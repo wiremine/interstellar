@@ -1,0 +1,72 @@
+# Edge Creation and Graph Traversal (TinkerPop Gremlin syntax)
+# Run in REPL: ./target/debug/interstellar /tmp/test-db
+# Or as script: ./target/debug/interstellar query /tmp/test-db --gremlin --file examples/edges_and_traversal.gremlin
+
+# =============================================================================
+# CREATING EDGES
+# =============================================================================
+
+# Method 1: Using vertex IDs directly (when you know them from creation order)
+#   g.addV('person').property('name', 'Alice').next()  -> returns v[0]
+#   g.addV('person').property('name', 'Bob').next()    -> returns v[1]
+#   g.addE('knows').from(0).to(1).next()
+
+# Method 2: Using variables in REPL (recommended for interactive use)
+#   alice = g.addV('person').property('name', 'Alice').next()
+#   bob = g.addV('person').property('name', 'Bob').next()
+#   g.addE('knows').from(alice).to(bob).next()
+#   .vars  # show session variables
+
+# Method 3: Query for vertex IDs by property, then create edge
+#   alice_id = g.V().has('name', 'Alice').id().next()
+#   bob_id = g.V().has('name', 'Bob').id().next()
+#   g.addE('knows').from(alice_id).to(bob_id).next()
+
+# Method 4: Use GQL which supports pattern-based edge creation
+#   MATCH (a:person {name: 'Alice'}), (b:person {name: 'Bob'})
+#   CREATE (a)-[:knows]->(b)
+
+# =============================================================================
+# EXAMPLE: Build a small social network
+# =============================================================================
+
+# Create vertices
+g.addV('person').property('name', 'Alice').property('age', 30).next()
+g.addV('person').property('name', 'Bob').property('age', 25).next()
+g.addV('person').property('name', 'Charlie').property('age', 35).next()
+g.addV('company').property('name', 'TechCorp').next()
+
+# Create edges (using vertex IDs 0, 1, 2, 3)
+g.addE('knows').from(0).to(1).property('since', 2020).next()
+g.addE('knows').from(0).to(2).property('since', 2019).next()
+g.addE('knows').from(1).to(2).property('since', 2021).next()
+g.addE('works_at').from(0).to(3).property('role', 'Engineer').next()
+g.addE('works_at').from(1).to(3).property('role', 'Designer').next()
+
+# =============================================================================
+# TRAVERSAL QUERIES
+# =============================================================================
+
+# Who does Alice know?
+g.V().has('name', 'Alice').out('knows').values('name').toList()
+
+# Who knows Charlie?
+g.V().has('name', 'Charlie').in('knows').values('name').toList()
+
+# Who works at TechCorp?
+g.V().has('name', 'TechCorp').in('works_at').values('name').toList()
+
+# Multi-hop: Friends of friends (who does Alice know, and who do they know?)
+g.V().has('name', 'Alice').out('knows').out('knows').values('name').toList()
+
+# Get edge properties
+g.E().hasLabel('knows').valueMap().toList()
+
+# Traversal with edge info: Who does Alice know and since when?
+g.V().has('name', 'Alice').outE('knows').valueMap().toList()
+
+# Get all edges
+g.E().toList()
+
+# Get unique edge labels
+g.E().label().dedup().toList()

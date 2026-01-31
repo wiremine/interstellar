@@ -1,0 +1,12 @@
+-- Pattern matching and filtering with GQL
+-- Run: interstellar query --memory --file examples/pattern_matching.gql
+
+-- Create test data with relationships
+CREATE (:Person {name: 'Alice', age: 30, city: 'NYC'})-[:knows]->(:Person {name: 'Bob', age: 25, city: 'LA'});
+CREATE (:Person {name: 'Charlie', age: 35, city: 'NYC'});
+CREATE (:Person {name: 'Diana', age: 28, city: 'LA'});
+
+-- Filter by property - find people in NYC
+MATCH (p:Person)
+WHERE p.city = 'NYC'
+RETURN p.name;
