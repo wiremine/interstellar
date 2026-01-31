@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/interstellar-white-logo.png" alt="Interstellar Logo" width="400">
+</p>
+
 # Interstellar
 
 A high-performance graph database with multiple language bindings.
