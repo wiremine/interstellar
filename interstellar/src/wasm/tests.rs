@@ -108,7 +108,7 @@ fn test_v_traversal() {
     graph.add_vertex("person", JsValue::NULL).unwrap();
     graph.add_vertex("software", JsValue::NULL).unwrap();
 
-    let count = graph.v().to_count();
+    let count = graph.v(None).unwrap().to_count();
     assert_eq!(count, 3);
 }
 
@@ -119,7 +119,7 @@ fn test_has_label_filter() {
     graph.add_vertex("person", JsValue::NULL).unwrap();
     graph.add_vertex("software", JsValue::NULL).unwrap();
 
-    let count = graph.v().has_label("person").to_count();
+    let count = graph.v(None).unwrap().has_label("person").to_count();
     assert_eq!(count, 2);
 }
 
@@ -137,10 +137,10 @@ fn test_out_navigation() {
         .add_edge(id_to_js(alice), id_to_js(charlie), "knows", JsValue::NULL)
         .unwrap();
 
-    // V_(alice).out() should find bob and charlie
+    // V([alice]).out() should find bob and charlie
     let ids_arr = js_sys::Array::new();
     ids_arr.push(&id_to_js(alice));
-    let count = graph.v_ids(ids_arr.into()).unwrap().out().to_count();
+    let count = graph.v(Some(ids_arr)).unwrap().out().to_count();
     assert_eq!(count, 2);
 }
 
@@ -154,10 +154,10 @@ fn test_in_navigation() {
         .add_edge(id_to_js(alice), id_to_js(bob), "knows", JsValue::NULL)
         .unwrap();
 
-    // V_(bob).in_() should find alice
+    // V([bob]).in_() should find alice
     let ids_arr = js_sys::Array::new();
     ids_arr.push(&id_to_js(bob));
-    let count = graph.v_ids(ids_arr.into()).unwrap().in_().to_count();
+    let count = graph.v(Some(ids_arr)).unwrap().in_().to_count();
     assert_eq!(count, 1);
 }
 
@@ -174,7 +174,7 @@ fn test_values_transform() {
     graph.add_vertex("person", props2.into()).unwrap();
 
     // Get all names
-    let result = graph.v().values("name").to_list().unwrap();
+    let result = graph.v(None).unwrap().values("name").to_list().unwrap();
     let arr = js_sys::Array::from(&result);
     assert_eq!(arr.length(), 2);
 }
@@ -186,7 +186,12 @@ fn test_limit_step() {
         graph.add_vertex("node", JsValue::NULL).unwrap();
     }
 
-    let count = graph.v().limit(5u64.into()).unwrap().to_count();
+    let count = graph
+        .v(None)
+        .unwrap()
+        .limit(5u64.into())
+        .unwrap()
+        .to_count();
     assert_eq!(count, 5);
 }
 
@@ -207,18 +212,13 @@ fn test_dedup_step() {
     // Without dedup, out traversal returns bob twice
     let ids_arr = js_sys::Array::new();
     ids_arr.push(&id_to_js(alice));
-    let without_dedup = graph.v_ids(ids_arr.into()).unwrap().out().to_count();
+    let without_dedup = graph.v(Some(ids_arr)).unwrap().out().to_count();
     assert_eq!(without_dedup, 2);
 
     // With dedup, bob appears once
     let ids_arr2 = js_sys::Array::new();
     ids_arr2.push(&id_to_js(alice));
-    let with_dedup = graph
-        .v_ids(ids_arr2.into())
-        .unwrap()
-        .out()
-        .dedup()
-        .to_count();
+    let with_dedup = graph.v(Some(ids_arr2)).unwrap().out().dedup().to_count();
     assert_eq!(with_dedup, 1);
 }
 
@@ -239,7 +239,7 @@ fn test_predicate_eq() {
     graph.add_vertex("person", props2.into()).unwrap();
 
     let pred = P::eq(JsValue::from(30i32)).unwrap();
-    let count = graph.v().has_where("age", pred).to_count();
+    let count = graph.v(None).unwrap().has_where("age", pred).to_count();
     assert_eq!(count, 1);
 }
 
@@ -260,7 +260,7 @@ fn test_predicate_gt() {
     graph.add_vertex("person", props3.into()).unwrap();
 
     let pred = P::gt(JsValue::from(28i32)).unwrap();
-    let count = graph.v().has_where("age", pred).to_count();
+    let count = graph.v(None).unwrap().has_where("age", pred).to_count();
     assert_eq!(count, 2); // 30 and 35
 }
 
@@ -286,7 +286,8 @@ fn test_order_builder() {
 
     // Order by name ascending
     let result = graph
-        .v()
+        .v(None)
+        .unwrap()
         .values("name")
         .order()
         .by_asc()
@@ -309,7 +310,8 @@ fn test_group_count_builder() {
     graph.add_vertex("software", JsValue::NULL).unwrap();
 
     let result = graph
-        .v()
+        .v(None)
+        .unwrap()
         .group_count()
         .by_label()
         .build()
@@ -343,7 +345,7 @@ fn test_union_step() {
     let ids_arr = js_sys::Array::new();
     ids_arr.push(&id_to_js(alice));
     let count = graph
-        .v_ids(ids_arr.into())
+        .v(Some(ids_arr))
         .unwrap()
         .union(vec![out_step])
         .to_count();
@@ -366,7 +368,7 @@ fn test_optional_step() {
     let ids_arr1 = js_sys::Array::new();
     ids_arr1.push(&id_to_js(alice));
     let with_friend = graph
-        .v_ids(ids_arr1.into())
+        .v(Some(ids_arr1))
         .unwrap()
         .optional(__::out())
         .to_count();
@@ -376,7 +378,7 @@ fn test_optional_step() {
     let ids_arr2 = js_sys::Array::new();
     ids_arr2.push(&id_to_js(bob));
     let without_friend = graph
-        .v_ids(ids_arr2.into())
+        .v(Some(ids_arr2))
         .unwrap()
         .optional(__::out())
         .to_count();
@@ -403,7 +405,7 @@ fn test_min_step() {
     js_sys::Reflect::set(&props3, &"age".into(), &JsValue::from(35i32)).unwrap();
     graph.add_vertex("person", props3.into()).unwrap();
 
-    let result = graph.v().values("age").min().first().unwrap();
+    let result = graph.v(None).unwrap().values("age").min().first().unwrap();
     // Minimum should be 25
     assert_eq!(result.as_f64().unwrap() as i32, 25);
 }
@@ -424,7 +426,7 @@ fn test_max_step() {
     js_sys::Reflect::set(&props3, &"age".into(), &JsValue::from(35i32)).unwrap();
     graph.add_vertex("person", props3.into()).unwrap();
 
-    let result = graph.v().values("age").max().first().unwrap();
+    let result = graph.v(None).unwrap().values("age").max().first().unwrap();
     // Maximum should be 35
     assert_eq!(result.as_f64().unwrap() as i32, 35);
 }

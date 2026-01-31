@@ -262,44 +262,46 @@ impl Graph {
     // Traversal Source Steps
     // =========================================================================
 
-    /// Start a traversal from all vertices.
+    /// Start a traversal from all vertices, or specific vertices by ID.
     ///
-    /// @returns A traversal over all vertices
+    /// @param ids - Optional vertex IDs to start from (as bigint array)
+    /// @returns A traversal over vertices
     ///
     /// @example
     /// ```typescript
+    /// // All vertices
     /// graph.V().hasLabel('person').values('name').toList();
+    ///
+    /// // Specific vertices
+    /// graph.V([aliceId, bobId]).out('knows').toList();
     /// ```
     #[wasm_bindgen(js_name = "V")]
-    pub fn v(&self) -> Traversal {
-        Traversal::from_all_vertices(Arc::clone(&self.inner))
+    pub fn v(&self, ids: Option<js_sys::Array>) -> Result<Traversal, JsError> {
+        match ids {
+            Some(js_ids) => {
+                let vertex_ids = js_array_to_vertex_ids(js_ids.into())?;
+                Ok(Traversal::from_vertex_ids(
+                    Arc::clone(&self.inner),
+                    vertex_ids,
+                ))
+            }
+            None => Ok(Traversal::from_all_vertices(Arc::clone(&self.inner))),
+        }
     }
 
-    /// Start a traversal from specific vertex IDs.
+    /// Start a traversal from all edges, or specific edges by ID.
     ///
-    /// @param ids - Vertex IDs to start from (as bigint array)
-    #[wasm_bindgen(js_name = "V_")]
-    pub fn v_ids(&self, ids: JsValue) -> Result<Traversal, JsError> {
-        let vertex_ids = js_array_to_vertex_ids(ids)?;
-        Ok(Traversal::from_vertex_ids(
-            Arc::clone(&self.inner),
-            vertex_ids,
-        ))
-    }
-
-    /// Start a traversal over all edges.
+    /// @param ids - Optional edge IDs to start from (as bigint array)
+    /// @returns A traversal over edges
     #[wasm_bindgen(js_name = "E")]
-    pub fn e(&self) -> Traversal {
-        Traversal::from_all_edges(Arc::clone(&self.inner))
-    }
-
-    /// Start a traversal from specific edge IDs.
-    ///
-    /// @param ids - Edge IDs to start from (as bigint array)
-    #[wasm_bindgen(js_name = "E_")]
-    pub fn e_ids(&self, ids: JsValue) -> Result<Traversal, JsError> {
-        let edge_ids = crate::wasm::types::js_array_to_edge_ids(ids)?;
-        Ok(Traversal::from_edge_ids(Arc::clone(&self.inner), edge_ids))
+    pub fn e(&self, ids: Option<js_sys::Array>) -> Result<Traversal, JsError> {
+        match ids {
+            Some(js_ids) => {
+                let edge_ids = crate::wasm::types::js_array_to_edge_ids(js_ids.into())?;
+                Ok(Traversal::from_edge_ids(Arc::clone(&self.inner), edge_ids))
+            }
+            None => Ok(Traversal::from_all_edges(Arc::clone(&self.inner))),
+        }
     }
 
     /// Inject values into a traversal.

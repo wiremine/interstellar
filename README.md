@@ -87,7 +87,7 @@ const alice = graph.addVertex('person', { name: 'Alice' });
 const bob = graph.addVertex('person', { name: 'Bob' });
 graph.addEdge(alice, bob, 'knows', {});
 
-const friends = graph.V_(alice).out('knows').values('name').toList();
+const friends = graph.V([alice]).out('knows').values('name').toList();
 // ['Bob']
 ```
 
