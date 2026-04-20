@@ -60,7 +60,7 @@ pub fn graphson_to_value(gs_value: &GraphSONValue) -> Result<Value> {
                     let val = json_to_value(&chunk[1])?;
                     map.insert(key.to_string(), val);
                 }
-                Ok(Value::Map(map))
+                Ok(Value::Map(map.into_iter().collect()))
             }
             "g:UUID" => {
                 // Store UUID as string
@@ -125,7 +125,7 @@ fn json_to_value(json: &JsonValue) -> Result<Value> {
                 for (k, v) in obj {
                     map.insert(k.clone(), json_to_value(v)?);
                 }
-                Ok(Value::Map(map))
+                Ok(Value::Map(map.into_iter().collect()))
             }
         }
     }

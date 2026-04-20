@@ -357,7 +357,6 @@
 //! - **Multiple graphs**: Single graph queries only
 //! - **Path expressions**: Cannot return paths directly (use variable-length
 //!   patterns and return endpoints)
-//! - **Comma-separated MATCH patterns**: Use edge patterns instead of `MATCH (a), (b)`
 //! - **Anonymous endpoint patterns**: `MATCH ()-[r]->()` requires explicit labels
 //!
 //! ## Architecture

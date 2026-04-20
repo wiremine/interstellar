@@ -40,7 +40,7 @@ use parking_lot::RwLock;
 use crate::traversal::context::ExecutionContext;
 use crate::traversal::step::{execute_traversal_from, Step};
 use crate::traversal::{Traversal, Traverser};
-use crate::value::Value;
+use crate::value::{IntoValueMap, Value};
 
 // -----------------------------------------------------------------------------
 // StoreStep - lazily store values as they pass through
@@ -371,7 +371,7 @@ impl Step for CapStep {
                 let values = ctx.side_effects.get(key).unwrap_or_default();
                 map.insert(key.clone(), Value::List(values));
             }
-            Value::Map(map)
+            Value::Map(map.into_value_map())
         };
 
         std::iter::once(Traverser::new(result))
@@ -399,7 +399,7 @@ impl Step for CapStep {
                 let values = ctx.side_effects().get(key).unwrap_or_default();
                 map.insert(key.clone(), Value::List(values));
             }
-            Value::Map(map)
+            Value::Map(map.into_value_map())
         };
 
         Box::new(std::iter::once(Traverser::new(result)))
@@ -667,7 +667,7 @@ impl Step for ProfileStep {
         // Note: This updates on each traverser, so the final state reflects all traversers
         let key = self.key.clone().unwrap_or_else(|| "profile".to_string());
         let profile = Value::Map({
-            let mut m = HashMap::new();
+            let mut m = crate::value::ValueMap::new();
             m.insert("count".to_string(), Value::Int(count as i64));
             m.insert("time_ms".to_string(), Value::Float(elapsed_ms));
             m
@@ -706,7 +706,7 @@ impl<'a, I: Iterator<Item = Traverser>> Iterator for ProfileIterator<'a, I> {
                     self.finished.set(true);
                     let elapsed = self.start.elapsed();
                     let profile = Value::Map({
-                        let mut m = HashMap::new();
+                        let mut m = crate::value::ValueMap::new();
                         m.insert("count".to_string(), Value::Int(self.count.get() as i64));
                         m.insert(
                             "time_ms".to_string(),

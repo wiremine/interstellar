@@ -57,6 +57,19 @@ fn span_from_pair(pair: &pest::iterators::Pair<Rule>) -> Span {
     Span::new(span.start(), span.end())
 }
 
+/// Strip surrounding backticks from a parsed identifier or variable.
+///
+/// The grammar allows `` `name` `` to escape reserved keywords. Atomic Pest
+/// rules include the backticks in `as_str()`, so we strip them here.
+#[inline]
+fn unquote_ident(s: &str) -> String {
+    if s.len() >= 2 && s.starts_with('`') && s.ends_with('`') {
+        s[1..s.len() - 1].to_string()
+    } else {
+        s.to_string()
+    }
+}
+
 /// Parse a GQL query string into an AST.
 ///
 /// This is the main entry point for parsing GQL queries. It takes a query
@@ -453,17 +466,17 @@ fn build_property_ref(pair: pest::iterators::Pair<Rule>) -> Result<PropertyRef, 
     let pair_span = span_from_pair(&pair);
     let mut iter = pair.into_inner();
 
-    let variable = iter
-        .next()
-        .ok_or_else(|| ParseError::missing_clause("variable", pair_span))?
-        .as_str()
-        .to_string();
+    let variable = unquote_ident(
+        iter.next()
+            .ok_or_else(|| ParseError::missing_clause("variable", pair_span))?
+            .as_str(),
+    );
 
-    let property = iter
-        .next()
-        .ok_or_else(|| ParseError::missing_clause("property", pair_span))?
-        .as_str()
-        .to_string();
+    let property = unquote_ident(
+        iter.next()
+            .ok_or_else(|| ParseError::missing_clause("property", pair_span))?
+            .as_str(),
+    );
 
     Ok(PropertyRef { variable, property })
 }
@@ -507,7 +520,7 @@ fn build_delete_clause(pair: pest::iterators::Pair<Rule>) -> Result<DeleteClause
 
     for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::variable {
-            variables.push(inner.as_str().to_string());
+            variables.push(unquote_ident(inner.as_str()));
         }
     }
 
@@ -522,7 +535,7 @@ fn build_detach_delete_clause(
 
     for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::variable {
-            variables.push(inner.as_str().to_string());
+            variables.push(unquote_ident(inner.as_str()));
         }
     }
 
@@ -551,7 +564,7 @@ fn build_foreach_clause(pair: pest::iterators::Pair<Rule>) -> Result<ForeachClau
         match inner.as_rule() {
             Rule::identifier => {
                 if variable.is_none() {
-                    variable = Some(inner.as_str().to_string());
+                    variable = Some(unquote_ident(inner.as_str()));
                 }
             }
             Rule::expression => {
@@ -613,7 +626,7 @@ fn build_nested_foreach(pair: pest::iterators::Pair<Rule>) -> Result<ForeachClau
         match inner.as_rule() {
             Rule::identifier => {
                 if variable.is_none() {
-                    variable = Some(inner.as_str().to_string());
+                    variable = Some(unquote_ident(inner.as_str()));
                 }
             }
             Rule::expression => {
@@ -715,7 +728,7 @@ fn build_let_clause(pair: pest::iterators::Pair<Rule>) -> Result<LetClause, Pars
 
     for inner in pair.clone().into_inner() {
         match inner.as_rule() {
-            Rule::identifier => variable = Some(inner.as_str().to_string()),
+            Rule::identifier => variable = Some(unquote_ident(inner.as_str())),
             Rule::expression => expression = Some(build_expression(inner)?),
             _ => {}
         }
@@ -887,7 +900,7 @@ fn build_with_path_clause(pair: pest::iterators::Pair<Rule>) -> Result<WithPathC
 
     for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::identifier {
-            alias = Some(inner.as_str().to_string());
+            alias = Some(unquote_ident(inner.as_str()));
         }
     }
 
@@ -905,7 +918,7 @@ fn build_unwind_clause(pair: pest::iterators::Pair<Rule>) -> Result<UnwindClause
     for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::expression => expression = Some(build_expression(inner)?),
-            Rule::identifier => alias = Some(inner.as_str().to_string()),
+            Rule::identifier => alias = Some(unquote_ident(inner.as_str())),
             _ => {}
         }
     }
@@ -1186,7 +1199,7 @@ fn build_node_pattern(pair: pest::iterators::Pair<Rule>) -> Result<NodePattern, 
 
     for inner in pair.clone().into_inner() {
         match inner.as_rule() {
-            Rule::variable => variable = Some(inner.as_str().to_string()),
+            Rule::variable => variable = Some(unquote_ident(inner.as_str())),
             Rule::label_filter => {
                 labels = build_labels(inner)?;
             }
@@ -1222,7 +1235,7 @@ fn build_edge_pattern(pair: pest::iterators::Pair<Rule>) -> Result<EdgePattern, 
         match inner.as_rule() {
             Rule::left_arrow => has_left = true,
             Rule::right_arrow => has_right = true,
-            Rule::variable => variable = Some(inner.as_str().to_string()),
+            Rule::variable => variable = Some(unquote_ident(inner.as_str())),
             Rule::label_filter => {
                 labels = build_labels(inner)?;
             }
@@ -1255,7 +1268,7 @@ fn build_labels(pair: pest::iterators::Pair<Rule>) -> Result<Vec<String>, ParseE
     let mut labels = Vec::new();
     for inner in pair.clone().into_inner() {
         if inner.as_rule() == Rule::identifier {
-            labels.push(inner.as_str().to_string());
+            labels.push(unquote_ident(inner.as_str()));
         }
     }
     Ok(labels)
@@ -1320,7 +1333,7 @@ fn build_properties(
 
             for inner in prop.into_inner() {
                 match inner.as_rule() {
-                    Rule::identifier => key = Some(inner.as_str().to_string()),
+                    Rule::identifier => key = Some(unquote_ident(inner.as_str())),
                     Rule::literal => value = Some(build_literal(inner)?),
                     _ => {}
                 }
@@ -1412,7 +1425,7 @@ fn build_return_item(pair: pest::iterators::Pair<Rule>) -> Result<ReturnItem, Pa
     for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::expression => expression = Some(build_expression(inner)?),
-            Rule::identifier => alias = Some(inner.as_str().to_string()),
+            Rule::identifier => alias = Some(unquote_ident(inner.as_str())),
             _ => {}
         }
     }
@@ -2013,19 +2026,21 @@ fn build_slice_atom(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Par
             Rule::property_access => {
                 let span = span_from_pair(&inner);
                 let mut parts = inner.into_inner();
-                let variable = parts
-                    .next()
-                    .ok_or_else(|| ParseError::missing_clause("variable", span))?
-                    .as_str()
-                    .to_string();
-                let property = parts
-                    .next()
-                    .ok_or_else(|| ParseError::missing_clause("property", span))?
-                    .as_str()
-                    .to_string();
+                let variable = unquote_ident(
+                    parts
+                        .next()
+                        .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                        .as_str(),
+                );
+                let property = unquote_ident(
+                    parts
+                        .next()
+                        .ok_or_else(|| ParseError::missing_clause("property", span))?
+                        .as_str(),
+                );
                 expr = Some(Expression::Property { variable, property });
             }
-            Rule::variable => expr = Some(Expression::Variable(inner.as_str().to_string())),
+            Rule::variable => expr = Some(Expression::Variable(unquote_ident(inner.as_str()))),
             Rule::expression => expr = Some(build_expression(inner)?),
             _ => {}
         }
@@ -2068,19 +2083,21 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         Rule::function_call => build_function_call(inner),
         Rule::property_access => {
             let mut parts = inner.into_inner();
-            let variable = parts
-                .next()
-                .ok_or_else(|| ParseError::missing_clause("variable", span))?
-                .as_str()
-                .to_string();
-            let property = parts
-                .next()
-                .ok_or_else(|| ParseError::missing_clause("property", span))?
-                .as_str()
-                .to_string();
+            let variable = unquote_ident(
+                parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                    .as_str(),
+            );
+            let property = unquote_ident(
+                parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("property", span))?
+                    .as_str(),
+            );
             Ok(Expression::Property { variable, property })
         }
-        Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
+        Rule::variable => Ok(Expression::Variable(unquote_ident(inner.as_str()))),
         Rule::paren_expr => {
             // Parenthesized expression - extract the inner expression
             let inner_expr = inner
@@ -2169,16 +2186,27 @@ fn build_case_else_clause(pair: pest::iterators::Pair<Rule>) -> Result<Expressio
 
 /// Build an EXISTS expression from a pest pair.
 ///
-/// EXISTS { pattern } or NOT EXISTS { pattern }
+/// Supports both forms:
+///   * `EXISTS { pattern }` and `NOT EXISTS { pattern }`
+///   * `EXISTS { MATCH pattern [WHERE expression] }` (subquery form)
 fn build_exists_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
     let pair_span = span_from_pair(&pair);
     let mut negated = false;
     let mut pattern = None;
+    let mut where_expr: Option<Box<Expression>> = None;
 
     for inner in pair.clone().into_inner() {
         match inner.as_rule() {
             Rule::NOT => negated = true,
+            Rule::MATCH | Rule::WHERE | Rule::EXISTS => {
+                // Keyword tokens — purely syntactic, ignore.
+            }
             Rule::pattern => pattern = Some(build_pattern(inner)?),
+            Rule::expression => {
+                // The `expression` rule appearing here can only come from the
+                // optional `WHERE expression` branch in the grammar.
+                where_expr = Some(Box::new(build_expression(inner)?));
+            }
             _ => {}
         }
     }
@@ -2187,6 +2215,7 @@ fn build_exists_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expression, Pa
         pattern: pattern
             .ok_or_else(|| ParseError::missing_clause("pattern in EXISTS", pair_span))?,
         negated,
+        where_expr,
     })
 }
 
@@ -2328,7 +2357,7 @@ fn build_map_key(pair: pest::iterators::Pair<Rule>) -> Result<String, ParseError
         .ok_or_else(|| ParseError::missing_clause("map key", Span { start: 0, end: 0 }))?;
 
     match inner.as_rule() {
-        Rule::identifier => Ok(inner.as_str().to_string()),
+        Rule::identifier => Ok(unquote_ident(inner.as_str())),
         Rule::string => {
             // String literal - extract inner content without quotes
             let s = inner.as_str();
@@ -2445,19 +2474,21 @@ fn build_reduce_initial(pair: pest::iterators::Pair<Rule>) -> Result<Expression,
         Rule::property_access => {
             let span = span_from_pair(&inner);
             let mut parts = inner.into_inner();
-            let variable = parts
-                .next()
-                .ok_or_else(|| ParseError::missing_clause("variable", span))?
-                .as_str()
-                .to_string();
-            let property = parts
-                .next()
-                .ok_or_else(|| ParseError::missing_clause("property", span))?
-                .as_str()
-                .to_string();
+            let variable = unquote_ident(
+                parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                    .as_str(),
+            );
+            let property = unquote_ident(
+                parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("property", span))?
+                    .as_str(),
+            );
             Ok(Expression::Property { variable, property })
         }
-        Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
+        Rule::variable => Ok(Expression::Variable(unquote_ident(inner.as_str()))),
         Rule::expression => build_expression(inner),
         _ => Err(ParseError::unexpected_token(
             span_from_pair(&inner),
@@ -2796,19 +2827,21 @@ fn build_list_comp_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expressi
         Rule::property_access => {
             let span = span_from_pair(&inner);
             let mut parts = inner.into_inner();
-            let variable = parts
-                .next()
-                .ok_or_else(|| ParseError::missing_clause("variable", span))?
-                .as_str()
-                .to_string();
-            let property = parts
-                .next()
-                .ok_or_else(|| ParseError::missing_clause("property", span))?
-                .as_str()
-                .to_string();
+            let variable = unquote_ident(
+                parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("variable", span))?
+                    .as_str(),
+            );
+            let property = unquote_ident(
+                parts
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("property", span))?
+                    .as_str(),
+            );
             Ok(Expression::Property { variable, property })
         }
-        Rule::variable => Ok(Expression::Variable(inner.as_str().to_string())),
+        Rule::variable => Ok(Expression::Variable(unquote_ident(inner.as_str()))),
         Rule::expression => build_expression(inner),
         _ => Err(ParseError::unexpected_token(
             span_from_pair(&inner),
@@ -2923,7 +2956,7 @@ fn build_create_node_type(pair: pest::iterators::Pair<Rule>) -> Result<CreateNod
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::identifier => {
-                name = Some(inner.as_str().to_string());
+                name = Some(unquote_ident(inner.as_str()));
             }
             Rule::property_def_list => {
                 properties = build_property_def_list(inner)?;
@@ -2952,7 +2985,7 @@ fn build_create_edge_type(pair: pest::iterators::Pair<Rule>) -> Result<CreateEdg
         match inner.as_rule() {
             Rule::identifier => {
                 if name.is_none() {
-                    name = Some(inner.as_str().to_string());
+                    name = Some(unquote_ident(inner.as_str()));
                 }
             }
             Rule::property_def_list => {
@@ -3010,7 +3043,7 @@ fn build_type_name_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<String>
     let mut types = Vec::new();
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::identifier {
-            types.push(inner.as_str().to_string());
+            types.push(unquote_ident(inner.as_str()));
         }
     }
     Ok(types)
@@ -3025,7 +3058,7 @@ fn build_alter_node_type(pair: pest::iterators::Pair<Rule>) -> Result<AlterNodeT
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::identifier => {
-                name = Some(inner.as_str().to_string());
+                name = Some(unquote_ident(inner.as_str()));
             }
             Rule::alter_type_action => {
                 action = Some(build_alter_type_action(inner)?);
@@ -3050,7 +3083,7 @@ fn build_alter_edge_type(pair: pest::iterators::Pair<Rule>) -> Result<AlterEdgeT
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::identifier => {
-                name = Some(inner.as_str().to_string());
+                name = Some(unquote_ident(inner.as_str()));
             }
             Rule::alter_type_action => {
                 action = Some(build_alter_type_action(inner)?);
@@ -3086,9 +3119,9 @@ fn build_alter_type_action(
                 .into_inner()
                 .find(|p| p.as_rule() == Rule::identifier)
                 .ok_or(ParseError::Empty)?;
-            Ok(AlterTypeAction::DropProperty(
-                prop_name.as_str().to_string(),
-            ))
+            Ok(AlterTypeAction::DropProperty(unquote_ident(
+                prop_name.as_str(),
+            )))
         }
         _ => Err(ParseError::Syntax(format!(
             "Unexpected alter type action: {:?}",
@@ -3104,7 +3137,7 @@ fn build_drop_type(pair: pest::iterators::Pair<Rule>) -> Result<DropType, ParseE
 
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::identifier {
-            name = Some(inner.as_str().to_string());
+            name = Some(unquote_ident(inner.as_str()));
         }
     }
 
@@ -3173,16 +3206,16 @@ fn build_create_index(pair: pest::iterators::Pair<Rule>) -> Result<CreateIndex, 
             Rule::identifier => {
                 // First identifier is the index name, second is the property
                 if name.is_none() {
-                    name = Some(inner.as_str().to_string());
+                    name = Some(unquote_ident(inner.as_str()));
                 } else {
-                    property = Some(inner.as_str().to_string());
+                    property = Some(unquote_ident(inner.as_str()));
                 }
             }
             Rule::index_target => {
                 // index_target may contain `:identifier` for the label
                 for target_inner in inner.into_inner() {
                     if target_inner.as_rule() == Rule::identifier {
-                        label = Some(target_inner.as_str().to_string());
+                        label = Some(unquote_ident(target_inner.as_str()));
                     }
                 }
             }
@@ -3219,7 +3252,7 @@ fn build_drop_index(pair: pest::iterators::Pair<Rule>) -> Result<DropIndex, Pars
 
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::identifier {
-            name = Some(inner.as_str().to_string());
+            name = Some(unquote_ident(inner.as_str()));
         }
     }
 
@@ -3254,7 +3287,7 @@ fn build_property_def(pair: pest::iterators::Pair<Rule>) -> Result<PropertyDefin
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::identifier => {
-                name = Some(inner.as_str().to_string());
+                name = Some(unquote_ident(inner.as_str()));
             }
             Rule::property_type => {
                 prop_type = Some(build_property_type(inner)?);
@@ -4704,7 +4737,7 @@ mod tests {
         assert!(query.where_clause.is_some());
 
         let where_clause = query.where_clause.unwrap();
-        if let Expression::Exists { negated, pattern } = where_clause.expression {
+        if let Expression::Exists { negated, pattern, .. } = where_clause.expression {
             assert!(!negated);
             // Pattern should have 3 elements: node, edge, node
             assert_eq!(pattern.elements.len(), 3);
@@ -4726,13 +4759,13 @@ mod tests {
         // So we get UnaryOp(Not, Exists { negated: false, ... })
         if let Expression::UnaryOp { op, expr } = where_clause.expression {
             assert!(matches!(op, UnaryOperator::Not));
-            if let Expression::Exists { negated, pattern } = expr.as_ref() {
+            if let Expression::Exists { negated, pattern, .. } = expr.as_ref() {
                 assert!(!negated); // The inner EXISTS is not negated
                 assert!(!pattern.elements.is_empty());
             } else {
                 panic!("Expected EXISTS expression inside NOT");
             }
-        } else if let Expression::Exists { negated, pattern } = where_clause.expression {
+        } else if let Expression::Exists { negated, pattern, .. } = where_clause.expression {
             // If the grammar is changed to support NOT directly in exists_expr
             assert!(negated);
             assert!(!pattern.elements.is_empty());
@@ -6247,6 +6280,40 @@ mod tests {
             assert_eq!(mutation.foreach_clauses[1].variable, "y");
         } else {
             panic!("Expected Mutation statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_backtick_escaped_variable_keyword() {
+        // `desc` is a reserved keyword (ASC/DESC sort direction). Backticks let
+        // it be used as an ordinary variable name.
+        let query = parse("MATCH (`desc`:Person) RETURN `desc`").unwrap();
+        let pat = &query.match_clause.patterns[0];
+        assert_eq!(query.return_clause.items.len(), 1);
+        if let Expression::Variable(name) = &query.return_clause.items[0].expression {
+            assert_eq!(name, "desc");
+        } else {
+            panic!(
+                "Expected Expression::Variable, got {:?}",
+                query.return_clause.items[0].expression
+            );
+        }
+        let _ = pat; // suppress unused warning
+    }
+
+    #[test]
+    fn test_parse_backtick_escaped_property() {
+        let query = parse("MATCH (n:Foo) RETURN n.`desc`").unwrap();
+        if let Expression::Property { variable, property } =
+            &query.return_clause.items[0].expression
+        {
+            assert_eq!(variable, "n");
+            assert_eq!(property, "desc");
+        } else {
+            panic!(
+                "Expected Expression::Property, got {:?}",
+                query.return_clause.items[0].expression
+            );
         }
     }
 }

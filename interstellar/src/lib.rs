@@ -456,7 +456,7 @@ pub mod prelude {
         p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,
         Path, PathElement, PathValue, Traversal, Traverser, __,
     };
-    pub use crate::value::{EdgeId, ElementId, IntoVertexId, Value, VertexId};
+    pub use crate::value::{EdgeId, ElementId, IntoVertexId, Value, ValueMap, VertexId};
 }
 
 pub use prelude::*;

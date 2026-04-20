@@ -4255,9 +4255,9 @@ mod tests {
             map3.insert("a".to_string(), Value::Int(1)); // same as map1
 
             let input: Vec<Traverser> = vec![
-                Traverser::new(Value::Map(map1)),
-                Traverser::new(Value::Map(map2)),
-                Traverser::new(Value::Map(map3)),
+                Traverser::new(Value::Map(map1.into_iter().collect())),
+                Traverser::new(Value::Map(map2.into_iter().collect())),
+                Traverser::new(Value::Map(map3.into_iter().collect())),
             ];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
@@ -6096,7 +6096,7 @@ mod tests {
         use crate::traversal::step::DynStep;
 
         fn create_property_map(key: &str, value: Value) -> Value {
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("key".to_string(), Value::String(key.to_string()));
             map.insert("value".to_string(), value);
             Value::Map(map)
@@ -6221,7 +6221,7 @@ mod tests {
             let step = HasKeyStep::new("name");
 
             // Create a map without a "key" field
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("value".to_string(), Value::String("Alice".to_string()));
 
             let input: Vec<Traverser> = vec![Traverser::new(Value::Map(map))];
@@ -6284,7 +6284,7 @@ mod tests {
         use crate::traversal::step::DynStep;
 
         fn create_property_map(key: &str, value: Value) -> Value {
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("key".to_string(), Value::String(key.to_string()));
             map.insert("value".to_string(), value);
             Value::Map(map)
@@ -6422,7 +6422,7 @@ mod tests {
             let step = HasPropValueStep::new("Alice");
 
             // Create a map without a "value" field
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("key".to_string(), Value::String("name".to_string()));
 
             let input: Vec<Traverser> = vec![Traverser::new(Value::Map(map))];
@@ -9467,13 +9467,13 @@ mod tests {
 
             // Create map values with same "type" key
             let map1 = {
-                let mut m = std::collections::HashMap::new();
+                let mut m = crate::value::ValueMap::new();
                 m.insert("type".to_string(), Value::String("A".to_string()));
                 m.insert("id".to_string(), Value::Int(1));
                 Value::Map(m)
             };
             let map2 = {
-                let mut m = std::collections::HashMap::new();
+                let mut m = crate::value::ValueMap::new();
                 m.insert("type".to_string(), Value::String("A".to_string())); // Same type
                 m.insert("id".to_string(), Value::Int(2));
                 Value::Map(m)

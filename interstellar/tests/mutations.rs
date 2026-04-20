@@ -512,15 +512,15 @@ fn mutation_result_tracks_statistics() {
 
     // Create multiple pending mutations
     let traversers = vec![
-        interstellar::traversal::Traverser::new(Value::Map(HashMap::from([
+        interstellar::traversal::Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("person".to_string())),
-            ("properties".to_string(), Value::Map(HashMap::new())),
+            ("properties".to_string(), Value::Map(Default::default())),
         ]))),
-        interstellar::traversal::Traverser::new(Value::Map(HashMap::from([
+        interstellar::traversal::Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("person".to_string())),
-            ("properties".to_string(), Value::Map(HashMap::new())),
+            ("properties".to_string(), Value::Map(Default::default())),
         ]))),
     ];
 
@@ -538,10 +538,10 @@ fn mutation_result_passes_through_non_mutations() {
     // Mix of pending mutations and regular values
     let traversers = vec![
         interstellar::traversal::Traverser::new(Value::Int(42)),
-        interstellar::traversal::Traverser::new(Value::Map(HashMap::from([
+        interstellar::traversal::Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("test".to_string())),
-            ("properties".to_string(), Value::Map(HashMap::new())),
+            ("properties".to_string(), Value::Map(Default::default())),
         ]))),
         interstellar::traversal::Traverser::new(Value::String("hello".to_string())),
     ];
@@ -621,12 +621,12 @@ fn property_on_non_existent_vertex_is_silent() {
 
 #[test]
 fn pending_mutation_parses_add_v() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_add_v".to_string(), Value::Bool(true)),
         ("label".to_string(), Value::String("test".to_string())),
         (
             "properties".to_string(),
-            Value::Map(HashMap::from([(
+            Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
                 "key".to_string(),
                 Value::String("value".to_string()),
             )])),
@@ -643,12 +643,12 @@ fn pending_mutation_parses_add_v() {
 
 #[test]
 fn pending_mutation_parses_add_e() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_add_e".to_string(), Value::Bool(true)),
         ("label".to_string(), Value::String("edge".to_string())),
         ("from".to_string(), Value::Vertex(VertexId(1))),
         ("to".to_string(), Value::Vertex(VertexId(2))),
-        ("properties".to_string(), Value::Map(HashMap::new())),
+        ("properties".to_string(), Value::Map(Default::default())),
     ]));
 
     let mutation = PendingMutation::from_value(&value);
@@ -661,7 +661,7 @@ fn pending_mutation_parses_add_e() {
 
 #[test]
 fn pending_mutation_parses_drop_vertex() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_vertex".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Vertex(VertexId(42))),
     ]));
@@ -675,7 +675,7 @@ fn pending_mutation_parses_drop_vertex() {
 
 #[test]
 fn pending_mutation_parses_drop_edge() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(EdgeId(7))),
     ]));

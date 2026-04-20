@@ -54,12 +54,12 @@ impl Step for AddESpawnStep {
 
         // Spawning step - produce one pending addE marker regardless of input
         std::iter::once_with(move || {
-            Traverser::new(Value::Map(std::collections::HashMap::from([
+            Traverser::new(Value::Map(crate::value::ValueMap::from_iter([
                 ("__pending_add_e".to_string(), Value::Bool(true)),
                 ("label".to_string(), Value::String(label.clone())),
                 (
                     "properties".to_string(),
-                    Value::Map(std::collections::HashMap::new()),
+                    Value::Map(crate::value::ValueMap::new()),
                 ),
             ])))
         })

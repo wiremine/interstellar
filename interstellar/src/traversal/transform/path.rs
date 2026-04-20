@@ -285,7 +285,7 @@ impl crate::traversal::step::Step for SelectStep {
                 // if "nonexistent" label is missing.
 
                 if !missing_any && found_any {
-                    Some(t.with_value(Value::Map(map)))
+                    Some(t.with_value(Value::Map(map.into_iter().collect())))
                 } else {
                     None
                 }
@@ -334,7 +334,7 @@ impl crate::traversal::step::Step for SelectStep {
             }
 
             if !missing_any && found_any {
-                Box::new(std::iter::once(input.with_value(Value::Map(map))))
+                Box::new(std::iter::once(input.with_value(Value::Map(map.into_iter().collect()))))
             } else {
                 Box::new(std::iter::empty())
             }

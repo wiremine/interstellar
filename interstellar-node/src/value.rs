@@ -83,7 +83,7 @@ pub fn js_to_value(env: Env, js: JsUnknown) -> Result<Value> {
                     let val: JsUnknown = obj.get_named_property(&key)?;
                     map.insert(key, js_to_value(env, val)?);
                 }
-                Ok(Value::Map(map))
+                Ok(Value::Map(map.into_iter().collect()))
             }
         }
 

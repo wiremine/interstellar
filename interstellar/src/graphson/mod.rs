@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_complex_properties_roundtrip() {
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("nested".to_string(), Value::Int(42));
 
         let graph = Graph::new();

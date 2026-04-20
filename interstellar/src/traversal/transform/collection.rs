@@ -483,7 +483,7 @@ impl UnfoldStep {
                     .map(|(k, v)| {
                         let mut entry = std::collections::HashMap::new();
                         entry.insert(k.clone(), v.clone());
-                        Value::Map(entry)
+                        Value::Map(entry.into_iter().collect())
                     })
                     .collect()
             }
@@ -512,7 +512,7 @@ impl UnfoldStep {
                 .map(|(k, v)| {
                     let mut entry = std::collections::HashMap::new();
                     entry.insert(k.clone(), v.clone());
-                    crate::value::Value::Map(entry)
+                    crate::value::Value::Map(entry.into_iter().collect())
                 })
                 .collect(),
             other => vec![other.clone()],
@@ -649,7 +649,6 @@ mod tests {
     use crate::traversal::step::Step;
     use crate::traversal::SnapshotLike;
     use crate::value::{EdgeId, VertexId};
-    use std::collections::HashMap;
 
     fn create_test_graph() -> Graph {
         // Add minimal dummy data if needed by tests, though many here use Traverser::new() directly
@@ -723,7 +722,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("a".to_string(), Value::Int(1));
             map.insert("b".to_string(), Value::Int(2));
             let input = vec![Traverser::new(Value::Map(map))];
@@ -758,7 +757,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = UnfoldStep::new();
-            let map = HashMap::new();
+            let map = crate::value::ValueMap::new();
             let input = vec![Traverser::new(Value::Map(map))];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
@@ -1517,7 +1516,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CountLocalStep::new();
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("a".to_string(), Value::Int(1));
             map.insert("b".to_string(), Value::Int(2));
             let input = vec![Traverser::new(Value::Map(map))];
@@ -1535,7 +1534,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = CountLocalStep::new();
-            let input = vec![Traverser::new(Value::Map(HashMap::new()))];
+            let input = vec![Traverser::new(Value::Map(crate::value::ValueMap::new()))];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 

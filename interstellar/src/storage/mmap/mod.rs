@@ -5938,7 +5938,7 @@ mod tests {
         drop(mmap);
 
         // Create properties with all value types
-        let mut map = std::collections::HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("key".to_string(), Value::Int(42));
 
         let properties = vec![
@@ -7731,7 +7731,7 @@ mod tests {
         let path = dir.path().join("test.db");
         let graph = MmapGraph::open(&path).unwrap();
 
-        let mut inner_map = std::collections::HashMap::new();
+        let mut inner_map = crate::value::ValueMap::new();
         inner_map.insert("nested_key".to_string(), Value::Int(999));
         let map_val = Value::Map(inner_map);
 
@@ -8730,7 +8730,7 @@ mod tests {
         let path = dir.path().join("test.db");
         let graph = MmapGraph::open(&path).unwrap();
 
-        let mut inner_map = std::collections::HashMap::new();
+        let mut inner_map = crate::value::ValueMap::new();
         inner_map.insert("key".to_string(), Value::Int(100));
 
         let mut props = std::collections::HashMap::new();

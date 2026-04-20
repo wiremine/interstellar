@@ -1722,6 +1722,10 @@ pub enum Expression {
     /// starting from the current element. The pattern can reference variables
     /// bound in the outer MATCH clause.
     ///
+    /// Also supports the explicit-MATCH form
+    /// `EXISTS { MATCH (a)-[:KNOWS]->(b) WHERE b.age > 30 }`,
+    /// where the optional `where_expr` filters the matched subgraph.
+    ///
     /// # Examples
     ///
     /// ```text
@@ -1734,12 +1738,21 @@ pub enum Expression {
     /// MATCH (p:player)
     /// WHERE NOT EXISTS { (p)-[:won_championship_with]->() }
     /// RETURN p.name
+    ///
+    /// -- Subquery form with WHERE
+    /// MATCH (p:Person)
+    /// WHERE NOT EXISTS { MATCH (p)-[:PARENT_OF]->(c) WHERE c.alive = true }
+    /// RETURN p.name
     /// ```
     Exists {
         /// The pattern to check for existence.
         pattern: Pattern,
         /// True for `NOT EXISTS`, false for `EXISTS`.
         negated: bool,
+        /// Optional WHERE expression inside the subquery (only valid with the
+        /// explicit-MATCH form `EXISTS { MATCH ... WHERE ... }`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        where_expr: Option<Box<Expression>>,
     },
 
     /// CASE expression with WHEN/THEN/ELSE branches.

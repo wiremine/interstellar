@@ -584,7 +584,7 @@ mod non_element_sorting {
         let snapshot = graph.snapshot();
         let g = snapshot.gremlin();
 
-        let mut map1 = HashMap::new();
+        let mut map1 = ::indexmap::IndexMap::<String, Value>::new();
         map1.insert("key".to_string(), Value::Int(1));
 
         let results = g

@@ -1347,7 +1347,7 @@ fn evaluate_return<S: GraphStorage + GraphStorageMut>(
         Ok(Some(value))
     } else {
         // Multiple items - return as map
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         for item in &return_clause.items {
             let key = get_return_item_key(item);
             let value = evaluate_return_item(ctx, item, &bindings)?;

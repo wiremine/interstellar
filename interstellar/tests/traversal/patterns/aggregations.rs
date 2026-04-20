@@ -888,7 +888,7 @@ fn fraud_pattern_anonymous_factory_functions() {
     assert_eq!(local_sum[0], Value::Int(60));
 
     // Test __.select_keys() on a map
-    let mut test_map = HashMap::new();
+    let mut test_map = ::indexmap::IndexMap::<String, Value>::new();
     test_map.insert("a".to_string(), Value::Int(1));
     test_map.insert("b".to_string(), Value::Int(2));
     let keys = g
@@ -898,7 +898,7 @@ fn fraud_pattern_anonymous_factory_functions() {
     assert_eq!(keys.len(), 2);
 
     // Test __.select_values() on a map
-    let mut test_map2 = HashMap::new();
+    let mut test_map2 = ::indexmap::IndexMap::<String, Value>::new();
     test_map2.insert("x".to_string(), Value::Int(100));
     test_map2.insert("y".to_string(), Value::Int(200));
     let values = g

@@ -6,7 +6,7 @@
 
 use interstellar::storage::Graph;
 use interstellar::value::Value;
-use std::collections::HashMap;
+use interstellar::ValueMap;
 
 fn main() {
     println!("=== Interstellar GQL Quickstart ===\n");
@@ -110,7 +110,7 @@ fn format_value(v: &Value) -> String {
     }
 }
 
-fn fmt(m: &HashMap<String, Value>, k: &str) -> String {
+fn fmt(m: &ValueMap, k: &str) -> String {
     format_value(m.get(k).unwrap_or(&Value::Null))
 }
 

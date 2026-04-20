@@ -617,8 +617,12 @@ case_when_clause = { WHEN ~ expression ~ THEN ~ expression }
 case_else_clause = { ELSE ~ expression }
 
 // EXISTS expression: EXISTS { pattern } or NOT EXISTS { pattern }
-// Used to check if a subpattern matches from the current element
-exists_expr = { NOT? ~ EXISTS ~ "{" ~ pattern ~ "}" }
+// Also supports the explicit-MATCH subquery form:
+//   EXISTS { MATCH pattern [WHERE expression] }
+// Used to check if a subpattern matches from the current element. The optional
+// WHERE clause inside the braces filters the matched subgraph before the
+// EXISTS predicate evaluates true.
+exists_expr = { NOT? ~ EXISTS ~ "{" ~ (MATCH ~ pattern ~ (WHERE ~ expression)? | pattern) ~ "}" }
 
 // ALL/ANY/NONE/SINGLE list predicates
 // ALL(x IN list WHERE condition) - true if all elements satisfy condition
@@ -672,9 +676,11 @@ list_expr = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
 property_access = { variable ~ "." ~ identifier }
 
 // Identifiers and variables
-// NOTE: Keywords are excluded from identifier matching via the keyword rule
-variable = @{ !(keyword ~ !ASCII_ALPHANUMERIC) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+// NOTE: Keywords are excluded from identifier matching via the keyword rule.
+// Backtick-escaped form bypasses the keyword check, so users can write
+// e.g. `desc` to use a reserved word as a variable name.
+variable = @{ ("`" ~ (!"`" ~ ANY)+ ~ "`") | (!(keyword ~ !ASCII_ALPHANUMERIC) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*) }
+identifier = @{ ("`" ~ (!"`" ~ ANY)+ ~ "`") | (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*) }
 
 // All keywords - used to exclude them from variable names
 keyword = {

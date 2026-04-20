@@ -257,7 +257,7 @@ fn test_gql_parse_exists_expression() {
     // The where clause should contain an EXISTS expression
     let where_clause = ast.where_clause.unwrap();
     match where_clause.expression {
-        interstellar::gql::Expression::Exists { negated, pattern } => {
+        interstellar::gql::Expression::Exists { negated, pattern, .. } => {
             assert!(!negated);
             assert!(!pattern.elements.is_empty());
         }
@@ -287,14 +287,14 @@ fn test_gql_parse_not_exists_expression() {
         interstellar::gql::Expression::UnaryOp { op, expr } => {
             assert!(matches!(op, interstellar::gql::UnaryOperator::Not));
             match *expr {
-                interstellar::gql::Expression::Exists { negated, pattern } => {
+                interstellar::gql::Expression::Exists { negated, pattern, .. } => {
                     assert!(!negated);
                     assert!(!pattern.elements.is_empty());
                 }
                 _ => panic!("Expected EXISTS expression inside NOT"),
             }
         }
-        interstellar::gql::Expression::Exists { negated, pattern } => {
+        interstellar::gql::Expression::Exists { negated, pattern, .. } => {
             // Alternative: if grammar is changed to support NOT directly
             assert!(negated);
             assert!(!pattern.elements.is_empty());
@@ -681,6 +681,123 @@ fn test_gql_exists_aggregate_over_filtered() {
     } else {
         panic!("Expected map result");
     }
+}
+
+// =============================================================================
+// EXISTS Subquery Form Tests (`EXISTS { MATCH ... [WHERE ...] }`)
+// =============================================================================
+
+#[test]
+fn test_gql_exists_subquery_match_form() {
+    // The subquery form `EXISTS { MATCH (...) }` should be equivalent to the
+    // bare pattern form `EXISTS { (...) }`.
+    let graph = create_exists_test_graph();
+    let _snapshot = graph.snapshot();
+
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { MATCH (p)-[:won_championship_with]->() }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(names.contains(&"Michael Jordan".to_string()));
+    assert!(names.contains(&"Kobe Bryant".to_string()));
+}
+
+#[test]
+fn test_gql_exists_subquery_with_where_filters_inner_pattern() {
+    // The inner WHERE should be able to reference variables introduced inside
+    // the EXISTS subquery (here, the team `t`).
+    let graph = create_exists_test_graph();
+    let _snapshot = graph.snapshot();
+
+    // Players who played for a team with at least 6 championships.
+    // MJ played for Bulls (6), Kobe for Lakers (17). Barkley/Nash played for
+    // Suns (0), so they should not be returned.
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { MATCH (p)-[:played_for]->(t:team) WHERE t.championships >= 6 }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(names.contains(&"Michael Jordan".to_string()));
+    assert!(names.contains(&"Kobe Bryant".to_string()));
+    assert!(!names.contains(&"Charles Barkley".to_string()));
+    assert!(!names.contains(&"Steve Nash".to_string()));
+}
+
+#[test]
+fn test_gql_not_exists_subquery_with_where() {
+    // `NOT EXISTS { MATCH ... WHERE ... }` should select players for whom no
+    // matching subgraph exists. Here: players who never played for a team with
+    // 6+ championships.
+    let graph = create_exists_test_graph();
+    let _snapshot = graph.snapshot();
+
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE NOT EXISTS { MATCH (p)-[:played_for]->(t:team) WHERE t.championships >= 6 }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(names.contains(&"Charles Barkley".to_string()));
+    assert!(names.contains(&"Steve Nash".to_string()));
+}
+
+#[test]
+fn test_gql_exists_subquery_where_no_matches() {
+    // The inner WHERE filters out every otherwise-matching path, so no player
+    // should satisfy the EXISTS.
+    let graph = create_exists_test_graph();
+    let _snapshot = graph.snapshot();
+
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (p:player)
+        WHERE EXISTS { MATCH (p)-[:played_for]->(t:team) WHERE t.championships > 100 }
+        RETURN p.name
+    "#,
+        )
+        .unwrap();
+
+    assert!(results.is_empty(), "expected no players, got {:?}", results);
 }
 
 // =============================================================================

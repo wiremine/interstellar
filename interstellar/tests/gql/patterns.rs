@@ -1514,3 +1514,195 @@ fn test_gql_debug_traverser_repeat_path() {
     println!("2-hop with repeat + select: {:?}", path_results);
     assert!(!path_results.is_empty(), "Should have repeat path results");
 }
+
+// =============================================================================
+// Multi-Pattern MATCH Tests (`MATCH (a)…, (b)…`)
+// =============================================================================
+
+/// Build a small family graph used by the multi-pattern tests:
+///
+/// ```text
+///   parent ──PARENT_OF──> child_a
+///   parent ──PARENT_OF──> child_b
+///   parent ──PARENT_OF──> child_c
+/// ```
+///
+/// Each child has a HAS_NAME edge to a Name vertex with a `sortOrder`.
+fn create_family_graph() -> (Graph, VertexId, VertexId, VertexId, VertexId) {
+    let graph = Graph::new();
+
+    let mut parent_props = HashMap::new();
+    parent_props.insert("name".to_string(), Value::from("Parent"));
+    let parent_id = graph.add_vertex("Person", parent_props);
+
+    let mut a_props = HashMap::new();
+    a_props.insert("name".to_string(), Value::from("ChildA"));
+    let a_id = graph.add_vertex("Person", a_props);
+
+    let mut b_props = HashMap::new();
+    b_props.insert("name".to_string(), Value::from("ChildB"));
+    let b_id = graph.add_vertex("Person", b_props);
+
+    let mut c_props = HashMap::new();
+    c_props.insert("name".to_string(), Value::from("ChildC"));
+    let c_id = graph.add_vertex("Person", c_props);
+
+    let _ = graph.add_edge(parent_id, a_id, "PARENT_OF", HashMap::new());
+    let _ = graph.add_edge(parent_id, b_id, "PARENT_OF", HashMap::new());
+    let _ = graph.add_edge(parent_id, c_id, "PARENT_OF", HashMap::new());
+
+    let mut a_name = HashMap::new();
+    a_name.insert("given".to_string(), Value::from("Alice"));
+    a_name.insert("surname".to_string(), Value::from("Smith"));
+    a_name.insert("sortOrder".to_string(), Value::Int(0));
+    let a_name_id = graph.add_vertex("Name", a_name);
+    let _ = graph.add_edge(a_id, a_name_id, "HAS_NAME", HashMap::new());
+
+    let mut b_name = HashMap::new();
+    b_name.insert("given".to_string(), Value::from("Bob"));
+    b_name.insert("surname".to_string(), Value::from("Smith"));
+    b_name.insert("sortOrder".to_string(), Value::Int(0));
+    let b_name_id = graph.add_vertex("Name", b_name);
+    let _ = graph.add_edge(b_id, b_name_id, "HAS_NAME", HashMap::new());
+
+    let mut c_name = HashMap::new();
+    c_name.insert("given".to_string(), Value::from("Carol"));
+    c_name.insert("surname".to_string(), Value::from("Smith"));
+    c_name.insert("sortOrder".to_string(), Value::Int(0));
+    let c_name_id = graph.add_vertex("Name", c_name);
+    let _ = graph.add_edge(c_id, c_name_id, "HAS_NAME", HashMap::new());
+
+    (graph, parent_id, a_id, b_id, c_id)
+}
+
+#[test]
+fn test_gql_multi_pattern_shared_anchor_finds_siblings() {
+    // Reproduces the primary bug example: find siblings of a given child by
+    // joining two patterns that share the `parent` variable.
+    let (graph, _parent_id, a_id, b_id, c_id) = create_family_graph();
+    let _snapshot = graph.snapshot();
+
+    let query = format!(
+        r#"
+        MATCH (parent:Person)-[:PARENT_OF]->(p:Person),
+              (parent)-[:PARENT_OF]->(sibling:Person)-[:HAS_NAME]->(n:Name)
+        WHERE ID(p) = {a} AND ID(sibling) <> {a} AND n.sortOrder = 0
+        RETURN DISTINCT n.given
+        "#,
+        a = a_id.0,
+    );
+
+    let results: Vec<_> = graph.gql(&query).unwrap();
+
+    let names: Vec<String> = results
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(names.len(), 2, "expected 2 siblings, got {:?}", names);
+    assert!(names.contains(&"Bob".to_string()));
+    assert!(names.contains(&"Carol".to_string()));
+    assert!(!names.contains(&"Alice".to_string()));
+    let _ = (b_id, c_id);
+}
+
+#[test]
+fn test_gql_multi_pattern_introduces_variable_in_second_pattern() {
+    // The second pattern introduces brand-new variables (`sibling`, `n`) that
+    // must be visible in WHERE and RETURN.
+    let (graph, _parent_id, a_id, _b_id, _c_id) = create_family_graph();
+    let _snapshot = graph.snapshot();
+
+    let query = format!(
+        r#"
+        MATCH (parent:Person)-[:PARENT_OF]->(p:Person),
+              (parent)-[:PARENT_OF]->(sibling:Person)-[:HAS_NAME]->(n:Name)
+        WHERE ID(p) = {a} AND ID(sibling) <> {a}
+        RETURN DISTINCT n.given, n.surname
+        "#,
+        a = a_id.0,
+    );
+
+    let results: Vec<_> = graph.gql(&query).unwrap();
+    assert_eq!(results.len(), 2, "expected 2 sibling rows, got {:?}", results);
+
+    // Each row should be a map with `n.given` and `n.surname` keys (column
+    // ordering preserved per Bug 4 fix).
+    for row in &results {
+        match row {
+            Value::Map(map) => {
+                assert!(map.contains_key("n.given"));
+                assert!(map.contains_key("n.surname"));
+            }
+            _ => panic!("expected map row, got {:?}", row),
+        }
+    }
+}
+
+#[test]
+fn test_gql_multi_pattern_cartesian_fully_disjoint() {
+    // Two disjoint patterns produce a Cartesian product. The graph has 3
+    // children (Alice, Bob, Carol). `MATCH (p1:Person {name:'ChildA'}),
+    // (p2:Person {name:'ChildB'})` should produce one row.
+    let (graph, _parent_id, _a_id, _b_id, _c_id) = create_family_graph();
+    let _snapshot = graph.snapshot();
+
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (p1:Person {name: 'ChildA'}),
+              (p2:Person {name: 'ChildB'})
+        RETURN p1.name, p2.name
+        "#,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1, "expected exactly 1 row, got {:?}", results);
+}
+
+#[test]
+fn test_gql_multi_pattern_shared_variable_equality_constraint() {
+    // Reproduces the "same bound variable in second pattern" form from the
+    // bug report: two HAS_SPOUSE edges from the same Marriage, distinct
+    // spouses. Here we model with the family graph: two PARENT_OF edges from
+    // the same parent to distinct children.
+    let (graph, _parent_id, _a_id, _b_id, _c_id) = create_family_graph();
+    let _snapshot = graph.snapshot();
+
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (parent:Person)-[:PARENT_OF]->(p:Person),
+              (parent)-[:PARENT_OF]->(s:Person)
+        WHERE ID(p) <> ID(s)
+        RETURN ID(p) AS pid, ID(s) AS sid
+        "#,
+        )
+        .unwrap();
+
+    // 3 children → 3 * 2 = 6 ordered pairs (p, s) with p ≠ s.
+    assert_eq!(results.len(), 6, "expected 6 rows, got {:?}", results);
+}
+
+#[test]
+fn test_gql_multi_pattern_no_match_in_second_pattern() {
+    // The second pattern references a non-existent edge label, so the join
+    // must produce zero rows even though the first pattern matches.
+    let (graph, _parent_id, _a_id, _b_id, _c_id) = create_family_graph();
+    let _snapshot = graph.snapshot();
+
+    let results: Vec<_> = graph
+        .gql(
+            r#"
+        MATCH (parent:Person)-[:PARENT_OF]->(p:Person),
+              (parent)-[:NONEXISTENT]->(other:Person)
+        RETURN p.name
+        "#,
+        )
+        .unwrap();
+
+    assert!(results.is_empty(), "expected 0 rows, got {:?}", results);
+}

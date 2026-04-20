@@ -76,7 +76,7 @@ use crate::gql::ast::{
 };
 use crate::gql::error::CompileError;
 use crate::traversal::{BoundTraversal, SnapshotLike, Traversal, __};
-use crate::value::{Value, VertexId};
+use crate::value::{IntoValueMap, Value, ValueMap, VertexId};
 
 /// Parameters passed to query execution.
 ///
@@ -201,6 +201,24 @@ fn id_to_value(id: u64) -> Value {
     } else {
         Value::Int(id as i64)
     }
+}
+
+/// Convert a path-tracked traverser into a row keyed by `as_()` labels.
+/// `__path__` and `__current__` mirror the conventions used by other
+/// row-based execution paths (UNWIND/LET/WITH).
+fn traverser_to_row(t: &crate::traversal::Traverser) -> std::collections::HashMap<String, Value> {
+    let mut row = std::collections::HashMap::new();
+    for label in t.path.all_labels() {
+        if let Some(values) = t.path.get(label) {
+            if let Some(pv) = values.last() {
+                row.insert(label.clone(), pv.to_value());
+            }
+        }
+    }
+    let path_values: Vec<Value> = t.path.objects().map(|pv| pv.to_value()).collect();
+    row.insert("__path__".to_string(), Value::List(path_values));
+    row.insert("__current__".to_string(), t.value.clone());
+    row
 }
 
 /// Compile and execute a GQL query against a graph snapshot.
@@ -797,6 +815,24 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             return Err(CompileError::EmptyPattern);
         }
 
+        // Multi-pattern MATCH (`MATCH (a)-[…]->(b), (a)-[…]->(c)`) is handled
+        // by a dedicated row-based pipeline. We only take this path when the
+        // query has features that the row-based pipeline currently supports
+        // (RETURN/WHERE/ORDER/LIMIT/DISTINCT). Combinations with OPTIONAL
+        // MATCH, WITH, UNWIND, CALL, LET, or GROUP BY still fall through to
+        // the linear single-pattern compiler and will surface as
+        // "undefined variable" errors for variables in the second pattern.
+        if query.match_clause.patterns.len() > 1
+            && query.optional_match_clauses.is_empty()
+            && query.with_clauses.is_empty()
+            && query.unwind_clauses.is_empty()
+            && query.call_clauses.is_empty()
+            && query.let_clauses.is_empty()
+            && query.group_by_clause.is_none()
+        {
+            return self.execute_multi_pattern_query(query);
+        }
+
         let pattern = &query.match_clause.patterns[0];
         if pattern.elements.is_empty() {
             return Err(CompileError::EmptyPattern);
@@ -972,7 +1008,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
 
         // Execute and collect results based on RETURN clause
         // Apply WHERE filter if present
-        let results = self.execute_return(&query.return_clause, &query.where_clause, traversal)?;
+        let results = self.execute_return(
+            &query.return_clause,
+            &query.where_clause,
+            &query.having_clause,
+            traversal,
+        )?;
 
         // Apply ORDER BY if present
         let results = self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
@@ -981,6 +1022,218 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         let results = self.apply_limit(&query.limit_clause, results);
 
         Ok(results)
+    }
+
+    /// Execute a multi-pattern MATCH query
+    /// (`MATCH (a)-[…]->(b), (c)-[…]->(d) [WHERE …] RETURN …`).
+    ///
+    /// The first pattern is compiled and executed normally; each subsequent
+    /// pattern is then "joined" against the running rows. The join strategy is:
+    ///
+    /// * If the additional pattern's first node references a variable that is
+    ///   already bound in the row, the inner traversal is anchored at that
+    ///   vertex (this is the common case — e.g. `(parent)-[:PARENT_OF]->(p),
+    ///   (parent)-[:PARENT_OF]->(s)`).
+    /// * Otherwise the inner traversal walks the entire vertex set, producing a
+    ///   Cartesian product (e.g. `(p1:Person)-[…], (p2:Person)-[…]`).
+    ///
+    /// Pattern variables introduced by the additional pattern are bound via
+    /// `as_(var)` so they are visible to subsequent patterns, the WHERE clause,
+    /// and the RETURN clause. A duplicate binding (variable already bound and
+    /// not used as the anchor) is treated as an equality constraint —
+    /// implemented by filtering rows whose anchor vertex doesn't match.
+    fn execute_multi_pattern_query(
+        &mut self,
+        query: &Query,
+    ) -> Result<Vec<Value>, CompileError> {
+        use crate::traversal::Traverser;
+
+        // Multi-pattern always needs path tracking (we read variable bindings
+        // off the path) and falls under the multi-vars regime.
+        self.has_multi_vars = true;
+
+        // Compile pattern 0 with the standard pipeline so its variables get
+        // registered in self.bindings and the traversal is built end-to-end.
+        let first_pattern = &query.match_clause.patterns[0];
+        if first_pattern.elements.is_empty() {
+            return Err(CompileError::EmptyPattern);
+        }
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
+        let traversal = g.v().with_path();
+        let traversal = self.compile_pattern(first_pattern, traversal)?;
+
+        // Pre-register variables introduced in subsequent patterns so that
+        // WHERE/RETURN validation succeeds. We don't error on duplicates here
+        // because in the multi-pattern context a repeated variable is a join
+        // constraint, not a duplicate binding.
+        for pattern in query.match_clause.patterns.iter().skip(1) {
+            for element in &pattern.elements {
+                match element {
+                    PatternElement::Node(node) => {
+                        if let Some(var) = &node.variable {
+                            self.bindings.entry(var.clone()).or_insert(BindingInfo {
+                                pattern_index: 0,
+                                is_node: true,
+                            });
+                        }
+                    }
+                    PatternElement::Edge(edge) => {
+                        if let Some(var) = &edge.variable {
+                            self.bindings.entry(var.clone()).or_insert(BindingInfo {
+                                pattern_index: 0,
+                                is_node: false,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate variables now that all are registered.
+        for item in &query.return_clause.items {
+            self.validate_expression_variables(&item.expression)?;
+        }
+        if let Some(where_cl) = &query.where_clause {
+            self.validate_expression_variables(&where_cl.expression)?;
+        }
+
+        // Materialise rows from pattern 0.
+        let mut rows: Vec<HashMap<String, Value>> = traversal
+            .execute()
+            .map(|t: Traverser| traverser_to_row(&t))
+            .collect();
+
+        // Join each subsequent pattern.
+        for pattern in query.match_clause.patterns.iter().skip(1) {
+            rows = self.expand_rows_with_pattern(rows, pattern)?;
+            if rows.is_empty() {
+                break;
+            }
+        }
+
+        // Apply WHERE filter.
+        if let Some(where_cl) = &query.where_clause {
+            rows.retain(|row| self.evaluate_predicate_from_row(&where_cl.expression, row));
+        }
+
+        // Build RETURN values.
+        let mut results: Vec<Value> = rows
+            .into_iter()
+            .filter_map(|row| self.evaluate_return_for_row(&query.return_clause.items, &row))
+            .collect();
+
+        if query.return_clause.distinct {
+            results = self.deduplicate_results(results);
+        }
+
+        let results = self.apply_order_by(&query.order_clause, &query.return_clause, results)?;
+        let results = self.apply_limit(&query.limit_clause, results);
+        Ok(results)
+    }
+
+    /// Expand each input row by joining it with traversers produced by
+    /// `pattern`. See `execute_multi_pattern_query` for the join semantics.
+    fn expand_rows_with_pattern(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        pattern: &Pattern,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        if pattern.elements.is_empty() {
+            return Ok(rows);
+        }
+
+        // Determine anchor: the first node's variable, if it's already bound
+        // in the row (we check the first row — variable presence is uniform).
+        let anchor_var = match &pattern.elements[0] {
+            PatternElement::Node(node) => node.variable.clone(),
+            PatternElement::Edge(_) => None,
+        };
+        let anchored = anchor_var
+            .as_ref()
+            .and_then(|v| rows.first().map(|row| row.contains_key(v)))
+            .unwrap_or(false);
+
+        let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
+        let mut out: Vec<HashMap<String, Value>> = Vec::new();
+
+        for row in rows {
+            // Build a fresh traversal for this row.
+            let mut traversal = if anchored {
+                let var = anchor_var.as_ref().expect("anchored => anchor_var is Some");
+                let vid = match row.get(var) {
+                    Some(Value::Vertex(v)) => *v,
+                    // Anchor variable resolves to a non-vertex (or null) — no
+                    // matches for this row.
+                    _ => continue,
+                };
+                g.v_ids([vid]).with_path()
+            } else {
+                g.v().with_path()
+            };
+
+            // Walk pattern elements. When anchored, we skip the first node's
+            // filters (it's already pinned to a specific vertex), but we still
+            // apply `as_(var)` so the binding is propagated.
+            let mut is_first = true;
+            for element in &pattern.elements {
+                match element {
+                    PatternElement::Node(node) => {
+                        let skip_filters = is_first && anchored;
+                        is_first = false;
+
+                        if !skip_filters {
+                            traversal = self.apply_node_filters(node, traversal);
+                        }
+
+                        if let Some(var) = &node.variable {
+                            // If the variable is already bound and this is not
+                            // the anchor position, enforce equality by
+                            // filtering on the bound vertex id.
+                            if let Some(existing) = row.get(var) {
+                                if !(skip_filters) {
+                                    if let Value::Vertex(target) = existing {
+                                        let target_id = *target;
+                                        traversal = traversal.filter(move |_ctx, v| {
+                                            matches!(v, Value::Vertex(id) if *id == target_id)
+                                        });
+                                    } else {
+                                        // Non-vertex binding can't match a node
+                                        // pattern; drop this row.
+                                        traversal = traversal.filter(|_ctx, _v| false);
+                                    }
+                                }
+                                // Re-label so it's recoverable from the path.
+                                traversal = traversal.as_(var.as_str());
+                            } else {
+                                traversal = traversal.as_(var.as_str());
+                            }
+                        }
+                    }
+                    PatternElement::Edge(edge) => {
+                        is_first = false;
+                        traversal = self.apply_edge_navigation(edge, traversal);
+                        if let Some(var) = &edge.variable {
+                            traversal = traversal.as_(var.as_str());
+                        }
+                    }
+                }
+            }
+
+            // Execute and produce one combined row per matching traverser.
+            for traverser in traversal.execute() {
+                let mut new_row = row.clone();
+                for label in traverser.path.all_labels() {
+                    if let Some(values) = traverser.path.get(label) {
+                        if let Some(pv) = values.last() {
+                            new_row.insert(label.clone(), pv.to_value());
+                        }
+                    }
+                }
+                out.push(new_row);
+            }
+        }
+
+        Ok(out)
     }
 
     /// Execute a query with UNWIND clauses.
@@ -2478,7 +2731,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 Value::List(values)
             }
             Expression::Map(entries) => {
-                let map: std::collections::HashMap<String, Value> = entries
+                let map: ValueMap = entries
                     .iter()
                     .map(|(key, value_expr)| {
                         let value = self.evaluate_expression_from_row(value_expr, row);
@@ -2889,12 +3142,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     match element_val {
                         Value::Vertex(vid) => {
                             if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
-                                return Value::Map(vertex.properties);
+                                return Value::Map(vertex.properties.into_value_map());
                             }
                         }
                         Value::Edge(eid) => {
                             if let Some(edge) = self.snapshot.storage().get_edge(eid) {
-                                return Value::Map(edge.properties);
+                                return Value::Map(edge.properties.into_value_map());
                             }
                         }
                         _ => {}
@@ -3408,7 +3661,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         if items.len() == 1 {
             Some(self.evaluate_expression_from_row(&items[0].expression, row))
         } else {
-            let mut map = HashMap::new();
+            let mut map = ValueMap::new();
             for item in items {
                 let key = self.get_return_item_key(item);
                 let value = self.evaluate_expression_from_row(&item.expression, row);
@@ -3823,6 +4076,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
+        having_clause: &Option<HavingClause>,
         traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // Verify all referenced variables are bound
@@ -3837,7 +4091,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
 
         // Check if this is an aggregated query
         if self.has_aggregates(return_clause) {
-            return self.execute_aggregated_return(return_clause, where_clause, traversal);
+            return self.execute_aggregated_return(
+                return_clause,
+                where_clause,
+                having_clause,
+                traversal,
+            );
         }
 
         // For multi-variable patterns, we need to work with traversers to access the path
@@ -4285,9 +4544,17 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     in_list
                 }
             }
-            Expression::Exists { pattern, negated } => {
+            Expression::Exists {
+                pattern,
+                negated,
+                where_expr,
+            } => {
                 // For EXISTS in multi-var context, use the current element
-                let exists = self.evaluate_exists_pattern(pattern, &traverser.value);
+                let exists = self.evaluate_exists_pattern_with_where(
+                    pattern,
+                    where_expr.as_deref(),
+                    &traverser.value,
+                );
                 if *negated {
                     !exists
                 } else {
@@ -4377,7 +4644,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 Value::List(values)
             }
             Expression::Map(entries) => {
-                let map: std::collections::HashMap<String, Value> = entries
+                let map: ValueMap = entries
                     .iter()
                     .map(|(key, value_expr)| {
                         let value = self.evaluate_value_from_path(value_expr, traverser);
@@ -4386,8 +4653,16 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     .collect();
                 Value::Map(map)
             }
-            Expression::Exists { pattern, negated } => {
-                let exists = self.evaluate_exists_pattern(pattern, &traverser.value);
+            Expression::Exists {
+                pattern,
+                negated,
+                where_expr,
+            } => {
+                let exists = self.evaluate_exists_pattern_with_where(
+                    pattern,
+                    where_expr.as_deref(),
+                    &traverser.value,
+                );
                 Value::Bool(if *negated { !exists } else { exists })
             }
             Expression::FunctionCall { name, args } => {
@@ -5056,12 +5331,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     match element_val {
                         Value::Vertex(vid) => {
                             if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
-                                return Value::Map(vertex.properties);
+                                return Value::Map(vertex.properties.into_value_map());
                             }
                         }
                         Value::Edge(eid) => {
                             if let Some(edge) = self.snapshot.storage().get_edge(eid) {
-                                return Value::Map(edge.properties);
+                                return Value::Map(edge.properties.into_value_map());
                             }
                         }
                         _ => {}
@@ -5161,7 +5436,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             self.evaluate_expression_from_path(&items[0].expression, traverser)
         } else {
             // Multiple return items - return a map
-            let mut map = std::collections::HashMap::new();
+            let mut map = ValueMap::new();
             for item in items {
                 let key = self.get_return_item_key(item);
                 let value = self.evaluate_expression_from_path(&item.expression, traverser)?;
@@ -5220,7 +5495,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             self.evaluate_expression(&items[0].expression, element)
         } else {
             // Multiple return items - return a map
-            let mut map = std::collections::HashMap::new();
+            let mut map = ValueMap::new();
             for item in items {
                 let key = self.get_return_item_key(item);
                 let value = self.evaluate_expression(&item.expression, element)?;
@@ -5355,8 +5630,16 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     in_list
                 }
             }
-            Expression::Exists { pattern, negated } => {
-                let exists = self.evaluate_exists_pattern(pattern, element);
+            Expression::Exists {
+                pattern,
+                negated,
+                where_expr,
+            } => {
+                let exists = self.evaluate_exists_pattern_with_where(
+                    pattern,
+                    where_expr.as_deref(),
+                    element,
+                );
                 if *negated {
                     !exists
                 } else {
@@ -5442,7 +5725,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 Value::List(values)
             }
             Expression::Map(entries) => {
-                let map: std::collections::HashMap<String, Value> = entries
+                let map: ValueMap = entries
                     .iter()
                     .map(|(key, value_expr)| {
                         let value = self.evaluate_value(value_expr, element);
@@ -5451,8 +5734,16 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     .collect();
                 Value::Map(map)
             }
-            Expression::Exists { pattern, negated } => {
-                let exists = self.evaluate_exists_pattern(pattern, element);
+            Expression::Exists {
+                pattern,
+                negated,
+                where_expr,
+            } => {
+                let exists = self.evaluate_exists_pattern_with_where(
+                    pattern,
+                    where_expr.as_deref(),
+                    element,
+                );
                 Value::Bool(if *negated { !exists } else { exists })
             }
             Expression::FunctionCall { name, args } => {
@@ -6296,12 +6587,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                     match element_val {
                         Value::Vertex(vid) => {
                             if let Some(vertex) = self.snapshot.storage().get_vertex(vid) {
-                                return Value::Map(vertex.properties);
+                                return Value::Map(vertex.properties.into_value_map());
                             }
                         }
                         Value::Edge(eid) => {
                             if let Some(edge) = self.snapshot.storage().get_edge(eid) {
-                                return Value::Map(edge.properties);
+                                return Value::Map(edge.properties.into_value_map());
                             }
                         }
                         _ => {}
@@ -6382,14 +6673,24 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
     // EXISTS Expression Evaluation
     // =========================================================================
 
-    /// Evaluate an EXISTS expression against an element.
+    /// Evaluate an EXISTS expression with an optional WHERE filter inside the
+    /// subquery, e.g. `EXISTS { MATCH (p)-[:KNOWS]->(x) WHERE x.age > 30 }`.
     ///
-    /// EXISTS { (p)-[:KNOWS]->(friend) } checks if there's at least one
-    /// path matching the pattern starting from the current element.
+    /// `EXISTS { (p)-[:KNOWS]->(friend) }` (no WHERE) checks if there's at
+    /// least one path matching the pattern starting from the current element.
     ///
     /// The first node in the pattern is the "anchor" - it should match the
     /// current element. Subsequent edges and nodes form the pattern to check.
-    fn evaluate_exists_pattern(&self, pattern: &Pattern, element: &Value) -> bool {
+    ///
+    /// When `where_expr` is `Some`, path tracking is enabled and each pattern
+    /// variable is bound via `as_(varname)` so the predicate can reference
+    /// variables introduced inside the subquery.
+    fn evaluate_exists_pattern_with_where(
+        &self,
+        pattern: &Pattern,
+        where_expr: Option<&Expression>,
+        element: &Value,
+    ) -> bool {
         // Get vertex ID from element - EXISTS only makes sense for vertices
         let vid = match element {
             Value::Vertex(id) => *id,
@@ -6400,32 +6701,49 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
         let mut traversal = g.v_ids([vid]);
 
+        // When a WHERE clause is present we need to track paths so we can look
+        // up variable bindings (the pattern variables) when evaluating it.
+        if where_expr.is_some() {
+            traversal = traversal.with_path();
+        }
+
         // Process the pattern elements
         // The first node is the anchor (current element) - apply its filters
         // Subsequent edges navigate, and subsequent nodes filter
-        let mut is_first_node = true;
-
-        for element in &pattern.elements {
-            match element {
+        for elem in &pattern.elements {
+            match elem {
                 PatternElement::Node(node) => {
-                    if is_first_node {
-                        // First node - apply label and property filters to current vertex
-                        is_first_node = false;
-                        traversal = self.apply_node_filters(node, traversal);
-                    } else {
-                        // Subsequent node after an edge - apply filters
-                        traversal = self.apply_node_filters(node, traversal);
+                    traversal = self.apply_node_filters(node, traversal);
+                    if where_expr.is_some() {
+                        if let Some(var) = &node.variable {
+                            traversal = traversal.as_(var.as_str());
+                        }
                     }
                 }
                 PatternElement::Edge(edge) => {
                     // Navigate along the edge
                     traversal = self.apply_edge_navigation(edge, traversal);
+                    if where_expr.is_some() {
+                        if let Some(var) = &edge.variable {
+                            traversal = traversal.as_(var.as_str());
+                        }
+                    }
                 }
             }
         }
 
-        // Check if any results exist
-        !traversal.to_list().is_empty()
+        // Fast path: no WHERE clause, just check if any results exist
+        let Some(predicate) = where_expr else {
+            return !traversal.to_list().is_empty();
+        };
+
+        // Iterate matched paths and look for one that satisfies the predicate.
+        for traverser in traversal.traversers() {
+            if self.evaluate_predicate_from_path(predicate, &traverser) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Apply node filters (labels and properties) to a traversal.
@@ -6737,10 +7055,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
     /// Execute a RETURN clause that contains aggregate functions.
     ///
     /// Separates group-by expressions from aggregates and processes accordingly.
+    /// If `having_clause` is provided, filters resulting rows after aggregation.
     fn execute_aggregated_return(
         &self,
         return_clause: &ReturnClause,
         where_clause: &Option<WhereClause>,
+        having_clause: &Option<HavingClause>,
         traversal: BoundTraversal<'a, (), Value>,
     ) -> Result<Vec<Value>, CompileError> {
         // Collect the matched elements first
@@ -6773,13 +7093,26 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             }
         }
 
-        if group_by_items.is_empty() {
+        let results = if group_by_items.is_empty() {
             // No grouping - aggregate over all results (global aggregates)
-            self.execute_global_aggregates(&aggregate_items, &filtered_elements)
+            self.execute_global_aggregates(
+                return_clause,
+                &aggregate_items,
+                &filtered_elements,
+                having_clause,
+            )?
         } else {
             // Group by non-aggregate expressions, then aggregate per group
-            self.execute_grouped_aggregates(&group_by_items, &aggregate_items, &filtered_elements)
-        }
+            self.execute_grouped_aggregates(
+                return_clause,
+                &group_by_items,
+                &aggregate_items,
+                &filtered_elements,
+                having_clause,
+            )?
+        };
+
+        Ok(results)
     }
 
     /// Execute a query with an explicit GROUP BY clause.
@@ -6999,7 +7332,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             )?;
 
             if item.alias.is_some() {
-                let mut map = HashMap::new();
+                let mut map = ValueMap::new();
                 map.insert(self.get_return_item_key(item), value);
                 Ok(Value::Map(map))
             } else {
@@ -7007,7 +7340,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             }
         } else {
             // Multiple return items - return a map
-            let mut map = HashMap::new();
+            let mut map = ValueMap::new();
 
             for item in &return_clause.items {
                 let key = self.get_return_item_key(item);
@@ -7239,7 +7572,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             )?;
 
             if item.alias.is_some() {
-                let mut map = HashMap::new();
+                let mut map = ValueMap::new();
                 map.insert(self.get_return_item_key(item), value);
                 Ok(Value::Map(map))
             } else {
@@ -7247,7 +7580,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             }
         } else {
             // Multiple return items - return a map
-            let mut map = HashMap::new();
+            let mut map = ValueMap::new();
 
             for item in &return_clause.items {
                 let key = self.get_return_item_key(item);
@@ -7729,47 +8062,73 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
     /// Execute global aggregates (no GROUP BY).
     ///
     /// Aggregates over all matched elements and returns a single result.
+    /// If `having_clause` is provided, the resulting row is filtered against it
+    /// (returning an empty Vec if it fails).
     fn execute_global_aggregates(
         &self,
+        return_clause: &ReturnClause,
         aggregates: &[(&ReturnItem, AggregateFunc, bool, &Expression)],
         elements: &[Value],
+        having_clause: &Option<HavingClause>,
     ) -> Result<Vec<Value>, CompileError> {
-        if aggregates.len() == 1 {
-            // Single aggregate - return just the value
-            let (item, func, distinct, expr) = &aggregates[0];
+        // Always build a result map first so HAVING can reference aliases by name.
+        let mut row_map = ValueMap::new();
+        for (item, func, distinct, expr) in aggregates {
+            let key = self.get_return_item_key(item);
             let value = self.compute_aggregate(*func, *distinct, expr, elements)?;
+            row_map.insert(key, value);
+        }
+        let row_value = Value::Map(row_map);
 
-            // If there's an alias, we might want to return a map, but for simplicity
-            // return the value directly for single aggregates (like SQL behavior)
+        // Apply HAVING (if any) before unwrapping.
+        if let Some(having) = having_clause {
+            let empty_group_by = GroupByClause {
+                expressions: Vec::new(),
+            };
+            if !self.evaluate_having_predicate(
+                &having.expression,
+                return_clause,
+                &empty_group_by,
+                &[],
+                elements,
+                &row_value,
+            ) {
+                return Ok(Vec::new());
+            }
+        }
+
+        // Mirror the previous unwrapping behavior for the single-aggregate case
+        // so we don't break existing callers / tests.
+        if aggregates.len() == 1 {
+            let (item, _, _, _) = &aggregates[0];
             if item.alias.is_some() {
-                let mut map = HashMap::new();
-                map.insert(self.get_return_item_key(item), value);
-                Ok(vec![Value::Map(map)])
+                Ok(vec![row_value])
             } else {
-                Ok(vec![value])
+                // Unwrap the single value
+                if let Value::Map(map) = row_value {
+                    let key = self.get_return_item_key(item);
+                    let value = map.get(&key).cloned().unwrap_or(Value::Null);
+                    Ok(vec![value])
+                } else {
+                    Ok(vec![row_value])
+                }
             }
         } else {
-            // Multiple aggregates - return a map
-            let mut map = HashMap::new();
-
-            for (item, func, distinct, expr) in aggregates {
-                let key = self.get_return_item_key(item);
-                let value = self.compute_aggregate(*func, *distinct, expr, elements)?;
-                map.insert(key, value);
-            }
-
-            Ok(vec![Value::Map(map)])
+            Ok(vec![row_value])
         }
     }
 
     /// Execute grouped aggregates (with GROUP BY expressions).
     ///
     /// Groups elements by non-aggregate expressions, then computes aggregates per group.
+    /// If `having_clause` is provided, each resulting row is filtered against it.
     fn execute_grouped_aggregates(
         &self,
+        return_clause: &ReturnClause,
         group_by_items: &[(&ReturnItem, &Expression)],
         aggregates: &[(&ReturnItem, AggregateFunc, bool, &Expression)],
         elements: &[Value],
+        having_clause: &Option<HavingClause>,
     ) -> Result<Vec<Value>, CompileError> {
         // Group elements by their group-by values
         let mut groups: HashMap<Vec<ComparableValue>, Vec<&Value>> = HashMap::new();
@@ -7786,11 +8145,20 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             groups.entry(group_key).or_default().push(element);
         }
 
+        // Synthesize a GroupByClause for HAVING evaluation (uses the implicit
+        // group-by expressions taken from the non-aggregate RETURN items).
+        let synthesized_group_by = having_clause.as_ref().map(|_| GroupByClause {
+            expressions: group_by_items
+                .iter()
+                .map(|(_, expr)| (*expr).clone())
+                .collect(),
+        });
+
         // For each group, compute the aggregates
         let mut results = Vec::new();
 
         for (group_key, group_elements) in groups {
-            let mut map = HashMap::new();
+            let mut map = ValueMap::new();
 
             // Add group-by values to result
             for (i, (item, _expr)) in group_by_items.iter().enumerate() {
@@ -7807,7 +8175,23 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 map.insert(key, value);
             }
 
-            results.push(Value::Map(map));
+            let row = Value::Map(map);
+
+            // Apply HAVING if present
+            if let (Some(having), Some(gb)) = (having_clause, &synthesized_group_by) {
+                if !self.evaluate_having_predicate(
+                    &having.expression,
+                    return_clause,
+                    gb,
+                    &group_key,
+                    &group_values,
+                    &row,
+                ) {
+                    continue;
+                }
+            }
+
+            results.push(row);
         }
 
         Ok(results)

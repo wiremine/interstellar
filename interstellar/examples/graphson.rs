@@ -108,7 +108,7 @@ fn main() {
     let complex_graph = Graph::new();
 
     // Add a vertex with various property types
-    let mut tags = HashMap::new();
+    let mut tags = interstellar::ValueMap::new();
     tags.insert("priority".to_string(), Value::Int(1));
     tags.insert("status".to_string(), Value::String("active".to_string()));
 

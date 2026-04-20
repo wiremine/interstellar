@@ -824,7 +824,7 @@ impl ProjectStep {
             result.insert(key.clone(), value.unwrap_or(crate::value::Value::Null));
         }
 
-        crate::value::Value::Map(result)
+        crate::value::Value::Map(result.into_iter().collect())
     }
 
     /// Get a property value from a traverser's element.
@@ -907,7 +907,7 @@ impl crate::traversal::step::Step for ProjectStep {
             result.insert(key.clone(), value.unwrap_or(crate::value::Value::Null));
         }
 
-        let projected_value = crate::value::Value::Map(result);
+        let projected_value = crate::value::Value::Map(result.into_iter().collect());
         Box::new(std::iter::once(input.with_value(projected_value)))
     }
 }

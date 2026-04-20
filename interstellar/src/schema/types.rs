@@ -378,11 +378,11 @@ mod tests {
     #[test]
     fn property_type_matches_map_untyped() {
         let pt = PropertyType::Map(None);
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("a".to_string(), Value::Int(1));
         map.insert("b".to_string(), Value::String("x".to_string()));
         assert!(pt.matches(&Value::Map(map)));
-        assert!(pt.matches(&Value::Map(HashMap::new())));
+        assert!(pt.matches(&Value::Map(crate::value::ValueMap::new())));
         assert!(!pt.matches(&Value::List(vec![])));
     }
 
@@ -390,12 +390,12 @@ mod tests {
     fn property_type_matches_map_with_value_type() {
         let map_of_ints = PropertyType::Map(Some(Box::new(PropertyType::Int)));
 
-        let mut valid_map = HashMap::new();
+        let mut valid_map = crate::value::ValueMap::new();
         valid_map.insert("a".to_string(), Value::Int(1));
         valid_map.insert("b".to_string(), Value::Int(2));
         assert!(map_of_ints.matches(&Value::Map(valid_map)));
 
-        let mut invalid_map = HashMap::new();
+        let mut invalid_map = crate::value::ValueMap::new();
         invalid_map.insert("a".to_string(), Value::String("x".to_string()));
         assert!(!map_of_ints.matches(&Value::Map(invalid_map)));
     }
@@ -407,7 +407,7 @@ mod tests {
         assert!(PropertyType::Any.matches(&Value::Float(3.14)));
         assert!(PropertyType::Any.matches(&Value::String("hello".to_string())));
         assert!(PropertyType::Any.matches(&Value::List(vec![])));
-        assert!(PropertyType::Any.matches(&Value::Map(HashMap::new())));
+        assert!(PropertyType::Any.matches(&Value::Map(crate::value::ValueMap::new())));
         assert!(!PropertyType::Any.matches(&Value::Null)); // Null is special
     }
 

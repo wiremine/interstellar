@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_value_to_graphson_map() {
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("key".to_string(), Value::Int(42));
         let gs = value_to_graphson(&Value::Map(map));
         assert_eq!(gs.type_tag(), Some("g:Map"));

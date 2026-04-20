@@ -125,7 +125,7 @@ fn js_to_value_impl(js: &JsValue) -> Result<Value, JsError> {
     if js.is_object() {
         let obj = js_sys::Object::from(js.clone());
         let entries = js_sys::Object::entries(&obj);
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         for i in 0..entries.length() {
             let entry = js_sys::Array::from(&entries.get(i));
             let key = entry

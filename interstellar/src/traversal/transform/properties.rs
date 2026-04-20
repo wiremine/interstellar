@@ -1,5 +1,5 @@
 use crate::traversal::{ExecutionContext, Traverser};
-use crate::value::Value;
+use crate::value::{IntoValueMap, Value};
 
 // -----------------------------------------------------------------------------
 // PropertiesStep - extract properties map
@@ -88,7 +88,7 @@ impl PropertiesStep {
         let mut map = std::collections::HashMap::new();
         map.insert("key".to_string(), Value::String(key));
         map.insert("value".to_string(), value);
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 
     /// Expand a traverser by extracting property objects.
@@ -421,7 +421,7 @@ impl ValueMapStep {
             }
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 }
 
@@ -515,7 +515,7 @@ impl ValueMapStep {
             _ => {}
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 }
 
@@ -669,7 +669,7 @@ impl ElementMapStep {
             }
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 
     /// Helper to create a small map reference for a vertex {id, label}
@@ -681,7 +681,7 @@ impl ElementMapStep {
             map.insert("label".to_string(), Value::String(vertex.label.clone()));
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 }
 
@@ -779,7 +779,7 @@ impl ElementMapStep {
             _ => {}
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 
     /// Streaming version of make_vertex_reference.
@@ -795,7 +795,7 @@ impl ElementMapStep {
             map.insert("label".to_string(), Value::String(vertex.label.clone()));
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 }
 
@@ -948,7 +948,7 @@ impl PropertyMapStep {
             }
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 }
 
@@ -1044,7 +1044,7 @@ impl PropertyMapStep {
             _ => {}
         }
 
-        Value::Map(map)
+        Value::Map(map.into_value_map())
     }
 }
 

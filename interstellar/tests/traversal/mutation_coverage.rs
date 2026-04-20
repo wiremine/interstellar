@@ -184,7 +184,7 @@ fn add_e_step_from_label_to_label() {
 
 #[test]
 fn pending_mutation_from_set_vertex_property() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_vertex".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Vertex(VertexId(10))),
         ("key".to_string(), Value::String("status".to_string())),
@@ -201,7 +201,7 @@ fn pending_mutation_from_set_vertex_property() {
 
 #[test]
 fn pending_mutation_from_set_edge_property() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(EdgeId(20))),
         ("key".to_string(), Value::String("weight".to_string())),
@@ -218,7 +218,7 @@ fn pending_mutation_from_set_edge_property() {
 
 #[test]
 fn pending_mutation_from_drop_edge() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(EdgeId(50))),
     ]));
@@ -234,7 +234,7 @@ fn pending_mutation_from_drop_edge() {
 #[test]
 fn pending_mutation_from_add_v_missing_properties() {
     // Test add_v with missing properties (should use default)
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_add_v".to_string(), Value::Bool(true)),
         ("label".to_string(), Value::String("item".to_string())),
         // No properties key
@@ -251,7 +251,7 @@ fn pending_mutation_from_add_v_missing_properties() {
 #[test]
 fn pending_mutation_from_add_v_missing_label() {
     // Test add_v with missing label (should use empty string)
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_add_v".to_string(), Value::Bool(true)),
         // No label key
     ]));
@@ -267,7 +267,7 @@ fn pending_mutation_from_add_v_missing_label() {
 #[test]
 fn pending_mutation_from_map_without_marker() {
     // Test that a map without any pending marker returns None
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("some_key".to_string(), Value::Int(42)),
         ("other_key".to_string(), Value::String("value".to_string())),
     ]));
@@ -279,7 +279,7 @@ fn pending_mutation_from_map_without_marker() {
 #[test]
 fn pending_mutation_from_add_e_missing_from_or_to() {
     // Test add_e with missing from (should return None)
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_add_e".to_string(), Value::Bool(true)),
         ("label".to_string(), Value::String("knows".to_string())),
         ("to".to_string(), Value::Vertex(VertexId(2))),
@@ -292,7 +292,7 @@ fn pending_mutation_from_add_e_missing_from_or_to() {
 
 #[test]
 fn pending_mutation_from_set_vertex_property_missing_id() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_vertex".to_string(), Value::Bool(true)),
         // Missing "id"
         ("key".to_string(), Value::String("status".to_string())),
@@ -305,7 +305,7 @@ fn pending_mutation_from_set_vertex_property_missing_id() {
 
 #[test]
 fn pending_mutation_from_drop_vertex_missing_id() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_vertex".to_string(), Value::Bool(true)),
         // Missing "id"
     ]));
@@ -316,7 +316,7 @@ fn pending_mutation_from_drop_vertex_missing_id() {
 
 #[test]
 fn pending_mutation_from_drop_edge_missing_id() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_edge".to_string(), Value::Bool(true)),
         // Missing "id"
     ]));
@@ -327,7 +327,7 @@ fn pending_mutation_from_drop_edge_missing_id() {
 
 #[test]
 fn pending_mutation_from_set_edge_property_missing_id() {
-    let value = Value::Map(HashMap::from([
+    let value = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_edge".to_string(), Value::Bool(true)),
         // Missing "id"
         ("key".to_string(), Value::String("prop".to_string())),
@@ -369,12 +369,12 @@ fn mutation_executor_execute_add_edge_failure() {
     let mut storage = graph.as_storage_mut();
 
     // Try to add edge with non-existent vertices
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_add_e".to_string(), Value::Bool(true)),
         ("label".to_string(), Value::String("knows".to_string())),
         ("from".to_string(), Value::Vertex(VertexId(999))), // Non-existent
         ("to".to_string(), Value::Vertex(VertexId(998))),   // Non-existent
-        ("properties".to_string(), Value::Map(HashMap::new())),
+        ("properties".to_string(), Value::Map(Default::default())),
     ])));
 
     let mut executor = MutationExecutor::new(&mut storage);
@@ -390,7 +390,7 @@ fn mutation_executor_execute_set_vertex_property_failure() {
     let mut storage = graph.as_storage_mut();
 
     // Try to set property on non-existent vertex
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_vertex".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Vertex(VertexId(999))),
         ("key".to_string(), Value::String("prop".to_string())),
@@ -411,7 +411,7 @@ fn mutation_executor_execute_set_edge_property() {
     // Get an edge ID
     let edge_id = storage.all_edges().next().unwrap().id;
 
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(edge_id)),
         ("key".to_string(), Value::String("strength".to_string())),
@@ -435,7 +435,7 @@ fn mutation_executor_execute_set_edge_property_failure() {
     let mut storage = graph.as_storage_mut();
 
     // Try to set property on non-existent edge
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_property_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(EdgeId(999))),
         ("key".to_string(), Value::String("prop".to_string())),
@@ -456,7 +456,7 @@ fn mutation_executor_execute_drop_vertex() {
     // Create a vertex without edges
     let id = storage.add_vertex("item", HashMap::new());
 
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_vertex".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Vertex(id)),
     ])));
@@ -474,7 +474,7 @@ fn mutation_executor_execute_drop_vertex_failure() {
     let mut storage = graph.as_storage_mut();
 
     // Try to drop non-existent vertex
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_vertex".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Vertex(VertexId(999))),
     ])));
@@ -494,7 +494,7 @@ fn mutation_executor_execute_drop_edge() {
     // Get an edge ID
     let edge_id = storage.all_edges().next().unwrap().id;
 
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(edge_id)),
     ])));
@@ -512,7 +512,7 @@ fn mutation_executor_execute_drop_edge_failure() {
     let mut storage = graph.as_storage_mut();
 
     // Try to drop non-existent edge
-    let traverser = Traverser::new(Value::Map(HashMap::from([
+    let traverser = Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("__pending_drop_edge".to_string(), Value::Bool(true)),
         ("id".to_string(), Value::Edge(EdgeId(999))),
     ])));

@@ -286,7 +286,7 @@ impl GroupStep {
         }
 
         // Convert groups to a single Value::Map
-        let mut result_map: HashMap<String, Value> = HashMap::new();
+        let mut result_map: crate::value::ValueMap = crate::value::ValueMap::new();
         for (key, values) in groups {
             let key_str = value_to_map_key(&key);
             result_map.insert(key_str, Value::List(values));
@@ -336,7 +336,7 @@ impl GroupStep {
             _ => unreachable!("apply_with_fold called without Fold value collector"),
         };
 
-        let mut result_map: HashMap<String, Value> = HashMap::new();
+        let mut result_map: crate::value::ValueMap = crate::value::ValueMap::new();
 
         for (key, traversers) in groups {
             let key_str = value_to_map_key(&key);
@@ -811,7 +811,7 @@ impl Step for GroupCountStep {
 
         // Convert counts to a single Value::Map
         // Value::Map uses String keys, so convert Value keys to strings
-        let mut result_map: HashMap<String, Value> = HashMap::new();
+        let mut result_map: crate::value::ValueMap = crate::value::ValueMap::new();
         for (key, count) in counts {
             let key_str = value_to_map_key(&key);
             result_map.insert(key_str, Value::Int(count));

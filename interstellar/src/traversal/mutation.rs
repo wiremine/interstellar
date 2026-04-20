@@ -126,7 +126,7 @@ impl Step for AddVStep {
         std::iter::once_with(move || {
             // Create a traverser with a placeholder value indicating pending vertex
             // This will be replaced with the actual vertex ID during mutation execution
-            let mut t = Traverser::new(Value::Map(HashMap::from([
+            let mut t = Traverser::new(Value::Map(crate::value::ValueMap::from([
                 ("__pending_add_v".to_string(), Value::Bool(true)),
                 ("label".to_string(), Value::String(label.clone())),
                 (
@@ -250,7 +250,7 @@ impl Step for PropertyStep {
             match &t.value {
                 Value::Vertex(id) => {
                     // Mark as pending property update for vertex
-                    t.value = Value::Map(HashMap::from([
+                    t.value = Value::Map(crate::value::ValueMap::from([
                         ("__pending_property_vertex".to_string(), Value::Bool(true)),
                         ("id".to_string(), Value::Vertex(*id)),
                         ("key".to_string(), Value::String(key.clone())),
@@ -259,7 +259,7 @@ impl Step for PropertyStep {
                 }
                 Value::Edge(id) => {
                     // Mark as pending property update for edge
-                    t.value = Value::Map(HashMap::from([
+                    t.value = Value::Map(crate::value::ValueMap::from([
                         ("__pending_property_edge".to_string(), Value::Bool(true)),
                         ("id".to_string(), Value::Edge(*id)),
                         ("key".to_string(), Value::String(key.clone())),
@@ -337,14 +337,14 @@ impl Step for DropStep {
             match &t.value {
                 Value::Vertex(id) => {
                     // Mark as pending vertex deletion
-                    Some(Traverser::new(Value::Map(HashMap::from([
+                    Some(Traverser::new(Value::Map(crate::value::ValueMap::from([
                         ("__pending_drop_vertex".to_string(), Value::Bool(true)),
                         ("id".to_string(), Value::Vertex(*id)),
                     ]))))
                 }
                 Value::Edge(id) => {
                     // Mark as pending edge deletion
-                    Some(Traverser::new(Value::Map(HashMap::from([
+                    Some(Traverser::new(Value::Map(crate::value::ValueMap::from([
                         ("__pending_drop_edge".to_string(), Value::Bool(true)),
                         ("id".to_string(), Value::Edge(*id)),
                     ]))))
@@ -548,7 +548,7 @@ impl Step for AddEStep {
             // Return iterator for explicit endpoints case
             let iter: Box<dyn Iterator<Item = Traverser> + 'a> =
                 Box::new(std::iter::once_with(move || {
-                    let mut new_t = Traverser::new(Value::Map(HashMap::from([
+                    let mut new_t = Traverser::new(Value::Map(crate::value::ValueMap::from([
                         ("__pending_add_e".to_string(), Value::Bool(true)),
                         ("label".to_string(), Value::String(label.clone())),
                         ("from".to_string(), Value::Vertex(from_id)),
@@ -581,7 +581,7 @@ impl Step for AddEStep {
             let to_id = Self::resolve_endpoint(to_endpoint, &t).ok()?;
 
             // Create a pending edge marker
-            let mut new_t = Traverser::new(Value::Map(HashMap::from([
+            let mut new_t = Traverser::new(Value::Map(crate::value::ValueMap::from([
                 ("__pending_add_e".to_string(), Value::Bool(true)),
                 ("label".to_string(), Value::String(label.clone())),
                 ("from".to_string(), Value::Vertex(from_id)),
@@ -677,7 +677,7 @@ impl PendingMutation {
             let properties = map
                 .get("properties")
                 .and_then(|v| match v {
-                    Value::Map(m) => Some(m.clone()),
+                    Value::Map(m) => Some(m.clone().into_iter().collect()),
                     _ => None,
                 })
                 .unwrap_or_default();
@@ -696,7 +696,7 @@ impl PendingMutation {
             let properties = map
                 .get("properties")
                 .and_then(|v| match v {
-                    Value::Map(m) => Some(m.clone()),
+                    Value::Map(m) => Some(m.clone().into_iter().collect()),
                     _ => None,
                 })
                 .unwrap_or_default();
@@ -1038,12 +1038,12 @@ mod tests {
 
     #[test]
     fn pending_mutation_from_add_v() {
-        let value = Value::Map(HashMap::from([
+        let value = Value::Map(crate::value::ValueMap::from([
             ("__pending_add_v".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("person".to_string())),
             (
                 "properties".to_string(),
-                Value::Map(HashMap::from([(
+                Value::Map(crate::value::ValueMap::from([(
                     "name".to_string(),
                     Value::String("Alice".to_string()),
                 )])),
@@ -1060,12 +1060,12 @@ mod tests {
 
     #[test]
     fn pending_mutation_from_add_e() {
-        let value = Value::Map(HashMap::from([
+        let value = Value::Map(crate::value::ValueMap::from([
             ("__pending_add_e".to_string(), Value::Bool(true)),
             ("label".to_string(), Value::String("knows".to_string())),
             ("from".to_string(), Value::Vertex(VertexId(1))),
             ("to".to_string(), Value::Vertex(VertexId(2))),
-            ("properties".to_string(), Value::Map(HashMap::new())),
+            ("properties".to_string(), Value::Map(crate::value::ValueMap::new())),
         ]));
 
         let mutation = PendingMutation::from_value(&value);
@@ -1078,7 +1078,7 @@ mod tests {
 
     #[test]
     fn pending_mutation_from_drop_vertex() {
-        let value = Value::Map(HashMap::from([
+        let value = Value::Map(crate::value::ValueMap::from([
             ("__pending_drop_vertex".to_string(), Value::Bool(true)),
             ("id".to_string(), Value::Vertex(VertexId(42))),
         ]));

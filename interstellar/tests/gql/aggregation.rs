@@ -1028,3 +1028,93 @@ fn test_gql_having_with_order_by_limit() {
         assert_eq!(map.get("cnt"), Some(&Value::Int(3)));
     }
 }
+
+// =============================================================================
+// HAVING Without Explicit GROUP BY (Bug #1 regression tests)
+// =============================================================================
+//
+// HAVING with implicit grouping (i.e. no explicit GROUP BY clause) used to be
+// silently ignored — the predicate was parsed but never applied. These tests
+// pin the corrected behavior.
+
+/// HAVING with a global aggregate (no GROUP BY) that is satisfied: row passes.
+#[test]
+fn test_gql_having_implicit_global_pass() {
+    let graph = create_group_by_test_graph();
+    let _snapshot = graph.snapshot();
+
+    // 6 people total; 6 > 1 is true → row passes through.
+    let results = graph
+        .gql("MATCH (p:Person) RETURN count(*) AS cnt HAVING count(*) > 1")
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    if let Value::Map(map) = &results[0] {
+        assert_eq!(map.get("cnt"), Some(&Value::Int(6)));
+    } else {
+        panic!("Expected Value::Map row, got {:?}", results[0]);
+    }
+}
+
+/// HAVING with a global aggregate (no GROUP BY) that is NOT satisfied: row dropped.
+#[test]
+fn test_gql_having_implicit_global_filter() {
+    let graph = create_group_by_test_graph();
+    let _snapshot = graph.snapshot();
+
+    // 6 people total; 6 > 100 is false → no rows.
+    let results = graph
+        .gql("MATCH (p:Person) RETURN count(*) AS cnt HAVING count(*) > 100")
+        .unwrap();
+
+    assert!(
+        results.is_empty(),
+        "Expected zero rows when HAVING fails, got {:?}",
+        results
+    );
+}
+
+/// HAVING with implicit grouping (non-aggregate column + aggregate, no GROUP BY).
+///
+/// `RETURN p.city, count(*)` without GROUP BY uses the implicit-aggregation path.
+/// HAVING should filter the resulting groups.
+#[test]
+fn test_gql_having_implicit_grouped_filter() {
+    let graph = create_group_by_test_graph();
+    let _snapshot = graph.snapshot();
+
+    let results = graph
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt HAVING count(*) > 1")
+        .unwrap();
+
+    // New York has 3, Boston has 2, Chicago has 1 → only NY and Boston pass.
+    assert_eq!(results.len(), 2, "Expected 2 cities with count > 1");
+
+    let mut cities: Vec<String> = results
+        .iter()
+        .filter_map(|r| {
+            if let Value::Map(map) = r {
+                if let Some(Value::String(city)) = map.get("city") {
+                    return Some(city.clone());
+                }
+            }
+            None
+        })
+        .collect();
+    cities.sort();
+    assert_eq!(cities, vec!["Boston", "New York"]);
+}
+
+/// HAVING using an alias defined in RETURN works in the implicit-grouping path.
+#[test]
+fn test_gql_having_implicit_alias_reference() {
+    let graph = create_group_by_test_graph();
+    let _snapshot = graph.snapshot();
+
+    let results = graph
+        .gql("MATCH (p:Person) RETURN p.city AS city, count(*) AS cnt HAVING cnt >= 2")
+        .unwrap();
+
+    assert_eq!(results.len(), 2, "Expected 2 cities with cnt >= 2");
+}
+

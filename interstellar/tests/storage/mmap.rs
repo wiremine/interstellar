@@ -1523,14 +1523,14 @@ fn test_property_roundtrip_map() {
     let (_dir, db_path) = temp_db();
     let graph = MmapGraph::open(&db_path).expect("open graph");
 
-    let simple_map = Value::Map(HashMap::from([
+    let simple_map = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("x".to_string(), Value::Int(10)),
         ("y".to_string(), Value::Int(20)),
     ]));
 
-    let nested_map = Value::Map(HashMap::from([(
+    let nested_map = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
         "outer".to_string(),
-        Value::Map(HashMap::from([(
+        Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
             "inner".to_string(),
             Value::String("value".to_string()),
         )])),
@@ -1540,7 +1540,7 @@ fn test_property_roundtrip_map() {
         .add_vertex(
             "test",
             HashMap::from([
-                ("empty_map".to_string(), Value::Map(HashMap::new())),
+                ("empty_map".to_string(), Value::Map(Default::default())),
                 ("simple".to_string(), simple_map.clone()),
                 ("nested".to_string(), nested_map.clone()),
             ]),
@@ -1552,7 +1552,7 @@ fn test_property_roundtrip_map() {
     let vertex = graph.get_vertex(v).expect("get vertex");
     assert_eq!(
         vertex.properties.get("empty_map"),
-        Some(&Value::Map(HashMap::new()))
+        Some(&Value::Map(Default::default()))
     );
     assert_eq!(vertex.properties.get("simple"), Some(&simple_map));
     assert_eq!(vertex.properties.get("nested"), Some(&nested_map));
@@ -1655,7 +1655,7 @@ fn test_edge_property_roundtrip() {
     let v1 = graph.add_vertex("person", HashMap::new()).expect("add v1");
     let v2 = graph.add_vertex("person", HashMap::new()).expect("add v2");
 
-    let nested = Value::Map(HashMap::from([
+    let nested = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("count".to_string(), Value::Int(5)),
         (
             "tags".to_string(),
@@ -1720,7 +1720,7 @@ fn test_multi_property_vertex() {
     );
     props.insert(
         "config".to_string(),
-        Value::Map(HashMap::from([
+        Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
             ("key1".to_string(), Value::Int(1)),
             ("key2".to_string(), Value::Int(2)),
         ])),
@@ -1835,7 +1835,7 @@ fn test_property_persistence_across_reopen() {
                     ),
                     (
                         "map".to_string(),
-                        Value::Map(HashMap::from([("nested".to_string(), Value::Null)])),
+                        Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([("nested".to_string(), Value::Null)])),
                     ),
                 ]),
             )
@@ -1878,7 +1878,7 @@ fn test_property_persistence_across_reopen() {
         );
         assert_eq!(
             vertex.properties.get("map"),
-            Some(&Value::Map(HashMap::from([(
+            Some(&Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
                 "nested".to_string(),
                 Value::Null
             )])))
@@ -1902,12 +1902,12 @@ fn test_deeply_nested_properties() {
     let graph = MmapGraph::open(&db_path).expect("open graph");
 
     // Create a deeply nested structure
-    let level3 = Value::Map(HashMap::from([
+    let level3 = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("leaf".to_string(), Value::String("deep".to_string())),
         ("number".to_string(), Value::Int(42)),
     ]));
 
-    let level2 = Value::Map(HashMap::from([
+    let level2 = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("nested".to_string(), level3.clone()),
         (
             "list".to_string(),
@@ -1915,7 +1915,7 @@ fn test_deeply_nested_properties() {
         ),
     ]));
 
-    let level1 = Value::Map(HashMap::from([
+    let level1 = Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
         ("data".to_string(), level2.clone()),
         ("name".to_string(), Value::String("level1".to_string())),
     ]));
@@ -1969,7 +1969,7 @@ fn test_all_value_types_combined() {
                 ),
                 (
                     "map".to_string(),
-                    Value::Map(HashMap::from([("k".to_string(), Value::Bool(true))])),
+                    Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([("k".to_string(), Value::Bool(true))])),
                 ),
                 ("vertex".to_string(), Value::Vertex(VertexId(111))),
                 ("edge".to_string(), Value::Edge(EdgeId(222))),
@@ -2010,7 +2010,7 @@ fn test_all_value_types_combined() {
     );
     assert_eq!(
         vertex.properties.get("map"),
-        Some(&Value::Map(HashMap::from([(
+        Some(&Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
             "k".to_string(),
             Value::Bool(true)
         )])))

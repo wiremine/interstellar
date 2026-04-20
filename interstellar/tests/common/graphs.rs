@@ -852,7 +852,7 @@ pub fn create_property_test_graph() -> Graph {
         props.insert(
             "map_prop".to_string(),
             Value::Map({
-                let mut map = HashMap::new();
+                let mut map = interstellar::value::ValueMap::new();
                 map.insert(
                     "nested_key".to_string(),
                     Value::String("nested_value".to_string()),
@@ -926,11 +926,11 @@ pub fn create_property_test_graph() -> Graph {
         props.insert(
             "deep_map".to_string(),
             Value::Map({
-                let mut outer = HashMap::new();
+                let mut outer = interstellar::value::ValueMap::new();
                 outer.insert(
                     "inner".to_string(),
                     Value::Map({
-                        let mut inner = HashMap::new();
+                        let mut inner = interstellar::value::ValueMap::new();
                         inner.insert("value".to_string(), Value::Int(999));
                         inner
                     }),

@@ -1219,10 +1219,10 @@ mod tests {
 
     #[test]
     fn test_update_property_with_complex_values() {
-        let mut old_map = HashMap::new();
+        let mut old_map = crate::value::ValueMap::new();
         old_map.insert("name".to_string(), Value::String("Alice".to_string()));
 
-        let mut new_map = HashMap::new();
+        let mut new_map = crate::value::ValueMap::new();
         new_map.insert("name".to_string(), Value::String("Bob".to_string()));
         new_map.insert("age".to_string(), Value::Int(30));
 
@@ -1575,10 +1575,10 @@ mod tests {
 
     #[test]
     fn test_wal_entry_with_nested_map_value() {
-        let mut inner_map = HashMap::new();
+        let mut inner_map = crate::value::ValueMap::new();
         inner_map.insert("nested_key".to_string(), Value::Int(100));
 
-        let mut outer_map = HashMap::new();
+        let mut outer_map = crate::value::ValueMap::new();
         outer_map.insert("inner".to_string(), Value::Map(inner_map));
         outer_map.insert(
             "list".to_string(),

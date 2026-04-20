@@ -59,6 +59,37 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+/// An order-preserving map type used for [`Value::Map`] payloads.
+///
+/// Backed by [`indexmap::IndexMap`], this preserves insertion order so that
+/// query result rows surface columns in a deterministic order matching the
+/// order they were produced (e.g. the `RETURN` clause of a GQL query).
+pub type ValueMap = indexmap::IndexMap<String, Value>;
+
+/// Helper trait for ergonomic conversion of map-like collections into a
+/// [`ValueMap`] for use with [`Value::Map`].
+pub trait IntoValueMap {
+    fn into_value_map(self) -> ValueMap;
+}
+
+impl IntoValueMap for HashMap<String, Value> {
+    fn into_value_map(self) -> ValueMap {
+        self.into_iter().collect()
+    }
+}
+
+impl IntoValueMap for ValueMap {
+    fn into_value_map(self) -> ValueMap {
+        self
+    }
+}
+
+impl IntoValueMap for BTreeMap<String, Value> {
+    fn into_value_map(self) -> ValueMap {
+        self.into_iter().collect()
+    }
+}
+
 /// A unique identifier for a vertex in the graph.
 ///
 /// `VertexId` is a lightweight, copy-able handle that uniquely identifies
@@ -291,8 +322,8 @@ pub enum Value {
     String(String),
     /// An ordered list of values.
     List(Vec<Value>),
-    /// A map of string keys to values.
-    Map(HashMap<String, Value>),
+    /// A map of string keys to values. Iteration order is the insertion order.
+    Map(ValueMap),
     /// A vertex reference (for traversal).
     Vertex(VertexId),
     /// An edge reference (for traversal).
@@ -495,6 +526,12 @@ impl From<Vec<Value>> for Value {
 
 impl From<HashMap<String, Value>> for Value {
     fn from(map: HashMap<String, Value>) -> Self {
+        Value::Map(map.into_iter().collect())
+    }
+}
+
+impl From<ValueMap> for Value {
+    fn from(map: ValueMap) -> Self {
         Value::Map(map)
     }
 }
@@ -663,7 +700,7 @@ impl Value {
             0x07 => {
                 let len = u32::from_le_bytes(buf.get(*pos..*pos + 4)?.try_into().ok()?) as usize;
                 *pos += 4;
-                let mut map = HashMap::with_capacity(len);
+                let mut map = ValueMap::with_capacity(len);
                 for _ in 0..len {
                     let key = match Value::deserialize(buf, pos)? {
                         Value::String(s) => s,
@@ -833,16 +870,16 @@ impl Value {
 
     /// Extract the value as a map reference, if it is one.
     ///
-    /// Returns `Some(&HashMap<String, Value>)` if this is a `Map` variant,
-    /// `None` otherwise.
+    /// Returns `Some(&ValueMap)` if this is a `Map` variant,
+    /// `None` otherwise. The returned map preserves insertion order.
     ///
     /// # Example
     ///
     /// ```rust
     /// use interstellar::prelude::*;
-    /// use std::collections::HashMap;
+    /// use interstellar::value::ValueMap;
     ///
-    /// let mut map = HashMap::new();
+    /// let mut map = ValueMap::new();
     /// map.insert("name".to_string(), Value::String("Alice".to_string()));
     /// let val = Value::Map(map);
     ///
@@ -850,7 +887,7 @@ impl Value {
     ///     assert!(m.contains_key("name"));
     /// }
     /// ```
-    pub fn as_map(&self) -> Option<&HashMap<String, Value>> {
+    pub fn as_map(&self) -> Option<&ValueMap> {
         match self {
             Value::Map(map) => Some(map),
             _ => None,
@@ -1028,7 +1065,7 @@ mod tests {
     fn converts_collections_into_value() {
         let list_v: Value = vec![Value::Int(1), Value::Bool(false)].into();
 
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("a".to_string(), Value::Int(1));
         map.insert("b".to_string(), Value::Bool(true));
         let map_v: Value = map.clone().into();
@@ -1052,7 +1089,7 @@ mod tests {
 
     #[test]
     fn serializes_and_deserializes_roundtrip() {
-        let mut original_map = HashMap::new();
+        let mut original_map = crate::value::ValueMap::new();
         original_map.insert("name".to_string(), Value::String("Alice".to_string()));
         original_map.insert("age".to_string(), Value::Int(30));
         let value = Value::List(vec![
@@ -1129,7 +1166,7 @@ mod tests {
 
     #[test]
     fn as_map_extracts_map_values() {
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("key".to_string(), Value::Int(42));
         let value = Value::Map(map.clone());
 
@@ -1328,12 +1365,12 @@ mod tests {
         }
 
         // Create two maps with same content but potentially different insertion order
-        let mut map1 = HashMap::new();
+        let mut map1 = crate::value::ValueMap::new();
         map1.insert("a".to_string(), Value::Int(1));
         map1.insert("b".to_string(), Value::Int(2));
         map1.insert("c".to_string(), Value::Int(3));
 
-        let mut map2 = HashMap::new();
+        let mut map2 = crate::value::ValueMap::new();
         map2.insert("c".to_string(), Value::Int(3));
         map2.insert("a".to_string(), Value::Int(1));
         map2.insert("b".to_string(), Value::Int(2));
@@ -1433,8 +1470,8 @@ mod tests {
 
         leaf.prop_recursive(4, 64, 8, |inner| {
             let list = prop::collection::vec(inner.clone(), 0..4).prop_map(Value::List);
-            let map =
-                prop::collection::hash_map("[a-zA-Z0-9]{0,6}", inner, 0..4).prop_map(Value::Map);
+            let map = prop::collection::hash_map("[a-zA-Z0-9]{0,6}", inner, 0..4)
+                .prop_map(|m| Value::Map(m.into_iter().collect()));
             prop_oneof![list, map]
         })
     }
@@ -1484,9 +1521,9 @@ mod tests {
         assert_eq!(buf[0], 0x06);
 
         // Map
-        assert_eq!(Value::Map(HashMap::new()).discriminant(), 0x07);
+        assert_eq!(Value::Map(crate::value::ValueMap::new()).discriminant(), 0x07);
         let mut buf = Vec::new();
-        Value::Map(HashMap::new()).serialize(&mut buf);
+        Value::Map(crate::value::ValueMap::new()).serialize(&mut buf);
         assert_eq!(buf[0], 0x07);
 
         // Vertex
@@ -1512,7 +1549,7 @@ mod tests {
             Value::Float(0.0),
             Value::String("".to_string()),
             Value::List(vec![]),
-            Value::Map(HashMap::new()),
+            Value::Map(crate::value::ValueMap::new()),
             Value::Vertex(VertexId(0)),
             Value::Edge(EdgeId(0)),
         ];
@@ -1534,7 +1571,7 @@ mod tests {
     #[test]
     fn complex_value_serialization_roundtrip() {
         // Test nested structures with all types
-        let mut map = HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("null".to_string(), Value::Null);
         map.insert("bool".to_string(), Value::Bool(true));
         map.insert("int".to_string(), Value::Int(-42));
@@ -1581,7 +1618,7 @@ mod tests {
         let parsed = Value::deserialize(&buf, &mut pos).expect("deserialize");
         assert_eq!(parsed, empty_list);
 
-        let empty_map = Value::Map(HashMap::new());
+        let empty_map = Value::Map(crate::value::ValueMap::new());
         let mut buf = Vec::new();
         empty_map.serialize(&mut buf);
         let mut pos = 0;

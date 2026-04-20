@@ -5,8 +5,6 @@
 //! - Comparison and binary operation functions
 //! - Inline WHERE expression evaluation utilities
 
-use std::collections::HashMap;
-
 use crate::gql::ast::{BinaryOperator, Expression, UnaryOperator};
 use crate::storage::GraphStorage;
 use crate::value::Value;
@@ -403,7 +401,7 @@ pub(super) fn eval_inline_value(
             Value::List(values)
         }
         Expression::Map(entries) => {
-            let map: HashMap<String, Value> = entries
+            let map: crate::value::ValueMap = entries
                 .iter()
                 .map(|(key, value_expr)| {
                     let value = eval_inline_value(storage, value_expr, element, params);

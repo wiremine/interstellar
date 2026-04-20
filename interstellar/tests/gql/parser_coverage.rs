@@ -461,7 +461,7 @@ mod exists_expression {
     fn exists_pattern() {
         let query = parse("MATCH (n) WHERE EXISTS { (n)-[:KNOWS]->() } RETURN n").unwrap();
         let where_clause = query.where_clause.unwrap();
-        if let Expression::Exists { negated, pattern } = where_clause.expression {
+        if let Expression::Exists { negated, pattern, .. } = where_clause.expression {
             assert!(!negated);
             assert!(!pattern.elements.is_empty());
         } else {

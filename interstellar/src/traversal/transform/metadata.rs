@@ -908,21 +908,21 @@ mod tests {
 
         /// Helper to create a pending add_v mutation marker
         fn create_pending_add_v(label: &str) -> Value {
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("__pending_add_v".to_string(), Value::Bool(true));
             map.insert("label".to_string(), Value::String(label.to_string()));
-            map.insert("properties".to_string(), Value::Map(HashMap::new()));
+            map.insert("properties".to_string(), Value::Map(crate::value::ValueMap::new()));
             Value::Map(map)
         }
 
         /// Helper to create a pending add_e mutation marker
         fn create_pending_add_e(label: &str, from: VertexId, to: VertexId) -> Value {
-            let mut map = HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("__pending_add_e".to_string(), Value::Bool(true));
             map.insert("label".to_string(), Value::String(label.to_string()));
             map.insert("from".to_string(), Value::Vertex(from));
             map.insert("to".to_string(), Value::Vertex(to));
-            map.insert("properties".to_string(), Value::Map(HashMap::new()));
+            map.insert("properties".to_string(), Value::Map(crate::value::ValueMap::new()));
             Value::Map(map)
         }
 
@@ -979,11 +979,11 @@ mod tests {
             let step = IdStep::new();
 
             // Create a pending add_v with properties
-            let mut props = HashMap::new();
+            let mut props = crate::value::ValueMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));
             props.insert("age".to_string(), Value::Int(30));
 
-            let mut pending_map = HashMap::new();
+            let mut pending_map = crate::value::ValueMap::new();
             pending_map.insert("__pending_add_v".to_string(), Value::Bool(true));
             pending_map.insert("label".to_string(), Value::String("person".to_string()));
             pending_map.insert("properties".to_string(), Value::Map(props));
@@ -1021,7 +1021,7 @@ mod tests {
             let step = IdStep::new();
 
             // Regular map without pending mutation marker
-            let mut regular_map = HashMap::new();
+            let mut regular_map = crate::value::ValueMap::new();
             regular_map.insert("name".to_string(), Value::String("Alice".to_string()));
 
             let input = vec![Traverser::new(Value::Map(regular_map))];
@@ -1449,7 +1449,7 @@ mod tests {
 
     /// Helper to create a property map object (mimics properties() step output)
     fn create_property_map(key: &str, value: Value) -> Value {
-        let mut map = std::collections::HashMap::new();
+        let mut map = crate::value::ValueMap::new();
         map.insert("key".to_string(), Value::String(key.to_string()));
         map.insert("value".to_string(), value);
         Value::Map(map)
@@ -1536,7 +1536,7 @@ mod tests {
 
             let step = KeyStep::new();
             // Map without "key" field
-            let mut map = std::collections::HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("value".to_string(), Value::String("test".to_string()));
             let input = vec![Traverser::new(Value::Map(map))];
 
@@ -1552,7 +1552,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = KeyStep::new();
-            let input = vec![Traverser::new(Value::Map(std::collections::HashMap::new()))];
+            let input = vec![Traverser::new(Value::Map(crate::value::ValueMap::new()))];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
@@ -1909,7 +1909,7 @@ mod tests {
 
             let step = ValueStep::new();
             // Map without "value" field
-            let mut map = std::collections::HashMap::new();
+            let mut map = crate::value::ValueMap::new();
             map.insert("key".to_string(), Value::String("test".to_string()));
             let input = vec![Traverser::new(Value::Map(map))];
 
@@ -1925,7 +1925,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = ValueStep::new();
-            let input = vec![Traverser::new(Value::Map(std::collections::HashMap::new()))];
+            let input = vec![Traverser::new(Value::Map(crate::value::ValueMap::new()))];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
 
@@ -2701,7 +2701,7 @@ mod tests {
             let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
 
             let step = IndexStep::new();
-            let mut inner_map = std::collections::HashMap::new();
+            let mut inner_map = crate::value::ValueMap::new();
             inner_map.insert("key".to_string(), Value::String("value".to_string()));
             let map_value = Value::Map(inner_map.clone());
             let input = vec![Traverser::new(map_value.clone())];
@@ -2827,7 +2827,7 @@ mod tests {
                 Traverser::new(Value::Int(42)),
                 Traverser::new(Value::Null),
                 Traverser::new(Value::List(vec![])),
-                Traverser::new(Value::Map(std::collections::HashMap::new())),
+                Traverser::new(Value::Map(crate::value::ValueMap::new())),
             ];
 
             let output: Vec<Traverser> = step.apply(&ctx, Box::new(input.into_iter())).collect();
