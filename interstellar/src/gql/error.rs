@@ -291,6 +291,14 @@ pub enum CompileError {
     /// Query complexity limit exceeded
     #[error("Query complexity limit exceeded: {message}")]
     ComplexityLimitExceeded { message: String },
+
+    /// Unknown procedure in CALL
+    #[error("Unknown procedure '{name}'. Available: interstellar.shortestPath, interstellar.dijkstra, interstellar.kShortestPaths, interstellar.bfs")]
+    UnknownProcedure { name: String },
+
+    /// Procedure argument error
+    #[error("Procedure '{procedure}': {message}")]
+    ProcedureArgumentError { procedure: String, message: String },
 }
 
 impl CompileError {

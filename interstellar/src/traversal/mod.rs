@@ -70,6 +70,7 @@
 // -----------------------------------------------------------------------------
 
 pub mod aggregate;
+pub mod algorithm_steps;
 pub mod anonymous;
 pub mod branch;
 pub mod context;
@@ -111,6 +112,9 @@ pub use markers::{
 
 // Re-export typed traversal types
 pub use typed::{TypedTraversal, TypedTraversalSource};
+
+// Re-export algorithm step types
+pub use algorithm_steps::{DijkstraStep, ShortestPathStep};
 
 // Re-export aggregate types
 pub use aggregate::{

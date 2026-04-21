@@ -69,3 +69,6 @@ mod compiler_unit;
 
 #[path = "gql/ddl.rs"]
 mod ddl;
+
+#[path = "gql/procedures.rs"]
+mod procedures;

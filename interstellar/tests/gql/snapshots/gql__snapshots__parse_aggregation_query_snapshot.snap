@@ -1,5 +1,5 @@
 ---
-source: tests/gql/snapshots.rs
+source: interstellar/tests/gql/snapshots.rs
 expression: ast
 ---
 match_clause:
@@ -40,6 +40,7 @@ where_clause:
         Literal:
           String: 2024-01-01
 call_clauses: []
+call_procedure_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

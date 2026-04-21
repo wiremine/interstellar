@@ -1,5 +1,5 @@
 ---
-source: tests/gql/snapshots.rs
+source: interstellar/tests/gql/snapshots.rs
 expression: ast
 ---
 match_clause:
@@ -17,6 +17,7 @@ with_path_clause: ~
 unwind_clauses: []
 where_clause: ~
 call_clauses: []
+call_procedure_clauses: []
 let_clauses: []
 with_clauses: []
 return_clause:

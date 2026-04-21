@@ -804,6 +804,8 @@ pub struct Query {
     pub where_clause: Option<WhereClause>,
     /// CALL subqueries for nested query execution.
     pub call_clauses: Vec<CallClause>,
+    /// CALL procedure invocations for running named procedures.
+    pub call_procedure_clauses: Vec<CallProcedureClause>,
     /// LET clauses for binding computed values to variables.
     pub let_clauses: Vec<LetClause>,
     /// WITH clauses for piping results between query parts.
@@ -1055,6 +1057,44 @@ pub struct ImportingWith {
 
 // =============================================================================
 // MATCH Clause Types
+// =============================================================================
+
+// =============================================================================
+// CALL Procedure Types
+// =============================================================================
+
+/// A CALL procedure invocation.
+///
+/// Calls a named procedure with arguments and optionally yields results
+/// into named variables.
+///
+/// # Example
+///
+/// ```text
+/// CALL interstellar.shortestPath(source, target) YIELD path, distance
+/// CALL interstellar.dijkstra(source, target, 'weight') YIELD path, distance
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct CallProcedureClause {
+    /// Fully qualified procedure name (e.g., "interstellar.shortestPath").
+    pub procedure_name: String,
+    /// Arguments passed to the procedure.
+    pub arguments: Vec<Expression>,
+    /// Optional YIELD clause specifying which results to bind.
+    pub yield_items: Vec<YieldItem>,
+}
+
+/// A single item in a YIELD clause.
+///
+/// Maps a procedure result field to a variable name.
+#[derive(Debug, Clone, Serialize)]
+pub struct YieldItem {
+    /// The field name from the procedure result.
+    pub field: String,
+    /// Optional alias for the field.
+    pub alias: Option<String>,
+}
+
 // =============================================================================
 
 /// The MATCH clause containing graph patterns to find.

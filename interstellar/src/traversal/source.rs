@@ -1378,6 +1378,45 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(BothStep::with_labels(labels))
     }
 
+    /// Compute the unweighted shortest path from the current vertex to the target.
+    ///
+    /// For each vertex traverser, finds the shortest path (by hop count) to the
+    /// target vertex using BFS. Emits a `Value::List` of vertex IDs representing
+    /// the path. Produces no output if no path exists.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Shortest path from vertex 1 to vertex 5
+    /// let path = g.v_by_id(VertexId(1)).shortest_path_to(VertexId(5)).to_list();
+    /// ```
+    pub fn shortest_path_to(self, target: VertexId) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::ShortestPathStep;
+        self.add_step(ShortestPathStep::new(target))
+    }
+
+    /// Compute the weighted shortest path from the current vertex to the target.
+    ///
+    /// For each vertex traverser, finds the shortest weighted path to the target
+    /// vertex using Dijkstra's algorithm. The edge weight is read from the named
+    /// property. Emits a `Value::Map` with "path" (List of vertex IDs) and
+    /// "weight" (Float) keys. Produces no output if no path exists.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Dijkstra from vertex 1 to vertex 5 using "weight" property
+    /// let result = g.v_by_id(VertexId(1)).dijkstra_to(VertexId(5), "weight").to_list();
+    /// ```
+    pub fn dijkstra_to(
+        self,
+        target: VertexId,
+        weight_property: &str,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::DijkstraStep;
+        self.add_step(DijkstraStep::new(target, weight_property.to_string()))
+    }
+
     /// Traverse to outgoing edges.
     ///
     /// From each vertex traverser, returns all outgoing edges (as edge elements).

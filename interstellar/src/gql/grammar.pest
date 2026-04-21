@@ -59,6 +59,7 @@ SINGLE   = @{ ^"single" ~ !ASCII_ALPHANUMERIC }
 // Subquery keywords
 CALL     = @{ ^"call" ~ !ASCII_ALPHANUMERIC }
 FOREACH  = @{ ^"foreach" ~ !ASCII_ALPHANUMERIC }
+YIELD    = @{ ^"yield" ~ !ASCII_ALPHANUMERIC }
 
 // Mutation keywords
 CREATE   = @{ ^"create" ~ !ASCII_ALPHANUMERIC }
@@ -326,7 +327,7 @@ union_clause = { UNION ~ ALL? }
 // LET binds computed values to variables for use in RETURN
 // WITH clause pipes results between query parts (after WHERE/LET, before RETURN)
 // CALL subqueries execute nested queries for each row
-query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ call_clause* ~ let_clause* ~ with_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
+query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_clause* ~ where_clause? ~ call_clause* ~ call_procedure_clause* ~ let_clause* ~ with_clause* ~ return_clause ~ group_by_clause? ~ having_clause? ~ order_clause? ~ limit_clause? }
 
 // ============================================================
 // CALL Subquery Clause
@@ -336,6 +337,18 @@ query = { match_clause ~ optional_match_clause* ~ with_path_clause? ~ unwind_cla
 // CALL subqueries must end with a RETURN clause.
 
 call_clause = { CALL ~ "{" ~ call_body ~ "}" }
+
+// ============================================================
+// CALL Procedure Clause
+// ============================================================
+// CALL interstellar.shortestPath(source, target) YIELD path, distance
+// Calls a named procedure with arguments and yields named results.
+
+call_procedure_clause = { CALL ~ procedure_name ~ "(" ~ procedure_args? ~ ")" ~ yield_clause? }
+procedure_name = { identifier ~ ("." ~ identifier)* }
+procedure_args = { expression ~ ("," ~ expression)* }
+yield_clause = { YIELD ~ yield_item ~ ("," ~ yield_item)* }
+yield_item = { identifier ~ (AS ~ identifier)? }
 
 // Body of a CALL subquery - can be a single query or UNION of queries
 call_body = { call_query ~ (union_clause ~ call_query)* }

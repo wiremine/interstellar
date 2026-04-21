@@ -36,14 +36,15 @@ use pest_derive::Parser;
 
 use crate::gql::ast::{
     AggregateFunc, AlterEdgeType, AlterNodeType, AlterTypeAction, BinaryOperator, CallBody,
-    CallClause, CallQuery, CaseExpression, CreateClause, CreateEdgeType, CreateIndex,
-    CreateNodeType, DdlStatement, DeleteClause, DetachDeleteClause, DropIndex, DropType,
-    EdgeDirection, EdgePattern, Expression, ForeachClause, ForeachMutation, GroupByClause,
-    HavingClause, ImportingWith, LetClause, LimitClause, Literal, MatchClause, MergeClause,
-    MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause, OrderItem,
-    PathQuantifier, Pattern, PatternElement, PropertyDefinition, PropertyRef, PropertyTypeAst,
-    Query, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem, SetValidation, Statement,
-    UnaryOperator, UnwindClause, ValidationModeAst, WhereClause, WithClause, WithPathClause,
+    CallClause, CallProcedureClause, CallQuery, CaseExpression, CreateClause, CreateEdgeType,
+    CreateIndex, CreateNodeType, DdlStatement, DeleteClause, DetachDeleteClause, DropIndex,
+    DropType, EdgeDirection, EdgePattern, Expression, ForeachClause, ForeachMutation,
+    GroupByClause, HavingClause, ImportingWith, LetClause, LimitClause, Literal, MatchClause,
+    MergeClause, MutationClause, MutationQuery, NodePattern, OptionalMatchClause, OrderClause,
+    OrderItem, PathQuantifier, Pattern, PatternElement, PropertyDefinition, PropertyRef,
+    PropertyTypeAst, Query, RemoveClause, ReturnClause, ReturnItem, SetClause, SetItem,
+    SetValidation, Statement, UnaryOperator, UnwindClause, ValidationModeAst, WhereClause,
+    WithClause, WithPathClause, YieldItem,
 };
 use crate::gql::error::{ParseError, Span};
 
@@ -661,6 +662,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     let mut unwind_clauses = Vec::new();
     let mut where_clause = None;
     let mut call_clauses = Vec::new();
+    let mut call_procedure_clauses = Vec::new();
     let mut let_clauses = Vec::new();
     let mut with_clauses = Vec::new();
     let mut return_clause = None;
@@ -679,6 +681,9 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
             Rule::unwind_clause => unwind_clauses.push(build_unwind_clause(inner)?),
             Rule::where_clause => where_clause = Some(build_where_clause(inner)?),
             Rule::call_clause => call_clauses.push(build_call_clause(inner)?),
+            Rule::call_procedure_clause => {
+                call_procedure_clauses.push(build_call_procedure_clause(inner)?);
+            }
             Rule::let_clause => let_clauses.push(build_let_clause(inner)?),
             Rule::with_clause => with_clauses.push(build_with_clause(inner)?),
             Rule::return_clause => return_clause = Some(build_return_clause(inner)?),
@@ -698,6 +703,7 @@ fn build_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
         unwind_clauses,
         where_clause,
         call_clauses,
+        call_procedure_clauses,
         let_clauses,
         with_clauses,
         return_clause: return_clause
@@ -1048,6 +1054,61 @@ fn build_with_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<LimitCla
 // ============================================================
 // CALL Subquery Parser Functions
 // ============================================================
+
+/// Build a CALL procedure clause from a pest pair.
+///
+/// Grammar: `CALL procedure_name(args) YIELD items`
+fn build_call_procedure_clause(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<CallProcedureClause, ParseError> {
+    let mut procedure_name = String::new();
+    let mut arguments = Vec::new();
+    let mut yield_items = Vec::new();
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::procedure_name => {
+                procedure_name = inner
+                    .into_inner()
+                    .map(|p| p.as_str().to_string())
+                    .collect::<Vec<_>>()
+                    .join(".");
+            }
+            Rule::procedure_args => {
+                for arg in inner.into_inner() {
+                    if arg.as_rule() == Rule::expression {
+                        arguments.push(build_expression(arg)?);
+                    }
+                }
+            }
+            Rule::yield_clause => {
+                for item in inner.into_inner() {
+                    if item.as_rule() == Rule::yield_item {
+                        let mut field = String::new();
+                        let mut alias = None;
+                        for part in item.into_inner() {
+                            if part.as_rule() == Rule::identifier {
+                                if field.is_empty() {
+                                    field = part.as_str().to_string();
+                                } else {
+                                    alias = Some(part.as_str().to_string());
+                                }
+                            }
+                        }
+                        yield_items.push(YieldItem { field, alias });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(CallProcedureClause {
+        procedure_name,
+        arguments,
+        yield_items,
+    })
+}
 
 /// Build a CALL clause from a pest pair.
 ///

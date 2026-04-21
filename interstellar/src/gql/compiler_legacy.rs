@@ -68,11 +68,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::gql::ast::{
-    AggregateFunc, BinaryOperator, CallBody, CallClause, CallQuery, CaseExpression, EdgeDirection,
-    EdgePattern, Expression, GroupByClause, HavingClause, LetClause, LimitClause, Literal,
-    MatchClause, NodePattern, OptionalMatchClause, OrderClause, PathQuantifier, Pattern,
-    PatternElement, Query, ReturnClause, ReturnItem, Statement, UnaryOperator, UnwindClause,
-    WhereClause, WithClause,
+    AggregateFunc, BinaryOperator, CallBody, CallClause, CallProcedureClause, CallQuery,
+    CaseExpression, EdgeDirection, EdgePattern, Expression, GroupByClause, HavingClause, LetClause,
+    LimitClause, Literal, MatchClause, NodePattern, OptionalMatchClause, OrderClause,
+    PathQuantifier, Pattern, PatternElement, Query, ReturnClause, ReturnItem, Statement,
+    UnaryOperator, UnwindClause, WhereClause, WithClause, YieldItem,
 };
 use crate::gql::error::CompileError;
 use crate::traversal::{BoundTraversal, SnapshotLike, Traversal, __};
@@ -855,6 +855,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         let has_let = !query.let_clauses.is_empty();
         let has_with = !query.with_clauses.is_empty();
         let has_call = !query.call_clauses.is_empty();
+        let has_procedure_calls = !query.call_procedure_clauses.is_empty();
         self.has_multi_vars = var_count > 1
             || has_edge_var
             || has_optional
@@ -863,7 +864,8 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             || has_unwind
             || has_let
             || has_with
-            || has_call;
+            || has_call
+            || has_procedure_calls;
 
         // Build traversal starting from v()
         let g = crate::traversal::GraphTraversalSource::from_snapshot(self.snapshot);
@@ -933,6 +935,24 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             self.register_call_clause_variables(call_clause);
         }
 
+        // Register CALL procedure YIELD variables
+        for proc_clause in &query.call_procedure_clauses {
+            for item in &proc_clause.yield_items {
+                let var_name = item
+                    .alias
+                    .as_ref()
+                    .unwrap_or(&item.field)
+                    .clone();
+                self.bindings.insert(
+                    var_name,
+                    BindingInfo {
+                        pattern_index: 0,
+                        is_node: false,
+                    },
+                );
+            }
+        }
+
         // Verify all referenced variables are bound before proceeding
         for item in &query.return_clause.items {
             self.validate_expression_variables(&item.expression)?;
@@ -991,8 +1011,8 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             return self.execute_with_unwind(query, traversal);
         }
 
-        // Check if we have CALL clauses - process them with row-based execution
-        if has_call {
+        // Check if we have CALL clauses or procedure calls - process them with row-based execution
+        if has_call || has_procedure_calls {
             return self.execute_with_call_clauses(query, traversal);
         }
 
@@ -1089,6 +1109,17 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             }
         }
 
+        // Register CALL procedure YIELD variables
+        for proc_clause in &query.call_procedure_clauses {
+            for item in &proc_clause.yield_items {
+                let var_name = item.alias.as_ref().unwrap_or(&item.field).clone();
+                self.bindings.entry(var_name).or_insert(BindingInfo {
+                    pattern_index: 0,
+                    is_node: false,
+                });
+            }
+        }
+
         // Validate variables now that all are registered.
         for item in &query.return_clause.items {
             self.validate_expression_variables(&item.expression)?;
@@ -1114,6 +1145,11 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         // Apply WHERE filter.
         if let Some(where_cl) = &query.where_clause {
             rows.retain(|row| self.evaluate_predicate_from_row(&where_cl.expression, row));
+        }
+
+        // Process CALL procedure clauses
+        for proc_clause in &query.call_procedure_clauses {
+            rows = self.execute_call_procedure(rows, proc_clause)?;
         }
 
         // Build RETURN values.
@@ -2277,6 +2313,11 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             current_rows = self.execute_call_clause(current_rows, call_clause)?;
         }
 
+        // Process each CALL procedure clause sequentially
+        for proc_clause in &query.call_procedure_clauses {
+            current_rows = self.execute_call_procedure(current_rows, proc_clause)?;
+        }
+
         // Apply LET clauses if present
         let current_rows = self.apply_let_clauses(current_rows, &query.let_clauses);
 
@@ -2322,6 +2363,286 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             self.execute_correlated_call(rows, call_clause)
         } else {
             self.execute_uncorrelated_call(rows, call_clause)
+        }
+    }
+
+    /// Execute a CALL procedure clause against a set of rows.
+    ///
+    /// Evaluates procedure arguments from each row, dispatches to the appropriate
+    /// algorithm implementation, and merges YIELD results back into the row.
+    fn execute_call_procedure(
+        &self,
+        rows: Vec<HashMap<String, Value>>,
+        proc_clause: &CallProcedureClause,
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        if rows.is_empty() {
+            return Ok(rows);
+        }
+
+        let mut result_rows = Vec::new();
+
+        for outer_row in rows {
+            // Evaluate arguments from the row context
+            let args: Vec<Value> = proc_clause
+                .arguments
+                .iter()
+                .map(|expr| self.evaluate_expression_from_row(expr, &outer_row))
+                .collect();
+
+            // Dispatch to the appropriate procedure
+            let proc_results = self.dispatch_procedure(
+                &proc_clause.procedure_name,
+                &args,
+                &proc_clause.yield_items,
+            )?;
+
+            // Merge each procedure result with the outer row
+            for proc_row in proc_results {
+                let mut combined = outer_row.clone();
+                combined.extend(proc_row);
+                result_rows.push(combined);
+            }
+        }
+
+        Ok(result_rows)
+    }
+
+    /// Dispatch a procedure call to the appropriate algorithm implementation.
+    ///
+    /// Supported procedures:
+    /// - `interstellar.shortestPath(source, target)` → YIELD path, distance
+    /// - `interstellar.dijkstra(source, target, weightProperty)` → YIELD path, distance
+    /// - `interstellar.kShortestPaths(source, target, k, weightProperty)` → YIELD path, distance, index
+    /// - `interstellar.bfs(source)` → YIELD node, depth
+    fn dispatch_procedure(
+        &self,
+        name: &str,
+        args: &[Value],
+        yield_items: &[YieldItem],
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        use crate::traversal::algorithm_steps::{
+            bfs_shortest_path, dijkstra_on_storage, expand_from_storage, StepDirection,
+        };
+
+        let storage = self.snapshot.storage();
+
+        match name {
+            "interstellar.shortestPath" => {
+                // Args: source (VertexId), target (VertexId)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let target = self.extract_vertex_id_arg(name, args, 1, "target")?;
+
+                match bfs_shortest_path(storage, source, target, StepDirection::Out) {
+                    Some(path_value) => {
+                        let distance = match &path_value {
+                            Value::List(v) => Value::Int(v.len() as i64 - 1),
+                            _ => Value::Int(0),
+                        };
+                        let mut row = HashMap::new();
+                        self.bind_yield(&mut row, yield_items, "path", path_value);
+                        self.bind_yield(&mut row, yield_items, "distance", distance);
+                        Ok(vec![row])
+                    }
+                    None => Ok(vec![]), // No path found → no rows
+                }
+            }
+
+            "interstellar.dijkstra" => {
+                // Args: source (VertexId), target (VertexId), weightProperty (String)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let target = self.extract_vertex_id_arg(name, args, 1, "target")?;
+                let weight_prop = self.extract_string_arg(name, args, 2, "weightProperty")?;
+
+                match dijkstra_on_storage(storage, source, target, &weight_prop, StepDirection::Out)
+                {
+                    Some(Value::Map(map)) => {
+                        let path = map
+                            .get("path")
+                            .cloned()
+                            .unwrap_or(Value::List(Vec::new()));
+                        let weight = map.get("weight").cloned().unwrap_or(Value::Float(0.0));
+                        let mut row = HashMap::new();
+                        self.bind_yield(&mut row, yield_items, "path", path);
+                        self.bind_yield(&mut row, yield_items, "distance", weight);
+                        Ok(vec![row])
+                    }
+                    _ => Ok(vec![]), // No path found → no rows
+                }
+            }
+
+            "interstellar.kShortestPaths" => {
+                // Args: source (VertexId), target (VertexId), k (Int), weightProperty (String)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let target = self.extract_vertex_id_arg(name, args, 1, "target")?;
+                let _k = self.extract_int_arg(name, args, 2, "k")? as usize;
+                let weight_prop = self.extract_string_arg(name, args, 3, "weightProperty")?;
+
+                // Use Yen's k-shortest-paths via repeated Dijkstra
+                // For now, find up to k paths by running Dijkstra repeatedly
+                // with path exclusion (simplified: just return Dijkstra result as single path)
+                let mut results = Vec::new();
+
+                // First path: standard Dijkstra
+                if let Some(Value::Map(map)) = dijkstra_on_storage(
+                    storage,
+                    source,
+                    target,
+                    &weight_prop,
+                    StepDirection::Out,
+                ) {
+                    let path = map
+                        .get("path")
+                        .cloned()
+                        .unwrap_or(Value::List(Vec::new()));
+                    let weight = map.get("weight").cloned().unwrap_or(Value::Float(0.0));
+                    let mut row = HashMap::new();
+                    self.bind_yield(&mut row, yield_items, "path", path);
+                    self.bind_yield(&mut row, yield_items, "distance", weight);
+                    self.bind_yield(&mut row, yield_items, "index", Value::Int(0));
+                    results.push(row);
+                }
+
+                // TODO: Implement full Yen's k-shortest-paths via GraphStorage
+                // For now, only the single shortest path is returned.
+                // Full implementation requires k_shortest_paths from algorithms module
+                // to be adapted for GraphStorage (currently requires GraphAccess).
+
+                Ok(results)
+            }
+
+            "interstellar.bfs" => {
+                // Args: source (VertexId)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+
+                // BFS traversal yielding (node, depth)
+                let mut results = Vec::new();
+                let mut visited = std::collections::HashSet::new();
+                let mut queue = std::collections::VecDeque::new();
+
+                visited.insert(source);
+                queue.push_back((source, 0i64));
+
+                while let Some((vid, depth)) = queue.pop_front() {
+                    let mut row = HashMap::new();
+                    self.bind_yield(&mut row, yield_items, "node", Value::Vertex(vid));
+                    self.bind_yield(&mut row, yield_items, "depth", Value::Int(depth));
+                    results.push(row);
+
+                    let neighbors = expand_from_storage(storage, vid, StepDirection::Out);
+                    for (neighbor, _, _) in neighbors {
+                        if visited.insert(neighbor) {
+                            queue.push_back((neighbor, depth + 1));
+                        }
+                    }
+                }
+
+                Ok(results)
+            }
+
+            _ => Err(CompileError::UnknownProcedure {
+                name: name.to_string(),
+            }),
+        }
+    }
+
+    /// Extract a VertexId from procedure arguments.
+    fn extract_vertex_id_arg(
+        &self,
+        proc_name: &str,
+        args: &[Value],
+        index: usize,
+        param_name: &str,
+    ) -> Result<VertexId, CompileError> {
+        let value = args.get(index).ok_or_else(|| CompileError::ProcedureArgumentError {
+            procedure: proc_name.to_string(),
+            message: format!("missing argument '{param_name}' at position {index}"),
+        })?;
+        match value {
+            Value::Vertex(id) => Ok(*id),
+            Value::Int(n) => Ok(VertexId(*n as u64)),
+            _ => Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!(
+                    "argument '{param_name}' must be a vertex ID, got {value:?}"
+                ),
+            }),
+        }
+    }
+
+    /// Extract a String from procedure arguments.
+    fn extract_string_arg(
+        &self,
+        proc_name: &str,
+        args: &[Value],
+        index: usize,
+        param_name: &str,
+    ) -> Result<String, CompileError> {
+        let value = args.get(index).ok_or_else(|| CompileError::ProcedureArgumentError {
+            procedure: proc_name.to_string(),
+            message: format!("missing argument '{param_name}' at position {index}"),
+        })?;
+        match value {
+            Value::String(s) => Ok(s.clone()),
+            _ => Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!(
+                    "argument '{param_name}' must be a string, got {value:?}"
+                ),
+            }),
+        }
+    }
+
+    /// Extract an integer from procedure arguments.
+    fn extract_int_arg(
+        &self,
+        proc_name: &str,
+        args: &[Value],
+        index: usize,
+        param_name: &str,
+    ) -> Result<i64, CompileError> {
+        let value = args.get(index).ok_or_else(|| CompileError::ProcedureArgumentError {
+            procedure: proc_name.to_string(),
+            message: format!("missing argument '{param_name}' at position {index}"),
+        })?;
+        match value {
+            Value::Int(n) => Ok(*n),
+            _ => Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!(
+                    "argument '{param_name}' must be an integer, got {value:?}"
+                ),
+            }),
+        }
+    }
+
+    /// Bind a procedure result field to a YIELD variable in the row.
+    ///
+    /// If yield_items is empty, binds the field with its default name.
+    /// Otherwise, only binds fields that appear in the YIELD clause,
+    /// using the alias if specified.
+    fn bind_yield(
+        &self,
+        row: &mut HashMap<String, Value>,
+        yield_items: &[YieldItem],
+        field_name: &str,
+        value: Value,
+    ) {
+        if yield_items.is_empty() {
+            // No YIELD clause → bind all fields with default names
+            row.insert(field_name.to_string(), value);
+        } else {
+            // Only bind fields listed in YIELD
+            for item in yield_items {
+                if item.field == field_name {
+                    let key = item
+                        .alias
+                        .as_ref()
+                        .unwrap_or(&item.field)
+                        .clone();
+                    row.insert(key, value);
+                    return;
+                }
+            }
         }
     }
 
