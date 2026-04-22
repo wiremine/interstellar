@@ -293,7 +293,7 @@ pub enum CompileError {
     ComplexityLimitExceeded { message: String },
 
     /// Unknown procedure in CALL
-    #[error("Unknown procedure '{name}'. Available: interstellar.shortestPath, interstellar.dijkstra, interstellar.kShortestPaths, interstellar.bfs")]
+    #[error("Unknown procedure '{name}'. Available: interstellar.shortestPath, interstellar.dijkstra, interstellar.kShortestPaths, interstellar.bfs, interstellar.searchTextV, interstellar.searchTextAllV, interstellar.searchTextPhraseV, interstellar.searchTextPrefixV, interstellar.searchTextE, interstellar.searchTextAllE, interstellar.searchTextPhraseE, interstellar.searchTextPrefixE")]
     UnknownProcedure { name: String },
 
     /// Procedure argument error

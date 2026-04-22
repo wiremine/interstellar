@@ -72,3 +72,7 @@ mod ddl;
 
 #[path = "gql/procedures.rs"]
 mod procedures;
+
+#[cfg(feature = "full-text")]
+#[path = "gql/text_search.rs"]
+mod text_search;

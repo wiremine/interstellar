@@ -2628,6 +2628,149 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 Ok(results)
             }
 
+            // -----------------------------------------------------------------
+            // spec-55c Layer 5 — full-text search CALL procedures
+            // -----------------------------------------------------------------
+            //
+            // Eight procedures, gated on the `full-text` feature, exposing
+            // every leaf TextQuery variant (Match / MatchAll / Phrase /
+            // Prefix) over both vertices and edges. Compound queries
+            // (And/Or/Not) are NOT exposed here per spec-55c §D4 — use the
+            // Gremlin TextQ DSL or the Rust API.
+            //
+            // YIELD aliases:
+            //   `elem`   → fully materialized {label, properties} record
+            //              (Value::Map with `__id__` and `__label__` baked in)
+            //   `elemId` → bare Value::Vertex(VertexId) / Value::Edge(EdgeId)
+            //   `score`  → Value::Float (BM25 relevance, descending)
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextV" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_v(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::Match(query),
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextAllV" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_v(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::MatchAll(query),
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextPhraseV" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_v(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::Phrase {
+                        text: query,
+                        slop: 0,
+                    },
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextPrefixV" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_v(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::Prefix(query),
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextE" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_e(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::Match(query),
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextAllE" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_e(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::MatchAll(query),
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextPhraseE" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_e(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::Phrase {
+                        text: query,
+                        slop: 0,
+                    },
+                    k,
+                    yield_items,
+                )
+            }
+            #[cfg(feature = "full-text")]
+            "interstellar.searchTextPrefixE" => {
+                let property = self.extract_string_arg(name, args, 0, "property")?;
+                let query = self.extract_string_arg(name, args, 1, "query")?;
+                let k = self.extract_int_arg(name, args, 2, "k")?;
+                self.dispatch_search_text_e(
+                    name,
+                    &property,
+                    crate::storage::text::TextQuery::Prefix(query),
+                    k,
+                    yield_items,
+                )
+            }
+            // No-feature stubs: emit a clear error rather than UnknownProcedure
+            // so users get an actionable message.
+            #[cfg(not(feature = "full-text"))]
+            "interstellar.searchTextV"
+            | "interstellar.searchTextAllV"
+            | "interstellar.searchTextPhraseV"
+            | "interstellar.searchTextPrefixV"
+            | "interstellar.searchTextE"
+            | "interstellar.searchTextAllE"
+            | "interstellar.searchTextPhraseE"
+            | "interstellar.searchTextPrefixE" => {
+                Err(CompileError::ProcedureArgumentError {
+                    procedure: name.to_string(),
+                    message: "full-text-search procedures require the `full-text` feature"
+                        .to_string(),
+                })
+            }
+
             _ => Err(CompileError::UnknownProcedure {
                 name: name.to_string(),
             }),
@@ -2733,6 +2876,169 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // spec-55c Layer 5 — full-text search dispatch helpers
+    // ------------------------------------------------------------------------
+
+    /// Whether any YIELD item names the field `field`. Used to skip the
+    /// (potentially expensive) materialization of `elem` when the user only
+    /// asks for `elemId` and/or `score`.
+    #[cfg(feature = "full-text")]
+    fn yield_requests(&self, yield_items: &[YieldItem], field: &str) -> bool {
+        yield_items.is_empty() || yield_items.iter().any(|y| y.field == field)
+    }
+
+    /// Materialize a vertex into a `Value::Map` containing its label and
+    /// properties. Returns `Value::Null` if the vertex no longer exists in
+    /// the snapshot (e.g. concurrent delete between FTS hit and read).
+    #[cfg(feature = "full-text")]
+    fn materialize_vertex(&self, vid: VertexId) -> Value {
+        use crate::value::IntoValueMap;
+        let storage = self.snapshot.storage();
+        match storage.get_vertex(vid) {
+            Some(v) => Value::Map(v.properties.into_value_map()),
+            None => Value::Null,
+        }
+    }
+
+    /// Edge counterpart of [`Self::materialize_vertex`].
+    #[cfg(feature = "full-text")]
+    fn materialize_edge(&self, eid: crate::value::EdgeId) -> Value {
+        use crate::value::IntoValueMap;
+        let storage = self.snapshot.storage();
+        match storage.get_edge(eid) {
+            Some(e) => Value::Map(e.properties.into_value_map()),
+            None => Value::Null,
+        }
+    }
+
+    /// Run a vertex-side full-text search, materializing each hit into a
+    /// row with the YIELD-requested subset of `{elem, elemId, score}`.
+    #[cfg(feature = "full-text")]
+    fn dispatch_search_text_v(
+        &self,
+        proc_name: &str,
+        property: &str,
+        query: crate::storage::text::TextQuery,
+        k: i64,
+        yield_items: &[YieldItem],
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        let graph = self.graph_handle.as_ref().ok_or_else(|| {
+            CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: "full-text-search procedures require a graph-bound \
+                          GQL entry point (use Graph::gql, not the snapshot-only API)"
+                    .to_string(),
+            }
+        })?;
+
+        if property.is_empty() {
+            return Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: "property name cannot be empty".to_string(),
+            });
+        }
+        if k <= 0 {
+            return Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("k must be > 0, got {k}"),
+            });
+        }
+
+        let index = graph.text_index_v(property).ok_or_else(|| {
+            CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("no vertex text index registered for property {property:?}"),
+            }
+        })?;
+
+        let hits = index.search(&query, k as usize).map_err(|e| {
+            CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("text search failed: {e}"),
+            }
+        })?;
+
+        let want_elem = self.yield_requests(yield_items, "elem");
+        let mut rows = Vec::with_capacity(hits.len());
+        for hit in hits {
+            let Some(vid) = hit.element.as_vertex() else {
+                continue; // edge index returning into a vertex proc should never happen
+            };
+            let mut row = HashMap::new();
+            if want_elem {
+                self.bind_yield(&mut row, yield_items, "elem", self.materialize_vertex(vid));
+            }
+            self.bind_yield(&mut row, yield_items, "elemId", Value::Vertex(vid));
+            self.bind_yield(&mut row, yield_items, "score", Value::Float(hit.score as f64));
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+
+    /// Edge counterpart of [`Self::dispatch_search_text_v`].
+    #[cfg(feature = "full-text")]
+    fn dispatch_search_text_e(
+        &self,
+        proc_name: &str,
+        property: &str,
+        query: crate::storage::text::TextQuery,
+        k: i64,
+        yield_items: &[YieldItem],
+    ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
+        let graph = self.graph_handle.as_ref().ok_or_else(|| {
+            CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: "full-text-search procedures require a graph-bound \
+                          GQL entry point (use Graph::gql, not the snapshot-only API)"
+                    .to_string(),
+            }
+        })?;
+
+        if property.is_empty() {
+            return Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: "property name cannot be empty".to_string(),
+            });
+        }
+        if k <= 0 {
+            return Err(CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("k must be > 0, got {k}"),
+            });
+        }
+
+        let index = graph.text_index_e(property).ok_or_else(|| {
+            CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("no edge text index registered for property {property:?}"),
+            }
+        })?;
+
+        let hits = index.search(&query, k as usize).map_err(|e| {
+            CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("text search failed: {e}"),
+            }
+        })?;
+
+        let want_elem = self.yield_requests(yield_items, "elem");
+        let mut rows = Vec::with_capacity(hits.len());
+        for hit in hits {
+            let Some(eid) = hit.element.as_edge() else {
+                continue;
+            };
+            let mut row = HashMap::new();
+            if want_elem {
+                self.bind_yield(&mut row, yield_items, "elem", self.materialize_edge(eid));
+            }
+            self.bind_yield(&mut row, yield_items, "elemId", Value::Edge(eid));
+            self.bind_yield(&mut row, yield_items, "score", Value::Float(hit.score as f64));
+            rows.push(row);
+        }
+        Ok(rows)
     }
 
     /// Execute a correlated CALL subquery.
