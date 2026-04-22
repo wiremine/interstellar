@@ -65,6 +65,26 @@ pub enum SourceStep {
     AddE { label: String, span: Span },
     /// g.inject(values...) - inject values into traversal
     Inject { values: Vec<Literal>, span: Span },
+    /// g.searchTextV('prop', query, k) - top-k vertices by full-text relevance.
+    /// (spec-55c)
+    SearchTextV {
+        /// The indexed string property to search.
+        property: String,
+        /// The query, either a bare-string sugar (mapped to TextQuery::Match)
+        /// or a structured TextQ DSL expression.
+        query: TextQueryAst,
+        /// Top-k cap.
+        k: u64,
+        span: Span,
+    },
+    /// g.searchTextE('prop', query, k) - top-k edges by full-text relevance.
+    /// (spec-55c)
+    SearchTextE {
+        property: String,
+        query: TextQueryAst,
+        k: u64,
+        span: Span,
+    },
 }
 
 /// Terminal steps that execute the traversal and return results.
@@ -218,6 +238,10 @@ pub enum Step {
     Index { span: Span },
     /// loops()
     Loops { span: Span },
+    /// textScore() - read BM25 relevance score from the traverser sack
+    /// populated by `g.searchTextV` / `g.searchTextE`. Emits one
+    /// `Literal::Float`-backed value per traverser. (spec-55c)
+    TextScore { span: Span },
 
     // ========== Branch Steps ==========
     /// choose(cond, true_trav, false_trav), choose(__.values('type'))
@@ -577,4 +601,30 @@ pub enum EdgeEndpoint {
     Variable(String),
     /// Sub-traversal that produces a vertex
     Traversal(Box<AnonymousTraversal>),
+}
+
+/// Structured full-text query for `g.searchTextV` / `g.searchTextE`.
+///
+/// Mirrors the `interstellar::storage::text::TextQuery` runtime enum. The
+/// compiler converts this AST node into the runtime type before invoking
+/// the FTS engine. Bare-string syntax in the grammar (e.g.,
+/// `searchTextV('body', 'raft', 10)`) is sugared into [`TextQueryAst::Match`].
+///
+/// (spec-55c §3.2 — Gremlin TextQ DSL.)
+#[derive(Debug, Clone, PartialEq)]
+pub enum TextQueryAst {
+    /// `TextQ.match('term1 term2')` — OR-of-tokens (disjunctive).
+    Match(String),
+    /// `TextQ.matchAll('term1 term2')` — AND-of-tokens (conjunctive).
+    MatchAll(String),
+    /// `TextQ.phrase('quick brown fox')` — exact phrase match.
+    Phrase(String),
+    /// `TextQ.prefix('foo')` — prefix expansion.
+    Prefix(String),
+    /// `TextQ.and(q1, q2, ...)` — conjunction of structured queries.
+    And(Vec<TextQueryAst>),
+    /// `TextQ.or(q1, q2, ...)` — disjunction of structured queries.
+    Or(Vec<TextQueryAst>),
+    /// `TextQ.not(q)` — negation of a structured query.
+    Not(Box<TextQueryAst>),
 }

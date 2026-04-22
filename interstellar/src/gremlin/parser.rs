@@ -250,6 +250,24 @@ fn build_source(pair: Pair<Rule>) -> Result<SourceStep, ParseError> {
             let values = build_value_list_opt(step_pair)?;
             Ok(SourceStep::Inject { values, span })
         }
+        Rule::search_text_v_source_step => {
+            let (property, query, k) = build_search_text_args(step_pair)?;
+            Ok(SourceStep::SearchTextV {
+                property,
+                query,
+                k,
+                span,
+            })
+        }
+        Rule::search_text_e_source_step => {
+            let (property, query, k) = build_search_text_args(step_pair)?;
+            Ok(SourceStep::SearchTextE {
+                property,
+                query,
+                k,
+                span,
+            })
+        }
         _ => Err(ParseError::Syntax(format!(
             "Unknown source step: {:?}",
             step_pair.as_rule()
@@ -482,6 +500,7 @@ fn build_step(pair: Pair<Rule>) -> Result<Step, ParseError> {
         Rule::identity_step => Ok(Step::Identity { span }),
         Rule::index_step => Ok(Step::Index { span }),
         Rule::loops_step => Ok(Step::Loops { span }),
+        Rule::text_score_step => Ok(Step::TextScore { span }),
 
         // Branch
         Rule::choose_step => build_choose_step(inner, span),
@@ -1463,5 +1482,242 @@ fn parse_cardinality(pair: &Pair<Rule>) -> Result<Cardinality, ParseError> {
             "Unknown cardinality: {}",
             pair.as_str()
         ))),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// spec-55c: full-text-search source steps and TextQ DSL parsing
+// -----------------------------------------------------------------------------
+
+/// Build the `(property, query, k)` triple shared by `searchTextV` and
+/// `searchTextE`. Grammar:
+///
+/// ```text
+/// "searchTextV" ~ "(" ~ string ~ "," ~ search_text_query_arg ~ "," ~ integer ~ ")"
+/// ```
+fn build_search_text_args(
+    pair: Pair<Rule>,
+) -> Result<(String, TextQueryAst, u64), ParseError> {
+    let mut property: Option<String> = None;
+    let mut query: Option<TextQueryAst> = None;
+    let mut k: Option<u64> = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::string if property.is_none() => {
+                property = Some(parse_string_value(inner)?);
+            }
+            Rule::search_text_query_arg => {
+                query = Some(build_text_query_arg(inner)?);
+            }
+            Rule::integer if k.is_none() => {
+                let n = parse_integer(inner)?;
+                if n < 0 {
+                    return Err(ParseError::Syntax(
+                        "searchTextV/searchTextE: k must be non-negative".to_string(),
+                    ));
+                }
+                k = Some(n as u64);
+            }
+            _ => {}
+        }
+    }
+
+    let property = property
+        .ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing property".to_string()))?;
+    let query = query
+        .ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing query".to_string()))?;
+    let k = k.ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing k".to_string()))?;
+
+    Ok((property, query, k))
+}
+
+/// Resolve a `search_text_query_arg` (either a structured `text_q_expr` or a
+/// bare string that desugars to `TextQueryAst::Match`).
+fn build_text_query_arg(pair: Pair<Rule>) -> Result<TextQueryAst, ParseError> {
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::Syntax("Empty search_text_query_arg".to_string()))?;
+
+    match inner.as_rule() {
+        Rule::text_q_expr => build_text_q_expr(inner),
+        Rule::string => {
+            let s = parse_string_value(inner)?;
+            Ok(TextQueryAst::Match(s))
+        }
+        other => Err(ParseError::Syntax(format!(
+            "Unexpected node in search_text_query_arg: {:?}",
+            other
+        ))),
+    }
+}
+
+/// Parse `TextQ.<method>(...)` into a [`TextQueryAst`] tree.
+fn build_text_q_expr(pair: Pair<Rule>) -> Result<TextQueryAst, ParseError> {
+    let method = pair
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::text_q_method)
+        .ok_or_else(|| ParseError::Syntax("TextQ. expression missing method".to_string()))?;
+
+    let inner = method
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::Syntax("TextQ method body empty".to_string()))?;
+
+    match inner.as_rule() {
+        Rule::text_q_match => Ok(TextQueryAst::Match(extract_string(inner)?)),
+        Rule::text_q_match_all => Ok(TextQueryAst::MatchAll(extract_string(inner)?)),
+        Rule::text_q_phrase => Ok(TextQueryAst::Phrase(extract_string(inner)?)),
+        Rule::text_q_prefix => Ok(TextQueryAst::Prefix(extract_string(inner)?)),
+        Rule::text_q_and => {
+            let children = collect_text_q_children(inner)?;
+            Ok(TextQueryAst::And(children))
+        }
+        Rule::text_q_or => {
+            let children = collect_text_q_children(inner)?;
+            Ok(TextQueryAst::Or(children))
+        }
+        Rule::text_q_not => {
+            let child = inner
+                .into_inner()
+                .find(|p| p.as_rule() == Rule::text_q_expr)
+                .ok_or_else(|| ParseError::Syntax("TextQ.not requires a sub-query".to_string()))?;
+            Ok(TextQueryAst::Not(Box::new(build_text_q_expr(child)?)))
+        }
+        other => Err(ParseError::Syntax(format!(
+            "Unknown TextQ method: {:?}",
+            other
+        ))),
+    }
+}
+
+/// Collect children of `TextQ.and(...)` / `TextQ.or(...)` (one or more
+/// `text_q_expr` arguments).
+fn collect_text_q_children(pair: Pair<Rule>) -> Result<Vec<TextQueryAst>, ParseError> {
+    let mut out = Vec::new();
+    for child in pair.into_inner() {
+        if child.as_rule() == Rule::text_q_expr {
+            out.push(build_text_q_expr(child)?);
+        }
+    }
+    if out.is_empty() {
+         return Err(ParseError::Syntax(
+            "TextQ.and/or requires at least one sub-query".to_string(),
+        ));
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod fts_parser_tests {
+    //! spec-55c Layer 3: Gremlin grammar / parser coverage for `searchTextV`,
+    //! `searchTextE`, `__.textScore()`, and the `TextQ.*` DSL.
+
+    use super::*;
+
+    fn first_source(input: &str) -> SourceStep {
+        parse(input).expect("parse ok").source
+    }
+
+    fn step_at(input: &str, idx: usize) -> Step {
+        parse(input).expect("parse ok").steps.into_iter().nth(idx).expect("step idx")
+    }
+
+    #[test]
+    fn search_text_v_bare_string_sugars_to_match() {
+        let s = first_source("g.searchTextV('body', 'raft', 10)");
+        match s {
+            SourceStep::SearchTextV { property, query, k, .. } => {
+                assert_eq!(property, "body");
+                assert_eq!(query, TextQueryAst::Match("raft".to_string()));
+                assert_eq!(k, 10);
+            }
+            other => panic!("expected SearchTextV, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn search_text_e_bare_string_sugars_to_match() {
+        let s = first_source("g.searchTextE('label', 'foo bar', 5)");
+        match s {
+            SourceStep::SearchTextE { property, query, k, .. } => {
+                assert_eq!(property, "label");
+                assert_eq!(query, TextQueryAst::Match("foo bar".to_string()));
+                assert_eq!(k, 5);
+            }
+            other => panic!("expected SearchTextE, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn text_q_match_all() {
+        let s = first_source("g.searchTextV('body', TextQ.matchAll('a b'), 3)");
+        match s {
+            SourceStep::SearchTextV { query, .. } => {
+                assert_eq!(query, TextQueryAst::MatchAll("a b".to_string()));
+            }
+            _ => panic!("expected SearchTextV"),
+        }
+    }
+
+    #[test]
+    fn text_q_phrase_and_prefix() {
+        let s = first_source("g.searchTextV('body', TextQ.phrase('quick brown'), 1)");
+        assert!(matches!(
+            s,
+            SourceStep::SearchTextV { query: TextQueryAst::Phrase(ref t), .. } if t == "quick brown"
+        ));
+
+        let s = first_source("g.searchTextV('body', TextQ.prefix('foo'), 1)");
+        assert!(matches!(
+            s,
+            SourceStep::SearchTextV { query: TextQueryAst::Prefix(ref t), .. } if t == "foo"
+        ));
+    }
+
+    #[test]
+    fn text_q_and_or_not_compose() {
+        let src = "g.searchTextV('body', TextQ.and(TextQ.match('a'), TextQ.or(TextQ.match('b'), TextQ.not(TextQ.prefix('c')))), 7)";
+        let s = first_source(src);
+        let SourceStep::SearchTextV { query, k, .. } = s else {
+            panic!("expected SearchTextV");
+        };
+        assert_eq!(k, 7);
+
+        let TextQueryAst::And(top) = query else {
+            panic!("expected top And");
+        };
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0], TextQueryAst::Match("a".to_string()));
+
+        let TextQueryAst::Or(ors) = &top[1] else {
+            panic!("expected nested Or");
+        };
+        assert_eq!(ors.len(), 2);
+        assert_eq!(ors[0], TextQueryAst::Match("b".to_string()));
+        let TextQueryAst::Not(not_inner) = &ors[1] else {
+            panic!("expected Not");
+        };
+        assert_eq!(**not_inner, TextQueryAst::Prefix("c".to_string()));
+    }
+
+    #[test]
+    fn text_score_step_parses() {
+        let st = step_at("g.searchTextV('body', 'x', 5).textScore()", 0);
+        assert!(matches!(st, Step::TextScore { .. }));
+    }
+
+    #[test]
+    fn empty_text_q_and_rejected_by_grammar() {
+        // grammar requires `+` (one-or-more) for and/or args, so empty must
+        // fail at parse time rather than reaching `collect_text_q_children`.
+        assert!(parse("g.searchTextV('body', TextQ.and(), 1)").is_err());
+        assert!(parse("g.searchTextV('body', TextQ.or(), 1)").is_err());
+    }
+
+    #[test]
+    fn negative_k_rejected() {
+        assert!(parse("g.searchTextV('body', 'x', -1)").is_err());
     }
 }

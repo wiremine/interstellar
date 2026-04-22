@@ -159,6 +159,106 @@ fn compile_source<'g>(
             let vals: Vec<Value> = values.iter().map(literal_to_value).collect();
             Ok(g.inject(vals))
         }
+        SourceStep::SearchTextV {
+            property,
+            query,
+            k,
+            ..
+        } => compile_search_text_v(g, property, query, *k),
+        SourceStep::SearchTextE {
+            property,
+            query,
+            k,
+            ..
+        } => compile_search_text_e(g, property, query, *k),
+    }
+}
+
+/// Compile `g.searchTextV(prop, query, k)` into a `GraphTraversalSource`
+/// FTS source step. Score is propagated via the traverser sack and read
+/// back via [`Step::TextScore`] (`__.textScore()`). (spec-55c Layer 4)
+#[cfg(feature = "full-text")]
+fn compile_search_text_v<'g>(
+    g: &GraphTraversalSource<'g>,
+    property: &str,
+    query: &crate::gremlin::ast::TextQueryAst,
+    k: u64,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let runtime = text_query_ast_to_runtime(query);
+    g.search_text_query(property, &runtime, k as usize)
+        .map_err(|e| CompileError::UnsupportedStep {
+            step: format!("searchTextV: {e}"),
+        })
+}
+
+/// `searchTextV` requires the `full-text` feature; without it we surface a
+/// clear, actionable compile error.
+#[cfg(not(feature = "full-text"))]
+fn compile_search_text_v<'g>(
+    _g: &GraphTraversalSource<'g>,
+    _property: &str,
+    _query: &crate::gremlin::ast::TextQueryAst,
+    _k: u64,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    Err(CompileError::UnsupportedStep {
+        step: "searchTextV (requires the `full-text` feature)".to_string(),
+    })
+}
+
+/// Compile `g.searchTextE(prop, query, k)` for edge full-text search.
+/// (spec-55c Layer 4)
+#[cfg(feature = "full-text")]
+fn compile_search_text_e<'g>(
+    g: &GraphTraversalSource<'g>,
+    property: &str,
+    query: &crate::gremlin::ast::TextQueryAst,
+    k: u64,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let runtime = text_query_ast_to_runtime(query);
+    g.search_text_query_e(property, &runtime, k as usize)
+        .map_err(|e| CompileError::UnsupportedStep {
+            step: format!("searchTextE: {e}"),
+        })
+}
+
+/// Edge variant of the no-feature stub.
+#[cfg(not(feature = "full-text"))]
+fn compile_search_text_e<'g>(
+    _g: &GraphTraversalSource<'g>,
+    _property: &str,
+    _query: &crate::gremlin::ast::TextQueryAst,
+    _k: u64,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    Err(CompileError::UnsupportedStep {
+        step: "searchTextE (requires the `full-text` feature)".to_string(),
+    })
+}
+
+/// Convert the parsed [`TextQueryAst`] into the runtime
+/// `interstellar::storage::text::TextQuery` consumed by the FTS engine.
+#[cfg(feature = "full-text")]
+fn text_query_ast_to_runtime(
+    ast: &crate::gremlin::ast::TextQueryAst,
+) -> crate::storage::text::TextQuery {
+    use crate::gremlin::ast::TextQueryAst;
+    use crate::storage::text::TextQuery;
+    match ast {
+        TextQueryAst::Match(s) => TextQuery::Match(s.clone()),
+        TextQueryAst::MatchAll(s) => TextQuery::MatchAll(s.clone()),
+        TextQueryAst::Phrase(s) => TextQuery::Phrase {
+            text: s.clone(),
+            slop: 0,
+        },
+        TextQueryAst::Prefix(s) => TextQuery::Prefix(s.clone()),
+        TextQueryAst::And(children) => {
+            TextQuery::And(children.iter().map(text_query_ast_to_runtime).collect())
+        }
+        TextQueryAst::Or(children) => {
+            TextQuery::Or(children.iter().map(text_query_ast_to_runtime).collect())
+        }
+        TextQueryAst::Not(inner) => {
+            TextQuery::Not(Box::new(text_query_ast_to_runtime(inner)))
+        }
     }
 }
 
@@ -783,6 +883,13 @@ fn compile_step<'g>(
             Ok(traversal.property(&args.key, val))
         }
         Step::Drop { .. } => Ok(traversal.drop()),
+
+        #[cfg(feature = "full-text")]
+        Step::TextScore { .. } => Ok(traversal.text_score()),
+        #[cfg(not(feature = "full-text"))]
+        Step::TextScore { .. } => Err(CompileError::UnsupportedStep {
+            step: "textScore (requires the `full-text` feature)".to_string(),
+        }),
 
         // These should be handled by compile_steps lookahead
         Step::Order { .. }
@@ -1518,6 +1625,21 @@ fn validate_source(source: &SourceStep) -> Result<(), CompileError> {
             }
         }
         SourceStep::Inject { .. } => Ok(()),
+        SourceStep::SearchTextV { property, k, .. } | SourceStep::SearchTextE { property, k, .. } => {
+            if property.is_empty() {
+                return Err(CompileError::InvalidArguments {
+                    step: "searchTextV/searchTextE".to_string(),
+                    message: "property name cannot be empty".to_string(),
+                });
+            }
+            if *k == 0 {
+                return Err(CompileError::InvalidArguments {
+                    step: "searchTextV/searchTextE".to_string(),
+                    message: "k must be > 0".to_string(),
+                });
+            }
+            Ok(())
+        }
     }
 }
 
@@ -1652,6 +1774,7 @@ impl Step {
             Step::From { .. } => "from",
             Step::To { .. } => "to",
             Step::Drop { .. } => "drop",
+            Step::TextScore { .. } => "textScore",
         }
     }
 }
@@ -2001,6 +2124,18 @@ fn compile_source_with_vars<'g>(
             let vals: Vec<Value> = values.iter().map(literal_to_value).collect();
             Ok(g.inject(vals))
         }
+        SourceStep::SearchTextV {
+            property,
+            query,
+            k,
+            ..
+        } => compile_search_text_v(g, property, query, *k),
+        SourceStep::SearchTextE {
+            property,
+            query,
+            k,
+            ..
+        } => compile_search_text_e(g, property, query, *k),
     }
 }
 

@@ -68,6 +68,7 @@ pub struct GraphTraversalSource<'g> {
     /// `None` for [`Self::from_snapshot`]. FTS methods return an error when
     /// the handle is absent (since text indexes live on the live `Graph`,
     /// not in the detached snapshot state).
+    #[cfg_attr(not(feature = "full-text"), allow(dead_code))]
     graph: Option<Arc<Graph>>,
 }
 
@@ -1879,6 +1880,22 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
     pub fn loops(self) -> BoundTraversal<'g, In, Value> {
         use crate::traversal::transform::LoopsStep;
         self.add_step(LoopsStep::new())
+    }
+
+    /// Project the FTS relevance score from the traverser's sack onto the
+    /// traverser's value.
+    ///
+    /// Pairs with [`searchTextV`/`searchTextE`](crate::storage::cow::CowTraversalSource)
+    /// (and the corresponding GQL `interstellar.searchText*` procedures), which
+    /// attach an `f32` score to each emitted traverser via the sack. After
+    /// `text_score()` the value is `Value::Float(score as f64)`, or
+    /// `Value::Null` if the upstream step did not attach a score.
+    ///
+    /// (See spec-55c §3.3.)
+    #[cfg(feature = "full-text")]
+    pub fn text_score(self) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::transform::TextScoreStep;
+        self.add_step(TextScoreStep::new())
     }
 
     /// Annotate each element with its position index in the stream.

@@ -56,7 +56,7 @@ traversal_body = { graph_source ~ step* }
 variable_name = @{ !keyword ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Reserved keywords that cannot be used as variable names
-keyword = { "g" | "true" | "false" | "null" | "P" | "TextP" | "__" | "none" }
+keyword = { "g" | "true" | "false" | "null" | "P" | "TextP" | "TextQ" | "__" | "none" }
 
 // Variable reference in from/to/V contexts
 variable_ref = { variable_name }
@@ -75,6 +75,8 @@ source_step = {
     | add_v_source_step  // addV(label)
     | add_e_source_step  // addE(label)
     | inject_step    // inject(value, value, ...)
+    | search_text_v_source_step   // searchTextV(prop, query, k) [spec-55c]
+    | search_text_e_source_step   // searchTextE(prop, query, k) [spec-55c]
 }
 
 // V() can accept: nothing (all), values (ids), or variable reference
@@ -84,6 +86,21 @@ e_step = { "E" ~ "(" ~ (variable_ref | value_list)? ~ ")" }
 add_v_source_step = { "addV" ~ "(" ~ string ~ ")" }
 add_e_source_step = { "addE" ~ "(" ~ string ~ ")" }
 inject_step = { "inject" ~ "(" ~ value_list? ~ ")" }
+
+// spec-55c full-text search source steps.
+// The query argument accepts either a bare string (sugar for TextQuery::Match)
+// or a structured TextQ DSL expression.
+search_text_v_source_step = {
+    "searchTextV" ~ "(" ~ string ~ "," ~ search_text_query_arg ~ "," ~ integer ~ ")"
+}
+search_text_e_source_step = {
+    "searchTextE" ~ "(" ~ string ~ "," ~ search_text_query_arg ~ "," ~ integer ~ ")"
+}
+
+// Argument shapes for the FTS query position. Order matters for PEG: try the
+// structured DSL first so that a bare string fallback only matches when the
+// `TextQ.` prefix is absent.
+search_text_query_arg = { text_q_expr | string }
 
 value_list = { value ~ ("," ~ value)* }
 
@@ -113,6 +130,7 @@ step_body = {
     unfold_step | fold_step |
     count_step | sum_step | max_step | min_step | mean_step | group_step | group_count_step |
     order_step | math_step | constant_step | identity_step | index_step | loops_step |
+    text_score_step |   // spec-55c: read BM25 score from traverser sack
     // Branch
     choose_step | union_step | coalesce_step | optional_step | local_step | branch_step | option_step |
     // Repeat
@@ -236,6 +254,10 @@ constant_step = { "constant" ~ "(" ~ value ~ ")" }
 identity_step = { "identity" ~ "(" ~ ")" }
 index_step = { "index" ~ "(" ~ ")" }
 loops_step = { "loops" ~ "(" ~ ")" }
+
+// spec-55c: textScore() reads the BM25 relevance score from the traverser
+// sack populated by searchTextV/searchTextE. Emits a Float Value per traverser.
+text_score_step = { "textScore" ~ "(" ~ ")" }
 
 // ============================================================
 // Branch Steps
@@ -368,6 +390,39 @@ text_not_starting_with = { "notStartingWith" ~ "(" ~ string ~ ")" }
 text_ending_with = { "endingWith" ~ "(" ~ string ~ ")" }
 text_not_ending_with = { "notEndingWith" ~ "(" ~ string ~ ")" }
 text_regex = { "regex" ~ "(" ~ string ~ ")" }
+
+// ============================================================
+// TextQ DSL (spec-55c)
+//
+// Builds a structured TextQuery for searchTextV/searchTextE. Maps to the
+// `interstellar::storage::text::TextQuery` enum.
+//
+//   TextQ.match('term1 term2')   -> TextQuery::Match
+//   TextQ.matchAll('a b')        -> TextQuery::MatchAll
+//   TextQ.phrase('exact phrase') -> TextQuery::Phrase
+//   TextQ.prefix('foo')          -> TextQuery::Prefix
+//   TextQ.and(q1, q2, ...)       -> TextQuery::And(vec![...])
+//   TextQ.or(q1, q2, ...)        -> TextQuery::Or(vec![...])
+//   TextQ.not(q)                 -> TextQuery::Not(Box::new(q))
+// ============================================================
+
+text_q_expr = { "TextQ" ~ "." ~ text_q_method }
+text_q_method = {
+    text_q_match_all
+    | text_q_match
+    | text_q_phrase
+    | text_q_prefix
+    | text_q_and
+    | text_q_or
+    | text_q_not
+}
+text_q_match     = { "match" ~ "(" ~ string ~ ")" }
+text_q_match_all = { "matchAll" ~ "(" ~ string ~ ")" }
+text_q_phrase    = { "phrase" ~ "(" ~ string ~ ")" }
+text_q_prefix    = { "prefix" ~ "(" ~ string ~ ")" }
+text_q_and       = { "and" ~ "(" ~ text_q_expr ~ ("," ~ text_q_expr)+ ~ ")" }
+text_q_or        = { "or"  ~ "(" ~ text_q_expr ~ ("," ~ text_q_expr)+ ~ ")" }
+text_q_not       = { "not" ~ "(" ~ text_q_expr ~ ")" }
 
 // ============================================================
 // Anonymous Traversal
