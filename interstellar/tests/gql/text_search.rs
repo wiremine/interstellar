@@ -12,8 +12,6 @@
 //! Compound queries (`TextQ.and/or/not`) are intentionally NOT exposed
 //! through GQL (spec-55c §D4) — those are Gremlin / Rust-API only.
 
-#![cfg(feature = "full-text")]
-
 use interstellar::storage::text::TextIndexConfig;
 use interstellar::storage::Graph;
 use interstellar::value::{EdgeId, Value, VertexId};

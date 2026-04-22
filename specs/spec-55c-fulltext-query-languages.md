@@ -1,6 +1,6 @@
 # Spec 55c — Full-Text Search via Gremlin and GQL
 
-**Status**: Draft
+**Status**: Shipped (Layers 0–7 complete, all tests green)
 **Depends on**: [`spec-55-fulltext-search.md`](spec-55-fulltext-search.md) Phases 1 & 2 (shipped), [`spec-55b-fulltext-edges.md`](spec-55b-fulltext-edges.md) (shipped)
 **Scope**: Single chunk of work spanning the in-process traversal layer, the Gremlin string-parser surface, and the GQL string-parser surface. COW backend only.
 
@@ -341,5 +341,4 @@ Pest grammar has no `#[cfg]` mechanism. Rules added unconditionally. Non-`full-t
 | 5 | `interstellar/src/gql/error.rs` | edit |
 | 5 | `interstellar/tests/gql/text_search.rs` | new |
 | 6 | `interstellar/docs/guides/full-text-search.md` | edit |
-| 6 | `interstellar/docs/reference/feature-flags.md` | edit |
 | 6 | `interstellar/examples/quickstart_text_search.rs` | edit |
