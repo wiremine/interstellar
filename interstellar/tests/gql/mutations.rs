@@ -3,6 +3,7 @@
 //! Tests for CREATE, SET, REMOVE, DELETE, DETACH DELETE, and MERGE clauses.
 
 #![allow(unused_variables)]
+use std::sync::Arc;
 use std::collections::HashMap;
 
 use interstellar::gql::{parse_statement, MutationError};
@@ -14,8 +15,8 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with some initial data.
-fn create_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     let alice_id = graph.add_vertex(
         "Person",
@@ -51,7 +52,7 @@ fn create_test_graph() -> Graph {
 }
 
 /// Execute a GQL mutation query against the graph.
-fn execute_gql(graph: &Graph, query: &str) -> Result<Vec<Value>, MutationError> {
+fn execute_gql(graph: &Arc<Graph>, query: &str) -> Result<Vec<Value>, MutationError> {
     graph.gql(query).map_err(|e| {
         MutationError::Compile(interstellar::gql::CompileError::UnsupportedFeature(
             format!("GQL error: {}", e),
@@ -65,7 +66,7 @@ fn execute_gql(graph: &Graph, query: &str) -> Result<Vec<Value>, MutationError> 
 
 #[test]
 fn test_create_single_vertex() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     execute_gql(&graph, "CREATE (n:Person {name: 'Charlie', age: 35})").unwrap();
 
@@ -82,7 +83,7 @@ fn test_create_single_vertex() {
 
 #[test]
 fn test_create_multiple_vertices() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     execute_gql(
         &graph,
@@ -95,7 +96,7 @@ fn test_create_multiple_vertices() {
 
 #[test]
 fn test_create_vertex_and_edge() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     execute_gql(
         &graph,
@@ -113,7 +114,7 @@ fn test_create_vertex_and_edge() {
 
 #[test]
 fn test_create_with_return() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let results = execute_gql(&graph, "CREATE (n:Person {name: 'Alice'}) RETURN n").unwrap();
 
@@ -123,7 +124,7 @@ fn test_create_with_return() {
 
 #[test]
 fn test_create_with_return_property() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let results = execute_gql(&graph, "CREATE (n:Person {name: 'Alice'}) RETURN n.name").unwrap();
 
@@ -244,7 +245,7 @@ fn test_delete_edge() {
 
 #[test]
 fn test_delete_vertex_without_edges() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     graph.add_vertex(
         "Person",
         HashMap::from([("name".to_string(), Value::String("Solo".to_string()))]),
@@ -292,7 +293,7 @@ fn test_detach_delete_vertex() {
 
 #[test]
 fn test_merge_creates_when_not_exists() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     execute_gql(
         &graph,
@@ -334,7 +335,7 @@ fn test_merge_matches_when_exists() {
 
 #[test]
 fn test_merge_with_both_actions() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // First MERGE creates
     execute_gql(
@@ -418,7 +419,7 @@ fn test_match_where_no_matches() {
 
 #[test]
 fn test_create_multiple_edges_chain() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     execute_gql(
         &graph,
@@ -518,7 +519,7 @@ fn execute_gql_with_schema(
 
 #[test]
 fn test_create_vertex_valid_schema() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -534,7 +535,7 @@ fn test_create_vertex_valid_schema() {
 
 #[test]
 fn test_create_vertex_missing_required_property_strict() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -553,7 +554,7 @@ fn test_create_vertex_missing_required_property_strict() {
 
 #[test]
 fn test_create_vertex_wrong_property_type_strict() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -575,7 +576,7 @@ fn test_create_vertex_wrong_property_type_strict() {
 
 #[test]
 fn test_create_vertex_unknown_label_closed() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Closed);
 
@@ -594,7 +595,7 @@ fn test_create_vertex_unknown_label_closed() {
 
 #[test]
 fn test_create_vertex_unknown_label_strict_allowed() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -608,7 +609,7 @@ fn test_create_vertex_unknown_label_strict_allowed() {
 
 #[test]
 fn test_create_vertex_validation_mode_none() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::None);
 
@@ -624,7 +625,7 @@ fn test_create_vertex_validation_mode_none() {
 
 #[test]
 fn test_create_edge_valid_schema() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -642,7 +643,7 @@ fn test_create_edge_valid_schema() {
 
 #[test]
 fn test_create_edge_invalid_source_label() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -672,7 +673,7 @@ fn test_create_edge_invalid_source_label() {
 
 #[test]
 fn test_create_edge_invalid_target_label() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -693,7 +694,7 @@ fn test_create_edge_invalid_target_label() {
 
 #[test]
 fn test_create_edge_missing_required_property() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -716,7 +717,7 @@ fn test_create_edge_missing_required_property() {
 
 #[test]
 fn test_set_property_valid_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -731,7 +732,7 @@ fn test_set_property_valid_type() {
 
 #[test]
 fn test_set_property_wrong_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -755,7 +756,7 @@ fn test_set_property_wrong_type() {
 
 #[test]
 fn test_set_required_property_to_null() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -778,7 +779,7 @@ fn test_set_required_property_to_null() {
 
 #[test]
 fn test_merge_create_with_validation() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -795,7 +796,7 @@ fn test_merge_create_with_validation() {
 
 #[test]
 fn test_merge_create_fails_validation() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -812,7 +813,7 @@ fn test_merge_create_fails_validation() {
 
 #[test]
 fn test_merge_match_with_set_validation() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -831,7 +832,7 @@ fn test_merge_match_with_set_validation() {
 
 #[test]
 fn test_merge_match_set_wrong_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = create_test_schema(ValidationMode::Strict);
 
@@ -856,7 +857,7 @@ fn test_merge_match_set_wrong_type() {
 
 #[test]
 fn test_mutation_without_schema() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Using gql() without schema should work without validation
     let result = execute_gql(&graph, "CREATE (n:Person {name: 42})"); // name as Int instead of String
@@ -867,7 +868,7 @@ fn test_mutation_without_schema() {
 
 #[test]
 fn test_mutation_with_none_schema() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Passing None as schema should behave the same as no schema
@@ -886,7 +887,7 @@ fn test_mutation_with_none_schema() {
 
 #[test]
 fn test_graph_ddl_create_node_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a node type using DDL
     let schema = graph
@@ -905,7 +906,7 @@ fn test_graph_ddl_create_node_type() {
 
 #[test]
 fn test_graph_ddl_create_edge_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create node types first
     graph
@@ -928,7 +929,7 @@ fn test_graph_ddl_create_edge_type() {
 
 #[test]
 fn test_graph_ddl_set_validation_mode() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph
         .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
@@ -944,7 +945,7 @@ fn test_graph_ddl_set_validation_mode() {
 
 #[test]
 fn test_graph_ddl_alter_node_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph
         .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
@@ -973,7 +974,7 @@ fn test_graph_ddl_alter_node_type() {
 
 #[test]
 fn test_graph_ddl_drop_node_type() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph
         .ddl("CREATE NODE TYPE Person (name STRING NOT NULL)")
@@ -994,7 +995,7 @@ fn test_graph_ddl_drop_node_type() {
 
 #[test]
 fn test_graph_ddl_full_workflow() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Build schema using DDL
     graph
@@ -1027,7 +1028,7 @@ fn test_graph_ddl_full_workflow() {
 
 #[test]
 fn test_graph_ddl_error_handling() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a type
     graph
@@ -1049,7 +1050,7 @@ fn test_graph_ddl_error_handling() {
 
 #[test]
 fn test_graph_ddl_parse_error() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Invalid DDL syntax
     let result = graph.ddl("CREATE NODE TYPE");
@@ -1065,8 +1066,8 @@ fn test_graph_ddl_parse_error() {
 // =============================================================================
 
 /// Helper to create a graph for FOREACH tests with relationships.
-fn create_foreach_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_foreach_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     // Create several people
     let alice_id = graph.add_vertex(
@@ -1137,7 +1138,7 @@ fn test_foreach_set_property() {
 
 #[test]
 fn test_foreach_remove_property() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a vertex with properties we'll remove
     graph.add_vertex(
@@ -1172,7 +1173,7 @@ fn test_foreach_remove_property() {
 
 #[test]
 fn test_foreach_multiple_mutations() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create vertices
     graph.add_vertex(
@@ -1208,7 +1209,7 @@ fn test_foreach_multiple_mutations() {
 
 #[test]
 fn test_foreach_empty_list() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph.add_vertex(
         "Person",
@@ -1241,7 +1242,7 @@ fn test_foreach_empty_list() {
 
 #[test]
 fn test_foreach_null_list() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph.add_vertex(
         "Person",
@@ -1277,7 +1278,7 @@ fn test_foreach_null_list() {
 
 #[test]
 fn test_foreach_non_list_error() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph.add_vertex(
         "Person",
@@ -1303,7 +1304,7 @@ fn test_foreach_non_list_error() {
 
 #[test]
 fn test_foreach_variable_scope() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph.add_vertex(
         "Person",
@@ -1394,7 +1395,7 @@ fn test_foreach_mark_friends_visited() {
 
 #[test]
 fn test_foreach_nested_iteration() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     graph.add_vertex(
         "Counter",

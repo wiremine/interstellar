@@ -62,6 +62,13 @@ use crate::value::{EdgeId, Value, VertexId};
 /// ```
 pub struct GraphTraversalSource<'g> {
     snapshot: &'g dyn SnapshotLike,
+    /// Optional handle to the live `Graph`, required for full-text search.
+    ///
+    /// Set when constructed via [`Self::from_snapshot_with_graph`]; left
+    /// `None` for [`Self::from_snapshot`]. FTS methods return an error when
+    /// the handle is absent (since text indexes live on the live `Graph`,
+    /// not in the detached snapshot state).
+    graph: Option<Arc<Graph>>,
 }
 
 impl<'g> GraphTraversalSource<'g> {
@@ -69,6 +76,11 @@ impl<'g> GraphTraversalSource<'g> {
     ///
     /// This allows traversals to work with `GraphSnapshot`, `CowMmapSnapshot`,
     /// or any other snapshot type that implements the trait.
+    ///
+    /// **Note**: Sources constructed this way cannot perform full-text search,
+    /// because text indexes are a live structure on `Graph` and are not
+    /// captured by snapshots. Use [`Self::from_snapshot_with_graph`] instead
+    /// when FTS is required.
     ///
     /// # Example
     ///
@@ -81,6 +93,27 @@ impl<'g> GraphTraversalSource<'g> {
     pub fn from_snapshot<S: SnapshotLike + ?Sized>(snapshot: &'g S) -> Self {
         Self {
             snapshot: snapshot.as_dyn(),
+            graph: None,
+        }
+    }
+
+    /// Create a new traversal source with a live `Graph` handle attached.
+    ///
+    /// The handle enables full-text search via [`Self::search_text`],
+    /// [`Self::search_text_query`], [`Self::search_text_e`], and
+    /// [`Self::search_text_query_e`]. All other behavior is identical to
+    /// [`Self::from_snapshot`].
+    ///
+    /// Used by `Graph::execute_script`, `Graph::query`, `Graph::gql`, and
+    /// `Graph::gql_with_params` so that text-language FTS reaches the live
+    /// text-index registry on the originating `Graph`.
+    pub fn from_snapshot_with_graph<S: SnapshotLike + ?Sized>(
+        snapshot: &'g S,
+        graph: Arc<Graph>,
+    ) -> Self {
+        Self {
+            snapshot: snapshot.as_dyn(),
+            graph: Some(graph),
         }
     }
 
@@ -183,6 +216,134 @@ impl<'g> GraphTraversalSource<'g> {
     #[inline]
     pub fn interner(&self) -> &'g StringInterner {
         self.snapshot.interner()
+    }
+
+    // -------------------------------------------------------------------------
+    // Full-text search source steps
+    // -------------------------------------------------------------------------
+
+    /// Start traversal from the top-`k` vertices matching a free-text query.
+    ///
+    /// Convenience wrapper around [`Self::search_text_query`] with
+    /// `TextQuery::Match`. Each emitted traverser carries its BM25 relevance
+    /// score in its sack (retrievable via `Traverser::get_sack::<f32>()`).
+    ///
+    /// # Errors
+    ///
+    /// - Returns an error if the source was constructed via
+    ///   [`Self::from_snapshot`] (no live `Graph` handle attached). FTS
+    ///   requires a live registry; use [`Self::from_snapshot_with_graph`].
+    /// - Returns an error if no vertex text index is registered for `property`.
+    /// - Returns an error if the underlying search fails.
+    #[cfg(feature = "full-text")]
+    pub fn search_text(
+        &self,
+        property: &str,
+        query: &str,
+        k: usize,
+    ) -> Result<BoundTraversal<'g, (), Value>, crate::storage::text::TextIndexError> {
+        use crate::storage::text::TextQuery;
+        self.search_text_query(property, &TextQuery::Match(query.to_string()), k)
+    }
+
+    /// Start traversal from the top-`k` vertices matching a structured
+    /// [`TextQuery`].
+    ///
+    /// Same as [`Self::search_text`] but accepts a pre-built [`TextQuery`]
+    /// for callers that need phrase, boolean, prefix, or `match-all` queries.
+    #[cfg(feature = "full-text")]
+    pub fn search_text_query(
+        &self,
+        property: &str,
+        query: &crate::storage::text::TextQuery,
+        k: usize,
+    ) -> Result<BoundTraversal<'g, (), Value>, crate::storage::text::TextIndexError> {
+        let graph = self.graph.as_ref().ok_or_else(|| {
+            crate::storage::text::TextIndexError::Storage(
+                crate::error::StorageError::IndexError(
+                    "full-text search requires a live Graph handle; \
+                     construct GraphTraversalSource via from_snapshot_with_graph \
+                     (e.g. via Graph::execute_script, Graph::query, Graph::gql, \
+                     or Graph::gql_with_params)"
+                        .to_string(),
+                ),
+            )
+        })?;
+        let index = graph.text_index_v(property).ok_or_else(|| {
+            crate::storage::text::TextIndexError::Storage(
+                crate::error::StorageError::IndexError(format!(
+                    "no vertex text index registered for property {property:?}"
+                )),
+            )
+        })?;
+        let hits = index.search(query, k)?;
+        let scored: Vec<(VertexId, f32)> = hits
+            .into_iter()
+            .filter_map(|h| h.element.as_vertex().map(|v| (v, h.score)))
+            .collect();
+        Ok(BoundTraversal::new(
+            self.snapshot,
+            Traversal::with_source(TraversalSource::VerticesWithTextScore(scored)),
+        ))
+    }
+
+    /// Start traversal from the top-`k` **edges** matching a free-text query.
+    ///
+    /// Mirrors [`Self::search_text`] but for edges. Each emitted traverser
+    /// carries its BM25 score in its sack (read via
+    /// `Traverser::get_sack::<f32>()`).
+    ///
+    /// # Errors
+    ///
+    /// Same conditions as [`Self::search_text`], but the index lookup is
+    /// against the **edge** registry (`Graph::text_index_e`).
+    #[cfg(feature = "full-text")]
+    pub fn search_text_e(
+        &self,
+        property: &str,
+        query: &str,
+        k: usize,
+    ) -> Result<BoundTraversal<'g, (), Value>, crate::storage::text::TextIndexError> {
+        use crate::storage::text::TextQuery;
+        self.search_text_query_e(property, &TextQuery::Match(query.to_string()), k)
+    }
+
+    /// Start traversal from the top-`k` **edges** matching a structured
+    /// [`TextQuery`]. Mirrors [`Self::search_text_query`] for edges.
+    #[cfg(feature = "full-text")]
+    pub fn search_text_query_e(
+        &self,
+        property: &str,
+        query: &crate::storage::text::TextQuery,
+        k: usize,
+    ) -> Result<BoundTraversal<'g, (), Value>, crate::storage::text::TextIndexError> {
+        let graph = self.graph.as_ref().ok_or_else(|| {
+            crate::storage::text::TextIndexError::Storage(
+                crate::error::StorageError::IndexError(
+                    "full-text search requires a live Graph handle; \
+                     construct GraphTraversalSource via from_snapshot_with_graph \
+                     (e.g. via Graph::execute_script, Graph::query, Graph::gql, \
+                     or Graph::gql_with_params)"
+                        .to_string(),
+                ),
+            )
+        })?;
+        let index = graph.text_index_e(property).ok_or_else(|| {
+            crate::storage::text::TextIndexError::Storage(
+                crate::error::StorageError::IndexError(format!(
+                    "no edge text index registered for property {property:?}"
+                )),
+            )
+        })?;
+        let hits = index.search(query, k)?;
+        let scored: Vec<(EdgeId, f32)> = hits
+            .into_iter()
+            .filter_map(|h| h.element.as_edge().map(|e| (e, h.score)))
+            .collect();
+        Ok(BoundTraversal::new(
+            self.snapshot,
+            Traversal::with_source(TraversalSource::EdgesWithTextScore(scored)),
+        ))
     }
 
     // -------------------------------------------------------------------------
@@ -3186,6 +3347,32 @@ impl<'g> TraversalExecutor<'g> {
                 }
                 t
             })),
+            #[cfg(feature = "full-text")]
+            Some(TraversalSource::VerticesWithTextScore(hits)) => {
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    storage.get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            Some(TraversalSource::EdgesWithTextScore(hits)) => {
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    storage.get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
             None => Box::new(std::iter::empty()),
         };
 

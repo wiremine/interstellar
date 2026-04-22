@@ -557,6 +557,34 @@ impl Step for StartStep {
                     t
                 }))
             }
+            #[cfg(feature = "full-text")]
+            TraversalSource::VerticesWithTextScore(hits) => {
+                let hits = hits.clone();
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    ctx.storage().get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            TraversalSource::EdgesWithTextScore(hits) => {
+                let hits = hits.clone();
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    ctx.storage().get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
         }
     }
 
@@ -625,6 +653,34 @@ impl Step for StartStep {
                         t.extend_path_unlabeled();
                     }
                     t
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            TraversalSource::VerticesWithTextScore(hits) => {
+                let hits = hits.clone();
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    storage.get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            TraversalSource::EdgesWithTextScore(hits) => {
+                let hits = hits.clone();
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    storage.get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
                 }))
             }
         }
@@ -911,6 +967,32 @@ impl<'a> LazyExecutor<'a> {
                         t.extend_path_unlabeled();
                     }
                     t
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            crate::traversal::TraversalSource::VerticesWithTextScore(hits) => {
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    ctx.storage().get_vertex(id).map(|_| {
+                        let mut t = Traverser::from_vertex(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            crate::traversal::TraversalSource::EdgesWithTextScore(hits) => {
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    ctx.storage().get_edge(id).map(|_| {
+                        let mut t = Traverser::from_edge(id);
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
                 }))
             }
         };

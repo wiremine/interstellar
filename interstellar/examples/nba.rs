@@ -22,6 +22,7 @@ use interstellar::prelude::*;
 use interstellar::storage::Graph;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::Arc;
 
 // =============================================================================
 // Data Loading (GraphSON Import)
@@ -31,10 +32,10 @@ use std::fs;
 ///
 /// The fixture includes both the graph data and schema definitions,
 /// demonstrating real-world GraphSON import capabilities.
-fn load_nba_graph() -> Graph {
+fn load_nba_graph() -> Arc<Graph> {
     let json_str = fs::read_to_string("examples/fixtures/nba.graphson.json")
         .expect("Failed to read nba.graphson.json");
-    graphson::from_str(&json_str).expect("Failed to parse GraphSON")
+    Arc::new(graphson::from_str(&json_str).expect("Failed to parse GraphSON"))
 }
 
 // =============================================================================
@@ -473,7 +474,7 @@ fn main() {
     section("PART 10: GQL MUTATIONS");
 
     // Create a separate graph for mutation demos
-    let mut_graph = Graph::new();
+    let mut_graph = Arc::new(Graph::new());
 
     println!("\n--- CREATE vertices and edges ---");
     mut_graph

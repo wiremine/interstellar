@@ -125,10 +125,10 @@ pub struct Repl {
 
 impl Repl {
     /// Create a new REPL instance.
-    pub fn new(graph: interstellar::Graph, config: ReplConfig, settings: RuntimeSettings) -> Self {
+    pub fn new(graph: Arc<interstellar::Graph>, config: ReplConfig, settings: RuntimeSettings) -> Self {
         let mode = config.default_mode;
         let history_manager = HistoryManager::new(config.history_file.clone(), config.history_size);
-        let gremlin_engine = GremlinEngine::new(graph);
+        let gremlin_engine = GremlinEngine::with_arc(graph);
 
         Self {
             gremlin_engine,
@@ -142,7 +142,10 @@ impl Repl {
     }
 
     /// Get a reference to the underlying graph.
-    fn graph(&self) -> &interstellar::Graph {
+    ///
+    /// Returns `&Arc<Graph>` so methods requiring `self: &Arc<Self>` (e.g.
+    /// `gql`, `execute_script`) are callable; auto-deref handles `&Graph` use.
+    fn graph(&self) -> &Arc<interstellar::Graph> {
         self.gremlin_engine.graph()
     }
 
@@ -704,7 +707,7 @@ impl Repl {
 
 /// Start the REPL with the given graph and settings.
 pub fn start(
-    graph: interstellar::Graph,
+    graph: Arc<interstellar::Graph>,
     config: ReplConfig,
     settings: RuntimeSettings,
 ) -> Result<()> {

@@ -1,5 +1,7 @@
 //! Tests for the Gremlin parser.
 
+use std::sync::Arc;
+
 use super::*;
 
 // ============================================================
@@ -1099,7 +1101,7 @@ fn test_graph_query_convenience() {
     use crate::storage::Graph;
     use std::collections::HashMap;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add some test data
     let alice = graph.add_vertex("person", {
@@ -1148,7 +1150,7 @@ fn test_snapshot_query_convenience() {
     use crate::storage::Graph;
     use std::collections::HashMap;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add test data
     let alice = graph.add_vertex("person", {
@@ -1195,7 +1197,7 @@ fn test_snapshot_query_convenience() {
 fn test_query_error_handling() {
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Test parse error
     let result = graph.query("g.V().invalid_step()");
@@ -1253,7 +1255,7 @@ fn test_mutate_add_vertex() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Verify graph is empty
     assert_eq!(graph.vertex_count(), 0);
@@ -1296,7 +1298,7 @@ fn test_mutate_add_multiple_vertices() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add first vertex
     graph
@@ -1325,7 +1327,7 @@ fn test_mutate_add_multiple_vertices() {
 fn test_mutate_drop_vertex() {
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add vertices using Rust API (since we need the IDs)
     let alice = graph.add_vertex(
@@ -1361,7 +1363,7 @@ fn test_mutate_read_query_unchanged() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add vertices using Rust API
     graph.add_vertex(
@@ -1399,7 +1401,7 @@ fn test_mutate_add_edge() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create two vertices using Rust API (we need their IDs)
     let alice = graph.add_vertex(
@@ -1460,7 +1462,7 @@ fn test_mutate_add_edge_with_labels() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add vertices and create edge using as() labels
     let alice = graph.add_vertex(
@@ -1517,7 +1519,7 @@ fn test_mutate_add_edge_with_properties() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create two vertices
     let alice = graph.add_vertex(
@@ -1573,7 +1575,7 @@ fn test_mutate_set_vertex_property() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a vertex with initial properties
     let alice = graph.add_vertex(
@@ -1628,7 +1630,7 @@ fn test_mutate_update_vertex_property() {
     use crate::gremlin::ExecutionResult;
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a vertex with initial name
     let alice = graph.add_vertex(
@@ -1670,7 +1672,7 @@ fn test_mutate_update_vertex_property() {
 fn test_mutate_drop_edge() {
     use crate::storage::Graph;
 
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create two vertices and an edge
     let alice = graph.add_vertex(
@@ -1815,7 +1817,7 @@ fn test_parse_script_variable_in_from_to() {
 
 #[test]
 fn test_execute_script_basic_workflow() {
-    let graph = crate::storage::Graph::new();
+    let graph = std::sync::Arc::new(crate::storage::Graph::new());
 
     let script_result = graph
         .execute_script(
@@ -1847,7 +1849,7 @@ fn test_execute_script_basic_workflow() {
 
 #[test]
 fn test_execute_script_variable_reference_in_v() {
-    let graph = crate::storage::Graph::new();
+    let graph = std::sync::Arc::new(crate::storage::Graph::new());
 
     let script_result = graph
         .execute_script(
@@ -1868,7 +1870,7 @@ fn test_execute_script_variable_reference_in_v() {
 
 #[test]
 fn test_execute_script_multiple_edges() {
-    let graph = crate::storage::Graph::new();
+    let graph = std::sync::Arc::new(crate::storage::Graph::new());
 
     let script_result = graph
         .execute_script(
@@ -1898,7 +1900,7 @@ fn test_execute_script_multiple_edges() {
 
 #[test]
 fn test_execute_script_empty_result() {
-    let graph = crate::storage::Graph::new();
+    let graph = std::sync::Arc::new(crate::storage::Graph::new());
 
     // Create vertices but query for non-existent edges
     let script_result = graph
@@ -1921,7 +1923,7 @@ fn test_execute_script_empty_result() {
 fn test_execute_script_repl_style_workflow() {
     use crate::gremlin::VariableContext;
 
-    let graph = crate::storage::Graph::new();
+    let graph = std::sync::Arc::new(crate::storage::Graph::new());
 
     // First REPL command
     let result1 = graph
@@ -1965,7 +1967,7 @@ fn test_execute_script_repl_style_workflow() {
 
 #[test]
 fn test_script_result_variables_are_accessible() {
-    let graph = crate::storage::Graph::new();
+    let graph = std::sync::Arc::new(crate::storage::Graph::new());
 
     let script_result = graph
         .execute_script(

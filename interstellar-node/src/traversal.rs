@@ -150,17 +150,46 @@ impl GraphBackend {
         }
     }
 
+    /// Export the graph as a GraphSON JSON string.
+    #[cfg(feature = "graphson")]
+    pub(crate) fn to_graphson_string(&self) -> napi::Result<String> {
+        let result = match self {
+            GraphBackend::InMemory(graph) => {
+                let snapshot = graph.snapshot();
+                interstellar::graphson::to_string(&snapshot)
+            }
+            #[cfg(feature = "mmap")]
+            GraphBackend::Mmap(graph) => {
+                let snapshot = graph.snapshot();
+                interstellar::graphson::to_string(&snapshot)
+            }
+        };
+        result.map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
+    }
+
     /// Import graph data from GraphSON JSON string.
+    ///
+    /// NOTE: The core `interstellar::graphson::from_str` produces a fresh
+    /// `Graph`, but `GraphBackend` holds an `Arc<InnerGraph>` that cannot be
+    /// replaced in-place. Restoring import-into-existing semantics requires a
+    /// new `merge_from_str(&self, json)` API in the graphson module. Tracked
+    /// separately from spec-55c.
     #[cfg(feature = "graphson")]
     pub(crate) fn from_graphson(
         &self,
         json: &str,
-    ) -> std::result::Result<(), interstellar::graphson::GraphsonError> {
-        match self {
-            GraphBackend::InMemory(graph) => interstellar::graphson::from_graphson_str(graph, json),
+    ) -> std::result::Result<(), interstellar::graphson::GraphSONError> {        // Validate the JSON parses as GraphSON, but discard the resulting graph
+        // since we cannot merge it into the existing backend.
+        let _ = match self {
+            GraphBackend::InMemory(_) => interstellar::graphson::from_str(json)?,
             #[cfg(feature = "mmap")]
-            GraphBackend::Mmap(graph) => interstellar::graphson::from_graphson_str(graph, json),
-        }
+            GraphBackend::Mmap(_) => interstellar::graphson::from_str(json)?,
+        };
+        Err(interstellar::graphson::GraphSONError::SchemaValidation(
+            "from_graphson import is not yet supported on existing graphs; \
+             create a new graph from JSON via Graph.fromGraphSON instead"
+                .to_string(),
+        ))
     }
 }
 

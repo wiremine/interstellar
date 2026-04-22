@@ -66,6 +66,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::gql::ast::{
     AggregateFunc, BinaryOperator, CallBody, CallClause, CallProcedureClause, CallQuery,
@@ -75,6 +76,7 @@ use crate::gql::ast::{
     UnaryOperator, UnwindClause, WhereClause, WithClause, YieldItem,
 };
 use crate::gql::error::CompileError;
+use crate::storage::cow::Graph;
 use crate::traversal::{BoundTraversal, SnapshotLike, Traversal, __};
 use crate::value::{IntoValueMap, Value, ValueMap, VertexId};
 
@@ -417,7 +419,19 @@ pub fn compile_with_config<S: SnapshotLike + ?Sized>(
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
-    let mut compiler = Compiler::new(snapshot, params, config);
+    compile_with_config_inner(query, snapshot, params, config, None)
+}
+
+/// Internal: compile_with_config that accepts an optional `Arc<Graph>` handle
+/// for full-text search CALL procedures.
+fn compile_with_config_inner<S: SnapshotLike + ?Sized>(
+    query: &Query,
+    snapshot: &S,
+    params: &Parameters,
+    config: &CompilerConfig,
+    graph_handle: Option<Arc<Graph>>,
+) -> Result<Vec<Value>, CompileError> {
+    let mut compiler = Compiler::new_with_graph(snapshot, params, config, graph_handle);
     compiler.compile(query)
 }
 
@@ -550,8 +564,58 @@ pub fn compile_statement_with_config<S: SnapshotLike + ?Sized>(
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
+    compile_statement_with_config_inner(stmt, snapshot, params, config, None)
+}
+
+/// Compile a GQL statement with an optional live `Graph` handle for full-text
+/// search CALL procedures (`interstellar.searchTextV`, etc.).
+///
+/// This is the entry point used by [`Graph::gql`] so that FTS CALL procedures
+/// can reach the live text-index registry on the originating `Graph`.
+///
+/// [`Graph::gql`]: crate::storage::cow::Graph::gql
+pub fn compile_statement_with_graph<S: SnapshotLike + ?Sized>(
+    stmt: &Statement,
+    snapshot: &S,
+    graph_handle: Option<Arc<Graph>>,
+) -> Result<Vec<Value>, CompileError> {
+    compile_statement_with_config_inner(
+        stmt,
+        snapshot,
+        &Parameters::new(),
+        &CompilerConfig::default(),
+        graph_handle,
+    )
+}
+
+/// Parameterized variant of [`compile_statement_with_graph`].
+///
+/// Used by [`Graph::gql_with_params`] so that FTS CALL procedures can reach
+/// the live text-index registry on the originating `Graph`.
+///
+/// [`Graph::gql_with_params`]: crate::storage::cow::Graph::gql_with_params
+pub fn compile_statement_with_params_and_graph<S: SnapshotLike + ?Sized>(
+    stmt: &Statement,
+    snapshot: &S,
+    params: &Parameters,
+    graph_handle: Option<Arc<Graph>>,
+) -> Result<Vec<Value>, CompileError> {
+    compile_statement_with_config_inner(stmt, snapshot, params, &CompilerConfig::default(), graph_handle)
+}
+
+/// Internal: compile_statement_with_config that accepts an optional `Arc<Graph>`
+/// handle for full-text search CALL procedures.
+fn compile_statement_with_config_inner<S: SnapshotLike + ?Sized>(
+    stmt: &Statement,
+    snapshot: &S,
+    params: &Parameters,
+    config: &CompilerConfig,
+    graph_handle: Option<Arc<Graph>>,
+) -> Result<Vec<Value>, CompileError> {
     match stmt {
-        Statement::Query(query) => compile_with_config(query.as_ref(), snapshot, params, config),
+        Statement::Query(query) => {
+            compile_with_config_inner(query.as_ref(), snapshot, params, config, graph_handle)
+        }
         Statement::Union { queries, all } => {
             // Check UNION clause limit
             if queries.len() > config.max_union_clauses {
@@ -561,7 +625,7 @@ pub fn compile_statement_with_config<S: SnapshotLike + ?Sized>(
                     config.max_union_clauses
                 )));
             }
-            compile_union_with_config(queries, *all, snapshot, params, config)
+            compile_union_with_config_inner(queries, *all, snapshot, params, config, graph_handle)
         }
         Statement::Mutation(_) => {
             // Mutation compilation requires mutable access to the graph
@@ -622,10 +686,24 @@ fn compile_union_with_config<S: SnapshotLike + ?Sized>(
     params: &Parameters,
     config: &CompilerConfig,
 ) -> Result<Vec<Value>, CompileError> {
+    compile_union_with_config_inner(queries, keep_duplicates, snapshot, params, config, None)
+}
+
+/// Internal: compile_union_with_config that accepts an optional `Arc<Graph>`
+/// handle for full-text search CALL procedures.
+fn compile_union_with_config_inner<S: SnapshotLike + ?Sized>(
+    queries: &[Query],
+    keep_duplicates: bool,
+    snapshot: &S,
+    params: &Parameters,
+    config: &CompilerConfig,
+    graph_handle: Option<Arc<Graph>>,
+) -> Result<Vec<Value>, CompileError> {
     let mut all_results = Vec::new();
 
     for query in queries {
-        let results = compile_with_config(query, snapshot, params, config)?;
+        let results =
+            compile_with_config_inner(query, snapshot, params, config, graph_handle.clone())?;
         all_results.extend(results);
     }
 
@@ -657,6 +735,11 @@ struct Compiler<'a, S: SnapshotLike + ?Sized> {
     config: &'a CompilerConfig,
     /// Current subquery nesting depth (for limit checking)
     subquery_depth: usize,
+    /// Optional handle to the live `Graph`, required for full-text search
+    /// CALL procedures (`interstellar.searchTextV`, etc.). `None` when the
+    /// compiler was invoked via a snapshot-only entry point.
+    #[allow(dead_code)] // used by FTS CALL dispatch (spec-55c Layer 5)
+    graph_handle: Option<Arc<Graph>>,
 }
 
 #[derive(Debug, Clone)]
@@ -683,7 +766,12 @@ enum ListPredicateKind {
 }
 
 impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
-    fn new(snapshot: &'a S, parameters: &'a Parameters, config: &'a CompilerConfig) -> Self {
+    fn new_with_graph(
+        snapshot: &'a S,
+        parameters: &'a Parameters,
+        config: &'a CompilerConfig,
+        graph_handle: Option<Arc<Graph>>,
+    ) -> Self {
         Self {
             snapshot,
             bindings: HashMap::new(),
@@ -691,6 +779,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             has_multi_vars: false,
             config,
             subquery_depth: 0,
+            graph_handle,
         }
     }
 

@@ -10,6 +10,7 @@ use interstellar::gql::{
 use interstellar::index::{ElementType, IndexBuilder, IndexType};
 use interstellar::schema::{GraphSchema, SchemaError, ValidationMode};
 use interstellar::storage::Graph;
+use std::sync::Arc;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -204,7 +205,7 @@ fn create_index_spec_for_edge_basic() {
 
 #[test]
 fn create_vertex_index_via_gql_ddl() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add some data first
     for age in 20..30 {
@@ -235,7 +236,7 @@ fn create_vertex_index_via_gql_ddl() {
 
 #[test]
 fn create_unique_index_via_gql_ddl() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Parse GQL DDL and create unique index first (before data)
     let ddl = parse_ddl("CREATE UNIQUE INDEX uniq_user_email ON :user(email)");
@@ -270,7 +271,7 @@ fn create_unique_index_via_gql_ddl() {
 
 #[test]
 fn create_edge_index_via_gql_ddl() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add vertices and edges
     let v1 = graph.add_vertex("person", HashMap::new());
@@ -304,7 +305,7 @@ fn create_edge_index_via_gql_ddl() {
 
 #[test]
 fn drop_index_via_gql_ddl() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create an index using the builder API
     graph

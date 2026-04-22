@@ -10,6 +10,8 @@
 //!
 //! Run: `cargo run --example quickstart_gremlin_script --features gremlin`
 
+use std::sync::Arc;
+
 use interstellar::gremlin::{ExecutionResult, VariableContext};
 use interstellar::storage::Graph;
 
@@ -19,7 +21,7 @@ fn main() {
     // -------------------------------------------------------------------------
     // 1. Create an in-memory graph
     // -------------------------------------------------------------------------
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // -------------------------------------------------------------------------
     // 2. Execute a multi-statement script
@@ -69,7 +71,7 @@ fn main() {
     println!("\n-- REPL-Style Workflow --\n");
 
     // Start with a fresh graph for this demo
-    let repl_graph = Graph::new();
+    let repl_graph = Arc::new(Graph::new());
     let mut ctx = VariableContext::new();
 
     // Simulate REPL commands one at a time
@@ -142,7 +144,7 @@ fn main() {
     // -------------------------------------------------------------------------
     println!("\n-- Complex Traversal with Variables --\n");
 
-    let complex_graph = Graph::new();
+    let complex_graph = Arc::new(Graph::new());
 
     let result = complex_graph
         .execute_script(
@@ -178,7 +180,7 @@ fn main() {
     // -------------------------------------------------------------------------
     println!("\n-- Error Handling --\n");
 
-    let error_graph = Graph::new();
+    let error_graph = Arc::new(Graph::new());
 
     // Try to use an undefined variable
     let result = error_graph.execute_script("g.V(undefined_var).toList()");

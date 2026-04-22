@@ -79,14 +79,36 @@ interstellar = { version = "0.1", features = ["full-text"] }
 ```
 
 **Provides:**
-- Full-text property indexes
-- Text search queries
-- Tokenization and stemming
+- Per-property text indexes on the `Graph` (COW backend) for **vertices** and **edges**, with automatic mutation hooks for `add_vertex` / `set_vertex_property` / `remove_vertex` and `add_edge` / `set_edge_property` / `remove_edge`.
+- BM25-ranked top-`k` search via the `search_text(property, query, k)` / `search_text_query(property, &TextQuery, k)` (vertex) and `search_text_e` / `search_text_query_e` (edge) source steps on `CowTraversalSource`.
+- Structured queries: `TextQuery::{Match, MatchAll, Phrase, Prefix, And, Or, Not}`.
+- Per-traverser BM25 scores carried in the traverser sack.
 
 **Dependencies added:**
-- `tantivy` - Full-text search engine
+- `tantivy` 0.25 — full-text search engine.
 
-**Note:** This feature has a known upstream dependency conflict and may require careful dependency management.
+**Limitations:**
+- In-memory `RamDirectory` only — text indexes are not persisted to the mmap backend in this release (planned for Phase 4 of `spec-55`).
+- Property names are globally unique across vertex and edge indexes — you cannot register both `create_text_index_v("body", ...)` and `create_text_index_e("body", ...)` simultaneously.
+- No GQL / Gremlin string-parser surface yet — use the typed Rust API.
+
+**Quick reference:**
+
+```rust
+use std::sync::Arc;
+use interstellar::storage::Graph;
+use interstellar::storage::text::{TextIndexConfig, TextQuery};
+
+let graph = Arc::new(Graph::new());
+graph.create_text_index_v("body", TextIndexConfig::default()).unwrap();
+
+let g = graph.gremlin(Arc::clone(&graph));
+let hits = g.search_text("body", "raft consensus", 10).unwrap().to_value_list();
+```
+
+See the [Full-Text Search guide](../guides/full-text-search.md) and the
+runnable [`quickstart_text_search`](../getting-started/examples.md#quickstart_text_search)
+example for a complete walkthrough.
 
 ## Combining Features
 
@@ -204,11 +226,14 @@ fn main() {
 
 | Capability | inmemory | mmap | full-text |
 |------------|----------|------|-----------|
-| `Graph` | Yes | - | - |
+| `Graph` (COW in-memory) | Yes | - | - |
 | `MmapGraph` | - | Yes | - |
-| Text indexes | - | - | Yes |
-| Persistence | No | Yes | - |
-| Search | - | - | Yes |
+| `PersistentGraph` (COW + mmap) | - | Yes | - |
+| Property indexes (BTree, Unique) | Yes | Yes | - |
+| Text indexes (`create_text_index_v` / `_e`) | - | - | Yes (COW backend only) |
+| `search_text` / `search_text_query` (vertices) | - | - | Yes |
+| `search_text_e` / `search_text_query_e` (edges) | - | - | Yes |
+| Persistence | No | Yes | No (RamDirectory only) |
 
 ## Dependency Tree
 

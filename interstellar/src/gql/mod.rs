@@ -24,9 +24,10 @@
 //! ```rust
 //! use interstellar::prelude::*;
 //! use std::collections::HashMap;
+//! use std::sync::Arc;
 //!
 //! // Create a graph with data
-//! let graph = Graph::new();
+//! let graph = Arc::new(Graph::new());
 //! graph.add_vertex("Person", HashMap::from([
 //!     ("name".to_string(), Value::from("Alice")),
 //!     ("age".to_string(), Value::from(30i64)),
@@ -104,7 +105,8 @@
 //! **Complete pattern example:**
 //! ```rust
 //! # use interstellar::prelude::*;
-//! # let graph = Graph::in_memory();
+//! # use std::sync::Arc;
+//! # let graph = Arc::new(Graph::in_memory());
 //! # let snapshot = graph.snapshot();
 //! let results = graph.gql(r#"
 //!     MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(friend:Person)
@@ -141,7 +143,8 @@
 //! **Examples:**
 //! ```rust
 //! # use interstellar::prelude::*;
-//! # let graph = Graph::in_memory();
+//! # use std::sync::Arc;
+//! # let graph = Arc::new(Graph::in_memory());
 //! # let snapshot = graph.snapshot();
 //! // Numeric comparison
 //! let _ = graph.gql("MATCH (p:Person) WHERE p.age > 25 RETURN p");
@@ -200,7 +203,8 @@
 //! **Examples:**
 //! ```rust
 //! # use interstellar::prelude::*;
-//! # let graph = Graph::in_memory();
+//! # use std::sync::Arc;
+//! # let graph = Arc::new(Graph::in_memory());
 //! # let snapshot = graph.snapshot();
 //! // Return multiple properties as a map
 //! let _ = graph.gql("MATCH (p:Person) RETURN p.name, p.age");
@@ -226,7 +230,8 @@
 //!
 //! ```rust
 //! # use interstellar::prelude::*;
-//! # let graph = Graph::in_memory();
+//! # use std::sync::Arc;
+//! # let graph = Arc::new(Graph::in_memory());
 //! # let snapshot = graph.snapshot();
 //! // Ascending (default)
 //! let _ = graph.gql("MATCH (p:Person) RETURN p ORDER BY p.age");
@@ -248,7 +253,8 @@
 //!
 //! ```rust
 //! # use interstellar::prelude::*;
-//! # let graph = Graph::in_memory();
+//! # use std::sync::Arc;
+//! # let graph = Arc::new(Graph::in_memory());
 //! # let snapshot = graph.snapshot();
 //! // First 10 results
 //! let _ = graph.gql("MATCH (p:Person) RETURN p LIMIT 10");
@@ -261,7 +267,8 @@
 //!
 //! ```rust
 //! # use interstellar::prelude::*;
-//! # let graph = Graph::in_memory();
+//! # use std::sync::Arc;
+//! # let graph = Arc::new(Graph::in_memory());
 //! # let snapshot = graph.snapshot();
 //! let results = graph.gql(r#"
 //!     MATCH (p:Person)-[:KNOWS]->(friend:Person)
@@ -284,8 +291,9 @@
 //! ```rust
 //! use interstellar::prelude::*;
 //! use interstellar::gql::GqlError;
+//! use std::sync::Arc;
 //!
-//! let graph = Graph::in_memory();
+//! let graph = Arc::new(Graph::in_memory());
 //! let snapshot = graph.snapshot();
 //!
 //! match graph.gql("MATCH (n:Person) RETURN x") {
@@ -382,8 +390,9 @@ mod parser;
 
 pub use ast::*;
 pub use compiler::{
-    compile, compile_statement, compile_statement_with_config, compile_statement_with_params,
-    compile_with_config, compile_with_params, CompilerConfig, Parameters,
+    compile, compile_statement, compile_statement_with_config, compile_statement_with_graph,
+    compile_statement_with_params, compile_statement_with_params_and_graph, compile_with_config,
+    compile_with_params, CompilerConfig, Parameters,
 };
 pub use ddl::{create_index_spec, create_index_spec_for_edge, execute_ddl};
 pub use error::{CompileError, GqlError, ParseError, Span};

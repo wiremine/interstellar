@@ -3,6 +3,7 @@
 use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use interstellar::storage::{Graph, PersistentGraph};
@@ -56,7 +57,7 @@ pub fn execute(
 
     // Open or create the database
     let graph = if memory {
-        Graph::new()
+        Arc::new(Graph::new())
     } else {
         let path = path.ok_or_else(|| {
             CliError::invalid_argument(
@@ -89,7 +90,7 @@ pub fn execute(
 
 /// Execute query with a Graph.
 fn execute_with_graph(
-    graph: Graph,
+    graph: Arc<Graph>,
     query_text: Option<String>,
     use_gremlin: bool,
     format: OutputFormat,
@@ -149,7 +150,7 @@ fn execute_with_persistent_graph(
 
 /// Execute a one-shot query with Graph.
 fn execute_one_shot_graph(
-    graph: Graph,
+    graph: Arc<Graph>,
     query: &str,
     use_gremlin: bool,
     format: OutputFormat,
@@ -221,8 +222,8 @@ fn execute_one_shot_graph(
 }
 
 /// Execute Gremlin query with Graph.
-fn execute_gremlin_one_shot_graph(graph: Graph, script: &str, timing: bool) -> Result<()> {
-    let engine = GremlinEngine::new(graph);
+fn execute_gremlin_one_shot_graph(graph: Arc<Graph>, script: &str, timing: bool) -> Result<()> {
+    let engine = GremlinEngine::with_arc(graph);
 
     // Preprocess: remove comment-only lines (# and //)
     let processed: String = script

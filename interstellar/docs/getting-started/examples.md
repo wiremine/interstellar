@@ -14,6 +14,7 @@ cargo run --example quickstart_gql
 # Examples requiring features
 cargo run --example storage --features mmap
 cargo run --example nba --features mmap
+cargo run --example quickstart_text_search --features full-text
 ```
 
 ---
@@ -52,6 +53,27 @@ cargo run --example quickstart_gql
 - Filtering with `WHERE`
 - Returning specific properties
 - Creating data with GQL mutations
+
+### quickstart_text_search
+
+**File:** `examples/quickstart_text_search.rs`
+**Requires:** `full-text` feature
+
+Demonstrates Tantivy-backed full-text search over a small set of articles.
+
+```bash
+cargo run --example quickstart_text_search --features full-text
+```
+
+**What it covers:**
+- Registering a text index on a vertex property
+- Indexing documents via `add_v` (mutation hooks keep the index in sync)
+- BM25-ranked free-text queries with `search_text`
+- Structured queries (`TextQuery::Phrase`, boolean, prefix) with `search_text_query`
+- Chaining search results with regular Gremlin steps (`has_label`, `values`)
+- Updating a document and observing the index change
+
+See also the [Full-Text Search guide](../guides/full-text-search.md).
 
 ---
 

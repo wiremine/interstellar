@@ -63,7 +63,11 @@ impl GremlinEngine {
     }
 
     /// Get a reference to the underlying graph.
-    pub fn graph(&self) -> &Graph {
+    ///
+    /// Returns `&Arc<Graph>` so callers can invoke methods that require
+    /// `self: &Arc<Self>` (e.g. `gql`, `execute_script`). Auto-deref also
+    /// makes plain `&Graph` methods available transparently.
+    pub fn graph(&self) -> &Arc<Graph> {
         &self.graph
     }
 

@@ -20,8 +20,7 @@
 //! let b = graph.add_vertex("person", HashMap::new());
 //! graph.add_edge(a, b, "knows", HashMap::new()).unwrap();
 //!
-//! let snapshot = graph.snapshot();
-//! let visited: Vec<_> = Bfs::new(snapshot, a).collect();
+//! let visited: Vec<_> = Bfs::new(graph.clone(), a).collect();
 //! assert_eq!(visited.len(), 2);
 //! ```
 

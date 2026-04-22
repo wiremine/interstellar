@@ -230,6 +230,22 @@ pub struct Graph {
     /// Indexes are stored separately from state because they are mutable
     /// and don't need snapshot isolation (they always reflect current state).
     indexes: RwLock<HashMap<String, Box<dyn PropertyIndex>>>,
+
+    /// Full-text indexes registered per indexed property name, split by
+    /// element type. The two maps are independent storage but share a
+    /// **global** property-name namespace: a single `property` may appear in
+    /// at most one of them. Cross-map duplicates are rejected at creation.
+    ///
+    /// Stored as `Arc<dyn TextIndex>` so the search path can clone the Arc and
+    /// run the Tantivy query without holding the outer lock. Each
+    /// implementation uses interior mutability for `upsert`/`delete`/`commit`.
+    #[cfg(feature = "full-text")]
+    text_indexes_vertex:
+        RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
+
+    #[cfg(feature = "full-text")]
+    text_indexes_edge:
+        RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
 }
 
 impl Graph {
@@ -248,6 +264,10 @@ impl Graph {
             state: RwLock::new(GraphState::new()),
             schema: RwLock::new(None),
             indexes: RwLock::new(HashMap::new()),
+            #[cfg(feature = "full-text")]
+            text_indexes_vertex: RwLock::new(HashMap::new()),
+            #[cfg(feature = "full-text")]
+            text_indexes_edge: RwLock::new(HashMap::new()),
         }
     }
 
@@ -269,6 +289,25 @@ impl Graph {
     #[inline]
     pub fn in_memory() -> Self {
         Self::new()
+    }
+
+    /// Create a new in-memory graph wrapped in an `Arc`.
+    ///
+    /// Convenience constructor for entry points that require an `Arc<Graph>`,
+    /// such as [`Graph::query`], [`Graph::execute_script`], [`Graph::gql`],
+    /// and [`Graph::gql_with_params`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use interstellar::Graph;
+    ///
+    /// let graph = Graph::new_arc();
+    /// // graph is Arc<Graph>; query/gql methods dispatch through the Arc receiver
+    /// ```
+    #[inline]
+    pub fn new_arc() -> Arc<Self> {
+        Arc::new(Self::new())
     }
 
     /// Create a new in-memory graph with a schema for validation.
@@ -317,6 +356,10 @@ impl Graph {
             state: RwLock::new(GraphState::new()),
             schema: RwLock::new(Some(schema)),
             indexes: RwLock::new(HashMap::new()),
+            #[cfg(feature = "full-text")]
+            text_indexes_vertex: RwLock::new(HashMap::new()),
+            #[cfg(feature = "full-text")]
+            text_indexes_edge: RwLock::new(HashMap::new()),
         }
     }
 
@@ -587,6 +630,220 @@ impl Graph {
     /// Returns whether this storage supports indexes.
     pub fn supports_indexes(&self) -> bool {
         true
+    }
+
+    // =========================================================================
+    // Text Index Operations (full-text feature)
+    // =========================================================================
+
+    /// Register a Tantivy-backed full-text index on the given **vertex**
+    /// property.
+    ///
+    /// Subsequent `add_vertex` / `set_vertex_property` / `remove_vertex` calls
+    /// that touch this property will be reflected in the index. Existing
+    /// vertices that already have a string value at `property` are
+    /// back-filled into the index synchronously before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// - [`TextIndexError::Storage`] (with [`StorageError::IndexError`])
+    ///   if a text index for `property` already exists on **either**
+    ///   vertices or edges (property names are globally unique across both
+    ///   element types).
+    /// - Any error returned by the Tantivy backend during construction or
+    ///   back-fill.
+    #[cfg(feature = "full-text")]
+    pub fn create_text_index_v(
+        &self,
+        property: &str,
+        config: crate::storage::text::TextIndexConfig,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        self.create_text_index_inner(crate::index::ElementType::Vertex, property, config)
+    }
+
+    /// Register a Tantivy-backed full-text index on the given **edge**
+    /// property.
+    ///
+    /// Subsequent `add_edge` / `set_edge_property` / `remove_edge` calls that
+    /// touch this property will be reflected in the index. Existing edges
+    /// that already have a string value at `property` are back-filled into
+    /// the index synchronously before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::create_text_index_v`]. Note in particular that you
+    /// cannot register an edge index for a `property` that already has a
+    /// vertex index (or vice versa).
+    #[cfg(feature = "full-text")]
+    pub fn create_text_index_e(
+        &self,
+        property: &str,
+        config: crate::storage::text::TextIndexConfig,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        self.create_text_index_inner(crate::index::ElementType::Edge, property, config)
+    }
+
+    #[cfg(feature = "full-text")]
+    fn create_text_index_inner(
+        &self,
+        element_type: crate::index::ElementType,
+        property: &str,
+        config: crate::storage::text::TextIndexConfig,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::index::ElementType;
+        use crate::storage::text::{TantivyTextIndex, TextIndex, TextIndexError};
+
+        // Take BOTH locks under a consistent order (vertex first, then edge)
+        // so we can enforce the global property-name uniqueness invariant
+        // without races. We hold both for the duration of construction +
+        // back-fill so no concurrent `create_text_index_*` can squeeze in
+        // between the duplicate check and the insert.
+        let mut vmap = self.text_indexes_vertex.write();
+        let mut emap = self.text_indexes_edge.write();
+
+        if vmap.contains_key(property) || emap.contains_key(property) {
+            return Err(TextIndexError::Storage(StorageError::IndexError(format!(
+                "text index already exists for property `{property}` (property names are \
+                 globally unique across vertex and edge indexes)"
+            ))));
+        }
+
+        let index = TantivyTextIndex::in_memory(element_type, config)?;
+        let arc: std::sync::Arc<dyn TextIndex> = std::sync::Arc::new(index);
+
+        // Back-fill from the corresponding element collection.
+        let state = self.state.read();
+        match element_type {
+            ElementType::Vertex => {
+                for (vid, node) in state.vertices.iter() {
+                    if let Some(Value::String(s)) = node.properties.get(property) {
+                        arc.upsert(vid.0, s.as_str())?;
+                    }
+                }
+            }
+            ElementType::Edge => {
+                for (eid, edge) in state.edges.iter() {
+                    if let Some(Value::String(s)) = edge.properties.get(property) {
+                        arc.upsert(eid.0, s.as_str())?;
+                    }
+                }
+            }
+        }
+        drop(state);
+
+        // Make the back-fill visible to searchers.
+        arc.commit()?;
+
+        match element_type {
+            ElementType::Vertex => {
+                vmap.insert(property.to_string(), arc);
+            }
+            ElementType::Edge => {
+                emap.insert(property.to_string(), arc);
+            }
+        }
+        Ok(())
+    }
+
+    /// Drop the **vertex** text index registered for `property`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::IndexError`] (wrapped in `TextIndexError::Storage`)
+    /// if no vertex text index is registered for `property`.
+    #[cfg(feature = "full-text")]
+    pub fn drop_text_index_v(
+        &self,
+        property: &str,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::storage::text::TextIndexError;
+
+        self.text_indexes_vertex
+            .write()
+            .remove(property)
+            .map(|_| ())
+            .ok_or_else(|| {
+                TextIndexError::Storage(StorageError::IndexError(format!(
+                    "no vertex text index registered for property `{property}`"
+                )))
+            })
+    }
+
+    /// Drop the **edge** text index registered for `property`.
+    #[cfg(feature = "full-text")]
+    pub fn drop_text_index_e(
+        &self,
+        property: &str,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::storage::text::TextIndexError;
+
+        self.text_indexes_edge
+            .write()
+            .remove(property)
+            .map(|_| ())
+            .ok_or_else(|| {
+                TextIndexError::Storage(StorageError::IndexError(format!(
+                    "no edge text index registered for property `{property}`"
+                )))
+            })
+    }
+
+    /// Returns a clone of the `Arc<dyn TextIndex>` registered for `property`
+    /// on **vertices**, or `None` if none is registered.
+    #[cfg(feature = "full-text")]
+    pub fn text_index_v(
+        &self,
+        property: &str,
+    ) -> Option<std::sync::Arc<dyn crate::storage::text::TextIndex>> {
+        self.text_indexes_vertex.read().get(property).cloned()
+    }
+
+    /// Returns a clone of the `Arc<dyn TextIndex>` registered for `property`
+    /// on **edges**, or `None` if none is registered.
+    #[cfg(feature = "full-text")]
+    pub fn text_index_e(
+        &self,
+        property: &str,
+    ) -> Option<std::sync::Arc<dyn crate::storage::text::TextIndex>> {
+        self.text_indexes_edge.read().get(property).cloned()
+    }
+
+    /// Returns `true` iff a vertex text index is registered for `property`.
+    #[cfg(feature = "full-text")]
+    pub fn has_text_index_v(&self, property: &str) -> bool {
+        self.text_indexes_vertex.read().contains_key(property)
+    }
+
+    /// Returns `true` iff an edge text index is registered for `property`.
+    #[cfg(feature = "full-text")]
+    pub fn has_text_index_e(&self, property: &str) -> bool {
+        self.text_indexes_edge.read().contains_key(property)
+    }
+
+    /// Returns the names of all properties that currently have a **vertex**
+    /// text index.
+    #[cfg(feature = "full-text")]
+    pub fn list_text_indexes_v(&self) -> Vec<String> {
+        self.text_indexes_vertex.read().keys().cloned().collect()
+    }
+
+    /// Returns the names of all properties that currently have an **edge**
+    /// text index.
+    #[cfg(feature = "full-text")]
+    pub fn list_text_indexes_e(&self) -> Vec<String> {
+        self.text_indexes_edge.read().keys().cloned().collect()
+    }
+
+    /// Returns the number of registered vertex text indexes.
+    #[cfg(feature = "full-text")]
+    pub fn text_index_count_v(&self) -> usize {
+        self.text_indexes_vertex.read().len()
+    }
+
+    /// Returns the number of registered edge text indexes.
+    #[cfg(feature = "full-text")]
+    pub fn text_index_count_e(&self) -> usize {
+        self.text_indexes_edge.read().len()
     }
 
     // =========================================================================
@@ -1062,6 +1319,142 @@ impl Graph {
     }
 
     // =========================================================================
+    // Text Index Mutation Hooks (full-text feature)
+    // =========================================================================
+
+    /// Update text indexes when a vertex is added.
+    ///
+    /// Iterates over all registered text indexes and upserts the document for
+    /// any index whose property is present (and a `Value::String`) on the new
+    /// vertex. Non-string values are silently ignored — see the spec for
+    /// future strict-mode behavior.
+    #[cfg(feature = "full-text")]
+    fn text_index_vertex_insert(
+        &self,
+        id: VertexId,
+        properties: &HashMap<String, Value>,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_vertex.read();
+        for (prop, idx) in indexes.iter() {
+            if let Some(Value::String(s)) = properties.get(prop) {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Update text indexes when a vertex is removed.
+    ///
+    /// Calls `delete(id)` on every registered text index. The index treats
+    /// deletion of a missing vertex as a no-op, so it is safe to call without
+    /// inspecting the vertex's properties.
+    #[cfg(feature = "full-text")]
+    fn text_index_vertex_remove(
+        &self,
+        id: VertexId,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_vertex.read();
+        for idx in indexes.values() {
+            idx.delete(id.0)?;
+            idx.commit()?;
+        }
+        Ok(())
+    }
+
+    /// Update the text index for a specific property when its value changes
+    /// on a single vertex.
+    ///
+    /// If `new_value` is a `Value::String` and a text index exists for
+    /// `property`, the index entry is upserted. If `new_value` is not a string
+    /// (e.g. the property was overwritten with a non-text value), any
+    /// existing entry is deleted to keep the index consistent.
+    ///
+    /// If no text index is registered for `property`, this is a no-op.
+    #[cfg(feature = "full-text")]
+    fn text_index_property_update(
+        &self,
+        id: VertexId,
+        property: &str,
+        new_value: &Value,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_vertex.read();
+        let Some(idx) = indexes.get(property) else {
+            return Ok(());
+        };
+        match new_value {
+            Value::String(s) => {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()
+            }
+            _ => {
+                idx.delete(id.0)?;
+                idx.commit()
+            }
+        }
+    }
+
+    /// Update edge text indexes when an edge is added.
+    ///
+    /// Mirrors [`Self::text_index_vertex_insert`] for the edge map.
+    #[cfg(feature = "full-text")]
+    fn text_index_edge_insert(
+        &self,
+        id: EdgeId,
+        properties: &HashMap<String, Value>,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_edge.read();
+        for (prop, idx) in indexes.iter() {
+            if let Some(Value::String(s)) = properties.get(prop) {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Update edge text indexes when an edge is removed.
+    ///
+    /// Mirrors [`Self::text_index_vertex_remove`] for the edge map.
+    #[cfg(feature = "full-text")]
+    fn text_index_edge_remove(
+        &self,
+        id: EdgeId,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_edge.read();
+        for idx in indexes.values() {
+            idx.delete(id.0)?;
+            idx.commit()?;
+        }
+        Ok(())
+    }
+
+    /// Update an edge text index for a specific property when its value
+    /// changes on a single edge. Mirrors [`Self::text_index_property_update`].
+    #[cfg(feature = "full-text")]
+    fn text_index_edge_property_update(
+        &self,
+        id: EdgeId,
+        property: &str,
+        new_value: &Value,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_edge.read();
+        let Some(idx) = indexes.get(property) else {
+            return Ok(());
+        };
+        match new_value {
+            Value::String(s) => {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()
+            }
+            _ => {
+                idx.delete(id.0)?;
+                idx.commit()
+            }
+        }
+    }
+
+    // =========================================================================
     // Mutation Operations
     // =========================================================================
 
@@ -1126,6 +1519,15 @@ impl Graph {
 
         // Update property indexes
         self.index_vertex_insert(id, label, &properties);
+
+        // Update text indexes (full-text feature). Errors are intentionally
+        // dropped to keep `add_vertex`'s infallible signature; consistent with
+        // how unique-index errors are handled above. A future strict mode
+        // (see spec-55) may surface these as `Result`-typed mutations.
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_vertex_insert(id, &properties);
+        }
 
         id
     }
@@ -1222,6 +1624,14 @@ impl Graph {
         // Update property indexes
         self.index_edge_insert(edge_id, label, &properties);
 
+        // Update edge text indexes (full-text feature). Errors surface as
+        // `StorageError::IndexError` since `add_edge` already returns Result.
+        #[cfg(feature = "full-text")]
+        {
+            self.text_index_edge_insert(edge_id, &properties)
+                .map_err(|e| StorageError::IndexError(e.to_string()))?;
+        }
+
         Ok(edge_id)
     }
 
@@ -1266,6 +1676,15 @@ impl Graph {
         // Update property indexes
         self.update_vertex_property_in_indexes(id, &label, key, old_value.as_ref(), &value)?;
 
+        // Update text indexes (full-text feature). Surfaces backend errors as
+        // `StorageError::IndexError` since `set_vertex_property` already
+        // returns `Result`.
+        #[cfg(feature = "full-text")]
+        {
+            self.text_index_property_update(id, key, &value)
+                .map_err(|e| StorageError::IndexError(e.to_string()))?;
+        }
+
         Ok(())
     }
 
@@ -1306,6 +1725,13 @@ impl Graph {
 
         // Update property indexes
         self.update_edge_property_in_indexes(id, &label, key, old_value.as_ref(), &value)?;
+
+        // Update edge text indexes (full-text feature).
+        #[cfg(feature = "full-text")]
+        {
+            self.text_index_edge_property_update(id, key, &value)
+                .map_err(|e| StorageError::IndexError(e.to_string()))?;
+        }
 
         Ok(())
     }
@@ -1380,9 +1806,22 @@ impl Graph {
         // Update property indexes - remove vertex
         self.index_vertex_remove(id, &label, &properties);
 
+        // Update text indexes (full-text feature). Errors swallowed to keep
+        // remove semantics: the vertex is already gone from canonical state.
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_vertex_remove(id);
+        }
+
         // Update property indexes - remove edges
         for (edge_id, edge_label, edge_props) in edges_to_remove {
             self.index_edge_remove(edge_id, &edge_label, &edge_props);
+
+            // Update edge text indexes for cascaded edges.
+            #[cfg(feature = "full-text")]
+            {
+                let _ = self.text_index_edge_remove(edge_id);
+            }
         }
 
         Ok(())
@@ -1415,6 +1854,13 @@ impl Graph {
 
         // Update property indexes
         self.index_edge_remove(id, &label, &properties);
+
+        // Update edge text indexes. Errors swallowed: edge is already gone
+        // from canonical state, mirroring vertex remove semantics.
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_edge_remove(id);
+        }
 
         Ok(())
     }
@@ -1487,16 +1933,17 @@ impl Graph {
     /// assert_eq!(results.len(), 1);
     /// ```
     #[cfg(feature = "gql")]
-    pub fn gql(&self, query: &str) -> Result<Vec<Value>, GqlError> {
+    pub fn gql(self: &Arc<Self>, query: &str) -> Result<Vec<Value>, GqlError> {
         let stmt = gql::parse_statement(query)?;
 
         if stmt.is_read_only() {
             // Execute reads against a snapshot
             let snapshot = self.snapshot();
-            gql::compile_statement(&stmt, &snapshot).map_err(GqlError::Compile)
+            gql::compile_statement_with_graph(&stmt, &snapshot, Some(Arc::clone(self)))
+                .map_err(GqlError::Compile)
         } else {
             // Execute mutations against the graph
-            let mut wrapper = GraphMutWrapper { graph: self };
+            let mut wrapper = GraphMutWrapper { graph: self.as_ref() };
             let schema = self.schema();
             gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
                 .map_err(|e| GqlError::Mutation(e.to_string()))
@@ -1529,7 +1976,7 @@ impl Graph {
     /// ```
     #[cfg(feature = "gql")]
     pub fn gql_with_params(
-        &self,
+        self: &Arc<Self>,
         query: &str,
         params: &gql::Parameters,
     ) -> Result<Vec<Value>, GqlError> {
@@ -1538,7 +1985,13 @@ impl Graph {
         if stmt.is_read_only() {
             // Execute reads against a snapshot
             let snapshot = self.snapshot();
-            gql::compile_statement_with_params(&stmt, &snapshot, params).map_err(GqlError::Compile)
+            gql::compile_statement_with_params_and_graph(
+                &stmt,
+                &snapshot,
+                params,
+                Some(Arc::clone(self)),
+            )
+            .map_err(GqlError::Compile)
         } else {
             // Mutations with parameters not yet supported
             Err(GqlError::Mutation(
@@ -1751,10 +2204,17 @@ impl Graph {
     ///
     /// Returns a [`GremlinError`] if the query fails to parse or compile.
     pub fn query(
-        &self,
+        self: &Arc<Self>,
         query: &str,
     ) -> Result<crate::gremlin::ExecutionResult, crate::gremlin::GremlinError> {
-        self.snapshot().query(query)
+        let snapshot = self.snapshot();
+        let ast = crate::gremlin::parse(query)?;
+        let g = crate::traversal::GraphTraversalSource::from_snapshot_with_graph(
+            &snapshot,
+            Arc::clone(self),
+        );
+        let compiled = crate::gremlin::compile(&ast, &g)?;
+        Ok(compiled.execute())
     }
 
     /// Execute a Gremlin query string with mutation support.
@@ -1912,8 +2372,9 @@ impl Graph {
     /// ```rust
     /// use interstellar::prelude::*;
     /// use interstellar::gremlin::{ExecutionResult, ScriptResult};
+    /// use std::sync::Arc;
     ///
-    /// let graph = Graph::new();
+    /// let graph = Arc::new(Graph::new());
     ///
     /// // Execute a multi-statement script with variable assignments
     /// let result = graph.execute_script(r#"
@@ -1943,7 +2404,7 @@ impl Graph {
     /// - A variable reference cannot be resolved
     #[cfg(feature = "gremlin")]
     pub fn execute_script(
-        &self,
+        self: &Arc<Self>,
         script: &str,
     ) -> Result<crate::gremlin::ScriptResult, crate::gremlin::GremlinError> {
         self.execute_script_with_context(script, crate::gremlin::VariableContext::new())
@@ -1958,8 +2419,9 @@ impl Graph {
     /// ```rust
     /// use interstellar::prelude::*;
     /// use interstellar::gremlin::{ExecutionResult, ScriptResult, VariableContext};
+    /// use std::sync::Arc;
     ///
-    /// let graph = Graph::new();
+    /// let graph = Arc::new(Graph::new());
     /// let mut ctx = VariableContext::new();
     ///
     /// // First REPL command
@@ -1989,7 +2451,7 @@ impl Graph {
     /// - A variable reference cannot be resolved
     #[cfg(feature = "gremlin")]
     pub fn execute_script_with_context(
-        &self,
+        self: &Arc<Self>,
         script: &str,
         context: crate::gremlin::VariableContext,
     ) -> Result<crate::gremlin::ScriptResult, crate::gremlin::GremlinError> {
@@ -2009,7 +2471,10 @@ impl Graph {
                 } => {
                     // Compile and execute the traversal
                     let snapshot = self.snapshot();
-                    let g = snapshot.gremlin();
+                    let g = crate::traversal::GraphTraversalSource::from_snapshot_with_graph(
+                        &snapshot,
+                        Arc::clone(self),
+                    );
                     let compiled = crate::gremlin::compile_with_vars(traversal, &g, &ctx)?;
                     let terminal = compiled.terminal().cloned();
                     let raw_values = compiled.traversal.to_list();
@@ -2050,7 +2515,10 @@ impl Graph {
                 Statement::Traversal { traversal, .. } => {
                     // Compile and execute the traversal
                     let snapshot = self.snapshot();
-                    let g = snapshot.gremlin();
+                    let g = crate::traversal::GraphTraversalSource::from_snapshot_with_graph(
+                        &snapshot,
+                        Arc::clone(self),
+                    );
                     let compiled = crate::gremlin::compile_with_vars(traversal, &g, &ctx)?;
                     let terminal = compiled.terminal().cloned();
                     let raw_values = compiled.traversal.to_list();
@@ -2276,6 +2744,119 @@ impl<'g> CowTraversalSource<'g> {
         vertex: impl IntoVertexId,
     ) -> CowBoundTraversal<'g, (), Value, VertexMarker> {
         self.v_id(vertex.into_vertex_id())
+    }
+
+    /// Start traversal from the top-`k` vertices matching a full-text query string.
+    ///
+    /// Looks up the text index registered for `property`, parses `query` using
+    /// the index's configured analyzer, and seeds the traversal with the matching
+    /// vertex IDs. Each emitted traverser carries its BM25 relevance score in its
+    /// sack (retrievable via `Traverser::get_sack::<f32>()`).
+    ///
+    /// Returns an error if no text index is registered for `property`, or if the
+    /// underlying search fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let scored = g.search_text("body", "graph database", 10)?
+    ///     .has_label("article")
+    ///     .to_list();
+    /// ```
+    #[cfg(feature = "full-text")]
+    pub fn search_text(
+        &self,
+        property: &str,
+        query: &str,
+        k: usize,
+    ) -> Result<CowBoundTraversal<'g, (), Value, VertexMarker>, crate::storage::text::TextIndexError>
+    {
+        use crate::storage::text::TextQuery;
+        self.search_text_query(property, &TextQuery::Match(query.to_string()), k)
+    }
+
+    /// Start traversal from the top-`k` vertices matching a structured [`TextQuery`].
+    ///
+    /// Same as [`Self::search_text`] but accepts a pre-built [`TextQuery`] for
+    /// callers that need phrase, boolean, or fuzzy queries.
+    #[cfg(feature = "full-text")]
+    pub fn search_text_query(
+        &self,
+        property: &str,
+        query: &crate::storage::text::TextQuery,
+        k: usize,
+    ) -> Result<CowBoundTraversal<'g, (), Value, VertexMarker>, crate::storage::text::TextIndexError>
+    {
+        let index = self.graph.text_index_v(property).ok_or_else(|| {
+            crate::storage::text::TextIndexError::Storage(
+                crate::error::StorageError::IndexError(format!(
+                    "no vertex text index registered for property {property:?}"
+                )),
+            )
+        })?;
+        let hits = index.search(query, k)?;
+        let scored: Vec<(VertexId, f32)> = hits
+            .into_iter()
+            .filter_map(|h| h.element.as_vertex().map(|v| (v, h.score)))
+            .collect();
+        Ok(CowBoundTraversal::new_typed(
+            self.graph,
+            Arc::clone(&self.graph_arc),
+            Traversal::with_source(TraversalSource::VerticesWithTextScore(scored)),
+        ))
+    }
+
+    /// Start traversal from the top-`k` **edges** matching a free-text query
+    /// against the edge text index registered for `property`.
+    ///
+    /// Mirrors [`Self::search_text`] but for edges. The returned traversal is
+    /// typed as [`EdgeMarker`] so subsequent steps see edges rather than
+    /// vertices. Each emitted traverser carries its BM25 score in its sack
+    /// (readable via `Traverser::get_sack::<f32>()`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no **edge** text index is registered for
+    /// `property`, or if the underlying search fails.
+    #[cfg(feature = "full-text")]
+    pub fn search_text_e(
+        &self,
+        property: &str,
+        query: &str,
+        k: usize,
+    ) -> Result<CowBoundTraversal<'g, (), Value, EdgeMarker>, crate::storage::text::TextIndexError>
+    {
+        use crate::storage::text::TextQuery;
+        self.search_text_query_e(property, &TextQuery::Match(query.to_string()), k)
+    }
+
+    /// Start traversal from the top-`k` **edges** matching a structured
+    /// [`TextQuery`]. Mirrors [`Self::search_text_query`] for edges.
+    #[cfg(feature = "full-text")]
+    pub fn search_text_query_e(
+        &self,
+        property: &str,
+        query: &crate::storage::text::TextQuery,
+        k: usize,
+    ) -> Result<CowBoundTraversal<'g, (), Value, EdgeMarker>, crate::storage::text::TextIndexError>
+    {
+        let index = self.graph.text_index_e(property).ok_or_else(|| {
+            crate::storage::text::TextIndexError::Storage(
+                crate::error::StorageError::IndexError(format!(
+                    "no edge text index registered for property {property:?}"
+                )),
+            )
+        })?;
+        let hits = index.search(query, k)?;
+        let scored: Vec<(EdgeId, f32)> = hits
+            .into_iter()
+            .filter_map(|h| h.element.as_edge().map(|e| (e, h.score)))
+            .collect();
+        Ok(CowBoundTraversal::new_typed(
+            self.graph,
+            Arc::clone(&self.graph_arc),
+            Traversal::with_source(TraversalSource::EdgesWithTextScore(scored)),
+        ))
     }
 
     /// Start traversal from all edges.

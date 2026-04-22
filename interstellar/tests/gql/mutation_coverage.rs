@@ -3,6 +3,7 @@
 //! These tests target uncovered branches and edge cases in mutation execution.
 
 #![allow(unused_variables)]
+use std::sync::Arc;
 use std::collections::HashMap;
 
 use interstellar::gql::{
@@ -18,8 +19,8 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with vertices and edges.
-fn create_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     let alice_id = graph.add_vertex(
         "Person",
@@ -87,7 +88,7 @@ fn execute_gql(
 
 #[test]
 fn test_execute_mutation_with_query_statement_error() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Parse a read query (not a mutation)
@@ -110,7 +111,7 @@ fn test_execute_mutation_with_query_statement_error() {
 
 #[test]
 fn test_execute_mutation_with_ddl_statement_error() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Parse a DDL statement (must have parentheses for properties)
@@ -130,7 +131,7 @@ fn test_execute_mutation_with_ddl_statement_error() {
 
 #[test]
 fn test_execute_mutation_with_schema_ddl_error() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
@@ -159,7 +160,7 @@ fn test_execute_mutation_with_schema_ddl_error() {
 
 #[test]
 fn test_create_vertex_with_schema_validation() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
@@ -198,7 +199,7 @@ fn test_set_edge_property_with_schema() {
 
 #[test]
 fn test_create_edge_with_schema_validation() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
     let schema = SchemaBuilder::new()
         .mode(ValidationMode::Strict)
@@ -260,7 +261,7 @@ fn test_match_bidirectional_edge() {
 
 #[test]
 fn test_match_with_is_null_expression() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Create vertex with and without a property
@@ -293,7 +294,7 @@ fn test_match_with_is_null_expression() {
 
 #[test]
 fn test_match_with_is_not_null_expression() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
@@ -492,7 +493,7 @@ fn test_match_with_not_equal() {
 
 #[test]
 fn test_return_multiple_items() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     let results = execute_gql(
@@ -515,7 +516,7 @@ fn test_return_multiple_items() {
 
 #[test]
 fn test_return_with_alias() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     let results = execute_gql(
@@ -536,7 +537,7 @@ fn test_return_with_alias() {
 
 #[test]
 fn test_return_empty_items() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Create without return clause
@@ -608,7 +609,7 @@ fn test_remove_edge_property() {
 
 #[test]
 fn test_merge_creates_when_no_match() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     let result = execute_gql(
@@ -692,7 +693,7 @@ fn test_detach_delete_unbound_variable_error() {
 
 #[test]
 fn test_create_vertex_missing_label_error() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // This should fail because anonymous vertex needs a label
@@ -753,7 +754,7 @@ fn test_create_edge_between_matched_vertices() {
 
 #[test]
 fn test_create_incoming_edge() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Create vertices and incoming edge
@@ -773,7 +774,7 @@ fn test_create_incoming_edge() {
 
 #[test]
 fn test_create_with_edge_variable() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     // Create edge with variable and return it
@@ -831,7 +832,7 @@ fn test_detach_delete_removes_all_edges() {
 
 #[test]
 fn test_match_with_float_comparison() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
@@ -859,7 +860,7 @@ fn test_match_with_float_comparison() {
 
 #[test]
 fn test_float_arithmetic() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
@@ -883,7 +884,7 @@ fn test_float_arithmetic() {
 
 #[test]
 fn test_int_float_mixed_comparison() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
@@ -905,7 +906,7 @@ fn test_int_float_mixed_comparison() {
 
 #[test]
 fn test_int_float_mixed_arithmetic() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
@@ -950,7 +951,7 @@ fn test_string_comparison() {
 
 #[test]
 fn test_division_by_zero_int() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(
@@ -969,7 +970,7 @@ fn test_division_by_zero_int() {
 
 #[test]
 fn test_modulo_by_zero() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let mut storage = graph.as_storage_mut();
 
     storage.add_vertex(

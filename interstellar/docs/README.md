@@ -34,6 +34,7 @@ Practical guides for common tasks:
 - [Graph Modeling](guides/graph-modeling.md) - Schema design best practices
 - [Querying](guides/querying.md) - Query patterns and techniques
 - [Mutations](guides/mutations.md) - Adding, updating, and deleting data
+- [Full-Text Search](guides/full-text-search.md) - Tantivy-backed text indexes (`full-text` feature)
 - [Performance](guides/performance.md) - Optimization and tuning
 - [Testing](guides/testing.md) - Testing graph-based code
 
@@ -58,6 +59,7 @@ Detailed reference material:
 | Query with SQL-like syntax | [GQL API](api/gql.md) |
 | Use persistent storage | [Storage Backends](concepts/storage-backends.md) |
 | Improve query performance | [Performance Guide](guides/performance.md) |
+| Add full-text search | [Full-Text Search](guides/full-text-search.md) |
 
 ---
 

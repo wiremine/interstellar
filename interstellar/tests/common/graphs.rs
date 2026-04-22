@@ -14,6 +14,7 @@
 //! - `GraphSnapshot` - Immutable snapshot for read operations
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use interstellar::storage::{Graph, GraphSnapshot, GraphStorage};
 use interstellar::value::{EdgeId, Value, VertexId};
@@ -27,7 +28,7 @@ use interstellar::value::{EdgeId, Value, VertexId};
 /// - Aggregations
 #[allow(dead_code)]
 pub struct TestGraph {
-    pub graph: Graph,
+    pub graph: Arc<Graph>,
     // Person vertices
     pub alice: VertexId,
     pub bob: VertexId,
@@ -72,7 +73,7 @@ impl TestGraph {
 ///     .build();
 /// ```
 pub struct TestGraphBuilder {
-    graph: Graph,
+    graph: Arc<Graph>,
     vertices: Vec<VertexId>,
 }
 
@@ -80,7 +81,7 @@ pub struct TestGraphBuilder {
 impl TestGraphBuilder {
     pub fn new() -> Self {
         TestGraphBuilder {
-            graph: Graph::new(),
+            graph: Arc::new(Graph::new()),
             vertices: Vec::new(),
         }
     }
@@ -153,7 +154,7 @@ impl TestGraphBuilder {
     }
 
     /// Build the graph and return it.
-    pub fn build(self) -> Graph {
+    pub fn build(self) -> Arc<Graph> {
         self.graph
     }
 
@@ -178,8 +179,8 @@ impl Default for TestGraphBuilder {
 
 /// Creates an empty graph for testing edge cases.
 #[allow(dead_code)]
-pub fn create_empty_graph() -> Graph {
-    Graph::new()
+pub fn create_empty_graph() -> Arc<Graph> {
+    Arc::new(Graph::new())
 }
 
 /// Creates a small test graph with 4 vertices and 5 edges.
@@ -212,7 +213,7 @@ pub fn create_empty_graph() -> Graph {
 /// - Bob -[uses]-> GraphDB (skill="beginner")
 /// - Charlie -[knows]-> Alice (since=2019) - creates cycle
 pub fn create_small_graph() -> TestGraph {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add vertices with properties
     let alice = graph.add_vertex("person", {
@@ -306,7 +307,7 @@ pub fn create_small_graph() -> TestGraph {
 /// - Redis (software): name="Redis", version=7.0
 /// - Charlie -[created]-> Redis edge
 pub fn create_medium_graph() -> TestGraph {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add person vertices with status property (used by branch tests)
     let alice = graph.add_vertex("person", {
@@ -403,7 +404,7 @@ pub fn create_medium_graph() -> TestGraph {
 /// - 2 software: GraphDB, Redis
 /// - Multiple relationship types: knows, created, uses
 pub fn create_social_graph() -> TestGraph {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // People
     let alice = graph.add_vertex("person", {
@@ -524,8 +525,8 @@ pub fn create_social_graph() -> TestGraph {
 ///
 /// Uses PascalCase labels (Person, Company) matching GQL conventions.
 /// Includes Person and Company vertices for label filtering tests.
-pub fn create_gql_test_graph() -> Graph {
-    let graph = Graph::new();
+pub fn create_gql_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     // Create Person vertices
     let mut alice_props = HashMap::new();
@@ -578,7 +579,7 @@ pub fn create_gql_test_graph() -> Graph {
 /// Edges use "reports_to" label (child -> parent direction).
 #[allow(dead_code)]
 pub struct OrgTestGraph {
-    pub graph: Graph,
+    pub graph: Arc<Graph>,
     pub ceo: VertexId,
     pub cto: VertexId,
     pub cfo: VertexId,
@@ -608,7 +609,7 @@ impl OrgTestGraph {
 /// Creates an organizational hierarchy for testing recursive patterns.
 #[allow(dead_code)]
 pub fn create_org_graph() -> OrgTestGraph {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Level 0: CEO
     let ceo = graph.add_vertex("employee", {
@@ -792,8 +793,8 @@ pub fn create_org_graph() -> OrgTestGraph {
 /// let graph = create_dense_graph(100, 0.2); // 100 vertices, ~20 edges each
 /// ```
 #[allow(dead_code)]
-pub fn create_dense_graph(vertex_count: usize, edges_per_vertex: usize) -> Graph {
-    let graph = Graph::new();
+pub fn create_dense_graph(vertex_count: usize, edges_per_vertex: usize) -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
     let mut ids = Vec::with_capacity(vertex_count);
 
     // Create vertices
@@ -831,8 +832,8 @@ pub fn create_dense_graph(vertex_count: usize, edges_per_vertex: usize) -> Graph
 /// - Missing properties (some vertices lack certain keys)
 /// - Lists and Maps as property values
 #[allow(dead_code)]
-pub fn create_property_test_graph() -> Graph {
-    let graph = Graph::new();
+pub fn create_property_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     // Vertex with all property types
     graph.add_vertex("complete", {
@@ -968,8 +969,8 @@ pub fn create_property_test_graph() -> Graph {
 /// let graph = create_large_graph(10_000, 5); // 10k vertices, ~50k edges
 /// ```
 #[allow(dead_code)]
-pub fn create_large_graph(vertex_count: usize, edges_per_vertex: usize) -> Graph {
-    let graph = Graph::new();
+pub fn create_large_graph(vertex_count: usize, edges_per_vertex: usize) -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
     let mut ids = Vec::with_capacity(vertex_count);
 
     // Create vertices with varied properties
@@ -1037,8 +1038,8 @@ pub type CowTestGraph = TestGraph;
 /// Deprecated: Use `create_empty_graph()` instead - now uses COW semantics.
 #[deprecated(note = "Use create_empty_graph() instead")]
 #[allow(dead_code)]
-pub fn create_empty_cow_graph() -> Graph {
-    Graph::new()
+pub fn create_empty_cow_graph() -> Arc<Graph> {
+    Arc::new(Graph::new())
 }
 
 /// Creates a small COW test graph with 4 vertices and 5 edges.
@@ -1055,7 +1056,7 @@ pub fn create_small_cow_graph() -> TestGraph {
 /// Deprecated: Use `create_gql_test_graph()` instead - now uses COW semantics.
 #[deprecated(note = "Use create_gql_test_graph() instead")]
 #[allow(dead_code)]
-pub fn create_gql_cow_test_graph() -> Graph {
+pub fn create_gql_cow_test_graph() -> Arc<Graph> {
     create_gql_test_graph()
 }
 
@@ -1130,7 +1131,7 @@ mod tests {
 
     #[test]
     fn snapshot_is_owned_and_independent() {
-        let graph = Graph::new();
+        let graph = Arc::new(Graph::new());
         let alice = graph.add_vertex("person", {
             let mut props = HashMap::new();
             props.insert("name".to_string(), Value::String("Alice".to_string()));

@@ -73,6 +73,9 @@ pub mod mmap;
 #[cfg(feature = "mmap")]
 pub mod cow_mmap;
 
+#[cfg(feature = "full-text")]
+pub mod text;
+
 // Re-export primary types (new names)
 pub use cow::{BatchContext, BatchError, Graph, GraphMutWrapper, GraphSnapshot, GraphState};
 

@@ -10,11 +10,12 @@
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
+use std::sync::Arc;
 use std::collections::HashMap;
 
 /// Helper to create a test graph with sample data
-fn create_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -43,8 +44,8 @@ fn create_test_graph() -> Graph {
 }
 
 /// Helper to create a test graph with edges for traversal tests
-fn create_graph_with_edges() -> Graph {
-    let graph = Graph::new();
+fn create_graph_with_edges() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     let mut alice_props = HashMap::new();
     alice_props.insert("name".to_string(), Value::from("Alice"));
@@ -347,7 +348,7 @@ fn test_gql_return_property_from_traversal() {
 
 #[test]
 fn test_gql_return_undefined_variable_in_property() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let snapshot = graph.snapshot();
 
     let result = graph.gql("MATCH (n:Person) RETURN x.name");

@@ -345,10 +345,7 @@ impl JsGraph {
     /// @returns GraphSON 3.0 formatted JSON string
     #[napi(js_name = "toGraphSON")]
     pub fn to_graphson(&self) -> Result<String> {
-        self.backend.with_snapshot(|snapshot| {
-            interstellar::graphson::to_graphson_string(snapshot)
-                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
-        })
+        self.backend.to_graphson_string()
     }
 
     /// Import graph data from a GraphSON JSON string.

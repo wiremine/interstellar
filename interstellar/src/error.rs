@@ -514,6 +514,21 @@ pub enum StorageError {
     #[error("index error: {0}")]
     IndexError(String),
 
+    /// An optional storage operation is not supported by this backend.
+    ///
+    /// Returned by default-implementation hooks on `GraphStorage` (and similar
+    /// trait-method shims) when a particular backend does not implement the
+    /// optional capability. For example, an in-memory backend that has not
+    /// been compiled with the `full-text` feature returns this from
+    /// `create_text_index`.
+    ///
+    /// # Recovery
+    ///
+    /// - Use a backend that supports the capability
+    /// - Enable the relevant Cargo feature (e.g. `full-text`)
+    #[error("operation not supported by this storage backend")]
+    Unsupported,
+
     /// The file version is incompatible with this library.
     ///
     /// This occurs when opening a database created with a different

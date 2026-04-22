@@ -14,6 +14,7 @@
 //! - Edge variable patterns
 
 #![allow(unused_variables)]
+use std::sync::Arc;
 use std::collections::HashMap;
 
 use interstellar::gql::{
@@ -28,8 +29,8 @@ use interstellar::value::Value;
 // =============================================================================
 
 /// Creates a test graph with Person and Software vertices plus edges.
-fn create_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     // Add Person vertices
     let alice = graph.add_vertex(
@@ -689,7 +690,7 @@ fn test_unwind_inline_list() {
 #[test]
 fn test_unwind_property_list() {
     // Create a graph with a list property for UNWIND testing
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     graph.add_vertex(
         "Person",
         HashMap::from([

@@ -10,6 +10,7 @@
 use interstellar::gql::{parse, parse_statement, Statement};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
+use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
@@ -17,8 +18,8 @@ use std::collections::{HashMap, HashSet};
 // =============================================================================
 
 /// Helper to create a graph for UNION tests
-fn create_union_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_union_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     // Create TypeA vertices
     let mut props = HashMap::new();
@@ -51,8 +52,8 @@ fn create_union_test_graph() -> Graph {
 }
 
 /// Helper to create a graph for OPTIONAL MATCH tests
-fn create_optional_match_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_optional_match_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     // Create players
     let mut props = HashMap::new();
@@ -90,8 +91,8 @@ fn create_optional_match_test_graph() -> Graph {
 }
 
 /// Helper to create a basic test graph
-fn create_test_graph() -> Graph {
-    let graph = Graph::new();
+fn create_test_graph() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -112,8 +113,8 @@ fn create_test_graph() -> Graph {
 }
 
 /// Helper to create a graph with edges for path tests
-fn create_graph_with_edges() -> Graph {
-    let graph = Graph::new();
+fn create_graph_with_edges() -> Arc<Graph> {
+    let graph = Arc::new(Graph::new());
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -291,7 +292,7 @@ fn test_gql_union_all_keeps_duplicates() {
 /// Test UNION with WHERE clauses
 #[test]
 fn test_gql_union_with_where() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Add people with ages
     let people = vec![
@@ -378,7 +379,7 @@ fn test_gql_union_combined_single_query_ordering() {
 /// Test UNION with multiple return columns
 #[test]
 fn test_gql_union_multiple_columns() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -418,7 +419,7 @@ fn test_gql_union_multiple_columns() {
 /// Test UNION deduplication with identical rows
 #[test]
 fn test_gql_union_deduplicates_identical_rows() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create two vertices with the same name but different labels
     let mut props = HashMap::new();
@@ -449,7 +450,7 @@ fn test_gql_union_deduplicates_identical_rows() {
 /// Test UNION ALL keeps identical rows
 #[test]
 fn test_gql_union_all_keeps_identical_rows() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create two vertices with the same name but different labels
     let mut props = HashMap::new();
@@ -541,7 +542,7 @@ fn test_gql_union_both_empty() {
 /// Test triple UNION
 #[test]
 fn test_gql_triple_union() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create vertices with three labels
     let mut props = HashMap::new();
@@ -995,7 +996,7 @@ fn test_gql_path_function_multi_hop() {
 /// Test UNWIND with list property
 #[test]
 fn test_gql_unwind_list() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a vertex with a list property
     let mut props = HashMap::new();
@@ -1041,7 +1042,7 @@ fn test_gql_unwind_list() {
 /// Test UNWIND with null produces no rows
 #[test]
 fn test_gql_unwind_null_produces_no_rows() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // Create a vertex without the list property
     let mut props = HashMap::new();
@@ -1067,7 +1068,7 @@ fn test_gql_unwind_null_produces_no_rows() {
 /// Test UNWIND non-list wraps in single-element list
 #[test]
 fn test_gql_unwind_non_list_wraps() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -1094,7 +1095,7 @@ fn test_gql_unwind_non_list_wraps() {
 /// Test multiple UNWIND clauses
 #[test]
 fn test_gql_multiple_unwind() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));
@@ -1184,7 +1185,7 @@ fn test_gql_unwind_inline_list() {
 /// Test UNWIND with WHERE filter
 #[test]
 fn test_gql_unwind_with_where() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     let mut props = HashMap::new();
     props.insert("name".to_string(), Value::from("Alice"));

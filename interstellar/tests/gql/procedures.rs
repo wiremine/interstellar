@@ -8,11 +8,12 @@
 use interstellar::gql::{compile, parse};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
+use std::sync::Arc;
 use std::collections::HashMap;
 
 /// Create a simple chain: A -> B -> C -> D with weighted edges
-fn create_chain_graph() -> (Graph, Vec<VertexId>) {
-    let graph = Graph::new();
+fn create_chain_graph() -> (Arc<Graph>, Vec<VertexId>) {
+    let graph = Arc::new(Graph::new());
     let mut ids = Vec::new();
     for i in 0..4 {
         let mut props = HashMap::new();
@@ -63,7 +64,7 @@ fn test_shortest_path_procedure() {
 
 #[test]
 fn test_shortest_path_no_path() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     let a = graph.add_vertex("Node", HashMap::new());
     let b = graph.add_vertex("Node", HashMap::new());
     let snapshot = graph.snapshot();
@@ -161,7 +162,7 @@ fn test_bfs_procedure() {
 
 #[test]
 fn test_unknown_procedure() {
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
     graph.add_vertex("Node", HashMap::new());
     let snapshot = graph.snapshot();
 

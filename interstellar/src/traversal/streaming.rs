@@ -282,6 +282,34 @@ impl StreamingExecutor {
                 }
                 t
             })),
+            #[cfg(feature = "full-text")]
+            Some(TraversalSource::VerticesWithTextScore(hits)) => {
+                let storage_clone = storage.clone();
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    storage_clone.get_vertex(id).map(|_| {
+                        let mut t = Traverser::new(Value::Vertex(id));
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
+            #[cfg(feature = "full-text")]
+            Some(TraversalSource::EdgesWithTextScore(hits)) => {
+                let storage_clone = storage.clone();
+                Box::new(hits.into_iter().filter_map(move |(id, score)| {
+                    storage_clone.get_edge(id).map(|_| {
+                        let mut t = Traverser::new(Value::Edge(id));
+                        t.set_sack(score);
+                        if track_paths {
+                            t.extend_path_unlabeled();
+                        }
+                        t
+                    })
+                }))
+            }
             None => Box::new(std::iter::empty()),
         }
     }

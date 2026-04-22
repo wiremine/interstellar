@@ -613,6 +613,23 @@ pub enum TraversalSource {
     Edges(Vec<EdgeId>),
     /// Inject arbitrary values
     Inject(Vec<Value>),
+    /// Start from vertices produced by a full-text search, each carrying its
+    /// BM25 relevance score in the traverser's sack as `f32`.
+    ///
+    /// Used by `Graph::search_text` and `Graph::search_text_query` to seed a
+    /// traversal with scored results without leaking the index handle into
+    /// the executor. Downstream steps can read the score via
+    /// `Traverser::get_sack::<f32>()` (or via `__::text_score()` once the
+    /// anonymous-traversal helper lands).
+    #[cfg(feature = "full-text")]
+    VerticesWithTextScore(Vec<(VertexId, f32)>),
+    /// Start from edges produced by a full-text search, each carrying its
+    /// BM25 relevance score in the traverser's sack as `f32`. Mirrors
+    /// [`Self::VerticesWithTextScore`] but for edge text indexes.
+    ///
+    /// Used by `Graph::search_text_e` and `Graph::search_text_query_e`.
+    #[cfg(feature = "full-text")]
+    EdgesWithTextScore(Vec<(EdgeId, f32)>),
 }
 
 // -----------------------------------------------------------------------------

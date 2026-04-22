@@ -98,7 +98,7 @@ fn escape_csv(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use interstellar::value::ValueMap;
 
     #[test]
     fn test_format_empty() {
@@ -124,11 +124,11 @@ mod tests {
 
     #[test]
     fn test_format_map_values() {
-        let mut map1 = HashMap::new();
+        let mut map1 = ValueMap::new();
         map1.insert("name".to_string(), Value::String("Alice".to_string()));
         map1.insert("age".to_string(), Value::Int(30));
 
-        let mut map2 = HashMap::new();
+        let mut map2 = ValueMap::new();
         map2.insert("name".to_string(), Value::String("Bob".to_string()));
         map2.insert("age".to_string(), Value::Int(25));
 

@@ -4,13 +4,15 @@
 //!
 //! Run: `cargo run --example quickstart_gql`
 
+use std::sync::Arc;
+
 use interstellar::storage::Graph;
 use interstellar::value::Value;
 use interstellar::ValueMap;
 
 fn main() {
     println!("=== Interstellar GQL Quickstart ===\n");
-    let graph = Graph::new();
+    let graph = Arc::new(Graph::new());
 
     // CREATE vertices and edges
     println!("## CREATE Vertices and Edges\n");

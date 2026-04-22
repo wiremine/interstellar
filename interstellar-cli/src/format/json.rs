@@ -66,7 +66,7 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use interstellar::value::ValueMap;
 
     #[test]
     fn test_format_empty() {
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_format_map() {
-        let mut map = HashMap::new();
+        let mut map = ValueMap::new();
         map.insert("name".to_string(), Value::String("Alice".to_string()));
         map.insert("age".to_string(), Value::Int(30));
 
