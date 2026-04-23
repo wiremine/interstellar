@@ -11,8 +11,8 @@
 #![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // =============================================================================
 // EXISTS Expression Tests
@@ -258,7 +258,9 @@ fn test_gql_parse_exists_expression() {
     // The where clause should contain an EXISTS expression
     let where_clause = ast.where_clause.unwrap();
     match where_clause.expression {
-        interstellar::gql::Expression::Exists { negated, pattern, .. } => {
+        interstellar::gql::Expression::Exists {
+            negated, pattern, ..
+        } => {
             assert!(!negated);
             assert!(!pattern.elements.is_empty());
         }
@@ -288,14 +290,18 @@ fn test_gql_parse_not_exists_expression() {
         interstellar::gql::Expression::UnaryOp { op, expr } => {
             assert!(matches!(op, interstellar::gql::UnaryOperator::Not));
             match *expr {
-                interstellar::gql::Expression::Exists { negated, pattern, .. } => {
+                interstellar::gql::Expression::Exists {
+                    negated, pattern, ..
+                } => {
                     assert!(!negated);
                     assert!(!pattern.elements.is_empty());
                 }
                 _ => panic!("Expected EXISTS expression inside NOT"),
             }
         }
-        interstellar::gql::Expression::Exists { negated, pattern, .. } => {
+        interstellar::gql::Expression::Exists {
+            negated, pattern, ..
+        } => {
             // Alternative: if grammar is changed to support NOT directly
             assert!(negated);
             assert!(!pattern.elements.is_empty());

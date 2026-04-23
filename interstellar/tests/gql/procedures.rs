@@ -8,8 +8,8 @@
 use interstellar::gql::{compile, parse};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Create a simple chain: A -> B -> C -> D with weighted edges
 fn create_chain_graph() -> (Arc<Graph>, Vec<VertexId>) {
@@ -23,9 +23,7 @@ fn create_chain_graph() -> (Arc<Graph>, Vec<VertexId>) {
     for i in 0..3 {
         let mut props = HashMap::new();
         props.insert("weight".to_string(), Value::from((i + 1) as i64));
-        graph
-            .add_edge(ids[i], ids[i + 1], "LINK", props)
-            .unwrap();
+        graph.add_edge(ids[i], ids[i + 1], "LINK", props).unwrap();
     }
     (graph, ids)
 }

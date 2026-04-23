@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::error::StorageError;
 use crate::index::IndexError;
 use crate::index::PropertyIndex;
-use crate::index::{BTreeIndex, UniqueIndex};
+use crate::index::{BTreeIndex, RTreeIndex, UniqueIndex};
 use crate::index::{ElementType, IndexSpec, IndexType};
 use crate::storage::{Edge, GraphStorage, StringInterner, Vertex};
 use crate::value::Value;
@@ -3571,6 +3571,7 @@ impl MmapGraph {
         let mut index: Box<dyn PropertyIndex> = match spec.index_type {
             IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())?),
             IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())?),
+            IndexType::RTree => Box::new(RTreeIndex::new(spec.clone())?),
         };
 
         // Populate index with existing data
@@ -3782,6 +3783,12 @@ impl MmapGraph {
                     ))
                 })?),
                 IndexType::Unique => Box::new(UniqueIndex::new(spec.clone()).map_err(|e| {
+                    StorageError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    ))
+                })?),
+                IndexType::RTree => Box::new(RTreeIndex::new(spec.clone()).map_err(|e| {
                     StorageError::Io(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         e.to_string(),

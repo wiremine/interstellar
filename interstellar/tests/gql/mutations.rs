@@ -3,8 +3,8 @@
 //! Tests for CREATE, SET, REMOVE, DELETE, DETACH DELETE, and MERGE clauses.
 
 #![allow(unused_variables)]
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use interstellar::gql::{parse_statement, MutationError};
 use interstellar::storage::{Graph, GraphStorage};

@@ -328,6 +328,10 @@ pub enum Value {
     Vertex(VertexId),
     /// An edge reference (for traversal).
     Edge(EdgeId),
+    /// A geospatial point (WGS84 longitude/latitude).
+    Point(crate::geo::Point),
+    /// A geospatial polygon (WGS84, simple closed ring, no holes).
+    Polygon(crate::geo::Polygon),
 }
 
 /// A comparable version of [`Value`] that implements [`Ord`].
@@ -382,6 +386,10 @@ pub enum ComparableValue {
     Vertex(VertexId),
     /// An edge reference.
     Edge(EdgeId),
+    /// A geospatial point (lon, lat as OrderedFloat).
+    Point(OrderedFloat, OrderedFloat),
+    /// A geospatial polygon ring as ordered float pairs.
+    Polygon(Vec<(OrderedFloat, OrderedFloat)>),
 }
 
 /// A floating-point wrapper that provides total ordering.
@@ -458,6 +466,16 @@ impl std::hash::Hash for Value {
             }
             Value::Vertex(id) => id.hash(state),
             Value::Edge(id) => id.hash(state),
+            Value::Point(p) => {
+                p.lon.to_bits().hash(state);
+                p.lat.to_bits().hash(state);
+            }
+            Value::Polygon(poly) => {
+                for &(lon, lat) in &poly.ring {
+                    lon.to_bits().hash(state);
+                    lat.to_bits().hash(state);
+                }
+            }
         }
     }
 }
@@ -548,6 +566,18 @@ impl From<EdgeId> for Value {
     }
 }
 
+impl From<crate::geo::Point> for Value {
+    fn from(p: crate::geo::Point) -> Self {
+        Value::Point(p)
+    }
+}
+
+impl From<crate::geo::Polygon> for Value {
+    fn from(p: crate::geo::Polygon) -> Self {
+        Value::Polygon(p)
+    }
+}
+
 impl Value {
     /// Serialize this value to a compact binary format.
     ///
@@ -626,6 +656,20 @@ impl Value {
             Value::Edge(id) => {
                 buf.push(0x09);
                 buf.extend_from_slice(&id.0.to_le_bytes());
+            }
+            Value::Point(p) => {
+                buf.push(0x0A);
+                buf.extend_from_slice(&p.lon.to_le_bytes());
+                buf.extend_from_slice(&p.lat.to_le_bytes());
+            }
+            Value::Polygon(poly) => {
+                buf.push(0x0B);
+                let n = poly.ring.len() as u32;
+                buf.extend_from_slice(&n.to_le_bytes());
+                for &(lon, lat) in &poly.ring {
+                    buf.extend_from_slice(&lon.to_le_bytes());
+                    buf.extend_from_slice(&lat.to_le_bytes());
+                }
             }
         }
     }
@@ -721,6 +765,26 @@ impl Value {
                 *pos += 8;
                 Some(Value::Edge(EdgeId(id)))
             }
+            0x0A => {
+                let lon = f64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                *pos += 8;
+                let lat = f64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                *pos += 8;
+                Some(Value::Point(crate::geo::Point::new_unchecked(lon, lat)))
+            }
+            0x0B => {
+                let n = u32::from_le_bytes(buf.get(*pos..*pos + 4)?.try_into().ok()?) as usize;
+                *pos += 4;
+                let mut ring = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let lon = f64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                    *pos += 8;
+                    let lat = f64::from_le_bytes(buf.get(*pos..*pos + 8)?.try_into().ok()?);
+                    *pos += 8;
+                    ring.push((lon, lat));
+                }
+                Some(Value::Polygon(crate::geo::Polygon { ring }))
+            }
             _ => None,
         }
     }
@@ -767,6 +831,13 @@ impl Value {
             }
             Value::Vertex(id) => ComparableValue::Vertex(*id),
             Value::Edge(id) => ComparableValue::Edge(*id),
+            Value::Point(p) => ComparableValue::Point(OrderedFloat(p.lon), OrderedFloat(p.lat)),
+            Value::Polygon(poly) => ComparableValue::Polygon(
+                poly.ring
+                    .iter()
+                    .map(|&(lon, lat)| (OrderedFloat(lon), OrderedFloat(lat)))
+                    .collect(),
+            ),
         }
     }
 
@@ -989,6 +1060,36 @@ impl Value {
         matches!(self, Value::Edge(_))
     }
 
+    /// Extract the value as a geospatial point, if it is one.
+    #[inline]
+    pub fn as_point(&self) -> Option<crate::geo::Point> {
+        match self {
+            Value::Point(p) => Some(*p),
+            _ => None,
+        }
+    }
+
+    /// Extract the value as a geospatial polygon reference, if it is one.
+    #[inline]
+    pub fn as_polygon(&self) -> Option<&crate::geo::Polygon> {
+        match self {
+            Value::Polygon(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// Check if this value is a geospatial point.
+    #[inline]
+    pub fn is_point(&self) -> bool {
+        matches!(self, Value::Point(_))
+    }
+
+    /// Check if this value is a geospatial polygon.
+    #[inline]
+    pub fn is_polygon(&self) -> bool {
+        matches!(self, Value::Polygon(_))
+    }
+
     /// Returns the type discriminant (tag) for this value.
     ///
     /// The discriminant is the type tag byte used in the binary serialization
@@ -1035,6 +1136,8 @@ impl Value {
             Value::Map(_) => 0x07,
             Value::Vertex(_) => 0x08,
             Value::Edge(_) => 0x09,
+            Value::Point(_) => 0x0A,
+            Value::Polygon(_) => 0x0B,
         }
     }
 }
@@ -1521,7 +1624,10 @@ mod tests {
         assert_eq!(buf[0], 0x06);
 
         // Map
-        assert_eq!(Value::Map(crate::value::ValueMap::new()).discriminant(), 0x07);
+        assert_eq!(
+            Value::Map(crate::value::ValueMap::new()).discriminant(),
+            0x07
+        );
         let mut buf = Vec::new();
         Value::Map(crate::value::ValueMap::new()).serialize(&mut buf);
         assert_eq!(buf[0], 0x07);

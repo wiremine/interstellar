@@ -10,8 +10,8 @@
 use interstellar::gql::{compile, parse, GqlError};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Helper to create a test graph with sample data
 fn create_test_graph() -> Arc<Graph> {

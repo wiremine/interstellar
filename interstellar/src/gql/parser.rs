@@ -1094,6 +1094,73 @@ fn build_call_procedure_clause(
                                     alias = Some(part.as_str().to_string());
                                 }
                             }
+
+                            // =========================================================================
+                            // Geospatial parser tests (spec-56)
+                            // =========================================================================
+
+                            #[test]
+                            fn parse_geo_point_constructor() {
+                                let stmt = parse_statement(
+            "MATCH (p:Person) WHERE p.home = point({longitude: -122.4, latitude: 37.7}) RETURN p",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
+
+                            #[test]
+                            fn parse_geo_point_constructor_short_keys() {
+                                let stmt = parse_statement(
+            "MATCH (p:Person) WHERE p.home = point({lon: -122.4, lat: 37.7}) RETURN p",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
+
+                            #[test]
+                            fn parse_geo_polygon_constructor() {
+                                let stmt = parse_statement(
+            "MATCH (p:Park) WHERE p.boundary = polygon([[-122.6, 37.6], [-122.3, 37.6], [-122.3, 37.9], [-122.6, 37.9]]) RETURN p",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
+
+                            #[test]
+                            fn parse_geo_distance_fn() {
+                                let stmt = parse_statement(
+            "MATCH (p:Person) WHERE point.distance(p.home, point({lon: -122.4, lat: 37.7})) < 5000 RETURN p",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
+
+                            #[test]
+                            fn parse_geo_within_distance_fn() {
+                                let stmt = parse_statement(
+            "MATCH (p:Person) WHERE point.within_distance(p.home, point({lon: -122.4, lat: 37.7}), 5km) RETURN p",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
+
+                            #[test]
+                            fn parse_geo_within_bbox_fn() {
+                                let stmt = parse_statement(
+            "MATCH (e:Event) WHERE point.within_bbox(e.location, -122.6, 37.6, -122.3, 37.9) RETURN e",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
+
+                            #[test]
+                            fn parse_distance_literal() {
+                                let stmt = parse_statement(
+            "MATCH (p:Person) WHERE point.within_distance(p.home, point({lon: 0, lat: 0}), 100m) RETURN p",
+        )
+        .unwrap();
+                                assert!(matches!(stmt, Statement::Query(_)));
+                            }
                         }
                         yield_items.push(YieldItem { field, alias });
                     }
@@ -2176,6 +2243,9 @@ fn build_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseE
         Rule::any_predicate => build_list_predicate(inner, ListPredicateKind::Any),
         Rule::none_predicate => build_list_predicate(inner, ListPredicateKind::None),
         Rule::single_predicate => build_list_predicate(inner, ListPredicateKind::Single),
+        Rule::geo_constructor => build_geo_constructor(inner),
+        Rule::geo_function => build_geo_function(inner),
+        Rule::distance_literal => build_distance_literal(inner),
         _ => Err(ParseError::unexpected_token(
             span,
             inner.as_str(),
@@ -3241,6 +3311,311 @@ fn build_validation_mode(
     }
 }
 
+// ============================================================
+// Geospatial builders (spec-56)
+// ============================================================
+
+/// Build a geo constructor expression: `point({...})` or `polygon([...])`.
+fn build_geo_constructor(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("geo constructor", pair_span))?;
+
+    match inner.as_rule() {
+        Rule::geo_point_constructor => build_geo_point_constructor(inner),
+        Rule::geo_polygon_constructor => build_geo_polygon_constructor(inner),
+        _ => Err(ParseError::Syntax(format!(
+            "Unexpected geo constructor: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build `point({longitude: -122.4, latitude: 37.7})`.
+fn build_geo_point_constructor(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    // Inner is a map_expr
+    let map_pair = pair
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::map_expr)
+        .ok_or_else(|| ParseError::missing_clause("point map argument", pair_span))?;
+
+    let mut lon: Option<f64> = None;
+    let mut lat: Option<f64> = None;
+
+    for entry in map_pair
+        .into_inner()
+        .filter(|p| p.as_rule() == Rule::map_entry)
+    {
+        let mut parts = entry.into_inner();
+        let key_pair = parts
+            .next()
+            .ok_or_else(|| ParseError::missing_clause("map key", pair_span))?;
+        let key = match key_pair.as_rule() {
+            Rule::identifier => key_pair.as_str().to_string(),
+            Rule::string => parse_gql_string(key_pair)?,
+            Rule::map_key => {
+                let inner = key_pair
+                    .into_inner()
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("map key value", pair_span))?;
+                match inner.as_rule() {
+                    Rule::identifier => inner.as_str().to_string(),
+                    Rule::string => parse_gql_string(inner)?,
+                    _ => {
+                        return Err(ParseError::Syntax("Invalid map key".to_string()));
+                    }
+                }
+            }
+            _ => {
+                return Err(ParseError::Syntax("Invalid map key type".to_string()));
+            }
+        };
+        let val_pair = parts
+            .next()
+            .ok_or_else(|| ParseError::missing_clause("map value", pair_span))?;
+        let val = parse_gql_number(val_pair)?;
+        match key.as_str() {
+            "longitude" | "lon" => lon = Some(val),
+            "latitude" | "lat" => lat = Some(val),
+            _ => {
+                return Err(ParseError::Syntax(format!(
+                    "Unknown point key '{}', expected longitude/lon or latitude/lat",
+                    key
+                )));
+            }
+        }
+    }
+
+    let lon = lon.ok_or_else(|| ParseError::missing_clause("longitude", pair_span))?;
+    let lat = lat.ok_or_else(|| ParseError::missing_clause("latitude", pair_span))?;
+    Ok(Expression::GeoPoint { lon, lat })
+}
+
+/// Build `polygon([[-122.6, 37.6], [-122.3, 37.6], ...])`.
+fn build_geo_polygon_constructor(
+    pair: pest::iterators::Pair<Rule>,
+) -> Result<Expression, ParseError> {
+    let coords: Result<Vec<(f64, f64)>, _> = pair
+        .into_inner()
+        .filter(|p| p.as_rule() == Rule::geo_point_pair)
+        .map(|pp| {
+            let mut nums = pp.into_inner().filter(|p| p.as_rule() == Rule::geo_number);
+            let lon = parse_geo_number(nums.next().ok_or_else(|| {
+                ParseError::Syntax("polygon coordinate missing lon".to_string())
+            })?)?;
+            let lat = parse_geo_number(nums.next().ok_or_else(|| {
+                ParseError::Syntax("polygon coordinate missing lat".to_string())
+            })?)?;
+            Ok((lon, lat))
+        })
+        .collect();
+    Ok(Expression::GeoPolygon(coords?))
+}
+
+/// Build a geo function expression: `point.distance(...)`, `point.within_bbox(...)`, etc.
+fn build_geo_function(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let pair_span = span_from_pair(&pair);
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::missing_clause("geo function", pair_span))?;
+
+    match inner.as_rule() {
+        Rule::geo_distance_fn => {
+            let mut exprs = inner
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::expression);
+            let a = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("first argument", pair_span))?,
+            )?;
+            let b = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("second argument", pair_span))?,
+            )?;
+            Ok(Expression::GeoDistanceFn {
+                a: Box::new(a),
+                b: Box::new(b),
+            })
+        }
+        Rule::geo_within_bbox_fn => {
+            let mut exprs = inner
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::expression);
+            let point = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("point argument", pair_span))?,
+            )?;
+            let min_lon = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("min_lon", pair_span))?,
+            )?;
+            let min_lat = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("min_lat", pair_span))?,
+            )?;
+            let max_lon = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("max_lon", pair_span))?,
+            )?;
+            let max_lat = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("max_lat", pair_span))?,
+            )?;
+            Ok(Expression::GeoWithinBBox {
+                point: Box::new(point),
+                min_lon: Box::new(min_lon),
+                min_lat: Box::new(min_lat),
+                max_lon: Box::new(max_lon),
+                max_lat: Box::new(max_lat),
+            })
+        }
+        Rule::geo_within_distance_fn => {
+            let mut exprs = inner
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::expression);
+            let a = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("first point", pair_span))?,
+            )?;
+            let b = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("second point", pair_span))?,
+            )?;
+            let distance = build_expression(
+                exprs
+                    .next()
+                    .ok_or_else(|| ParseError::missing_clause("distance", pair_span))?,
+            )?;
+            Ok(Expression::GeoWithinDistanceFn {
+                a: Box::new(a),
+                b: Box::new(b),
+                distance: Box::new(distance),
+            })
+        }
+        _ => Err(ParseError::Syntax(format!(
+            "Unknown geo function: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Build a distance literal: `5km`, `100m`, `3.2mi`, `10nmi`.
+fn build_distance_literal(pair: pest::iterators::Pair<Rule>) -> Result<Expression, ParseError> {
+    let mut children = pair.into_inner();
+    let num_pair = children
+        .next()
+        .ok_or_else(|| ParseError::Syntax("distance missing number".to_string()))?;
+    let value = parse_geo_number(num_pair)?;
+    let unit_pair = children
+        .next()
+        .ok_or_else(|| ParseError::Syntax("distance missing unit".to_string()))?;
+    let unit = unit_pair.as_str().to_string();
+    Ok(Expression::GeoDistance { value, unit })
+}
+
+/// Parse a number from a `geo_number` rule (float | integer) into f64.
+fn parse_geo_number(pair: pest::iterators::Pair<Rule>) -> Result<f64, ParseError> {
+    let inner = if pair.as_rule() == Rule::geo_number {
+        pair.into_inner()
+            .next()
+            .ok_or_else(|| ParseError::Syntax("geo_number empty".to_string()))?
+    } else {
+        pair
+    };
+    match inner.as_rule() {
+        Rule::float => inner
+            .as_str()
+            .parse::<f64>()
+            .map_err(|_| ParseError::Syntax(format!("Invalid float: {}", inner.as_str()))),
+        Rule::integer => inner
+            .as_str()
+            .parse::<i64>()
+            .map(|i| i as f64)
+            .map_err(|_| ParseError::Syntax(format!("Invalid integer: {}", inner.as_str()))),
+        _ => Err(ParseError::Syntax(format!(
+            "Expected number, got {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+/// Parse a number from a GQL expression pair (literal) into f64.
+fn parse_gql_number(pair: pest::iterators::Pair<Rule>) -> Result<f64, ParseError> {
+    // The value pair could be an expression containing a literal number
+    let inner = if pair.as_rule() == Rule::expression {
+        // Drill down to the literal
+        let p = pair
+            .into_inner()
+            .next()
+            .ok_or_else(|| ParseError::Syntax("expression empty".to_string()))?;
+        p
+    } else {
+        pair
+    };
+    match inner.as_rule() {
+        Rule::float => inner
+            .as_str()
+            .parse::<f64>()
+            .map_err(|_| ParseError::Syntax(format!("Invalid float: {}", inner.as_str()))),
+        Rule::integer => inner
+            .as_str()
+            .parse::<i64>()
+            .map(|i| i as f64)
+            .map_err(|_| ParseError::Syntax(format!("Invalid integer: {}", inner.as_str()))),
+        Rule::literal => {
+            let lit_inner = inner
+                .into_inner()
+                .next()
+                .ok_or_else(|| ParseError::Syntax("literal empty".to_string()))?;
+            match lit_inner.as_rule() {
+                Rule::float => lit_inner
+                    .as_str()
+                    .parse::<f64>()
+                    .map_err(|_| ParseError::Syntax("Invalid float".to_string())),
+                Rule::integer => lit_inner
+                    .as_str()
+                    .parse::<i64>()
+                    .map(|i| i as f64)
+                    .map_err(|_| ParseError::Syntax("Invalid integer".to_string())),
+                _ => Err(ParseError::Syntax(
+                    "Expected number in point map".to_string(),
+                )),
+            }
+        }
+        _ => Err(ParseError::Syntax(format!(
+            "Expected number, got {:?}: {}",
+            inner.as_rule(),
+            inner.as_str()
+        ))),
+    }
+}
+
+/// Parse a GQL string from a pest pair.
+fn parse_gql_string(pair: pest::iterators::Pair<Rule>) -> Result<String, ParseError> {
+    let s = pair.as_str();
+    // Strip quotes
+    if (s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')) {
+        Ok(s[1..s.len() - 1].to_string())
+    } else {
+        Ok(s.to_string())
+    }
+}
+
 /// Build a CREATE INDEX statement.
 ///
 /// Grammar: `CREATE UNIQUE? INDEX identifier ON index_target "(" identifier ")"`
@@ -3256,6 +3631,7 @@ fn build_create_index(pair: pest::iterators::Pair<Rule>) -> Result<CreateIndex, 
     let pair_span = span_from_pair(&pair);
     let mut name = None;
     let mut unique = false;
+    let mut rtree = false;
     let mut label = None;
     let mut property = None;
 
@@ -3263,6 +3639,9 @@ fn build_create_index(pair: pest::iterators::Pair<Rule>) -> Result<CreateIndex, 
         match inner.as_rule() {
             Rule::UNIQUE => {
                 unique = true;
+            }
+            Rule::RTREE => {
+                rtree = true;
             }
             Rule::identifier => {
                 // First identifier is the index name, second is the property
@@ -3292,6 +3671,7 @@ fn build_create_index(pair: pest::iterators::Pair<Rule>) -> Result<CreateIndex, 
     Ok(CreateIndex {
         name,
         unique,
+        rtree,
         label,
         property,
     })
@@ -4798,7 +5178,10 @@ mod tests {
         assert!(query.where_clause.is_some());
 
         let where_clause = query.where_clause.unwrap();
-        if let Expression::Exists { negated, pattern, .. } = where_clause.expression {
+        if let Expression::Exists {
+            negated, pattern, ..
+        } = where_clause.expression
+        {
             assert!(!negated);
             // Pattern should have 3 elements: node, edge, node
             assert_eq!(pattern.elements.len(), 3);
@@ -4820,13 +5203,19 @@ mod tests {
         // So we get UnaryOp(Not, Exists { negated: false, ... })
         if let Expression::UnaryOp { op, expr } = where_clause.expression {
             assert!(matches!(op, UnaryOperator::Not));
-            if let Expression::Exists { negated, pattern, .. } = expr.as_ref() {
+            if let Expression::Exists {
+                negated, pattern, ..
+            } = expr.as_ref()
+            {
                 assert!(!negated); // The inner EXISTS is not negated
                 assert!(!pattern.elements.is_empty());
             } else {
                 panic!("Expected EXISTS expression inside NOT");
             }
-        } else if let Expression::Exists { negated, pattern, .. } = where_clause.expression {
+        } else if let Expression::Exists {
+            negated, pattern, ..
+        } = where_clause.expression
+        {
             // If the grammar is changed to support NOT directly in exists_expr
             assert!(negated);
             assert!(!pattern.elements.is_empty());

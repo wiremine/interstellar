@@ -120,6 +120,8 @@ pub fn format_value(value: &Value) -> String {
         }
         Value::Vertex(id) => format!("v[{}]", id.0),
         Value::Edge(id) => format!("e[{}]", id.0),
+        Value::Point(p) => p.to_string(),
+        Value::Polygon(p) => p.to_string(),
     }
 }
 
@@ -141,6 +143,8 @@ pub fn format_value_short(value: &Value) -> String {
         Value::Map(map) => format!("{{{} keys}}", map.len()),
         Value::Vertex(id) => format!("v[{}]", id.0),
         Value::Edge(id) => format!("e[{}]", id.0),
+        Value::Point(p) => p.to_string(),
+        Value::Polygon(p) => p.to_string(),
     }
 }
 

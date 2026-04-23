@@ -10,8 +10,8 @@
 use interstellar::gql::{parse, parse_statement, Statement};
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 // =============================================================================
 // Test Graph Helpers

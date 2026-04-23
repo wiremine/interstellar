@@ -26,6 +26,9 @@ pub enum IndexType {
     /// Hash-based index with uniqueness constraint.
     /// Provides O(1) exact match lookup and enforces unique values.
     Unique,
+    /// R-tree spatial index for geospatial queries.
+    /// Supports efficient `within_distance`, `intersects`, `contained_by`, `bbox` predicates.
+    RTree,
 }
 
 /// Specification for creating an index.
@@ -77,6 +80,7 @@ impl IndexSpec {
         let prefix = match index_type {
             IndexType::BTree => "idx",
             IndexType::Unique => "uniq",
+            IndexType::RTree => "rtree",
         };
         let elem = match element_type {
             ElementType::Vertex => "v",
@@ -162,6 +166,12 @@ impl IndexBuilder {
     /// Make this a unique index (default is B+ tree).
     pub fn unique(mut self) -> Self {
         self.index_type = IndexType::Unique;
+        self
+    }
+
+    /// Make this an R-tree spatial index for geospatial data.
+    pub fn rtree(mut self) -> Self {
+        self.index_type = IndexType::RTree;
         self
     }
 

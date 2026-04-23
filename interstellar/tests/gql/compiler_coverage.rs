@@ -14,8 +14,8 @@
 //! - Edge variable patterns
 
 #![allow(unused_variables)]
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use interstellar::gql::{
     compile, compile_statement, compile_statement_with_params, compile_with_params, parse,

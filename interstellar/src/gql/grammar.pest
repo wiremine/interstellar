@@ -254,10 +254,13 @@ validation_mode = { STRICT | CLOSED | WARN_KW | NONE_KW }
 // DROP INDEX idx_name
 
 // CREATE [UNIQUE] INDEX name ON [:Label](property)
+// CREATE [RTREE] INDEX name ON [:Label](property)  (spec-56)
 create_index = {
-    CREATE ~ UNIQUE? ~ INDEX ~ identifier ~
+    CREATE ~ (UNIQUE | RTREE)? ~ INDEX ~ identifier ~
     ON ~ index_target ~ "(" ~ identifier ~ ")"
 }
+
+RTREE = { "RTREE" }
 
 // Index target: :Label for specific label, or empty for all labels
 // :Person means only vertices with label Person
@@ -557,6 +560,9 @@ primary = {
     | none_predicate  // NONE(x IN list WHERE cond)
     | single_predicate // SINGLE(x IN list WHERE cond)
     | parameter
+    | geo_function       // point.distance(...) etc. (spec-56, before function_call)
+    | geo_constructor    // point({...}), polygon([...]) (spec-56, before function_call)
+    | distance_literal   // 5km, 100m, 3.2mi (spec-56, before literal)
     | literal
     | function_call
     | pattern_comprehension  // [(pattern) | expr] - must come before list_comprehension
@@ -678,6 +684,32 @@ REDUCE = @{ ^"reduce" ~ !ASCII_ALPHANUMERIC }
 paren_expr = { "(" ~ expression ~ ")" }
 
 // Function call: count(*), sum(x), count(DISTINCT x), etc.
+// ============================================================
+// Geospatial Constructors and Functions (spec-56)
+// ============================================================
+
+// point({longitude: -122.4, latitude: 37.7}) or point({lon: -122.4, lat: 37.7})
+geo_constructor = { geo_point_constructor | geo_polygon_constructor }
+geo_point_constructor = { "point" ~ "(" ~ map_expr ~ ")" }
+// polygon([[-122.6, 37.6], [-122.3, 37.6], ...])
+geo_polygon_constructor = { "polygon" ~ "(" ~ "[" ~ geo_point_pair ~ ("," ~ geo_point_pair)* ~ "]" ~ ")" }
+geo_point_pair = { "[" ~ geo_number ~ "," ~ geo_number ~ "]" }
+geo_number = { float | integer }
+
+// point.distance(expr, expr), point.within_bbox(...), point.within_distance(...)
+geo_function = {
+    geo_distance_fn
+    | geo_within_bbox_fn
+    | geo_within_distance_fn
+}
+geo_distance_fn = { "point" ~ "." ~ "distance" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
+geo_within_bbox_fn = { "point" ~ "." ~ "within_bbox" ~ "(" ~ expression ~ "," ~ expression ~ "," ~ expression ~ "," ~ expression ~ ")" }
+geo_within_distance_fn = { "point" ~ "." ~ "within_distance" ~ "(" ~ expression ~ "," ~ expression ~ "," ~ expression ~ ")" }
+
+// Distance literal: 5km, 100m, 3.2mi, 10nmi
+distance_literal = ${ (float | integer) ~ distance_unit }
+distance_unit = @{ "nmi" | "km" | "mi" | "m" }
+
 function_call = { identifier ~ "(" ~ function_args? ~ ")" }
 function_args = { star | DISTINCT? ~ expression ~ ("," ~ expression)* }
 star = { "*" }

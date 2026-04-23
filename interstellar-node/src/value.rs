@@ -151,6 +151,30 @@ pub fn value_to_js(env: Env, value: &Value) -> Result<JsUnknown> {
             let bigint = env.create_bigint_from_u64(id.0)?;
             Ok(bigint.into_unknown()?)
         }
+        Value::Point(p) => {
+            let mut obj = env.create_object()?;
+            obj.set_named_property("type", env.create_string("Point")?)?;
+            let mut coords = env.create_array(2)?;
+            coords.set(0, env.create_double(p.lon)?)?;
+            coords.set(1, env.create_double(p.lat)?)?;
+            obj.set_named_property("coordinates", coords)?;
+            Ok(obj.into_unknown())
+        }
+        Value::Polygon(p) => {
+            let mut obj = env.create_object()?;
+            obj.set_named_property("type", env.create_string("Polygon")?)?;
+            let mut ring = env.create_array(p.ring.len() as u32)?;
+            for (i, &(lon, lat)) in p.ring.iter().enumerate() {
+                let mut coord = env.create_array(2)?;
+                coord.set(0, env.create_double(lon)?)?;
+                coord.set(1, env.create_double(lat)?)?;
+                ring.set(i as u32, coord)?;
+            }
+            let mut coords = env.create_array(1)?;
+            coords.set(0u32, ring)?;
+            obj.set_named_property("coordinates", coords)?;
+            Ok(obj.into_unknown())
+        }
     }
 }
 

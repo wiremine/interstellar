@@ -125,7 +125,11 @@ pub struct Repl {
 
 impl Repl {
     /// Create a new REPL instance.
-    pub fn new(graph: Arc<interstellar::Graph>, config: ReplConfig, settings: RuntimeSettings) -> Self {
+    pub fn new(
+        graph: Arc<interstellar::Graph>,
+        config: ReplConfig,
+        settings: RuntimeSettings,
+    ) -> Self {
         let mode = config.default_mode;
         let history_manager = HistoryManager::new(config.history_file.clone(), config.history_size);
         let gremlin_engine = GremlinEngine::with_arc(graph);
@@ -1365,10 +1369,7 @@ impl PersistentRepl {
             println!("No saved queries.");
             println!("Use .save <name> <query> to save a query.");
         } else {
-            println!(
-                "{:<4} {:<20} {:<8} {}",
-                "ID", "Name", "Type", "Description"
-            );
+            println!("{:<4} {:<20} {:<8} {}", "ID", "Name", "Type", "Description");
             println!("{:-<4} {:-<20} {:-<8} {:-<40}", "", "", "", "");
             for q in &queries {
                 let desc = if q.description.len() > 40 {
@@ -1403,7 +1404,11 @@ impl PersistentRepl {
                 }
                 println!("Query:       {}", q.query);
                 if !q.parameters.is_empty() {
-                    let params: Vec<_> = q.parameters.iter().map(|p| format!("${}", p.name)).collect();
+                    let params: Vec<_> = q
+                        .parameters
+                        .iter()
+                        .map(|p| format!("${}", p.name))
+                        .collect();
                     println!("Parameters:  {}", params.join(", "));
                 }
             }

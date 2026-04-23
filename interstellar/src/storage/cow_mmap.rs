@@ -67,7 +67,8 @@ use crate::error::StorageError;
 use crate::gql::{self, GqlError};
 use crate::graph_elements::{GraphEdge, GraphVertex, PersistentEdge, PersistentVertex};
 use crate::index::{
-    BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
+    BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, RTreeIndex,
+    UniqueIndex,
 };
 use crate::schema::GraphSchema;
 use crate::storage::cow::{EdgeData, GraphState, NodeData};
@@ -499,6 +500,7 @@ impl CowMmapGraph {
         let mut index: Box<dyn PropertyIndex> = match spec.index_type {
             IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())?),
             IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())?),
+            IndexType::RTree => Box::new(RTreeIndex::new(spec.clone())?),
         };
 
         // Populate index with existing data

@@ -266,6 +266,8 @@ pub fn format_value(value: &Value) -> String {
         }
         Value::Vertex(id) => format!("v[{}]", id.0),
         Value::Edge(id) => format!("e[{}]", id.0),
+        Value::Point(p) => p.to_string(),
+        Value::Polygon(p) => p.to_string(),
     }
 }
 

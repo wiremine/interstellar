@@ -1835,7 +1835,10 @@ fn test_property_persistence_across_reopen() {
                     ),
                     (
                         "map".to_string(),
-                        Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([("nested".to_string(), Value::Null)])),
+                        Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
+                            "nested".to_string(),
+                            Value::Null,
+                        )])),
                     ),
                 ]),
             )
@@ -1878,10 +1881,12 @@ fn test_property_persistence_across_reopen() {
         );
         assert_eq!(
             vertex.properties.get("map"),
-            Some(&Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
-                "nested".to_string(),
-                Value::Null
-            )])))
+            Some(&Value::Map(
+                ::indexmap::IndexMap::<String, Value>::from_iter([(
+                    "nested".to_string(),
+                    Value::Null
+                )])
+            ))
         );
 
         let edge = graph.get_edge(edge_id).expect("get edge");
@@ -1969,7 +1974,10 @@ fn test_all_value_types_combined() {
                 ),
                 (
                     "map".to_string(),
-                    Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([("k".to_string(), Value::Bool(true))])),
+                    Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
+                        "k".to_string(),
+                        Value::Bool(true),
+                    )])),
                 ),
                 ("vertex".to_string(), Value::Vertex(VertexId(111))),
                 ("edge".to_string(), Value::Edge(EdgeId(222))),
@@ -2010,10 +2018,12 @@ fn test_all_value_types_combined() {
     );
     assert_eq!(
         vertex.properties.get("map"),
-        Some(&Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([(
-            "k".to_string(),
-            Value::Bool(true)
-        )])))
+        Some(&Value::Map(
+            ::indexmap::IndexMap::<String, Value>::from_iter([(
+                "k".to_string(),
+                Value::Bool(true)
+            )])
+        ))
     );
     assert_eq!(
         vertex.properties.get("vertex"),

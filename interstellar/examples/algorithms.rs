@@ -11,14 +11,14 @@
 //!
 //! Run: `cargo run --example algorithms`
 
+use interstellar::algorithms::common::{property_weight, unit_weight};
 use interstellar::algorithms::{
     astar, bidirectional_bfs, dijkstra, dijkstra_all, iddfs, k_shortest_paths,
     shortest_path_unweighted, Bfs, Dfs, Direction,
 };
-use interstellar::algorithms::common::{property_weight, unit_weight};
-use interstellar::GraphAccess;
 use interstellar::storage::Graph;
 use interstellar::value::{Value, VertexId};
+use interstellar::GraphAccess;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -131,7 +131,10 @@ fn main() {
         .label_filter(vec!["road".to_string()])
         .collect();
 
-    println!("  Vertices reachable via 'road' edges: {}\n", filtered.len());
+    println!(
+        "  Vertices reachable via 'road' edges: {}\n",
+        filtered.len()
+    );
 
     // -------------------------------------------------------------------------
     // 4. Unweighted shortest path
@@ -174,7 +177,12 @@ fn main() {
             sorted.sort_by(|a, b| a.1 .0.partial_cmp(&b.1 .0).unwrap());
             for (vid, (dist, _path)) in sorted {
                 let name = vertex_name(&graph, *vid);
-                println!("  {} -> {}: distance {}", vertex_name(&graph, seattle), name, dist);
+                println!(
+                    "  {} -> {}: distance {}",
+                    vertex_name(&graph, seattle),
+                    name,
+                    dist
+                );
             }
             println!();
         }

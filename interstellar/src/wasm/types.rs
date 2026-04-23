@@ -51,6 +51,42 @@ pub fn value_to_js(value: &Value) -> Result<JsValue, JsError> {
         }
         Value::Vertex(id) => Ok(js_sys::BigInt::from(id.0).into()),
         Value::Edge(id) => Ok(js_sys::BigInt::from(id.0).into()),
+        Value::Point(p) => {
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str("type"),
+                &JsValue::from_str("Point"),
+            )
+            .map_err(|_| JsError::new("Failed to set property"))?;
+            let coords = js_sys::Array::new();
+            coords.push(&JsValue::from(p.lon));
+            coords.push(&JsValue::from(p.lat));
+            js_sys::Reflect::set(&obj, &JsValue::from_str("coordinates"), &coords.into())
+                .map_err(|_| JsError::new("Failed to set property"))?;
+            Ok(obj.into())
+        }
+        Value::Polygon(p) => {
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str("type"),
+                &JsValue::from_str("Polygon"),
+            )
+            .map_err(|_| JsError::new("Failed to set property"))?;
+            let ring = js_sys::Array::new();
+            for &(lon, lat) in &p.ring {
+                let coord = js_sys::Array::new();
+                coord.push(&JsValue::from(lon));
+                coord.push(&JsValue::from(lat));
+                ring.push(&coord.into());
+            }
+            let coords = js_sys::Array::new();
+            coords.push(&ring.into());
+            js_sys::Reflect::set(&obj, &JsValue::from_str("coordinates"), &coords.into())
+                .map_err(|_| JsError::new("Failed to set property"))?;
+            Ok(obj.into())
+        }
     }
 }
 

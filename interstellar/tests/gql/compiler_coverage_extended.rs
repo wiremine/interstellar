@@ -9,8 +9,8 @@
 //! - Error handling paths
 
 #![allow(unused_variables)]
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use interstellar::gql::{compile, parse};
 use interstellar::storage::Graph;

@@ -391,6 +391,7 @@ macro_rules! props {
 
 pub mod algorithms;
 pub mod error;
+pub mod geo;
 #[cfg(feature = "gql")]
 pub mod gql;
 pub mod graph_access;

@@ -185,6 +185,12 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         }
         Value::Vertex(id) => serde_json::json!({"@type": "g:Int64", "@value": id.0}),
         Value::Edge(id) => serde_json::json!({"@type": "g:Int64", "@value": id.0}),
+        Value::Point(p) => {
+            serde_json::json!({"@type": "g:Point", "@value": {"longitude": p.lon, "latitude": p.lat}})
+        }
+        Value::Polygon(p) => {
+            serde_json::json!({"@type": "is:Polygon", "@value": {"ring": p.ring.iter().map(|&(lon, lat)| vec![lon, lat]).collect::<Vec<_>>()}})
+        }
     }
 }
 

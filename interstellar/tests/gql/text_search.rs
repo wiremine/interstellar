@@ -80,16 +80,15 @@ fn row_map(v: &Value) -> &indexmap::IndexMap<String, Value> {
 }
 
 fn run(g: &Arc<Graph>, q: &str) -> Vec<Value> {
-    g.gql(q).unwrap_or_else(|e| panic!("gql failed: {e:?}\nquery:\n{q}"))
+    g.gql(q)
+        .unwrap_or_else(|e| panic!("gql failed: {e:?}\nquery:\n{q}"))
 }
 
 /// Build a CALL query that anchors against a single row to avoid the
 /// CALL-per-outer-row cartesian product. We pin the outer MATCH to one
 /// vertex by id so the CALL fires exactly once.
 fn fts_query(anchor_id: u64, body: &str) -> String {
-    format!(
-        "MATCH (anchor) WHERE id(anchor) = {anchor_id} {body}"
-    )
+    format!("MATCH (anchor) WHERE id(anchor) = {anchor_id} {body}")
 }
 
 // ---------------------------------------------------------------------------

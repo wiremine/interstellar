@@ -1319,6 +1319,8 @@ fn value_type_name(value: &Value) -> &'static str {
         Value::Map(_) => "map",
         Value::Vertex(_) => "vertex",
         Value::Edge(_) => "edge",
+        Value::Point(_) => "point",
+        Value::Polygon(_) => "polygon",
     }
 }
 

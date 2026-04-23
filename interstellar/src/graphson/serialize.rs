@@ -26,6 +26,16 @@ pub fn value_to_graphson(value: &Value) -> GraphSONValue {
         }
         Value::Vertex(id) => GraphSONValue::int64(id.0 as i64),
         Value::Edge(id) => GraphSONValue::int64(id.0 as i64),
+        Value::Point(p) => GraphSONValue::Typed {
+            type_tag: "g:Point".to_string(),
+            value: Box::new(serde_json::json!({"longitude": p.lon, "latitude": p.lat})),
+        },
+        Value::Polygon(p) => GraphSONValue::Typed {
+            type_tag: "is:Polygon".to_string(),
+            value: Box::new(
+                serde_json::json!({"ring": p.ring.iter().map(|&(lon, lat)| vec![lon, lat]).collect::<Vec<_>>()}),
+            ),
+        },
     }
 }
 

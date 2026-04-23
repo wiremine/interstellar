@@ -1476,6 +1476,192 @@ pub mod p {
     pub fn not_pred(p: Box<dyn Predicate>) -> Box<dyn Predicate> {
         Box::new(BoxedNot(p))
     }
+
+    // -------------------------------------------------------------------------
+    // Geospatial Predicates
+    // -------------------------------------------------------------------------
+
+    use crate::geo::{haversine, BoundingBox, Distance, Point, Polygon};
+
+    /// Predicate: point is within `radius` of `center` (haversine distance).
+    #[derive(Clone, Debug)]
+    pub struct WithinDistance {
+        pub center: Point,
+        pub radius: Distance,
+    }
+
+    impl Predicate for WithinDistance {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::Point(p) => haversine(self.center, *p) <= self.radius.meters(),
+                _ => false,
+            }
+        }
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a "within distance" geospatial predicate.
+    ///
+    /// Matches `Value::Point` values that are within `radius` of `center`
+    /// using haversine (great-circle) distance.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use interstellar::traversal::p;
+    /// use interstellar::geo::{Point, Distance};
+    ///
+    /// let sf = Point::new(-122.4194, 37.7749).unwrap();
+    /// g.v().has_where("location", p::within_distance(sf, Distance::Kilometers(5.0)));
+    /// ```
+    pub fn within_distance(center: Point, radius: Distance) -> WithinDistance {
+        WithinDistance { center, radius }
+    }
+
+    /// Predicate: value intersects with the given geometry.
+    #[derive(Clone, Debug)]
+    pub struct Intersects {
+        pub geom: GeometryRef,
+    }
+
+    /// A reference to a geometry for use in predicates.
+    #[derive(Clone, Debug)]
+    pub enum GeometryRef {
+        Point(Point),
+        Polygon(Polygon),
+        BBox(BoundingBox),
+    }
+
+    impl From<Point> for GeometryRef {
+        fn from(p: Point) -> Self {
+            GeometryRef::Point(p)
+        }
+    }
+
+    impl From<Polygon> for GeometryRef {
+        fn from(p: Polygon) -> Self {
+            GeometryRef::Polygon(p)
+        }
+    }
+
+    impl From<BoundingBox> for GeometryRef {
+        fn from(b: BoundingBox) -> Self {
+            GeometryRef::BBox(b)
+        }
+    }
+
+    impl Predicate for Intersects {
+        fn test(&self, value: &Value) -> bool {
+            match (&self.geom, value) {
+                // Point intersects point: same location
+                (GeometryRef::Point(a), Value::Point(b)) => a.lon == b.lon && a.lat == b.lat,
+                // Point intersects polygon: point-in-polygon
+                (GeometryRef::Point(pt), Value::Polygon(poly)) => point_in_polygon(*pt, &poly.ring),
+                // Polygon intersects point: point-in-polygon
+                (GeometryRef::Polygon(poly), Value::Point(pt)) => point_in_polygon(*pt, &poly.ring),
+                // Polygon intersects polygon: bbox overlap as approximation
+                (GeometryRef::Polygon(a), Value::Polygon(b)) => a.bbox().intersects(&b.bbox()),
+                // BBox intersects point
+                (GeometryRef::BBox(bb), Value::Point(pt)) => bb.contains_point(*pt),
+                // BBox intersects polygon
+                (GeometryRef::BBox(bb), Value::Polygon(poly)) => bb.intersects(&poly.bbox()),
+                _ => false,
+            }
+        }
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create an "intersects" geospatial predicate.
+    pub fn intersects(g: impl Into<GeometryRef>) -> Intersects {
+        Intersects { geom: g.into() }
+    }
+
+    /// Predicate: value is contained by the given polygon.
+    #[derive(Clone, Debug)]
+    pub struct ContainedBy {
+        pub region: Polygon,
+    }
+
+    impl Predicate for ContainedBy {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::Point(pt) => point_in_polygon(*pt, &self.region.ring),
+                Value::Polygon(poly) => {
+                    // All vertices of the tested polygon must be inside the region
+                    poly.ring
+                        .iter()
+                        .all(|&(lon, lat)| point_in_polygon(Point { lon, lat }, &self.region.ring))
+                }
+                _ => false,
+            }
+        }
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a "contained by" geospatial predicate.
+    pub fn contained_by(poly: Polygon) -> ContainedBy {
+        ContainedBy { region: poly }
+    }
+
+    /// Predicate: value falls within a bounding box.
+    #[derive(Clone, Debug)]
+    pub struct BBox {
+        pub bbox: BoundingBox,
+    }
+
+    impl Predicate for BBox {
+        fn test(&self, value: &Value) -> bool {
+            match value {
+                Value::Point(pt) => self.bbox.contains_point(*pt),
+                Value::Polygon(poly) => self.bbox.intersects(&poly.bbox()),
+                _ => false,
+            }
+        }
+        fn clone_box(&self) -> Box<dyn Predicate> {
+            Box::new(self.clone())
+        }
+    }
+
+    /// Create a bounding box geospatial predicate.
+    pub fn bbox(min_lon: f64, min_lat: f64, max_lon: f64, max_lat: f64) -> BBox {
+        BBox {
+            bbox: BoundingBox {
+                min_lon,
+                min_lat,
+                max_lon,
+                max_lat,
+            },
+        }
+    }
+
+    /// Ray-casting point-in-polygon test.
+    ///
+    /// Uses the standard odd-even rule. The ring must be closed (first == last).
+    fn point_in_polygon(pt: Point, ring: &[(f64, f64)]) -> bool {
+        let mut inside = false;
+        let n = ring.len();
+        if n < 4 {
+            return false;
+        }
+        let mut j = n - 1;
+        for i in 0..n {
+            let (xi, yi) = ring[i];
+            let (xj, yj) = ring[j];
+            if ((yi > pt.lat) != (yj > pt.lat))
+                && (pt.lon < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi)
+            {
+                inside = !inside;
+            }
+            j = i;
+        }
+        inside
+    }
 }
 
 // -----------------------------------------------------------------------------

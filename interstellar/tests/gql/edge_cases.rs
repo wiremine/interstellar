@@ -20,8 +20,8 @@
 use interstellar::gql::{parse, GqlError};
 use interstellar::storage::Graph;
 use interstellar::Value;
-use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 // =============================================================================
 // Helper Functions

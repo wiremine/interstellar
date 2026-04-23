@@ -60,6 +60,10 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
                 "id": id.0,
             })
         }
+        Value::Point(p) => serde_json::json!({"type": "Point", "coordinates": [p.lon, p.lat]}),
+        Value::Polygon(p) => {
+            serde_json::json!({"type": "Polygon", "coordinates": [p.ring.iter().map(|&(lon, lat)| vec![lon, lat]).collect::<Vec<_>>()]})
+        }
     }
 }
 

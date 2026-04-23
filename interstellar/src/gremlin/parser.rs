@@ -1131,6 +1131,7 @@ fn build_predicate(pair: Pair<Rule>) -> Result<Predicate, ParseError> {
                 .ok_or_else(|| ParseError::Syntax("TextP. method missing".to_string()))?;
             build_text_p_method(method)
         }
+        Rule::geo_predicate => build_geo_predicate(inner),
         _ => Err(ParseError::Syntax(format!(
             "Unknown predicate type: {:?}",
             inner.as_rule()
@@ -1292,6 +1293,8 @@ fn build_value(pair: Pair<Rule>) -> Result<Literal, ParseError> {
         Rule::integer => Ok(Literal::Int(parse_integer(inner)?)),
         Rule::boolean => Ok(Literal::Bool(inner.as_str() == "true")),
         Rule::null => Ok(Literal::Null),
+        Rule::geo_point => build_geo_point(inner),
+        Rule::geo_polygon => build_geo_polygon(inner),
         Rule::list_value => {
             let items: Result<Vec<_>, _> = inner
                 .into_inner()
@@ -1324,6 +1327,155 @@ fn build_value(pair: Pair<Rule>) -> Result<Literal, ParseError> {
         }
         _ => Err(ParseError::Syntax(format!(
             "Unknown value type: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+// ============================================================
+// Geospatial helpers (spec-56)
+// ============================================================
+
+fn build_geo_point(pair: Pair<Rule>) -> Result<Literal, ParseError> {
+    let mut numbers = pair.into_inner().filter(|p| p.as_rule() == Rule::number);
+    let lon = parse_number(
+        numbers
+            .next()
+            .ok_or_else(|| ParseError::Syntax("point() missing longitude".to_string()))?,
+    )?;
+    let lat = parse_number(
+        numbers
+            .next()
+            .ok_or_else(|| ParseError::Syntax("point() missing latitude".to_string()))?,
+    )?;
+    Ok(Literal::Point { lon, lat })
+}
+
+fn build_geo_polygon(pair: Pair<Rule>) -> Result<Literal, ParseError> {
+    let coords: Result<Vec<(f64, f64)>, _> = pair
+        .into_inner()
+        .filter(|p| p.as_rule() == Rule::point_pair)
+        .map(|pp| {
+            let mut nums = pp.into_inner().filter(|p| p.as_rule() == Rule::number);
+            let lon = parse_number(nums.next().ok_or_else(|| {
+                ParseError::Syntax("polygon coordinate missing lon".to_string())
+            })?)?;
+            let lat = parse_number(nums.next().ok_or_else(|| {
+                ParseError::Syntax("polygon coordinate missing lat".to_string())
+            })?)?;
+            Ok((lon, lat))
+        })
+        .collect();
+    Ok(Literal::Polygon(coords?))
+}
+
+fn build_geo_predicate(pair: Pair<Rule>) -> Result<Predicate, ParseError> {
+    let inner = pair
+        .into_inner()
+        .next()
+        .ok_or_else(|| ParseError::Syntax("geo_predicate empty".to_string()))?;
+
+    match inner.as_rule() {
+        Rule::geo_within_distance => {
+            let mut children = inner.into_inner();
+            let geom_pair = children
+                .find(|p| p.as_rule() == Rule::value)
+                .ok_or_else(|| {
+                    ParseError::Syntax("geo_within_distance missing geometry".to_string())
+                })?;
+            let geometry = build_value(geom_pair)?;
+            let dist_pair = children
+                .find(|p| p.as_rule() == Rule::distance_expr)
+                .ok_or_else(|| {
+                    ParseError::Syntax("geo_within_distance missing distance".to_string())
+                })?;
+            let distance = build_distance_expr(dist_pair)?;
+            Ok(Predicate::GeoWithinDistance { geometry, distance })
+        }
+        Rule::geo_intersects => {
+            let geom_pair = inner
+                .into_inner()
+                .find(|p| p.as_rule() == Rule::value)
+                .ok_or_else(|| ParseError::Syntax("geo_intersects missing geometry".to_string()))?;
+            Ok(Predicate::GeoIntersects(build_value(geom_pair)?))
+        }
+        Rule::geo_contained_by => {
+            let geom_pair = inner
+                .into_inner()
+                .find(|p| p.as_rule() == Rule::value)
+                .ok_or_else(|| {
+                    ParseError::Syntax("geo_contained_by missing geometry".to_string())
+                })?;
+            Ok(Predicate::GeoContainedBy(build_value(geom_pair)?))
+        }
+        Rule::geo_bbox => {
+            let nums: Vec<f64> = inner
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::number)
+                .map(parse_number)
+                .collect::<Result<_, _>>()?;
+            if nums.len() != 4 {
+                return Err(ParseError::Syntax(
+                    "geo_bbox requires 4 numbers".to_string(),
+                ));
+            }
+            Ok(Predicate::GeoBBox {
+                min_lon: nums[0],
+                min_lat: nums[1],
+                max_lon: nums[2],
+                max_lat: nums[3],
+            })
+        }
+        _ => Err(ParseError::Syntax(format!(
+            "Unknown geo predicate: {:?}",
+            inner.as_rule()
+        ))),
+    }
+}
+
+fn build_distance_expr(pair: Pair<Rule>) -> Result<Literal, ParseError> {
+    let mut children = pair.into_inner();
+    // The number part (float or integer)
+    let num_pair = children
+        .next()
+        .ok_or_else(|| ParseError::Syntax("distance missing number".to_string()))?;
+    let value = parse_number(num_pair)?;
+    // The unit part
+    let unit_pair = children
+        .next()
+        .ok_or_else(|| ParseError::Syntax("distance missing unit".to_string()))?;
+    let unit = match unit_pair.as_str() {
+        "m" => DistanceUnit::Meters,
+        "km" => DistanceUnit::Kilometers,
+        "mi" => DistanceUnit::Miles,
+        "nmi" => DistanceUnit::NauticalMiles,
+        other => {
+            return Err(ParseError::Syntax(format!(
+                "Unknown distance unit: {}",
+                other
+            )))
+        }
+    };
+    Ok(Literal::Distance { value, unit })
+}
+
+/// Parse a `number` rule (which is `float | integer`) into an f64.
+fn parse_number(pair: Pair<Rule>) -> Result<f64, ParseError> {
+    let inner = if pair.as_rule() == Rule::number {
+        pair.into_inner()
+            .next()
+            .ok_or_else(|| ParseError::Syntax("number empty".to_string()))?
+    } else {
+        pair
+    };
+    match inner.as_rule() {
+        Rule::float => parse_float(inner),
+        Rule::integer => {
+            let i = parse_integer(inner)?;
+            Ok(i as f64)
+        }
+        _ => Err(ParseError::Syntax(format!(
+            "Expected number, got {:?}",
             inner.as_rule()
         ))),
     }
@@ -1495,9 +1647,7 @@ fn parse_cardinality(pair: &Pair<Rule>) -> Result<Cardinality, ParseError> {
 /// ```text
 /// "searchTextV" ~ "(" ~ string ~ "," ~ search_text_query_arg ~ "," ~ integer ~ ")"
 /// ```
-fn build_search_text_args(
-    pair: Pair<Rule>,
-) -> Result<(String, TextQueryAst, u64), ParseError> {
+fn build_search_text_args(pair: Pair<Rule>) -> Result<(String, TextQueryAst, u64), ParseError> {
     let mut property: Option<String> = None;
     let mut query: Option<TextQueryAst> = None;
     let mut k: Option<u64> = None;
@@ -1523,11 +1673,13 @@ fn build_search_text_args(
         }
     }
 
-    let property = property
-        .ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing property".to_string()))?;
+    let property = property.ok_or_else(|| {
+        ParseError::Syntax("searchTextV/searchTextE: missing property".to_string())
+    })?;
     let query = query
         .ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing query".to_string()))?;
-    let k = k.ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing k".to_string()))?;
+    let k =
+        k.ok_or_else(|| ParseError::Syntax("searchTextV/searchTextE: missing k".to_string()))?;
 
     Ok((property, query, k))
 }
@@ -1602,7 +1754,7 @@ fn collect_text_q_children(pair: Pair<Rule>) -> Result<Vec<TextQueryAst>, ParseE
         }
     }
     if out.is_empty() {
-         return Err(ParseError::Syntax(
+        return Err(ParseError::Syntax(
             "TextQ.and/or requires at least one sub-query".to_string(),
         ));
     }
@@ -1621,14 +1773,21 @@ mod fts_parser_tests {
     }
 
     fn step_at(input: &str, idx: usize) -> Step {
-        parse(input).expect("parse ok").steps.into_iter().nth(idx).expect("step idx")
+        parse(input)
+            .expect("parse ok")
+            .steps
+            .into_iter()
+            .nth(idx)
+            .expect("step idx")
     }
 
     #[test]
     fn search_text_v_bare_string_sugars_to_match() {
         let s = first_source("g.searchTextV('body', 'raft', 10)");
         match s {
-            SourceStep::SearchTextV { property, query, k, .. } => {
+            SourceStep::SearchTextV {
+                property, query, k, ..
+            } => {
                 assert_eq!(property, "body");
                 assert_eq!(query, TextQueryAst::Match("raft".to_string()));
                 assert_eq!(k, 10);
@@ -1641,7 +1800,9 @@ mod fts_parser_tests {
     fn search_text_e_bare_string_sugars_to_match() {
         let s = first_source("g.searchTextE('label', 'foo bar', 5)");
         match s {
-            SourceStep::SearchTextE { property, query, k, .. } => {
+            SourceStep::SearchTextE {
+                property, query, k, ..
+            } => {
                 assert_eq!(property, "label");
                 assert_eq!(query, TextQueryAst::Match("foo bar".to_string()));
                 assert_eq!(k, 5);
@@ -1719,5 +1880,165 @@ mod fts_parser_tests {
     #[test]
     fn negative_k_rejected() {
         assert!(parse("g.searchTextV('body', 'x', -1)").is_err());
+    }
+}
+
+#[cfg(test)]
+mod geo_parser_tests {
+    //! spec-56: Gremlin grammar / parser coverage for geospatial constructs.
+
+    use super::*;
+
+    fn step_at(input: &str, idx: usize) -> Step {
+        parse(input)
+            .expect("parse ok")
+            .steps
+            .into_iter()
+            .nth(idx)
+            .expect("step idx")
+    }
+
+    #[test]
+    fn parse_point_value() {
+        let ast = parse("g.V().has('location', point(-122.4194, 37.7749))").unwrap();
+        if let Step::Has { args, .. } = &ast.steps[0] {
+            if let HasArgs::KeyValue { value, .. } = args {
+                assert!(matches!(value, Literal::Point { .. }));
+                if let Literal::Point { lon, lat } = value {
+                    assert!((*lon - (-122.4194)).abs() < 1e-10);
+                    assert!((*lat - 37.7749).abs() < 1e-10);
+                }
+            } else {
+                panic!("Expected KeyValue");
+            }
+        } else {
+            panic!("Expected Has step");
+        }
+    }
+
+    #[test]
+    fn parse_polygon_value() {
+        let ast = parse(
+            "g.V().has('boundary', polygon([[-122.6, 37.6], [-122.3, 37.6], [-122.3, 37.9], [-122.6, 37.9]]))",
+        )
+        .unwrap();
+        if let Step::Has { args, .. } = &ast.steps[0] {
+            if let HasArgs::KeyValue { value, .. } = args {
+                if let Literal::Polygon(coords) = value {
+                    assert_eq!(coords.len(), 4);
+                    assert!(((coords[0].0) - (-122.6)).abs() < 1e-10);
+                } else {
+                    panic!("Expected Polygon literal");
+                }
+            } else {
+                panic!("Expected KeyValue");
+            }
+        } else {
+            panic!("Expected Has step");
+        }
+    }
+
+    #[test]
+    fn parse_geo_within_distance() {
+        let ast =
+            parse("g.V().has('location', geo_within_distance(point(-122.4, 37.7), 5km))").unwrap();
+        if let Step::Has { args, .. } = &ast.steps[0] {
+            if let HasArgs::KeyPredicate { predicate, .. } = args {
+                if let Predicate::GeoWithinDistance { geometry, distance } = predicate {
+                    assert!(matches!(geometry, Literal::Point { .. }));
+                    assert!(matches!(
+                        distance,
+                        Literal::Distance {
+                            unit: DistanceUnit::Kilometers,
+                            ..
+                        }
+                    ));
+                } else {
+                    panic!("Expected GeoWithinDistance");
+                }
+            } else {
+                panic!("Expected KeyPredicate");
+            }
+        } else {
+            panic!("Expected Has step");
+        }
+    }
+
+    #[test]
+    fn parse_geo_bbox() {
+        let ast = parse("g.V().has('location', geo_bbox(-122.6, 37.6, -122.3, 37.9))").unwrap();
+        if let Step::Has { args, .. } = &ast.steps[0] {
+            if let HasArgs::KeyPredicate { predicate, .. } = args {
+                assert!(matches!(predicate, Predicate::GeoBBox { .. }));
+            } else {
+                panic!("Expected KeyPredicate");
+            }
+        } else {
+            panic!("Expected Has step");
+        }
+    }
+
+    #[test]
+    fn parse_geo_intersects() {
+        let ast = parse("g.V().has('location', geo_intersects(point(-122.4, 37.7)))").unwrap();
+        if let Step::Has { args, .. } = &ast.steps[0] {
+            if let HasArgs::KeyPredicate { predicate, .. } = args {
+                assert!(matches!(predicate, Predicate::GeoIntersects(_)));
+            } else {
+                panic!("Expected KeyPredicate");
+            }
+        } else {
+            panic!("Expected Has step");
+        }
+    }
+
+    #[test]
+    fn parse_geo_contained_by() {
+        let ast = parse(
+            "g.V().has('boundary', geo_contained_by(polygon([[-122.6, 37.6], [-122.3, 37.6], [-122.3, 37.9], [-122.6, 37.9]])))",
+        )
+        .unwrap();
+        if let Step::Has { args, .. } = &ast.steps[0] {
+            if let HasArgs::KeyPredicate { predicate, .. } = args {
+                assert!(matches!(predicate, Predicate::GeoContainedBy(_)));
+            } else {
+                panic!("Expected KeyPredicate");
+            }
+        } else {
+            panic!("Expected Has step");
+        }
+    }
+
+    #[test]
+    fn parse_distance_units() {
+        for (input, expected_unit) in &[
+            ("5m", DistanceUnit::Meters),
+            ("10km", DistanceUnit::Kilometers),
+            ("3.2mi", DistanceUnit::Miles),
+            ("1nmi", DistanceUnit::NauticalMiles),
+        ] {
+            let query = format!(
+                "g.V().has('location', geo_within_distance(point(0, 0), {}))",
+                input
+            );
+            let ast = parse(&query).unwrap();
+            if let Step::Has { args, .. } = &ast.steps[0] {
+                if let HasArgs::KeyPredicate { predicate, .. } = args {
+                    if let Predicate::GeoWithinDistance { distance, .. } = predicate {
+                        if let Literal::Distance { unit, .. } = distance {
+                            assert_eq!(unit, expected_unit, "Failed for input: {}", input);
+                        } else {
+                            panic!("Expected Distance literal for {}", input);
+                        }
+                    } else {
+                        panic!("Expected GeoWithinDistance for {}", input);
+                    }
+                } else {
+                    panic!("Expected KeyPredicate for {}", input);
+                }
+            } else {
+                panic!("Expected Has step for {}", input);
+            }
+        }
     }
 }

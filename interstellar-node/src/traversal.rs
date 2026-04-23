@@ -178,7 +178,8 @@ impl GraphBackend {
     pub(crate) fn from_graphson(
         &self,
         json: &str,
-    ) -> std::result::Result<(), interstellar::graphson::GraphSONError> {        // Validate the JSON parses as GraphSON, but discard the resulting graph
+    ) -> std::result::Result<(), interstellar::graphson::GraphSONError> {
+        // Validate the JSON parses as GraphSON, but discard the resulting graph
         // since we cannot merge it into the existing backend.
         let _ = match self {
             GraphBackend::InMemory(_) => interstellar::graphson::from_str(json)?,

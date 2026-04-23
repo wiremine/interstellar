@@ -3,8 +3,8 @@
 //! These tests target uncovered branches and edge cases in mutation execution.
 
 #![allow(unused_variables)]
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use interstellar::gql::{
     execute_mutation, execute_mutation_with_schema, parse, parse_statement, CompileError,

@@ -11,8 +11,8 @@
 #![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // =============================================================================
 // Aggregation Tests
@@ -1118,4 +1118,3 @@ fn test_gql_having_implicit_alias_reference() {
 
     assert_eq!(results.len(), 2, "Expected 2 cities with cnt >= 2");
 }
-

@@ -1065,7 +1065,10 @@ mod tests {
             ("label".to_string(), Value::String("knows".to_string())),
             ("from".to_string(), Value::Vertex(VertexId(1))),
             ("to".to_string(), Value::Vertex(VertexId(2))),
-            ("properties".to_string(), Value::Map(crate::value::ValueMap::new())),
+            (
+                "properties".to_string(),
+                Value::Map(crate::value::ValueMap::new()),
+            ),
         ]));
 
         let mutation = PendingMutation::from_value(&value);

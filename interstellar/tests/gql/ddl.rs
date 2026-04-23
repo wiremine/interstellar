@@ -10,8 +10,8 @@ use interstellar::gql::{
 use interstellar::index::{ElementType, IndexBuilder, IndexType};
 use interstellar::schema::{GraphSchema, SchemaError, ValidationMode};
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // =============================================================================
 // Helper Functions

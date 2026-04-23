@@ -351,6 +351,8 @@ pub struct CreateIndex {
     pub name: String,
     /// Whether this is a UNIQUE index (enforces uniqueness constraint)
     pub unique: bool,
+    /// Whether this is an RTREE index (for geospatial data, spec-56)
+    pub rtree: bool,
     /// Optional label filter (None = index all labels)
     pub label: Option<String>,
     /// Property key to index
@@ -2126,6 +2128,58 @@ pub enum Expression {
         filter: Option<Box<Expression>>,
         /// Expression to evaluate for each match.
         transform: Box<Expression>,
+    },
+
+    // ========== Geospatial (spec-56) ==========
+    /// `point({longitude: -122.4, latitude: 37.7})` — geospatial point constructor.
+    GeoPoint {
+        /// Longitude (degrees, WGS84).
+        lon: f64,
+        /// Latitude (degrees, WGS84).
+        lat: f64,
+    },
+
+    /// `polygon([[-122.6, 37.6], ...])` — geospatial polygon constructor.
+    GeoPolygon(Vec<(f64, f64)>),
+
+    /// Distance literal: `5km`, `100m`, `3.2mi`, `10nmi`.
+    GeoDistance {
+        /// Numeric value.
+        value: f64,
+        /// Unit string ("m", "km", "mi", "nmi").
+        unit: String,
+    },
+
+    /// `point.distance(a, b)` — haversine distance between two points.
+    GeoDistanceFn {
+        /// First expression (should evaluate to a Point).
+        a: Box<Expression>,
+        /// Second expression (should evaluate to a Point).
+        b: Box<Expression>,
+    },
+
+    /// `point.within_bbox(expr, min_lon, min_lat, max_lon, max_lat)` — bounding box test.
+    GeoWithinBBox {
+        /// The point expression.
+        point: Box<Expression>,
+        /// Minimum longitude.
+        min_lon: Box<Expression>,
+        /// Minimum latitude.
+        min_lat: Box<Expression>,
+        /// Maximum longitude.
+        max_lon: Box<Expression>,
+        /// Maximum latitude.
+        max_lat: Box<Expression>,
+    },
+
+    /// `point.within_distance(a, b, dist)` — distance threshold test.
+    GeoWithinDistanceFn {
+        /// First point expression.
+        a: Box<Expression>,
+        /// Second point expression.
+        b: Box<Expression>,
+        /// Distance threshold expression.
+        distance: Box<Expression>,
     },
 }
 

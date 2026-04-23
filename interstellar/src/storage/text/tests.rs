@@ -192,9 +192,7 @@ fn prefix_query_matches_term_prefix() {
     idx.upsert(1, "consensus").unwrap();
     idx.upsert(2, "consequence").unwrap();
     idx.upsert(3, "rooster").unwrap();
-    let hits = idx
-        .search(&TextQuery::Prefix("conse".into()), 10)
-        .unwrap();
+    let hits = idx.search(&TextQuery::Prefix("conse".into()), 10).unwrap();
     let ids: std::collections::HashSet<_> = hits.iter().map(vid).collect();
     assert_eq!(
         ids,

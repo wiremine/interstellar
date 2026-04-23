@@ -69,7 +69,10 @@ fn main() {
     let _gossip = g
         .add_v("article")
         .property("title", "Epidemic Broadcast")
-        .property("body", "gossip protocols disseminate state across a cluster")
+        .property(
+            "body",
+            "gossip protocols disseminate state across a cluster",
+        )
         .next()
         .unwrap();
 
@@ -196,12 +199,7 @@ fn main() {
         .next()
         .unwrap()
         .id();
-    let bob = g
-        .add_v("user")
-        .property("name", "Bob")
-        .next()
-        .unwrap()
-        .id();
+    let bob = g.add_v("user").property("name", "Bob").next().unwrap().id();
 
     // Several `endorses` edges with body text.
     let mk_props = |body: &str| {
@@ -305,9 +303,7 @@ fn main() {
     // -- Gremlin: structured TextQ.phrase + textScore() ----------------------
     println!("\nGremlin g.searchTextV(... TextQ.phrase('consensus algorithm') ...).textScore():");
     let scores = graph
-        .execute_script(
-            "g.searchTextV('body', TextQ.phrase('consensus algorithm'), 5).textScore()",
-        )
+        .execute_script("g.searchTextV('body', TextQ.phrase('consensus algorithm'), 5).textScore()")
         .expect("gremlin failed");
     if let ExecutionResult::List(values) = &scores.result {
         for (rank, v) in values.iter().enumerate() {

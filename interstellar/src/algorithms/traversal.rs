@@ -287,24 +287,26 @@ pub fn bidirectional_bfs<G: GraphAccess>(
             });
         }
 
-        if let Some(meeting) =
-            expand_frontier(graph, &mut fwd_queue, &mut fwd_parent, &bwd_parent, fwd_dir, label_filter)
-        {
-            return Ok(reconstruct_bidir_path(
-                &fwd_parent,
-                &bwd_parent,
-                meeting,
-            ));
+        if let Some(meeting) = expand_frontier(
+            graph,
+            &mut fwd_queue,
+            &mut fwd_parent,
+            &bwd_parent,
+            fwd_dir,
+            label_filter,
+        ) {
+            return Ok(reconstruct_bidir_path(&fwd_parent, &bwd_parent, meeting));
         }
 
-        if let Some(meeting) =
-            expand_frontier(graph, &mut bwd_queue, &mut bwd_parent, &fwd_parent, bwd_dir, label_filter)
-        {
-            return Ok(reconstruct_bidir_path(
-                &fwd_parent,
-                &bwd_parent,
-                meeting,
-            ));
+        if let Some(meeting) = expand_frontier(
+            graph,
+            &mut bwd_queue,
+            &mut bwd_parent,
+            &fwd_parent,
+            bwd_dir,
+            label_filter,
+        ) {
+            return Ok(reconstruct_bidir_path(&fwd_parent, &bwd_parent, meeting));
         }
 
         if fwd_queue.is_empty() && bwd_queue.is_empty() {
@@ -482,7 +484,10 @@ mod tests {
         let g = Arc::new(Graph::new());
         let mut ids = Vec::new();
         for i in 0..n {
-            ids.push(g.add_vertex("node", HashMap::from([("idx".into(), Value::Int(i as i64))])));
+            ids.push(g.add_vertex(
+                "node",
+                HashMap::from([("idx".into(), Value::Int(i as i64))]),
+            ));
         }
         for i in 0..n - 1 {
             g.add_edge(ids[i], ids[i + 1], "next", HashMap::new())
@@ -555,9 +560,7 @@ mod tests {
     #[test]
     fn bfs_direction_both() {
         let (g, ids) = make_chain(3);
-        let result: Vec<_> = Bfs::new(g, ids[1])
-            .direction(Direction::Both)
-            .collect();
+        let result: Vec<_> = Bfs::new(g, ids[1]).direction(Direction::Both).collect();
         assert_eq!(result.len(), 3);
     }
 

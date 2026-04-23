@@ -10,8 +10,8 @@
 #![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // =============================================================================
 // Variable-Length Path Tests
@@ -1628,7 +1628,12 @@ fn test_gql_multi_pattern_introduces_variable_in_second_pattern() {
     );
 
     let results: Vec<_> = graph.gql(&query).unwrap();
-    assert_eq!(results.len(), 2, "expected 2 sibling rows, got {:?}", results);
+    assert_eq!(
+        results.len(),
+        2,
+        "expected 2 sibling rows, got {:?}",
+        results
+    );
 
     // Each row should be a map with `n.given` and `n.surname` keys (column
     // ordering preserved per Bug 4 fix).
@@ -1661,7 +1666,12 @@ fn test_gql_multi_pattern_cartesian_fully_disjoint() {
         )
         .unwrap();
 
-    assert_eq!(results.len(), 1, "expected exactly 1 row, got {:?}", results);
+    assert_eq!(
+        results.len(),
+        1,
+        "expected exactly 1 row, got {:?}",
+        results
+    );
 }
 
 #[test]

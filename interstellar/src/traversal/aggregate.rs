@@ -30,6 +30,8 @@ fn value_to_map_key(value: &Value) -> String {
         Value::Null => "null".to_string(),
         Value::List(_) => "[list]".to_string(),
         Value::Map(_) => "[map]".to_string(),
+        Value::Point(p) => p.to_string(),
+        Value::Polygon(p) => p.to_string(),
     }
 }
 

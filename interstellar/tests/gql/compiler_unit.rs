@@ -11,8 +11,8 @@
 use interstellar::gql::{compile, parse, CompileError};
 use interstellar::storage::Graph;
 use interstellar::value::Value;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[test]
 fn test_compile_simple_match() {

@@ -82,7 +82,8 @@ use crate::error::StorageError;
 use crate::gql::{self, GqlError};
 use crate::graph_elements::{GraphEdge, GraphVertex, InMemoryEdge, InMemoryVertex};
 use crate::index::{
-    BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, UniqueIndex,
+    BTreeIndex, ElementType, IndexError, IndexSpec, IndexType, PropertyIndex, RTreeIndex,
+    UniqueIndex,
 };
 use crate::schema::GraphSchema;
 use crate::storage::interner::StringInterner;
@@ -244,8 +245,7 @@ pub struct Graph {
         RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
 
     #[cfg(feature = "full-text")]
-    text_indexes_edge:
-        RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
+    text_indexes_edge: RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
 }
 
 impl Graph {
@@ -585,6 +585,7 @@ impl Graph {
         let mut index: Box<dyn PropertyIndex> = match spec.index_type {
             IndexType::BTree => Box::new(BTreeIndex::new(spec.clone())?),
             IndexType::Unique => Box::new(UniqueIndex::new(spec.clone())?),
+            IndexType::RTree => Box::new(RTreeIndex::new(spec.clone())?),
         };
 
         // Populate index with existing data
@@ -1943,7 +1944,9 @@ impl Graph {
                 .map_err(GqlError::Compile)
         } else {
             // Execute mutations against the graph
-            let mut wrapper = GraphMutWrapper { graph: self.as_ref() };
+            let mut wrapper = GraphMutWrapper {
+                graph: self.as_ref(),
+            };
             let schema = self.schema();
             gql::execute_mutation_with_schema(&stmt, &mut wrapper, schema.as_ref())
                 .map_err(|e| GqlError::Mutation(e.to_string()))
@@ -2788,11 +2791,9 @@ impl<'g> CowTraversalSource<'g> {
     ) -> Result<CowBoundTraversal<'g, (), Value, VertexMarker>, crate::storage::text::TextIndexError>
     {
         let index = self.graph.text_index_v(property).ok_or_else(|| {
-            crate::storage::text::TextIndexError::Storage(
-                crate::error::StorageError::IndexError(format!(
-                    "no vertex text index registered for property {property:?}"
-                )),
-            )
+            crate::storage::text::TextIndexError::Storage(crate::error::StorageError::IndexError(
+                format!("no vertex text index registered for property {property:?}"),
+            ))
         })?;
         let hits = index.search(query, k)?;
         let scored: Vec<(VertexId, f32)> = hits
@@ -2841,11 +2842,9 @@ impl<'g> CowTraversalSource<'g> {
     ) -> Result<CowBoundTraversal<'g, (), Value, EdgeMarker>, crate::storage::text::TextIndexError>
     {
         let index = self.graph.text_index_e(property).ok_or_else(|| {
-            crate::storage::text::TextIndexError::Storage(
-                crate::error::StorageError::IndexError(format!(
-                    "no edge text index registered for property {property:?}"
-                )),
-            )
+            crate::storage::text::TextIndexError::Storage(crate::error::StorageError::IndexError(
+                format!("no edge text index registered for property {property:?}"),
+            ))
         })?;
         let hits = index.search(query, k)?;
         let scored: Vec<(EdgeId, f32)> = hits

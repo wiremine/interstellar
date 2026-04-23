@@ -160,16 +160,10 @@ fn compile_source<'g>(
             Ok(g.inject(vals))
         }
         SourceStep::SearchTextV {
-            property,
-            query,
-            k,
-            ..
+            property, query, k, ..
         } => compile_search_text_v(g, property, query, *k),
         SourceStep::SearchTextE {
-            property,
-            query,
-            k,
-            ..
+            property, query, k, ..
         } => compile_search_text_e(g, property, query, *k),
     }
 }
@@ -256,9 +250,7 @@ fn text_query_ast_to_runtime(
         TextQueryAst::Or(children) => {
             TextQuery::Or(children.iter().map(text_query_ast_to_runtime).collect())
         }
-        TextQueryAst::Not(inner) => {
-            TextQuery::Not(Box::new(text_query_ast_to_runtime(inner)))
-        }
+        TextQueryAst::Not(inner) => TextQuery::Not(Box::new(text_query_ast_to_runtime(inner))),
     }
 }
 
@@ -1572,6 +1564,63 @@ fn compile_predicate(
         Predicate::EndingWith(s) => Ok(Box::new(p::ending_with(s))),
         Predicate::NotEndingWith(s) => Ok(Box::new(p::not_ending_with(s))),
         Predicate::Regex(pattern) => Ok(Box::new(p::regex(pattern))),
+        Predicate::GeoWithinDistance { geometry, distance } => {
+            use crate::geo::Distance;
+            let center = match literal_to_value(geometry) {
+                Value::Point(pt) => pt,
+                _ => {
+                    return Err(CompileError::TypeMismatch {
+                        message: "geo_within_distance requires a point geometry".to_string(),
+                    })
+                }
+            };
+            let dist = match distance {
+                Literal::Distance { value, unit } => {
+                    use DistanceUnit::*;
+                    match unit {
+                        Meters => Distance::Meters(*value),
+                        Kilometers => Distance::Kilometers(*value),
+                        Miles => Distance::Miles(*value),
+                        NauticalMiles => Distance::NauticalMiles(*value),
+                    }
+                }
+                _ => {
+                    return Err(CompileError::TypeMismatch {
+                        message: "geo_within_distance requires a distance literal (e.g., 5km)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Box::new(p::within_distance(center, dist)))
+        }
+        Predicate::GeoIntersects(geometry) => {
+            let val = literal_to_value(geometry);
+            let geom = match &val {
+                Value::Point(pt) => p::GeometryRef::Point(*pt),
+                Value::Polygon(poly) => p::GeometryRef::Polygon(poly.clone()),
+                _ => {
+                    return Err(CompileError::TypeMismatch {
+                        message: "geo_intersects requires a point or polygon geometry".to_string(),
+                    })
+                }
+            };
+            Ok(Box::new(p::intersects(geom)))
+        }
+        Predicate::GeoContainedBy(geometry) => {
+            let val = literal_to_value(geometry);
+            match val {
+                Value::Polygon(poly) => Ok(Box::new(p::contained_by(poly))),
+                _ => Err(CompileError::TypeMismatch {
+                    message: "geo_contained_by requires a polygon geometry".to_string(),
+                }),
+            }
+        }
+        Predicate::GeoBBox {
+            min_lon,
+            min_lat,
+            max_lon,
+            max_lat,
+        } => Ok(Box::new(p::bbox(*min_lon, *min_lat, *max_lon, *max_lat))),
     }
 }
 
@@ -1590,6 +1639,30 @@ pub fn literal_to_value(literal: &Literal) -> Value {
                 .map(|(k, v)| (k.clone(), literal_to_value(v)))
                 .collect(),
         ),
+        Literal::Point { lon, lat } => {
+            // Use unchecked since validation happens at query execution time
+            Value::Point(crate::geo::Point::new_unchecked(*lon, *lat))
+        }
+        Literal::Polygon(coords) => {
+            // Construct polygon from coordinate tuples; validation at execution time
+            match crate::geo::Polygon::new(coords.iter().copied()) {
+                Ok(poly) => Value::Polygon(poly),
+                // Fallback: create with unchecked points for degenerate input
+                Err(_) => Value::Null,
+            }
+        }
+        Literal::Distance { value, unit } => {
+            use crate::geo::Distance;
+            use DistanceUnit::*;
+            let dist = match unit {
+                Meters => Distance::Meters(*value),
+                Kilometers => Distance::Kilometers(*value),
+                Miles => Distance::Miles(*value),
+                NauticalMiles => Distance::NauticalMiles(*value),
+            };
+            // Distance literals are converted to meters as a float
+            Value::Float(dist.meters())
+        }
     }
 }
 
@@ -1625,7 +1698,8 @@ fn validate_source(source: &SourceStep) -> Result<(), CompileError> {
             }
         }
         SourceStep::Inject { .. } => Ok(()),
-        SourceStep::SearchTextV { property, k, .. } | SourceStep::SearchTextE { property, k, .. } => {
+        SourceStep::SearchTextV { property, k, .. }
+        | SourceStep::SearchTextE { property, k, .. } => {
             if property.is_empty() {
                 return Err(CompileError::InvalidArguments {
                     step: "searchTextV/searchTextE".to_string(),
@@ -2125,16 +2199,10 @@ fn compile_source_with_vars<'g>(
             Ok(g.inject(vals))
         }
         SourceStep::SearchTextV {
-            property,
-            query,
-            k,
-            ..
+            property, query, k, ..
         } => compile_search_text_v(g, property, query, *k),
         SourceStep::SearchTextE {
-            property,
-            query,
-            k,
-            ..
+            property, query, k, ..
         } => compile_search_text_e(g, property, query, *k),
     }
 }

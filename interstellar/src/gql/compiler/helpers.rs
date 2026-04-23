@@ -68,6 +68,16 @@ impl std::hash::Hash for ComparableValue {
             Value::String(s) => s.hash(state),
             Value::Vertex(id) => id.0.hash(state),
             Value::Edge(id) => id.0.hash(state),
+            Value::Point(p) => {
+                p.lon.to_bits().hash(state);
+                p.lat.to_bits().hash(state);
+            }
+            Value::Polygon(p) => {
+                for &(lon, lat) in &p.ring {
+                    lon.to_bits().hash(state);
+                    lat.to_bits().hash(state);
+                }
+            }
             Value::List(items) => {
                 items.len().hash(state);
                 for item in items {
@@ -297,6 +307,8 @@ pub(super) fn value_to_string(val: &Value) -> String {
         }
         Value::Vertex(vid) => format!("Vertex({})", vid.0),
         Value::Edge(eid) => format!("Edge({})", eid.0),
+        Value::Point(p) => p.to_string(),
+        Value::Polygon(p) => p.to_string(),
     }
 }
 

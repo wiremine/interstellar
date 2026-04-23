@@ -512,16 +512,20 @@ fn mutation_result_tracks_statistics() {
 
     // Create multiple pending mutations
     let traversers = vec![
-        interstellar::traversal::Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
-            ("__pending_add_v".to_string(), Value::Bool(true)),
-            ("label".to_string(), Value::String("person".to_string())),
-            ("properties".to_string(), Value::Map(Default::default())),
-        ]))),
-        interstellar::traversal::Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
-            ("__pending_add_v".to_string(), Value::Bool(true)),
-            ("label".to_string(), Value::String("person".to_string())),
-            ("properties".to_string(), Value::Map(Default::default())),
-        ]))),
+        interstellar::traversal::Traverser::new(Value::Map(
+            ::indexmap::IndexMap::<String, Value>::from_iter([
+                ("__pending_add_v".to_string(), Value::Bool(true)),
+                ("label".to_string(), Value::String("person".to_string())),
+                ("properties".to_string(), Value::Map(Default::default())),
+            ]),
+        )),
+        interstellar::traversal::Traverser::new(Value::Map(
+            ::indexmap::IndexMap::<String, Value>::from_iter([
+                ("__pending_add_v".to_string(), Value::Bool(true)),
+                ("label".to_string(), Value::String("person".to_string())),
+                ("properties".to_string(), Value::Map(Default::default())),
+            ]),
+        )),
     ];
 
     let result = execute_mutations(&mut storage, traversers.into_iter());
@@ -538,11 +542,13 @@ fn mutation_result_passes_through_non_mutations() {
     // Mix of pending mutations and regular values
     let traversers = vec![
         interstellar::traversal::Traverser::new(Value::Int(42)),
-        interstellar::traversal::Traverser::new(Value::Map(::indexmap::IndexMap::<String, Value>::from_iter([
-            ("__pending_add_v".to_string(), Value::Bool(true)),
-            ("label".to_string(), Value::String("test".to_string())),
-            ("properties".to_string(), Value::Map(Default::default())),
-        ]))),
+        interstellar::traversal::Traverser::new(Value::Map(
+            ::indexmap::IndexMap::<String, Value>::from_iter([
+                ("__pending_add_v".to_string(), Value::Bool(true)),
+                ("label".to_string(), Value::String("test".to_string())),
+                ("properties".to_string(), Value::Map(Default::default())),
+            ]),
+        )),
         interstellar::traversal::Traverser::new(Value::String("hello".to_string())),
     ];
 

@@ -11,8 +11,8 @@ use tantivy::query::{
     AllQuery, BooleanQuery, Occur, PhraseQuery, Query, QueryParser, RegexQuery, TermQuery,
 };
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST,
-    INDEXED, STORED,
+    Field, IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST, INDEXED,
+    STORED,
 };
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
@@ -89,8 +89,7 @@ impl TantivyTextIndex {
 
         // Element id is stored as a u64 fast-field + indexed so we can
         // round-trip it on hits and use `delete_term` for upserts.
-        let id_field =
-            schema_builder.add_u64_field(FIELD_ELEMENT_ID, INDEXED | STORED | FAST);
+        let id_field = schema_builder.add_u64_field(FIELD_ELEMENT_ID, INDEXED | STORED | FAST);
 
         // Body text uses our analyzer; positions are recorded only when
         // requested.
@@ -287,10 +286,8 @@ impl TantivyTextIndex {
                 // A bare `Not` at the top compiles into `AllQuery MUST_NOT
                 // inner` to satisfy Tantivy's "needs a positive clause" rule.
                 let neg = Self::compile_inner(inner, inner_q)?;
-                let clauses: Vec<(Occur, Box<dyn Query>)> = vec![
-                    (Occur::Must, Box::new(AllQuery)),
-                    (Occur::MustNot, neg),
-                ];
+                let clauses: Vec<(Occur, Box<dyn Query>)> =
+                    vec![(Occur::Must, Box::new(AllQuery)), (Occur::MustNot, neg)];
                 Ok(Box::new(BooleanQuery::new(clauses)))
             }
         }
@@ -370,14 +367,18 @@ fn analyze_terms(inner: &Inner, text: &str) -> Result<Vec<Term>, TextIndexError>
     let mut stream = analyzer.token_stream(text);
     let mut out = Vec::new();
     while stream.advance() {
-        out.push(Term::from_field_text(inner.body_field, &stream.token().text));
+        out.push(Term::from_field_text(
+            inner.body_field,
+            &stream.token().text,
+        ));
     }
     Ok(out)
 }
 
 fn extract_element_id(doc: &TantivyDocument, field: Field) -> Option<u64> {
     use tantivy::schema::document::{CompactDocValue, Value};
-    doc.get_first(field).and_then(|v: CompactDocValue<'_>| v.as_u64())
+    doc.get_first(field)
+        .and_then(|v: CompactDocValue<'_>| v.as_u64())
 }
 
 /// Escape regex metacharacters so a user term can be embedded into a regex
@@ -386,8 +387,7 @@ fn regex_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
-            '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$'
-            | '\\' => {
+            '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\' => {
                 out.push('\\');
                 out.push(c);
             }
@@ -416,7 +416,10 @@ impl TextIndex for TantivyTextIndex {
         let mut doc = TantivyDocument::default();
         doc.add_u64(inner.id_field, id);
         doc.add_text(inner.body_field, text);
-        inner.writer.add_document(doc).map_err(TextIndexError::from)?;
+        inner
+            .writer
+            .add_document(doc)
+            .map_err(TextIndexError::from)?;
 
         inner.pending_upserts += 1;
         if inner.pending_upserts >= self.config.commit_every {
@@ -469,7 +472,11 @@ impl TextIndex for TantivyTextIndex {
         // 2 segments, this is a no-op.
         let inner = self.inner.read();
         let searcher = inner.reader.searcher();
-        let segment_ids: Vec<_> = searcher.segment_readers().iter().map(|s| s.segment_id()).collect();
+        let segment_ids: Vec<_> = searcher
+            .segment_readers()
+            .iter()
+            .map(|s| s.segment_id())
+            .collect();
         drop(inner);
         if segment_ids.len() < 2 {
             return Ok(());

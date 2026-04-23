@@ -3,8 +3,8 @@
 //! Provides `ShortestPathStep` and `DijkstraStep` that bridge the graph algorithms
 //! module with the Gremlin traversal pipeline.
 
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use crate::storage::{Edge, GraphStorage};
 use crate::traversal::context::ExecutionContext;
@@ -102,8 +102,7 @@ impl Step for ShortestPathStep {
         let target = self.target;
         Box::new(input.filter_map(move |t| {
             let source = t.as_vertex_id()?;
-            let path_value =
-                bfs_shortest_path(ctx.storage(), source, target, StepDirection::Out)?;
+            let path_value = bfs_shortest_path(ctx.storage(), source, target, StepDirection::Out)?;
             Some(t.split(path_value))
         }))
     }
@@ -221,8 +220,13 @@ impl Step for DijkstraStep {
         let weight_prop = self.weight_property.clone();
         Box::new(input.filter_map(move |t| {
             let source = t.as_vertex_id()?;
-            let result =
-                dijkstra_on_storage(ctx.storage(), source, target, &weight_prop, StepDirection::Out)?;
+            let result = dijkstra_on_storage(
+                ctx.storage(),
+                source,
+                target,
+                &weight_prop,
+                StepDirection::Out,
+            )?;
             Some(t.split(result))
         }))
     }
@@ -262,10 +266,7 @@ pub(crate) fn dijkstra_on_storage(
 ) -> Option<Value> {
     if source == target {
         let mut map = indexmap::IndexMap::new();
-        map.insert(
-            "path".to_string(),
-            Value::List(vec![Value::Vertex(source)]),
-        );
+        map.insert("path".to_string(), Value::List(vec![Value::Vertex(source)]));
         map.insert("weight".to_string(), Value::Float(0.0));
         return Some(Value::Map(map));
     }

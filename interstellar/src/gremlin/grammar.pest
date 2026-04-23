@@ -348,7 +348,7 @@ has_next_step = { "hasNext" ~ "(" ~ ")" }
 // Predicates
 // ============================================================
 
-predicate = { p_predicate | text_p_predicate }
+predicate = { geo_predicate | p_predicate | text_p_predicate }
 
 // P.eq(), P.neq(), P.lt(), etc.
 p_predicate = { "P" ~ "." ~ p_method }
@@ -390,6 +390,29 @@ text_not_starting_with = { "notStartingWith" ~ "(" ~ string ~ ")" }
 text_ending_with = { "endingWith" ~ "(" ~ string ~ ")" }
 text_not_ending_with = { "notEndingWith" ~ "(" ~ string ~ ")" }
 text_regex = { "regex" ~ "(" ~ string ~ ")" }
+
+// ============================================================
+// Geospatial Predicates (spec-56)
+// ============================================================
+
+geo_predicate = {
+    geo_within_distance
+    | geo_intersects
+    | geo_contained_by
+    | geo_bbox
+}
+
+geo_within_distance = { "geo_within_distance" ~ "(" ~ value ~ "," ~ distance_expr ~ ")" }
+geo_intersects      = { "geo_intersects" ~ "(" ~ value ~ ")" }
+geo_contained_by    = { "geo_contained_by" ~ "(" ~ value ~ ")" }
+geo_bbox            = { "geo_bbox" ~ "(" ~ number ~ "," ~ number ~ "," ~ number ~ "," ~ number ~ ")" }
+
+// Number helper (float or integer, used by geo rules)
+number = { float | integer }
+
+// Distance expression: 5km, 100m, 3.2mi, 10nmi
+distance_expr = ${ (float | integer) ~ distance_unit }
+distance_unit = @{ "nmi" | "km" | "mi" | "m" }
 
 // ============================================================
 // TextQ DSL (spec-55c)
@@ -436,7 +459,13 @@ anonymous_traversal = { "__" ~ step* }
 // Values
 // ============================================================
 
-value = { float | integer | string | boolean | null | list_value | map_value }
+value = { geo_point | geo_polygon | float | integer | string | boolean | null | list_value | map_value }
+
+// Geospatial value constructors (spec-56)
+geo_point   = { "point" ~ "(" ~ number ~ "," ~ number ~ ")" }
+geo_polygon = { "polygon" ~ "(" ~ "[" ~ point_pair ~ ("," ~ point_pair)* ~ "]" ~ ")" }
+point_pair  = { "[" ~ number ~ "," ~ number ~ "]" }
+
 list_value = { "[" ~ (value ~ ("," ~ value)*)? ~ "]" }
 // Maps use [:] for empty, and key:value syntax (distinct from list)
 map_value = { "[" ~ ":" ~ "]" | "[" ~ map_entry ~ ("," ~ map_entry)* ~ "]" }

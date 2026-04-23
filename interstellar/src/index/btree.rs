@@ -237,6 +237,12 @@ impl ComparableValue {
             }
             ComparableValue::Vertex(id) => Value::Vertex(*id),
             ComparableValue::Edge(id) => Value::Edge(*id),
+            ComparableValue::Point(lon, lat) => {
+                Value::Point(crate::geo::Point::new_unchecked(lon.0, lat.0))
+            }
+            ComparableValue::Polygon(coords) => Value::Polygon(crate::geo::Polygon {
+                ring: coords.iter().map(|(lon, lat)| (lon.0, lat.0)).collect(),
+            }),
         }
     }
 }

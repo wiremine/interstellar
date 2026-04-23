@@ -198,7 +198,10 @@ fn search_text_returns_top_k_in_score_order() {
         .search_text("body", "raft consensus", 10)
         .unwrap()
         .to_value_list();
-    assert!(hits.len() >= 2, "expected at least two matches, got {hits:?}");
+    assert!(
+        hits.len() >= 2,
+        "expected at least two matches, got {hits:?}"
+    );
 
     // Top-k must respect k.
     let g = graph.gremlin(Arc::clone(&graph));
@@ -220,10 +223,7 @@ fn search_text_query_supports_phrase_query() {
         text: "quick brown fox".to_string(),
         slop: 0,
     };
-    let hits = g
-        .search_text_query("body", &q, 10)
-        .unwrap()
-        .to_value_list();
+    let hits = g.search_text_query("body", &q, 10).unwrap().to_value_list();
     assert_eq!(hits, vec![Value::Vertex(phrase_match)]);
 }
 
@@ -279,7 +279,11 @@ fn search_text_chains_with_filter_steps() {
 #[test]
 fn search_text_preserves_descending_score_order() {
     let graph = graph_with_body_index();
-    let strong = add_doc(&graph, "doc", "raft raft raft consensus consensus consensus");
+    let strong = add_doc(
+        &graph,
+        "doc",
+        "raft raft raft consensus consensus consensus",
+    );
     let weak = add_doc(&graph, "doc", "raft");
 
     let g = graph.gremlin(Arc::clone(&graph));
@@ -395,10 +399,7 @@ fn add_edge_indexes_string_body_property() {
     let e = add_edge_with_body(&graph, a, b, "comment", "raft consensus algorithm");
 
     let g = graph.gremlin(Arc::clone(&graph));
-    let hits = g
-        .search_text_e("body", "raft", 10)
-        .unwrap()
-        .to_value_list();
+    let hits = g.search_text_e("body", "raft", 10).unwrap().to_value_list();
     assert_eq!(hits, vec![Value::Edge(e)]);
 }
 
@@ -441,9 +442,7 @@ fn set_edge_property_to_non_string_removes_from_index() {
     let (graph, a, b) = graph_with_edge_body_index();
     let e = add_edge_with_body(&graph, a, b, "comment", "indexable text");
 
-    graph
-        .set_edge_property(e, "body", Value::Int(42))
-        .unwrap();
+    graph.set_edge_property(e, "body", Value::Int(42)).unwrap();
 
     let g = graph.gremlin(Arc::clone(&graph));
     assert!(g
@@ -492,7 +491,13 @@ fn removing_vertex_cascades_edge_text_index_cleanup() {
 #[test]
 fn search_text_e_returns_top_k_in_score_order() {
     let (graph, a, b) = graph_with_edge_body_index();
-    add_edge_with_body(&graph, a, b, "comment", "raft raft raft consensus consensus");
+    add_edge_with_body(
+        &graph,
+        a,
+        b,
+        "comment",
+        "raft raft raft consensus consensus",
+    );
     add_edge_with_body(&graph, a, b, "comment", "raft consensus");
     add_edge_with_body(&graph, a, b, "comment", "consensus only");
     add_edge_with_body(&graph, a, b, "comment", "totally unrelated content");
@@ -516,8 +521,13 @@ fn search_text_e_returns_top_k_in_score_order() {
 fn search_text_query_e_supports_phrase_query() {
     let (graph, a, b) = graph_with_edge_body_index();
     let phrase_match = add_edge_with_body(&graph, a, b, "comment", "the quick brown fox jumps");
-    let _scattered =
-        add_edge_with_body(&graph, a, b, "comment", "brown sugar and quick recipes for fox tacos");
+    let _scattered = add_edge_with_body(
+        &graph,
+        a,
+        b,
+        "comment",
+        "brown sugar and quick recipes for fox tacos",
+    );
 
     let g = graph.gremlin(Arc::clone(&graph));
     let q = TextQuery::Phrase {
@@ -621,10 +631,7 @@ fn vertex_and_edge_indexes_on_different_properties_are_independent() {
     let edge = graph.add_edge(alice, bob, "comment", ep).unwrap();
 
     let g = graph.gremlin(Arc::clone(&graph));
-    let v_hits = g
-        .search_text("bio", "raft", 10)
-        .unwrap()
-        .to_value_list();
+    let v_hits = g.search_text("bio", "raft", 10).unwrap().to_value_list();
     assert_eq!(v_hits, vec![Value::Vertex(alice)]);
 
     let g = graph.gremlin(Arc::clone(&graph));

@@ -9,9 +9,9 @@ pub use metadata::{IdStep, IndexStep, KeyStep, LabelStep, LoopsStep, ValueStep};
 pub use order::{BoundOrderBuilder, Order, OrderBuilder, OrderKey, OrderStep};
 pub use path::{AsStep, PathStep, SelectKeysStep, SelectStep, SelectValuesStep};
 pub use properties::{ElementMapStep, PropertiesStep, PropertyMapStep, ValueMapStep};
-pub use values::ValuesStep;
 #[cfg(feature = "full-text")]
 pub use text_score::TextScoreStep;
+pub use values::ValuesStep;
 
 pub mod collection;
 pub mod constant;
@@ -20,6 +20,6 @@ pub mod metadata;
 pub mod order;
 pub mod path;
 pub mod properties;
-pub mod values;
 #[cfg(feature = "full-text")]
 pub mod text_score;
+pub mod values;

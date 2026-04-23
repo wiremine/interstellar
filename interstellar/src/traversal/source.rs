@@ -260,22 +260,18 @@ impl<'g> GraphTraversalSource<'g> {
         k: usize,
     ) -> Result<BoundTraversal<'g, (), Value>, crate::storage::text::TextIndexError> {
         let graph = self.graph.as_ref().ok_or_else(|| {
-            crate::storage::text::TextIndexError::Storage(
-                crate::error::StorageError::IndexError(
-                    "full-text search requires a live Graph handle; \
+            crate::storage::text::TextIndexError::Storage(crate::error::StorageError::IndexError(
+                "full-text search requires a live Graph handle; \
                      construct GraphTraversalSource via from_snapshot_with_graph \
                      (e.g. via Graph::execute_script, Graph::query, Graph::gql, \
                      or Graph::gql_with_params)"
-                        .to_string(),
-                ),
-            )
+                    .to_string(),
+            ))
         })?;
         let index = graph.text_index_v(property).ok_or_else(|| {
-            crate::storage::text::TextIndexError::Storage(
-                crate::error::StorageError::IndexError(format!(
-                    "no vertex text index registered for property {property:?}"
-                )),
-            )
+            crate::storage::text::TextIndexError::Storage(crate::error::StorageError::IndexError(
+                format!("no vertex text index registered for property {property:?}"),
+            ))
         })?;
         let hits = index.search(query, k)?;
         let scored: Vec<(VertexId, f32)> = hits
@@ -319,22 +315,18 @@ impl<'g> GraphTraversalSource<'g> {
         k: usize,
     ) -> Result<BoundTraversal<'g, (), Value>, crate::storage::text::TextIndexError> {
         let graph = self.graph.as_ref().ok_or_else(|| {
-            crate::storage::text::TextIndexError::Storage(
-                crate::error::StorageError::IndexError(
-                    "full-text search requires a live Graph handle; \
+            crate::storage::text::TextIndexError::Storage(crate::error::StorageError::IndexError(
+                "full-text search requires a live Graph handle; \
                      construct GraphTraversalSource via from_snapshot_with_graph \
                      (e.g. via Graph::execute_script, Graph::query, Graph::gql, \
                      or Graph::gql_with_params)"
-                        .to_string(),
-                ),
-            )
+                    .to_string(),
+            ))
         })?;
         let index = graph.text_index_e(property).ok_or_else(|| {
-            crate::storage::text::TextIndexError::Storage(
-                crate::error::StorageError::IndexError(format!(
-                    "no edge text index registered for property {property:?}"
-                )),
-            )
+            crate::storage::text::TextIndexError::Storage(crate::error::StorageError::IndexError(
+                format!("no edge text index registered for property {property:?}"),
+            ))
         })?;
         let hits = index.search(query, k)?;
         let scored: Vec<(EdgeId, f32)> = hits

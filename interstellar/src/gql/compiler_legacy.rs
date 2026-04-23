@@ -600,7 +600,13 @@ pub fn compile_statement_with_params_and_graph<S: SnapshotLike + ?Sized>(
     params: &Parameters,
     graph_handle: Option<Arc<Graph>>,
 ) -> Result<Vec<Value>, CompileError> {
-    compile_statement_with_config_inner(stmt, snapshot, params, &CompilerConfig::default(), graph_handle)
+    compile_statement_with_config_inner(
+        stmt,
+        snapshot,
+        params,
+        &CompilerConfig::default(),
+        graph_handle,
+    )
 }
 
 /// Internal: compile_statement_with_config that accepts an optional `Arc<Graph>`
@@ -1027,11 +1033,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         // Register CALL procedure YIELD variables
         for proc_clause in &query.call_procedure_clauses {
             for item in &proc_clause.yield_items {
-                let var_name = item
-                    .alias
-                    .as_ref()
-                    .unwrap_or(&item.field)
-                    .clone();
+                let var_name = item.alias.as_ref().unwrap_or(&item.field).clone();
                 self.bindings.insert(
                     var_name,
                     BindingInfo {
@@ -1151,10 +1153,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
     /// and the RETURN clause. A duplicate binding (variable already bound and
     /// not used as the anchor) is treated as an equality constraint —
     /// implemented by filtering rows whose anchor vertex doesn't match.
-    fn execute_multi_pattern_query(
-        &mut self,
-        query: &Query,
-    ) -> Result<Vec<Value>, CompileError> {
+    fn execute_multi_pattern_query(&mut self, query: &Query) -> Result<Vec<Value>, CompileError> {
         use crate::traversal::Traverser;
 
         // Multi-pattern always needs path tracking (we read variable bindings
@@ -2545,10 +2544,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 match dijkstra_on_storage(storage, source, target, &weight_prop, StepDirection::Out)
                 {
                     Some(Value::Map(map)) => {
-                        let path = map
-                            .get("path")
-                            .cloned()
-                            .unwrap_or(Value::List(Vec::new()));
+                        let path = map.get("path").cloned().unwrap_or(Value::List(Vec::new()));
                         let weight = map.get("weight").cloned().unwrap_or(Value::Float(0.0));
                         let mut row = HashMap::new();
                         self.bind_yield(&mut row, yield_items, "path", path);
@@ -2572,17 +2568,10 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 let mut results = Vec::new();
 
                 // First path: standard Dijkstra
-                if let Some(Value::Map(map)) = dijkstra_on_storage(
-                    storage,
-                    source,
-                    target,
-                    &weight_prop,
-                    StepDirection::Out,
-                ) {
-                    let path = map
-                        .get("path")
-                        .cloned()
-                        .unwrap_or(Value::List(Vec::new()));
+                if let Some(Value::Map(map)) =
+                    dijkstra_on_storage(storage, source, target, &weight_prop, StepDirection::Out)
+                {
+                    let path = map.get("path").cloned().unwrap_or(Value::List(Vec::new()));
                     let weight = map.get("weight").cloned().unwrap_or(Value::Float(0.0));
                     let mut row = HashMap::new();
                     self.bind_yield(&mut row, yield_items, "path", path);
@@ -2763,13 +2752,10 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             | "interstellar.searchTextE"
             | "interstellar.searchTextAllE"
             | "interstellar.searchTextPhraseE"
-            | "interstellar.searchTextPrefixE" => {
-                Err(CompileError::ProcedureArgumentError {
-                    procedure: name.to_string(),
-                    message: "full-text-search procedures require the `full-text` feature"
-                        .to_string(),
-                })
-            }
+            | "interstellar.searchTextPrefixE" => Err(CompileError::ProcedureArgumentError {
+                procedure: name.to_string(),
+                message: "full-text-search procedures require the `full-text` feature".to_string(),
+            }),
 
             _ => Err(CompileError::UnknownProcedure {
                 name: name.to_string(),
@@ -2785,18 +2771,18 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         index: usize,
         param_name: &str,
     ) -> Result<VertexId, CompileError> {
-        let value = args.get(index).ok_or_else(|| CompileError::ProcedureArgumentError {
-            procedure: proc_name.to_string(),
-            message: format!("missing argument '{param_name}' at position {index}"),
-        })?;
+        let value = args
+            .get(index)
+            .ok_or_else(|| CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("missing argument '{param_name}' at position {index}"),
+            })?;
         match value {
             Value::Vertex(id) => Ok(*id),
             Value::Int(n) => Ok(VertexId(*n as u64)),
             _ => Err(CompileError::ProcedureArgumentError {
                 procedure: proc_name.to_string(),
-                message: format!(
-                    "argument '{param_name}' must be a vertex ID, got {value:?}"
-                ),
+                message: format!("argument '{param_name}' must be a vertex ID, got {value:?}"),
             }),
         }
     }
@@ -2809,17 +2795,17 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         index: usize,
         param_name: &str,
     ) -> Result<String, CompileError> {
-        let value = args.get(index).ok_or_else(|| CompileError::ProcedureArgumentError {
-            procedure: proc_name.to_string(),
-            message: format!("missing argument '{param_name}' at position {index}"),
-        })?;
+        let value = args
+            .get(index)
+            .ok_or_else(|| CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("missing argument '{param_name}' at position {index}"),
+            })?;
         match value {
             Value::String(s) => Ok(s.clone()),
             _ => Err(CompileError::ProcedureArgumentError {
                 procedure: proc_name.to_string(),
-                message: format!(
-                    "argument '{param_name}' must be a string, got {value:?}"
-                ),
+                message: format!("argument '{param_name}' must be a string, got {value:?}"),
             }),
         }
     }
@@ -2832,17 +2818,17 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         index: usize,
         param_name: &str,
     ) -> Result<i64, CompileError> {
-        let value = args.get(index).ok_or_else(|| CompileError::ProcedureArgumentError {
-            procedure: proc_name.to_string(),
-            message: format!("missing argument '{param_name}' at position {index}"),
-        })?;
+        let value = args
+            .get(index)
+            .ok_or_else(|| CompileError::ProcedureArgumentError {
+                procedure: proc_name.to_string(),
+                message: format!("missing argument '{param_name}' at position {index}"),
+            })?;
         match value {
             Value::Int(n) => Ok(*n),
             _ => Err(CompileError::ProcedureArgumentError {
                 procedure: proc_name.to_string(),
-                message: format!(
-                    "argument '{param_name}' must be an integer, got {value:?}"
-                ),
+                message: format!("argument '{param_name}' must be an integer, got {value:?}"),
             }),
         }
     }
@@ -2866,11 +2852,7 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             // Only bind fields listed in YIELD
             for item in yield_items {
                 if item.field == field_name {
-                    let key = item
-                        .alias
-                        .as_ref()
-                        .unwrap_or(&item.field)
-                        .clone();
+                    let key = item.alias.as_ref().unwrap_or(&item.field).clone();
                     row.insert(key, value);
                     return;
                 }
@@ -2925,14 +2907,15 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         k: i64,
         yield_items: &[YieldItem],
     ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
-        let graph = self.graph_handle.as_ref().ok_or_else(|| {
-            CompileError::ProcedureArgumentError {
-                procedure: proc_name.to_string(),
-                message: "full-text-search procedures require a graph-bound \
+        let graph =
+            self.graph_handle
+                .as_ref()
+                .ok_or_else(|| CompileError::ProcedureArgumentError {
+                    procedure: proc_name.to_string(),
+                    message: "full-text-search procedures require a graph-bound \
                           GQL entry point (use Graph::gql, not the snapshot-only API)"
-                    .to_string(),
-            }
-        })?;
+                        .to_string(),
+                })?;
 
         if property.is_empty() {
             return Err(CompileError::ProcedureArgumentError {
@@ -2947,19 +2930,21 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             });
         }
 
-        let index = graph.text_index_v(property).ok_or_else(|| {
-            CompileError::ProcedureArgumentError {
-                procedure: proc_name.to_string(),
-                message: format!("no vertex text index registered for property {property:?}"),
-            }
-        })?;
+        let index =
+            graph
+                .text_index_v(property)
+                .ok_or_else(|| CompileError::ProcedureArgumentError {
+                    procedure: proc_name.to_string(),
+                    message: format!("no vertex text index registered for property {property:?}"),
+                })?;
 
-        let hits = index.search(&query, k as usize).map_err(|e| {
-            CompileError::ProcedureArgumentError {
-                procedure: proc_name.to_string(),
-                message: format!("text search failed: {e}"),
-            }
-        })?;
+        let hits =
+            index
+                .search(&query, k as usize)
+                .map_err(|e| CompileError::ProcedureArgumentError {
+                    procedure: proc_name.to_string(),
+                    message: format!("text search failed: {e}"),
+                })?;
 
         let want_elem = self.yield_requests(yield_items, "elem");
         let mut rows = Vec::with_capacity(hits.len());
@@ -2972,7 +2957,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 self.bind_yield(&mut row, yield_items, "elem", self.materialize_vertex(vid));
             }
             self.bind_yield(&mut row, yield_items, "elemId", Value::Vertex(vid));
-            self.bind_yield(&mut row, yield_items, "score", Value::Float(hit.score as f64));
+            self.bind_yield(
+                &mut row,
+                yield_items,
+                "score",
+                Value::Float(hit.score as f64),
+            );
             rows.push(row);
         }
         Ok(rows)
@@ -2988,14 +2978,15 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
         k: i64,
         yield_items: &[YieldItem],
     ) -> Result<Vec<HashMap<String, Value>>, CompileError> {
-        let graph = self.graph_handle.as_ref().ok_or_else(|| {
-            CompileError::ProcedureArgumentError {
-                procedure: proc_name.to_string(),
-                message: "full-text-search procedures require a graph-bound \
+        let graph =
+            self.graph_handle
+                .as_ref()
+                .ok_or_else(|| CompileError::ProcedureArgumentError {
+                    procedure: proc_name.to_string(),
+                    message: "full-text-search procedures require a graph-bound \
                           GQL entry point (use Graph::gql, not the snapshot-only API)"
-                    .to_string(),
-            }
-        })?;
+                        .to_string(),
+                })?;
 
         if property.is_empty() {
             return Err(CompileError::ProcedureArgumentError {
@@ -3010,19 +3001,21 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
             });
         }
 
-        let index = graph.text_index_e(property).ok_or_else(|| {
-            CompileError::ProcedureArgumentError {
-                procedure: proc_name.to_string(),
-                message: format!("no edge text index registered for property {property:?}"),
-            }
-        })?;
+        let index =
+            graph
+                .text_index_e(property)
+                .ok_or_else(|| CompileError::ProcedureArgumentError {
+                    procedure: proc_name.to_string(),
+                    message: format!("no edge text index registered for property {property:?}"),
+                })?;
 
-        let hits = index.search(&query, k as usize).map_err(|e| {
-            CompileError::ProcedureArgumentError {
-                procedure: proc_name.to_string(),
-                message: format!("text search failed: {e}"),
-            }
-        })?;
+        let hits =
+            index
+                .search(&query, k as usize)
+                .map_err(|e| CompileError::ProcedureArgumentError {
+                    procedure: proc_name.to_string(),
+                    message: format!("text search failed: {e}"),
+                })?;
 
         let want_elem = self.yield_requests(yield_items, "elem");
         let mut rows = Vec::with_capacity(hits.len());
@@ -3035,7 +3028,12 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 self.bind_yield(&mut row, yield_items, "elem", self.materialize_edge(eid));
             }
             self.bind_yield(&mut row, yield_items, "elemId", Value::Edge(eid));
-            self.bind_yield(&mut row, yield_items, "score", Value::Float(hit.score as f64));
+            self.bind_yield(
+                &mut row,
+                yield_items,
+                "score",
+                Value::Float(hit.score as f64),
+            );
             rows.push(row);
         }
         Ok(rows)
@@ -7702,6 +7700,34 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 // and local pattern variables - skip deep validation similar to ListComprehension.
                 let _ = filter;
                 let _ = transform;
+            }
+            // Geospatial expressions (spec-56): validate sub-expressions
+            Expression::GeoPoint { .. }
+            | Expression::GeoPolygon(_)
+            | Expression::GeoDistance { .. } => {
+                // Constructors and literals — no variable references to validate
+            }
+            Expression::GeoDistanceFn { a, b } => {
+                self.validate_expression_variables(a)?;
+                self.validate_expression_variables(b)?;
+            }
+            Expression::GeoWithinBBox {
+                point,
+                min_lon,
+                min_lat,
+                max_lon,
+                max_lat,
+            } => {
+                self.validate_expression_variables(point)?;
+                self.validate_expression_variables(min_lon)?;
+                self.validate_expression_variables(min_lat)?;
+                self.validate_expression_variables(max_lon)?;
+                self.validate_expression_variables(max_lat)?;
+            }
+            Expression::GeoWithinDistanceFn { a, b, distance } => {
+                self.validate_expression_variables(a)?;
+                self.validate_expression_variables(b)?;
+                self.validate_expression_variables(distance)?;
             }
         }
         Ok(())

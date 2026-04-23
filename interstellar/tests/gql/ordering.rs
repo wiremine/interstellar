@@ -9,8 +9,8 @@
 #![allow(unused_variables)]
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Helper function to create a graph with people of various ages for ORDER BY tests
 fn create_order_by_test_graph() -> Arc<Graph> {

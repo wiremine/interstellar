@@ -911,7 +911,10 @@ mod tests {
             let mut map = crate::value::ValueMap::new();
             map.insert("__pending_add_v".to_string(), Value::Bool(true));
             map.insert("label".to_string(), Value::String(label.to_string()));
-            map.insert("properties".to_string(), Value::Map(crate::value::ValueMap::new()));
+            map.insert(
+                "properties".to_string(),
+                Value::Map(crate::value::ValueMap::new()),
+            );
             Value::Map(map)
         }
 
@@ -922,7 +925,10 @@ mod tests {
             map.insert("label".to_string(), Value::String(label.to_string()));
             map.insert("from".to_string(), Value::Vertex(from));
             map.insert("to".to_string(), Value::Vertex(to));
-            map.insert("properties".to_string(), Value::Map(crate::value::ValueMap::new()));
+            map.insert(
+                "properties".to_string(),
+                Value::Map(crate::value::ValueMap::new()),
+            );
             Value::Map(map)
         }
 

@@ -137,6 +137,10 @@ impl Point {
 ///   - At least 4 points (3 distinct + closure).
 ///   - First point equals last point (closure). Constructor closes it
 ///     automatically if not already closed.
+///   - All coordinates are finite and within WGS84 bounds
+///     (`-180 <= lon <= 180`, `-90 <= lat <= 90`). Constructor and
+///     deserialization validate this; invalid coordinates produce a
+///     `GeoError::InvalidCoordinate`.
 ///   - No self-intersection check (best effort; documented).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Polygon {
@@ -150,6 +154,12 @@ impl Polygon {
     /// Cached axis-aligned bounding box.
     pub fn bbox(&self) -> BoundingBox;
 }
+
+/// `Display` impls emit WKT:
+/// - `Point` → `POINT(-122.4194 37.7749)`
+/// - `Polygon` → `POLYGON((-122.6 37.6, -122.3 37.6, ...))`
+/// - `BoundingBox` → `BBOX(-122.6, 37.6, -122.3, 37.9)`
+/// - `Distance` → `5000.0m` / `5.0km` / `3.1mi` / `2.7nmi`
 
 /// Axis-aligned WGS84 bounding box. lon/lat in degrees.
 #[derive(Copy, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -165,6 +175,10 @@ impl BoundingBox {
     pub fn from_radius(center: Point, radius: Distance) -> Self;
     pub fn contains_point(&self, p: Point) -> bool;
     pub fn intersects(&self, other: &BoundingBox) -> bool;
+
+    /// Split a bbox that crosses the antimeridian (±180° longitude) into
+    /// two non-crossing bboxes. Returns `None` if the bbox does not cross.
+    pub fn split_antimeridian(&self) -> Option<(BoundingBox, BoundingBox)>;
 }
 
 /// Distance with explicit units. All math internally normalizes to meters.
@@ -192,6 +206,8 @@ pub enum GeoError {
     PolygonTooSmall(usize),
     #[error("polygon contains non-finite coordinate")]
     PolygonNonFinite,
+    #[error("polygon coordinate ({0}, {1}) out of WGS84 bounds")]
+    InvalidCoordinate(f64, f64),
     #[error("distance must be non-negative and finite, got {0}")]
     InvalidDistance(f64),
 }
@@ -348,6 +364,10 @@ use rstar::{RTree, RTreeObject, AABB, PointDistance};
 pub struct RTreeIndex {
     spec:  IndexSpec,
     tree:  RwLock<RTree<Entry>>,
+    // NOTE: `RwLock` is needed because `PropertyIndex::lookup` takes `&self`
+    // (shared read access) while `insert`/`remove` take `&mut self` (exclusive).
+    // The lock enables concurrent reads during traversal; writes already hold
+    // exclusive access via `&mut self` so the lock is uncontended on that path.
 }
 
 #[derive(Clone, Debug)]

@@ -516,6 +516,24 @@ pub enum Predicate {
     NotEndingWith(String),
     /// TextP.regex(pattern)
     Regex(String),
+
+    // Geospatial predicates (spec-56)
+    /// geo_within_distance(geometry, distance)
+    GeoWithinDistance {
+        geometry: Literal,
+        distance: Literal,
+    },
+    /// geo_intersects(geometry)
+    GeoIntersects(Literal),
+    /// geo_contained_by(polygon)
+    GeoContainedBy(Literal),
+    /// geo_bbox(min_lon, min_lat, max_lon, max_lat)
+    GeoBBox {
+        min_lon: f64,
+        min_lat: f64,
+        max_lon: f64,
+        max_lat: f64,
+    },
 }
 
 /// Literal values in Gremlin queries.
@@ -535,6 +553,12 @@ pub enum Literal {
     List(Vec<Literal>),
     /// Map of key-value pairs
     Map(Vec<(String, Literal)>),
+    /// Geospatial point: point(lon, lat) (spec-56)
+    Point { lon: f64, lat: f64 },
+    /// Geospatial polygon: polygon([[lon,lat], ...]) (spec-56)
+    Polygon(Vec<(f64, f64)>),
+    /// Distance with unit: 5km, 100m, 3.2mi, 10nmi (spec-56)
+    Distance { value: f64, unit: DistanceUnit },
 }
 
 // ============================================================
@@ -627,4 +651,17 @@ pub enum TextQueryAst {
     Or(Vec<TextQueryAst>),
     /// `TextQ.not(q)` — negation of a structured query.
     Not(Box<TextQueryAst>),
+}
+
+/// Distance unit for geo queries (spec-56).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistanceUnit {
+    /// Meters
+    Meters,
+    /// Kilometers
+    Kilometers,
+    /// Statute miles
+    Miles,
+    /// Nautical miles
+    NauticalMiles,
 }

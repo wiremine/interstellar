@@ -76,11 +76,11 @@ impl crate::traversal::step::Step for TextScoreStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::Graph;
     use crate::traversal::step::Step;
     use crate::traversal::traverser::box_sack;
-    use crate::traversal::SnapshotLike;
-    use crate::storage::Graph;
     use crate::traversal::ExecutionContext;
+    use crate::traversal::SnapshotLike;
 
     #[test]
     fn projects_score_when_sack_has_f32() {

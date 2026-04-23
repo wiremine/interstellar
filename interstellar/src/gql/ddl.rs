@@ -209,6 +209,11 @@ fn create_index_spec_impl(
         builder = builder.unique();
     }
 
+    // Set rtree if specified (spec-56)
+    if create.rtree {
+        builder = builder.rtree();
+    }
+
     builder.build()
 }
 
@@ -1221,6 +1226,41 @@ mod tests {
                 _ => panic!("Expected DropIndex"),
             },
             _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    // =========================================================================
+    // Geospatial DDL tests (spec-56)
+    // =========================================================================
+
+    #[test]
+    fn parse_create_rtree_index() {
+        let stmt = parse_statement("CREATE RTREE INDEX idx_loc ON :Person(home)").unwrap();
+        match stmt {
+            Statement::Ddl(ddl) => match *ddl {
+                DdlStatement::CreateIndex(create) => {
+                    assert_eq!(create.name, "idx_loc");
+                    assert!(create.rtree);
+                    assert!(!create.unique);
+                    assert_eq!(create.label, Some("Person".to_string()));
+                    assert_eq!(create.property, "home");
+                }
+                _ => panic!("Expected CreateIndex"),
+            },
+            _ => panic!("Expected DDL statement"),
+        }
+    }
+
+    #[test]
+    fn create_rtree_index_spec() {
+        use crate::index::IndexType;
+        let stmt = parse_statement("CREATE RTREE INDEX idx_loc ON :Person(home)").unwrap();
+        if let Statement::Ddl(ddl) = stmt {
+            if let DdlStatement::CreateIndex(create) = *ddl {
+                let spec = super::create_index_spec(&create).unwrap();
+                assert_eq!(spec.index_type, IndexType::RTree);
+                assert_eq!(spec.property, "home");
+            }
         }
     }
 }

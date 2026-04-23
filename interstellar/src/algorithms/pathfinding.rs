@@ -193,10 +193,7 @@ pub fn dijkstra<G: GraphAccess>(
             let w = match weight_fn(eid, &props) {
                 Some(w) => w,
                 None => {
-                    return Err(AlgorithmError::InvalidWeight(format!(
-                        "edge {:?}",
-                        eid
-                    )));
+                    return Err(AlgorithmError::InvalidWeight(format!("edge {:?}", eid)));
                 }
             };
 
@@ -250,10 +247,7 @@ pub fn dijkstra_all<G: GraphAccess>(
             let w = match weight_fn(eid, &props) {
                 Some(w) => w,
                 None => {
-                    return Err(AlgorithmError::InvalidWeight(format!(
-                        "edge {:?}",
-                        eid
-                    )));
+                    return Err(AlgorithmError::InvalidWeight(format!("edge {:?}", eid)));
                 }
             };
 
@@ -359,10 +353,7 @@ where
             let w = match weight_fn(eid, &props) {
                 Some(w) => w,
                 None => {
-                    return Err(AlgorithmError::InvalidWeight(format!(
-                        "edge {:?}",
-                        eid
-                    )));
+                    return Err(AlgorithmError::InvalidWeight(format!("edge {:?}", eid)));
                 }
             };
 
@@ -372,7 +363,11 @@ where
                 g_score.insert(neighbor, tentative_g);
                 prev.insert(neighbor, (vid, eid));
                 let f = tentative_g + heuristic(neighbor);
-                heap.push(Reverse((OrderedFloat(f), OrderedFloat(tentative_g), neighbor)));
+                heap.push(Reverse((
+                    OrderedFloat(f),
+                    OrderedFloat(tentative_g),
+                    neighbor,
+                )));
             }
         }
     }
@@ -616,34 +611,14 @@ mod tests {
         let b = g.add_vertex("node", HashMap::new());
         let c = g.add_vertex("node", HashMap::new());
         let d = g.add_vertex("node", HashMap::new());
-        g.add_edge(
-            a,
-            b,
-            "e",
-            HashMap::from([("w".into(), Value::Float(1.0))]),
-        )
-        .unwrap();
-        g.add_edge(
-            a,
-            c,
-            "e",
-            HashMap::from([("w".into(), Value::Float(5.0))]),
-        )
-        .unwrap();
-        g.add_edge(
-            b,
-            d,
-            "e",
-            HashMap::from([("w".into(), Value::Float(1.0))]),
-        )
-        .unwrap();
-        g.add_edge(
-            c,
-            d,
-            "e",
-            HashMap::from([("w".into(), Value::Float(1.0))]),
-        )
-        .unwrap();
+        g.add_edge(a, b, "e", HashMap::from([("w".into(), Value::Float(1.0))]))
+            .unwrap();
+        g.add_edge(a, c, "e", HashMap::from([("w".into(), Value::Float(5.0))]))
+            .unwrap();
+        g.add_edge(b, d, "e", HashMap::from([("w".into(), Value::Float(1.0))]))
+            .unwrap();
+        g.add_edge(c, d, "e", HashMap::from([("w".into(), Value::Float(1.0))]))
+            .unwrap();
         (g, vec![a, b, c, d])
     }
 
@@ -652,9 +627,8 @@ mod tests {
     #[test]
     fn shortest_unweighted_chain() {
         let (g, ids) = make_chain(5);
-        
-        let path =
-            shortest_path_unweighted(&g, ids[0], ids[4], Direction::Out, None).unwrap();
+
+        let path = shortest_path_unweighted(&g, ids[0], ids[4], Direction::Out, None).unwrap();
         assert_eq!(path.vertices.first(), Some(&ids[0]));
         assert_eq!(path.vertices.last(), Some(&ids[4]));
         assert_eq!(path.vertices.len(), 5);
@@ -665,7 +639,7 @@ mod tests {
     fn shortest_unweighted_same() {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
-        
+
         let path = shortest_path_unweighted(&g, a, a, Direction::Out, None).unwrap();
         assert_eq!(path.vertices, vec![a]);
         assert_eq!(path.weight, 0.0);
@@ -676,7 +650,7 @@ mod tests {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
         let b = g.add_vertex("node", HashMap::new());
-        
+
         let result = shortest_path_unweighted(&g, a, b, Direction::Out, None);
         assert!(matches!(result, Err(AlgorithmError::NoPath { .. })));
     }
@@ -685,7 +659,7 @@ mod tests {
     fn shortest_unweighted_vertex_not_found() {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
-        
+
         assert!(matches!(
             shortest_path_unweighted(&g, a, VertexId(999), Direction::Out, None),
             Err(AlgorithmError::VertexNotFound(_))
@@ -701,7 +675,7 @@ mod tests {
     #[test]
     fn dijkstra_weighted() {
         let (g, ids) = make_weighted_graph();
-        
+
         let wf = crate::algorithms::common::property_weight("w".into());
         let path = dijkstra(&g, ids[0], ids[3], &wf, Direction::Out).unwrap();
         assert_eq!(path.weight, 2.0); // 0->1->3
@@ -713,7 +687,7 @@ mod tests {
     fn dijkstra_same_vertex() {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         let path = dijkstra(&g, a, a, &wf, Direction::Out).unwrap();
         assert_eq!(path.vertices, vec![a]);
@@ -725,7 +699,7 @@ mod tests {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
         let b = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         assert!(matches!(
             dijkstra(&g, a, b, &wf, Direction::Out),
@@ -737,7 +711,7 @@ mod tests {
     fn dijkstra_vertex_not_found() {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         assert!(matches!(
             dijkstra(&g, a, VertexId(999), &wf, Direction::Out),
@@ -757,7 +731,7 @@ mod tests {
             HashMap::from([("w".into(), Value::String("bad".into()))]),
         )
         .unwrap();
-        
+
         let wf = crate::algorithms::common::property_weight("w".into());
         assert!(matches!(
             dijkstra(&g, a, b, &wf, Direction::Out),
@@ -770,7 +744,7 @@ mod tests {
     #[test]
     fn dijkstra_all_basic() {
         let (g, ids) = make_chain(4);
-        
+
         let wf = unit_weight();
         let result = dijkstra_all(&g, ids[0], &wf, Direction::Out).unwrap();
         assert_eq!(result.len(), 4);
@@ -783,7 +757,7 @@ mod tests {
     #[test]
     fn dijkstra_all_vertex_not_found() {
         let g = Arc::new(Graph::new());
-        
+
         let wf = unit_weight();
         assert!(matches!(
             dijkstra_all(&g, VertexId(999), &wf, Direction::Out),
@@ -796,7 +770,7 @@ mod tests {
     #[test]
     fn astar_weighted() {
         let (g, ids) = make_weighted_graph();
-        
+
         let wf = crate::algorithms::common::property_weight("w".into());
         let path = astar(
             &g,
@@ -814,7 +788,7 @@ mod tests {
     fn astar_same_vertex() {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         let path = astar(&g, a, a, &wf, |_| 0.0, Direction::Out).unwrap();
         assert_eq!(path.vertices, vec![a]);
@@ -825,7 +799,7 @@ mod tests {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
         let b = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         assert!(matches!(
             astar(&g, a, b, &wf, |_| 0.0, Direction::Out),
@@ -837,7 +811,7 @@ mod tests {
     fn astar_vertex_not_found() {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         assert!(matches!(
             astar(&g, a, VertexId(999), &wf, |_| 0.0, Direction::Out),
@@ -863,7 +837,7 @@ mod tests {
             .unwrap();
         g.add_edge(c, d, "e", HashMap::from([("w".into(), Value::Float(1.0))]))
             .unwrap();
-        
+
         let wf = crate::algorithms::common::property_weight("w".into());
         let paths = k_shortest_paths(&g, a, d, 3, &wf, Direction::Out).unwrap();
         assert!(paths.len() >= 2);
@@ -881,7 +855,7 @@ mod tests {
         let a = g.add_vertex("node", HashMap::new());
         let b = g.add_vertex("node", HashMap::new());
         g.add_edge(a, b, "e", HashMap::new()).unwrap();
-        
+
         let wf = unit_weight();
         let paths = k_shortest_paths(&g, a, b, 0, &wf, Direction::Out).unwrap();
         assert!(paths.is_empty());
@@ -892,7 +866,7 @@ mod tests {
         let g = Arc::new(Graph::new());
         let a = g.add_vertex("node", HashMap::new());
         let b = g.add_vertex("node", HashMap::new());
-        
+
         let wf = unit_weight();
         let paths = k_shortest_paths(&g, a, b, 3, &wf, Direction::Out).unwrap();
         assert!(paths.is_empty());
@@ -901,7 +875,7 @@ mod tests {
     #[test]
     fn k_shortest_paths_vertex_not_found() {
         let g = Arc::new(Graph::new());
-        
+
         let wf = unit_weight();
         assert!(matches!(
             k_shortest_paths(&g, VertexId(1), VertexId(2), 3, &wf, Direction::Out),

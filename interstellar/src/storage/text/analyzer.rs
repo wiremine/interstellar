@@ -9,8 +9,8 @@
 //! the canonical mapping table.
 
 use tantivy::tokenizer::{
-    Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, SimpleTokenizer,
-    Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, SimpleTokenizer, Stemmer,
+    StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 
 use super::TextIndexError;
@@ -99,10 +99,7 @@ impl Analyzer {
                     )));
                 }
                 let ngram = NgramTokenizer::new(*min, *max, false).map_err(|e| {
-                    TextIndexError::UnsupportedConfig(format!(
-                        "invalid NGram parameters: {}",
-                        e
-                    ))
+                    TextIndexError::UnsupportedConfig(format!("invalid NGram parameters: {}", e))
                 })?;
                 TextAnalyzer::builder(ngram)
                     .filter(RemoveLongFilter::limit(MAX_TOKEN_LEN))
@@ -144,9 +141,7 @@ mod tests {
 
     #[test]
     fn standard_lowercases_but_does_not_stem() {
-        let toks = Analyzer::Standard
-            .tokens("The Quick Brown FOXES")
-            .unwrap();
+        let toks = Analyzer::Standard.tokens("The Quick Brown FOXES").unwrap();
         assert_eq!(toks, vec!["the", "quick", "brown", "foxes"]);
     }
 

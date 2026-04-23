@@ -57,12 +57,14 @@
 
 mod btree;
 mod error;
+mod rtree;
 mod spec;
 mod traits;
 mod unique;
 
 pub use btree::BTreeIndex;
 pub use error::IndexError;
+pub use rtree::RTreeIndex;
 pub use spec::{ElementType, IndexBuilder, IndexPredicate, IndexSpec, IndexType};
 pub use traits::{IndexFilter, IndexStatistics, PropertyIndex};
 pub use unique::UniqueIndex;

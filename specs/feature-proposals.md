@@ -112,13 +112,14 @@ A first-class offline ingest path for large datasets.
 - CLI: `interstellar import ./data.parquet --as-vertices Person --id-column id`
 - Complements GraphSON, which is unsuitable for billions of rows
 
-### 10. Geospatial Index & Predicates
+### 10. Geospatial Index & Predicates — **Shipped** (`spec-56`)
 
 - `Point` / `Polygon` `Value` variants
-- R-tree or S2 cell index
-- Predicates: `within_distance`, `intersects`, `contained_by`
-- GQL: `WHERE point.distance(p, $center) < 5km`
-- Common in real workloads (genealogy, logistics, social)
+- R-tree spatial index (`IndexType::RTree`)
+- Predicates: `within_distance`, `intersects`, `contained_by`, `bbox`
+- Gremlin: `geo_within_distance`, `geo_bbox`, `geo_contained_by`, `geo_intersects`
+- GQL: parsing & validation (execution planned for follow-up)
+- See `specs/spec-56-geospatial.md`, `docs/guides/geospatial.md`
 
 ---
 

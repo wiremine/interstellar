@@ -11,8 +11,8 @@
 use interstellar::gql::GqlError;
 use interstellar::prelude::*;
 use interstellar::storage::Graph;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Helper to create a graph for WHERE clause tests
 fn create_where_test_graph() -> Arc<Graph> {

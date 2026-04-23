@@ -29,8 +29,8 @@ pub mod pathfinding;
 pub mod traversal;
 
 pub use common::{
-    AlgorithmError, Direction, NoopVisitor, PathResult, Visitor, WeightFn, property_weight,
-    unit_weight,
+    property_weight, unit_weight, AlgorithmError, Direction, NoopVisitor, PathResult, Visitor,
+    WeightFn,
 };
 pub use pathfinding::{astar, dijkstra, dijkstra_all, k_shortest_paths, shortest_path_unweighted};
 pub use traversal::{bidirectional_bfs, iddfs, Bfs, Dfs};
