@@ -24,3 +24,7 @@ mod mmap;
 #[path = "storage/cow_mmap.rs"]
 #[cfg(feature = "mmap")]
 mod cow_mmap;
+
+#[path = "storage/mmap_text_search.rs"]
+#[cfg(all(feature = "mmap", feature = "full-text"))]
+mod mmap_text_search;

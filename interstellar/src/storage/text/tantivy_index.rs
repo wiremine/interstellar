@@ -86,13 +86,7 @@ impl TantivyTextIndex {
         let tokenizer_name = config.analyzer.tokenizer_name();
 
         let mut schema_builder = SchemaBuilder::new();
-
-        // Element id is stored as a u64 fast-field + indexed so we can
-        // round-trip it on hits and use `delete_term` for upserts.
         let id_field = schema_builder.add_u64_field(FIELD_ELEMENT_ID, INDEXED | STORED | FAST);
-
-        // Body text uses our analyzer; positions are recorded only when
-        // requested.
         let record_option = if config.store_positions {
             IndexRecordOption::WithFreqsAndPositions
         } else {
@@ -107,6 +101,127 @@ impl TantivyTextIndex {
         let schema = schema_builder.build();
         let index = Index::create_in_ram(schema.clone());
         index.tokenizers().register(&tokenizer_name, analyzer);
+
+        let writer: IndexWriter<TantivyDocument> = index
+            .writer(config.writer_memory_bytes)
+            .map_err(TextIndexError::from)?;
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()
+            .map_err(TextIndexError::from)?;
+
+        Ok(Self {
+            config,
+            element_type,
+            inner: RwLock::new(Inner {
+                index,
+                writer,
+                reader,
+                body_field,
+                id_field,
+                schema,
+                pending_upserts: 0,
+            }),
+        })
+    }
+
+    /// Create a new on-disk text index at `dir`.
+    ///
+    /// The directory is created if it does not exist. Any existing Tantivy
+    /// segments in the directory are **deleted** — use [`Self::open`] to
+    /// reopen a previously-created on-disk index.
+    ///
+    /// The index uses Tantivy's `MmapDirectory` for persistent segment
+    /// storage. Commits are flushed to disk and survive process restarts.
+    pub fn on_disk(
+        dir: &std::path::Path,
+        element_type: ElementType,
+        config: TextIndexConfig,
+    ) -> Result<Self, TextIndexError> {
+        Self::validate_config(&config)?;
+
+        // Ensure directory exists; wipe stale segments.
+        if dir.exists() {
+            std::fs::remove_dir_all(dir).map_err(|e| {
+                TextIndexError::Backend(format!("failed to clean index dir: {e}"))
+            })?;
+        }
+        std::fs::create_dir_all(dir).map_err(|e| {
+            TextIndexError::Backend(format!("failed to create index dir: {e}"))
+        })?;
+
+        // Build schema first so we can pass it to create_in_dir.
+        let analyzer = config.analyzer.build()?;
+        let tokenizer_name = config.analyzer.tokenizer_name();
+
+        let mut schema_builder = SchemaBuilder::new();
+        let id_field = schema_builder.add_u64_field(FIELD_ELEMENT_ID, INDEXED | STORED | FAST);
+        let record_option = if config.store_positions {
+            IndexRecordOption::WithFreqsAndPositions
+        } else {
+            IndexRecordOption::WithFreqs
+        };
+        let text_indexing = TextFieldIndexing::default()
+            .set_tokenizer(&tokenizer_name)
+            .set_index_option(record_option);
+        let text_options = TextOptions::default().set_indexing_options(text_indexing);
+        let body_field = schema_builder.add_text_field(FIELD_BODY, text_options);
+        let schema = schema_builder.build();
+
+        let index = Index::create_in_dir(dir, schema.clone())
+            .map_err(TextIndexError::from)?;
+        index.tokenizers().register(&tokenizer_name, analyzer);
+
+        let writer: IndexWriter<TantivyDocument> = index
+            .writer(config.writer_memory_bytes)
+            .map_err(TextIndexError::from)?;
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()
+            .map_err(TextIndexError::from)?;
+
+        Ok(Self {
+            config,
+            element_type,
+            inner: RwLock::new(Inner {
+                index,
+                writer,
+                reader,
+                body_field,
+                id_field,
+                schema,
+                pending_upserts: 0,
+            }),
+        })
+    }
+
+    /// Open an existing on-disk text index at `dir`.
+    ///
+    /// The directory must contain a valid Tantivy index created by
+    /// [`Self::on_disk`]. The analyzer is re-registered from `config`.
+    pub fn open(
+        dir: &std::path::Path,
+        element_type: ElementType,
+        config: TextIndexConfig,
+    ) -> Result<Self, TextIndexError> {
+        Self::validate_config(&config)?;
+
+        let index = Index::open_in_dir(dir).map_err(TextIndexError::from)?;
+
+        let analyzer = config.analyzer.build()?;
+        let tokenizer_name = config.analyzer.tokenizer_name();
+        index.tokenizers().register(&tokenizer_name, analyzer);
+
+        // Resolve fields from the schema stored on disk.
+        let schema = index.schema();
+        let id_field = schema
+            .get_field(FIELD_ELEMENT_ID)
+            .map_err(|_| TextIndexError::Corruption(format!("missing field {FIELD_ELEMENT_ID}")))?;
+        let body_field = schema
+            .get_field(FIELD_BODY)
+            .map_err(|_| TextIndexError::Corruption(format!("missing field {FIELD_BODY}")))?;
 
         let writer: IndexWriter<TantivyDocument> = index
             .writer(config.writer_memory_bytes)

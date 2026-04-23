@@ -123,11 +123,63 @@ pub struct MmapGraph {
 
     /// In-memory query index for name/ID lookups
     query_index: Arc<RwLock<query::QueryIndex>>,
+
+    /// Full-text indexes on vertex properties (property name -> index).
+    /// Each index is backed by Tantivy's `MmapDirectory` stored under
+    /// `<db_root>/text_indexes/<property>/`.
+    #[cfg(feature = "full-text")]
+    text_indexes_vertex:
+        RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
+
+    /// Full-text indexes on edge properties.
+    #[cfg(feature = "full-text")]
+    text_indexes_edge:
+        RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
+}
+
+#[cfg(feature = "full-text")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct TextIndexSpec {
+    property: String,
+    element_type: String,
+    analyzer: String,
+    store_positions: bool,
+    commit_every: usize,
+    writer_memory_bytes: usize,
+}
+
+#[cfg(feature = "full-text")]
+fn analyzer_to_string(analyzer: &crate::storage::text::Analyzer) -> String {
+    use crate::storage::text::Analyzer;
+    match analyzer {
+        Analyzer::StandardEnglish => "StandardEnglish".to_string(),
+        Analyzer::Standard => "Standard".to_string(),
+        Analyzer::Whitespace => "Whitespace".to_string(),
+        Analyzer::Raw => "Raw".to_string(),
+        Analyzer::NGram { min, max } => format!("NGram({},{})", min, max),
+    }
+}
+
+#[cfg(feature = "full-text")]
+fn analyzer_from_string(s: &str) -> crate::storage::text::Analyzer {
+    use crate::storage::text::Analyzer;
+    match s {
+        "StandardEnglish" => Analyzer::StandardEnglish,
+        "Standard" => Analyzer::Standard,
+        "Whitespace" => Analyzer::Whitespace,
+        "Raw" => Analyzer::Raw,
+        other if other.starts_with("NGram(") => {
+            let inner = &other[6..other.len() - 1];
+            let mut parts = inner.split(',');
+            let min: usize = parts.next().unwrap_or("2").parse().unwrap_or(2);
+            let max: usize = parts.next().unwrap_or("4").parse().unwrap_or(4);
+            Analyzer::NGram { min, max }
+        }
+        _ => Analyzer::StandardEnglish,
+    }
 }
 
 impl MmapGraph {
-    /// Open existing database or create new one.
-    ///
     /// # Arguments
     ///
     /// * `path` - Path to the database file (`.db` extension recommended)
@@ -244,6 +296,10 @@ impl MmapGraph {
                 index_specs: Arc::new(RwLock::new(Vec::new())),
                 db_path: path.to_path_buf(),
                 query_index: Arc::new(RwLock::new(query::QueryIndex::new())),
+                #[cfg(feature = "full-text")]
+                text_indexes_vertex: RwLock::new(HashMap::new()),
+                #[cfg(feature = "full-text")]
+                text_indexes_edge: RwLock::new(HashMap::new()),
             };
 
             // Rebuild in-memory indexes from disk data (includes recovered data)
@@ -251,6 +307,9 @@ impl MmapGraph {
 
             // Load persisted property indexes
             graph.load_index_specs()?;
+
+            #[cfg(feature = "full-text")]
+            graph.load_text_index_specs()?;
 
             return Ok(graph);
         }
@@ -271,6 +330,10 @@ impl MmapGraph {
             index_specs: Arc::new(RwLock::new(Vec::new())),
             db_path: path.to_path_buf(),
             query_index: Arc::new(RwLock::new(query::QueryIndex::new())),
+            #[cfg(feature = "full-text")]
+            text_indexes_vertex: RwLock::new(HashMap::new()),
+            #[cfg(feature = "full-text")]
+            text_indexes_edge: RwLock::new(HashMap::new()),
         };
 
         // Rebuild in-memory indexes from disk data
@@ -278,6 +341,9 @@ impl MmapGraph {
 
         // Load persisted property indexes
         graph.load_index_specs()?;
+
+        #[cfg(feature = "full-text")]
+        graph.load_text_index_specs()?;
 
         Ok(graph)
     }
@@ -2621,6 +2687,11 @@ impl MmapGraph {
         // Step 10: Update property indexes
         self.index_vertex_insert(slot_id, label, &properties);
 
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_vertex_insert(slot_id, &properties);
+        }
+
         // Step 11: Persist string table (for label and property key names)
         self.persist_string_table()?;
 
@@ -2784,6 +2855,11 @@ impl MmapGraph {
 
         // Step 15: Update property indexes
         self.index_edge_insert(slot_id, label, &properties);
+
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_edge_insert(slot_id, &properties);
+        }
 
         // Step 16: Persist string table (for label and property key names)
         self.persist_string_table()?;
@@ -2983,6 +3059,11 @@ impl MmapGraph {
             self.index_edge_remove(id, label, &edge_properties);
         }
 
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_edge_remove(id);
+        }
+
         {
             let mut free_edges = self.free_edges.write();
             free_edges.free(id.0);
@@ -3087,6 +3168,11 @@ impl MmapGraph {
             self.index_edge_remove(id, label, &edge_properties);
         }
 
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_edge_remove(id);
+        }
+
         {
             let mut free_edges = self.free_edges.write();
             free_edges.free(id.0);
@@ -3170,6 +3256,11 @@ impl MmapGraph {
             self.index_vertex_remove(id, label, &vertex_properties);
         }
 
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_vertex_remove(id);
+        }
+
         {
             let mut free_nodes = self.free_nodes.write();
             free_nodes.free(id.0);
@@ -3250,6 +3341,11 @@ impl MmapGraph {
             self.update_vertex_property_in_indexes(id, &label, key, old_value.as_ref(), &value);
         }
 
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_property_update(id, key, &value);
+        }
+
         // Persist string table (for new property keys)
         self.persist_string_table()?;
 
@@ -3316,6 +3412,11 @@ impl MmapGraph {
         // Update property indexes
         if let Some(label) = edge_label {
             self.update_edge_property_in_indexes(id, &label, key, old_value.as_ref(), &value);
+        }
+
+        #[cfg(feature = "full-text")]
+        {
+            let _ = self.text_index_edge_property_update(id, key, &value);
         }
 
         // Persist string table (for new property keys)
@@ -3824,7 +3925,456 @@ impl MmapGraph {
         Ok(())
     }
 
-    /// Populate an index with existing graph data.
+    // =========================================================================
+    // Full-Text Index Persistence (feature = "full-text")
+    // =========================================================================
+
+    #[cfg(feature = "full-text")]
+    fn text_indexes_dir(&self) -> std::path::PathBuf {
+        self.db_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("text_indexes")
+    }
+
+    #[cfg(feature = "full-text")]
+    fn text_index_specs_path(&self) -> std::path::PathBuf {
+        self.db_path.with_extension("text-idx.json")
+    }
+
+    #[cfg(feature = "full-text")]
+    fn save_text_index_specs(&self) -> Result<(), StorageError> {
+        use std::io::Write;
+
+        let specs_path = self.text_index_specs_path();
+
+        let vmap = self.text_indexes_vertex.read();
+        let emap = self.text_indexes_edge.read();
+
+        let mut specs = Vec::new();
+        for (prop, idx) in vmap.iter() {
+            let cfg = idx.config();
+            specs.push(TextIndexSpec {
+                property: prop.clone(),
+                element_type: "vertex".to_string(),
+                analyzer: analyzer_to_string(&cfg.analyzer),
+                store_positions: cfg.store_positions,
+                commit_every: cfg.commit_every,
+                writer_memory_bytes: cfg.writer_memory_bytes,
+            });
+        }
+        for (prop, idx) in emap.iter() {
+            let cfg = idx.config();
+            specs.push(TextIndexSpec {
+                property: prop.clone(),
+                element_type: "edge".to_string(),
+                analyzer: analyzer_to_string(&cfg.analyzer),
+                store_positions: cfg.store_positions,
+                commit_every: cfg.commit_every,
+                writer_memory_bytes: cfg.writer_memory_bytes,
+            });
+        }
+        drop(vmap);
+        drop(emap);
+
+        let json = serde_json::to_string_pretty(&specs)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e)))?;
+
+        let temp_path = specs_path.with_extension("text-idx.json.tmp");
+        {
+            let mut file = std::fs::File::create(&temp_path)?;
+            file.write_all(json.as_bytes())?;
+            file.sync_all()?;
+        }
+
+        std::fs::rename(&temp_path, &specs_path)?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    fn load_text_index_specs(&self) -> Result<(), StorageError> {
+        use crate::index::ElementType;
+        use crate::storage::text::{TantivyTextIndex, TextIndex, TextIndexConfig};
+
+        let specs_path = self.text_index_specs_path();
+        if !specs_path.exists() {
+            return Ok(());
+        }
+
+        let json = std::fs::read_to_string(&specs_path)?;
+        let specs: Vec<TextIndexSpec> = serde_json::from_str(&json).map_err(|e| {
+            StorageError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        })?;
+
+        for spec in specs {
+            let element_type = if spec.element_type == "vertex" {
+                ElementType::Vertex
+            } else {
+                ElementType::Edge
+            };
+            let config = TextIndexConfig {
+                analyzer: analyzer_from_string(&spec.analyzer),
+                store_positions: spec.store_positions,
+                commit_every: spec.commit_every,
+                writer_memory_bytes: spec.writer_memory_bytes,
+                ..TextIndexConfig::default()
+            };
+            let dir = self.text_indexes_dir().join(&spec.property);
+
+            let index_result = if dir.exists() {
+                TantivyTextIndex::open(&dir, element_type, config.clone())
+            } else {
+                Err(crate::storage::text::TextIndexError::Backend(
+                    "directory missing".to_string(),
+                ))
+            };
+
+            let arc: std::sync::Arc<dyn TextIndex> = match index_result {
+                Ok(idx) => std::sync::Arc::new(idx),
+                Err(_) => {
+                    // Create fresh and back-fill
+                    let idx = TantivyTextIndex::on_disk(&dir, element_type, config).map_err(
+                        |e| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+                    )?;
+                    let arc: std::sync::Arc<dyn TextIndex> = std::sync::Arc::new(idx);
+
+                    let header = self.get_header();
+                    match element_type {
+                        ElementType::Vertex => {
+                            for id in 0..header.next_node_id {
+                                if let Some(vertex) = self.get_vertex(VertexId(id)) {
+                                    if let Some(Value::String(s)) =
+                                        vertex.properties.get(&spec.property)
+                                    {
+                                        let _ = arc.upsert(id, s.as_str());
+                                    }
+                                }
+                            }
+                        }
+                        ElementType::Edge => {
+                            for id in 0..header.next_edge_id {
+                                if let Some(edge) = self.get_edge(EdgeId(id)) {
+                                    if let Some(Value::String(s)) =
+                                        edge.properties.get(&spec.property)
+                                    {
+                                        let _ = arc.upsert(id, s.as_str());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let _ = arc.commit();
+                    arc
+                }
+            };
+
+            match element_type {
+                ElementType::Vertex => {
+                    self.text_indexes_vertex
+                        .write()
+                        .insert(spec.property, arc);
+                }
+                ElementType::Edge => {
+                    self.text_indexes_edge
+                        .write()
+                        .insert(spec.property, arc);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // Full-Text Index Create / Drop / Query (feature = "full-text")
+    // =========================================================================
+
+    #[cfg(feature = "full-text")]
+    pub fn create_text_index_v(
+        &self,
+        property: &str,
+        config: crate::storage::text::TextIndexConfig,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::index::ElementType;
+        use crate::storage::text::{TantivyTextIndex, TextIndex, TextIndexError};
+
+        let mut vmap = self.text_indexes_vertex.write();
+        let emap = self.text_indexes_edge.write();
+
+        if vmap.contains_key(property) || emap.contains_key(property) {
+            return Err(TextIndexError::Storage(StorageError::IndexError(format!(
+                "text index already exists for property `{property}`"
+            ))));
+        }
+
+        let dir = self.text_indexes_dir().join(property);
+        let index = TantivyTextIndex::on_disk(&dir, ElementType::Vertex, config)?;
+        let arc: std::sync::Arc<dyn TextIndex> = std::sync::Arc::new(index);
+
+        // Back-fill
+        let header = self.get_header();
+        for id in 0..header.next_node_id {
+            if let Some(vertex) = self.get_vertex(VertexId(id)) {
+                if let Some(Value::String(s)) = vertex.properties.get(property) {
+                    arc.upsert(id, s.as_str())?;
+                }
+            }
+        }
+        arc.commit()?;
+
+        vmap.insert(property.to_string(), arc);
+        drop(emap);
+        drop(vmap);
+
+        let _ = self.save_text_index_specs();
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn create_text_index_e(
+        &self,
+        property: &str,
+        config: crate::storage::text::TextIndexConfig,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::index::ElementType;
+        use crate::storage::text::{TantivyTextIndex, TextIndex, TextIndexError};
+
+        let vmap = self.text_indexes_vertex.write();
+        let mut emap = self.text_indexes_edge.write();
+
+        if vmap.contains_key(property) || emap.contains_key(property) {
+            return Err(TextIndexError::Storage(StorageError::IndexError(format!(
+                "text index already exists for property `{property}`"
+            ))));
+        }
+
+        let dir = self.text_indexes_dir().join(property);
+        let index = TantivyTextIndex::on_disk(&dir, ElementType::Edge, config)?;
+        let arc: std::sync::Arc<dyn TextIndex> = std::sync::Arc::new(index);
+
+        // Back-fill
+        let header = self.get_header();
+        for id in 0..header.next_edge_id {
+            if let Some(edge) = self.get_edge(EdgeId(id)) {
+                if let Some(Value::String(s)) = edge.properties.get(property) {
+                    arc.upsert(id, s.as_str())?;
+                }
+            }
+        }
+        arc.commit()?;
+
+        emap.insert(property.to_string(), arc);
+        drop(emap);
+        drop(vmap);
+
+        let _ = self.save_text_index_specs();
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn drop_text_index_v(
+        &self,
+        property: &str,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::storage::text::TextIndexError;
+
+        self.text_indexes_vertex
+            .write()
+            .remove(property)
+            .ok_or_else(|| {
+                TextIndexError::Storage(StorageError::IndexError(format!(
+                    "no vertex text index registered for property `{property}`"
+                )))
+            })?;
+
+        let dir = self.text_indexes_dir().join(property);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        let _ = self.save_text_index_specs();
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn drop_text_index_e(
+        &self,
+        property: &str,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        use crate::storage::text::TextIndexError;
+
+        self.text_indexes_edge
+            .write()
+            .remove(property)
+            .ok_or_else(|| {
+                TextIndexError::Storage(StorageError::IndexError(format!(
+                    "no edge text index registered for property `{property}`"
+                )))
+            })?;
+
+        let dir = self.text_indexes_dir().join(property);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        let _ = self.save_text_index_specs();
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn text_index_v(
+        &self,
+        property: &str,
+    ) -> Option<std::sync::Arc<dyn crate::storage::text::TextIndex>> {
+        self.text_indexes_vertex.read().get(property).cloned()
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn text_index_e(
+        &self,
+        property: &str,
+    ) -> Option<std::sync::Arc<dyn crate::storage::text::TextIndex>> {
+        self.text_indexes_edge.read().get(property).cloned()
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn has_text_index_v(&self, property: &str) -> bool {
+        self.text_indexes_vertex.read().contains_key(property)
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn has_text_index_e(&self, property: &str) -> bool {
+        self.text_indexes_edge.read().contains_key(property)
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn list_text_indexes_v(&self) -> Vec<String> {
+        self.text_indexes_vertex.read().keys().cloned().collect()
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn list_text_indexes_e(&self) -> Vec<String> {
+        self.text_indexes_edge.read().keys().cloned().collect()
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn text_index_count_v(&self) -> usize {
+        self.text_indexes_vertex.read().len()
+    }
+
+    #[cfg(feature = "full-text")]
+    pub fn text_index_count_e(&self) -> usize {
+        self.text_indexes_edge.read().len()
+    }
+
+    // =========================================================================
+    // Full-Text Index Mutation Hooks (feature = "full-text")
+    // =========================================================================
+
+    #[cfg(feature = "full-text")]
+    fn text_index_vertex_insert(
+        &self,
+        id: VertexId,
+        properties: &std::collections::HashMap<String, Value>,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_vertex.read();
+        for (prop, idx) in indexes.iter() {
+            if let Some(Value::String(s)) = properties.get(prop) {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    fn text_index_vertex_remove(
+        &self,
+        id: VertexId,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_vertex.read();
+        for idx in indexes.values() {
+            idx.delete(id.0)?;
+            idx.commit()?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    fn text_index_property_update(
+        &self,
+        id: VertexId,
+        property: &str,
+        new_value: &Value,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_vertex.read();
+        let Some(idx) = indexes.get(property) else {
+            return Ok(());
+        };
+        match new_value {
+            Value::String(s) => {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()
+            }
+            _ => {
+                idx.delete(id.0)?;
+                idx.commit()
+            }
+        }
+    }
+
+    #[cfg(feature = "full-text")]
+    fn text_index_edge_insert(
+        &self,
+        id: EdgeId,
+        properties: &std::collections::HashMap<String, Value>,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_edge.read();
+        for (prop, idx) in indexes.iter() {
+            if let Some(Value::String(s)) = properties.get(prop) {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    fn text_index_edge_remove(
+        &self,
+        id: EdgeId,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_edge.read();
+        for idx in indexes.values() {
+            idx.delete(id.0)?;
+            idx.commit()?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "full-text")]
+    fn text_index_edge_property_update(
+        &self,
+        id: EdgeId,
+        property: &str,
+        new_value: &Value,
+    ) -> Result<(), crate::storage::text::TextIndexError> {
+        let indexes = self.text_indexes_edge.read();
+        let Some(idx) = indexes.get(property) else {
+            return Ok(());
+        };
+        match new_value {
+            Value::String(s) => {
+                idx.upsert(id.0, s.as_str())?;
+                idx.commit()
+            }
+            _ => {
+                idx.delete(id.0)?;
+                idx.commit()
+            }
+        }
+    }
     fn populate_index(&self, index: &mut dyn PropertyIndex) -> Result<(), IndexError> {
         let spec = index.spec().clone();
 
