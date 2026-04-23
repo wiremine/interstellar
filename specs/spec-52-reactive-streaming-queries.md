@@ -24,6 +24,23 @@ Reactive streaming queries enable users to subscribe to a traversal pattern and 
 - Complex Event Processing (CEP) patterns (windowing, temporal joins)
 - Subscription to schema/index changes
 
+### Relationship to Existing `streaming.rs`
+
+The existing `StreamingExecutor` (in `traversal/streaming.rs`) is a **pull-based** lazy evaluation engine — it chains `StreamingAdapter`s that pull `Traverser` values on-demand with O(1) memory per step. It produces `Send + 'static` iterators.
+
+Reactive streaming queries are **push-based** — the graph pushes mutation events to subscribers. These are complementary systems:
+
+| | `StreamingExecutor` | Reactive Subscriptions |
+|---|---|---|
+| Model | Pull (iterator) | Push (channel) |
+| Trigger | User calls `.next()` | Graph mutation |
+| Lifetime | Single query execution | Continuous until cancelled |
+| Thread | Caller's thread | Dedicated dispatcher thread |
+
+The reactive system uses `execute_traversal()` (the standard pull-based executor) internally
+for re-evaluating queries when events arrive. It does **not** use `StreamingExecutor` since
+the evaluation happens on the dispatcher thread with borrowed `ExecutionContext` lifetimes.
+
 ## Architecture
 
 ```
@@ -490,7 +507,7 @@ Each mutation method gets event emission added after the mutation succeeds. The 
 2. Perform the mutation (existing code, unchanged)
 3. Emit the event (behind `#[cfg(feature = "reactive")]`)
 
-##### `add_vertex` (cow.rs:1089)
+##### `add_vertex` (cow.rs:1483)
 
 ```rust
 pub fn add_vertex(&self, label: &str, properties: HashMap<String, Value>) -> VertexId {
@@ -523,7 +540,7 @@ if self.event_bus.subscriber_count() > 0 {
 
 This optimization requires capturing `properties.clone()` before the existing code moves `properties` into `NodeData`. The exact insertion point depends on the existing code structure — the properties should be cloned (or the event built) between the point where `properties` is still available and before it's consumed.
 
-##### `add_edge` (cow.rs:1157)
+##### `add_edge` (cow.rs:1560)
 
 ```rust
 pub fn add_edge(
@@ -546,7 +563,7 @@ pub fn add_edge(
 }
 ```
 
-##### `set_vertex_property` (cow.rs:1233)
+##### `set_vertex_property` (cow.rs:1644)
 
 ```rust
 pub fn set_vertex_property(
@@ -581,11 +598,11 @@ pub fn set_vertex_property(
 
 Option 1 is recommended — after acquiring the write lock but before modifying the `NodeData`, read the old property value.
 
-##### `set_edge_property` (cow.rs:1277)
+##### `set_edge_property` (cow.rs:1697)
 
 Same pattern as `set_vertex_property` but for edges.
 
-##### `remove_vertex` (cow.rs:1318)
+##### `remove_vertex` (cow.rs:1745)
 
 ```rust
 pub fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError> {
@@ -630,7 +647,7 @@ pub fn remove_vertex(&self, id: VertexId) -> Result<(), StorageError> {
 
 **Order**: Edge removals are emitted before the vertex removal, matching the actual deletion order (incident edges are removed first).
 
-##### `remove_edge` (cow.rs:1396)
+##### `remove_edge` (cow.rs:1836)
 
 ```rust
 pub fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError> {
@@ -656,7 +673,7 @@ pub fn remove_edge(&self, id: EdgeId) -> Result<(), StorageError> {
 
 #### BatchContext Integration
 
-`BatchContext` (cow.rs:4003) operates on a cloned `GraphState` directly, bypassing `Graph` methods. Events must be collected during the batch and emitted after successful commit.
+`BatchContext` (cow.rs:4583) operates on a cloned `GraphState` directly, bypassing `Graph` methods. Events must be collected during the batch and emitted after successful commit.
 
 ```rust
 pub struct BatchContext<'a> {
@@ -669,7 +686,7 @@ pub struct BatchContext<'a> {
 
 Each `BatchContext` mutation method (`add_vertex`, `add_edge`) appends to `pending_events`.
 
-In `Graph::batch()` (cow.rs:1637), after the batch closure succeeds and the new state is swapped in:
+In `Graph::batch()` (cow.rs:2093), after the batch closure succeeds and the new state is swapped in:
 
 ```rust
 pub fn batch<F, T>(&self, f: F) -> Result<T, BatchError>
@@ -785,7 +802,7 @@ impl QueryMatcher {
     /// possible, downcasting to concrete step types.
     pub fn compile(
         steps: &[Box<dyn DynStep>],
-        source: &Option<TraversalSource>,
+        source: Option<&TraversalSource>,
     ) -> Self {
         let mut label_filter: Option<HashSet<String>> = None;
         let mut property_keys = HashSet::new();
@@ -811,7 +828,9 @@ impl QueryMatcher {
                         }
                     }
                 }
-                "has" | "hasValue" | "hasWhere" | "hasNot" | "hasKey" => {
+                "has" | "hasValue" | "hasNot" | "hasKey" => {
+                    // Note: HasWhereStep also returns "has" as its dyn_name().
+                    // Both HasStep and HasWhereStep are matched here.
                     if let Some(introspect) = step.as_introspectable() {
                         if let Some(keys) = introspect.property_constraints() {
                             property_keys.extend(keys);
@@ -843,7 +862,7 @@ impl QueryMatcher {
             edge_only,
             has_navigation,
             steps: steps.iter().map(|s| s.clone_box()).collect(),
-            source: source.clone(),
+            source: source.cloned(),
         }
     }
 }
@@ -868,14 +887,16 @@ pub trait StepIntrospect {
 }
 ```
 
-Added to `DynStep`:
+Added to `DynStep` (in `traversal/step.rs`, line 159):
 
 ```rust
 pub trait DynStep: Send + Sync {
-    // ... existing methods ...
+    // ... existing methods (apply_dyn, apply_streaming, clone_box, dyn_name, is_barrier) ...
 
     /// Downcast to StepIntrospect for reactive query optimization.
-    /// Returns None by default.
+    /// Returns None by default — existing step implementations are
+    /// unaffected until they opt in by implementing StepIntrospect.
+    #[cfg(feature = "reactive")]
     fn as_introspectable(&self) -> Option<&dyn StepIntrospect> { None }
 }
 ```
@@ -890,13 +911,25 @@ impl StepIntrospect for HasLabelStep {
     }
 }
 
+// HasStep (dyn_name = "has") — checks key existence
 impl StepIntrospect for HasStep {
     fn property_constraints(&self) -> Option<Vec<String>> {
         Some(vec![self.key.clone()])
     }
 }
 
-// etc. for HasValueStep, HasWhereStep, ValuesStep, ...
+// HasWhereStep (dyn_name = "has") — checks key + predicate
+// Both HasStep and HasWhereStep return "has" as dyn_name(),
+// so as_introspectable() must be implemented on both to
+// ensure the "has" match in compile() extracts property keys
+// from whichever concrete type is behind the DynStep.
+impl StepIntrospect for HasWhereStep {
+    fn property_constraints(&self) -> Option<Vec<String>> {
+        Some(vec![self.key.clone()])
+    }
+}
+
+// etc. for HasValueStep, ValuesStep, ...
 ```
 
 ### Fast Rejection
@@ -983,7 +1016,13 @@ impl QueryMatcher {
 
 ### Full Evaluation
 
-After `might_match` passes, the matcher re-evaluates the traversal against the affected element(s):
+After `might_match` passes, the matcher re-evaluates the traversal against the affected element(s).
+
+The evaluation uses `execute_traversal()` from `traversal/step.rs` (line 746), which takes
+an `ExecutionContext`, a slice of `DynStep`, and a boxed iterator of `Traverser` as input.
+A helper `build_source_iterator()` must be implemented to create the initial `Traverser`
+iterator from a `TraversalSource` (mirroring the logic in `StreamingExecutor::build_streaming_source`
+at `traversal/streaming.rs:226` but returning a non-`Send` iterator tied to the `ExecutionContext` lifetime).
 
 ```rust
 /// Result of evaluating a query against a graph event.
@@ -1087,7 +1126,8 @@ impl QueryMatcher {
         matched_set: &HashSet<ElementId>,
     ) -> EvalResult {
         let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
-        let results = execute_full_traversal(&ctx, &self.source, &self.steps);
+        let input = build_source_iterator(&ctx, &self.source);
+        let results: Vec<Traverser> = execute_traversal(&ctx, &self.steps, input).collect();
 
         let mut current_matches = HashSet::new();
         let mut added = Vec::new();
@@ -1121,7 +1161,8 @@ impl QueryMatcher {
 
         // Run the traversal starting from just this vertex
         let source = TraversalSource::Vertices(vec![id]);
-        let results = execute_full_traversal(&ctx, &Some(source), &self.steps);
+        let input = build_source_iterator(&ctx, &Some(source));
+        let results: Vec<Traverser> = execute_traversal(&ctx, &self.steps, input).collect();
 
         let eid = ElementId::Vertex(id);
 
@@ -1152,7 +1193,8 @@ impl QueryMatcher {
         // Same pattern as evaluate_from_vertex but for edges
         let ctx = ExecutionContext::new(snapshot.storage(), snapshot.interner());
         let source = TraversalSource::Edges(vec![id]);
-        let results = execute_full_traversal(&ctx, &Some(source), &self.steps);
+        let input = build_source_iterator(&ctx, &Some(source));
+        let results: Vec<Traverser> = execute_traversal(&ctx, &self.steps, input).collect();
 
         let eid = ElementId::Edge(id);
 
@@ -1713,7 +1755,7 @@ First .subscribe() call
 
 ```rust
 #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
-impl<'g, Out: OutputMarker> BoundTraversal<'g, Out> {
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// Subscribe to this traversal pattern reactively.
     ///
     /// Returns a `Subscription` that yields `SubscriptionEvent`s whenever
@@ -1758,7 +1800,7 @@ impl<'g, Out: OutputMarker> BoundTraversal<'g, Out> {
     pub fn subscribe_with(&self, opts: SubscribeOptions) -> Subscription {
         let matcher = QueryMatcher::compile(
             self.traversal.steps(),
-            &self.traversal.source(),
+            self.traversal.source(),
         );
         self.snapshot
             .subscription_manager()
@@ -1874,12 +1916,12 @@ pub enum SubscriptionError {
 
 - [ ] Add `EventBus` field to `Graph`
 - [ ] Add `event_bus()` accessor
-- [ ] Instrument `add_vertex` (line 1089)
-- [ ] Instrument `add_edge` (line 1157)
-- [ ] Instrument `set_vertex_property` (line 1233) — capture old value
-- [ ] Instrument `set_edge_property` (line 1277) — capture old value
-- [ ] Instrument `remove_vertex` (line 1318) — capture label + incident edges before deletion
-- [ ] Instrument `remove_edge` (line 1396) — capture endpoints + label before deletion
+- [ ] Instrument `add_vertex` (line 1483)
+- [ ] Instrument `add_edge` (line 1560)
+- [ ] Instrument `set_vertex_property` (line 1644) — capture old value
+- [ ] Instrument `set_edge_property` (line 1697) — capture old value
+- [ ] Instrument `remove_vertex` (line 1745) — capture label + incident edges before deletion
+- [ ] Instrument `remove_edge` (line 1836) — capture endpoints + label before deletion
 - [ ] Instrument `BatchContext` to collect events
 - [ ] Instrument `Graph::batch()` to emit `Batch` event on success
 - [ ] Integration tests: verify events emitted for each mutation type
@@ -1901,8 +1943,9 @@ pub enum SubscriptionError {
 
 - [ ] Define `StepIntrospect` trait
 - [ ] Add `as_introspectable()` to `DynStep`
-- [ ] Implement `StepIntrospect` on `HasLabelStep`, `HasStep`, `HasValueStep`, `HasWhereStep`, `ValuesStep`
+- [ ] Implement `StepIntrospect` on `HasLabelStep`, `HasStep`, `HasWhereStep`, `ValuesStep`
 - [ ] Implement `QueryMatcher::compile()`
+- [ ] Implement `build_source_iterator()` helper (creates Traverser iterator from TraversalSource)
 - [ ] Implement `QueryMatcher::might_match()`
 - [ ] Implement `QueryMatcher::evaluate()` and internal helpers
 - [ ] Define `EvalResult`, `ElementId`
