@@ -1,13 +1,17 @@
 //! # Interstellar Full-Text Search Quickstart
 //!
-//! A minimal introduction to Interstellar's Tantivy-backed full-text search.
+//! An introduction to Interstellar's Tantivy-backed full-text search.
 //!
 //! This example demonstrates:
-//! - Registering a text index on a vertex property
+//! - Registering a text index on a vertex property (spec-55)
 //! - Indexing documents (tokens are extracted on insert / update / remove)
-//! - Running BM25-ranked free-text queries
+//! - Running BM25-ranked free-text queries via the Rust fluent API
 //! - Running a structured phrase query via `TextQuery`
 //! - Chaining `search_text` with regular Gremlin steps
+//! - Edge-side text search (spec-55b) via `search_text_e`
+//! - Querying the same engine from Gremlin (`g.searchTextV` /
+//!   `g.searchTextE` / `textScore()`) and GQL (`CALL interstellar.searchText*`
+//!   + `YIELD`), per spec-55c
 //!
 //! Run: `cargo run --example quickstart_text_search --features full-text`
 

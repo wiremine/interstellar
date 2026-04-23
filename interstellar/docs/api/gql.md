@@ -1459,6 +1459,65 @@ RETURN {
 
 **Keys:** Must be identifiers (unquoted) or string literals
 
+### CALL Procedures (Full-Text Search)
+
+Gated on the `full-text` feature and only dispatched through the graph-bound entry point ([`Graph::gql`](https://docs.rs/interstellar/latest/interstellar/storage/struct.Graph.html#method.gql) / [`Graph::gql_with_params`](https://docs.rs/interstellar/latest/interstellar/storage/struct.Graph.html#method.gql_with_params)). The snapshot-only [`gql::compile`](https://docs.rs/interstellar/latest/interstellar/gql/fn.compile.html) path returns `ProcedureArgumentError` with an actionable message — it has no `Graph` handle to dispatch against.
+
+Interstellar exposes its Tantivy-backed FTS engine as eight procedures, one per `(query-kind × element-kind)` combination. Compound queries (`And` / `Or` / `Not`) are intentionally **not** exposed through GQL — use Gremlin's [`TextQ.*` DSL](gremlin.md#textq-full-text-query-dsl) or the Rust API for those.
+
+| Procedure | Backing `TextQuery` | Scope |
+|-----------|---------------------|-------|
+| `interstellar.searchTextV(prop, query, k)` | `Match(query)` | vertices |
+| `interstellar.searchTextAllV(prop, query, k)` | `MatchAll(query)` | vertices |
+| `interstellar.searchTextPhraseV(prop, query, k)` | `Phrase { text: query, slop: 0 }` | vertices |
+| `interstellar.searchTextPrefixV(prop, query, k)` | `Prefix(query)` | vertices |
+| `interstellar.searchTextE(prop, query, k)` | edge-side `Match(query)` | edges |
+| `interstellar.searchTextAllE(prop, query, k)` | edge-side `MatchAll(query)` | edges |
+| `interstellar.searchTextPhraseE(prop, query, k)` | edge-side `Phrase { .. }` | edges |
+| `interstellar.searchTextPrefixE(prop, query, k)` | edge-side `Prefix(query)` | edges |
+
+Arguments are typed `(property STRING, query STRING, k INT)`. Hits are returned in descending BM25 score order, capped at `k`.
+
+#### YIELD aliases
+
+| Alias | Type / shape |
+|-------|--------------|
+| `elem` | `Value::Map` — fully materialized property record |
+| `elemId` | `Value::Vertex(VertexId)` / `Value::Edge(EdgeId)` — bare reference |
+| `score` | `Value::Float` — BM25 score (descending) |
+
+`elem` materialization is **lazy**: if your `YIELD` clause does not name `elem`, the dispatcher skips the per-row property lookup — id-only queries pay zero materialization cost.
+
+#### Anchoring with MATCH
+
+GQL requires every query to begin with a `MATCH` clause, and `CALL` fires once per outer row. To call a procedure exactly once, anchor against a single known row:
+
+```sql
+-- Anchor on one vertex by id.
+MATCH (anchor) WHERE id(anchor) = 0
+CALL interstellar.searchTextV('body', 'raft', 5)
+YIELD elemId, score
+RETURN elemId, score
+```
+
+```sql
+-- Materialize the full element record.
+MATCH (anchor) WHERE id(anchor) = 0
+CALL interstellar.searchTextPhraseV('body', 'quick brown fox', 5)
+YIELD elem
+RETURN elem
+```
+
+```sql
+-- Edge-side prefix search.
+MATCH (anchor) WHERE id(anchor) = 0
+CALL interstellar.searchTextPrefixE('note', 'consen', 10)
+YIELD elemId, score
+RETURN elemId, score
+```
+
+Without the anchor, a bare `MATCH ()` unfolds per vertex and re-runs the procedure once per row — usually not what you want.
+
 ### Complete Advanced Query Example
 
 Combining multiple advanced features:
@@ -1813,7 +1872,7 @@ The current GQL implementation has the following limitations:
 | `LOAD CSV` | Not supported | No external data import |
 | Multiple graphs | Not supported | Single graph queries only |
 | Returning paths directly | Partial | Use `WITH PATH` + `path()` function |
-| `CALL` procedures | Not supported | No stored procedures |
+| `CALL` procedures | Partial | Built-in FTS procedures only — see [CALL Procedures (Full-Text Search)](#call-procedures-full-text-search). No user-defined procedures. |
 | Pattern comprehensions | Not supported | `[(p)-[:KNOWS]->(f) | f.name]` syntax |
 
 ### Partial Support

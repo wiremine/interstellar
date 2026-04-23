@@ -96,6 +96,17 @@ let result = compiled.execute();
 | `g.addE(label)` | `g.add_e(label)` | `g.addE('label')` | ✓ |
 | `g.inject(values...)` | `g.inject(values)` | `g.inject(v1, v2, ...)` | ✓ |
 
+### Full-Text Search Source Steps
+
+Gated on the `full-text` feature. Both steps require a `Graph`-bound traversal source (the snapshot-only `g.snapshot()` path rejects them at compile time). The second argument accepts either a bare string (desugared to `TextQ.match(...)`) or a structured `TextQ.*` expression — see the [`TextQ` DSL](#textq-full-text-query-dsl) below.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `g.searchTextV(prop, query, k)` | `g.search_text(prop, query, k)` / `g.search_text_query(prop, &q, k)` | `g.searchTextV('body', 'raft', 10)` | ✓ |
+| `g.searchTextE(prop, query, k)` | `g.search_text_e(prop, query, k)` / `g.search_text_query_e(prop, &q, k)` | `g.searchTextE('note', 'hello', 5)` | ✓ |
+
+Each source step attaches the BM25 score (`f32`) to the traverser sack; read it later via [`textScore()`](#full-text-search-transform-steps).
+
 ---
 
 ## Navigation Steps (Vertex to Vertex)
@@ -214,6 +225,16 @@ let result = compiled.execute();
 | `math(expression)` | `math(expr).build()` | - | Rust |
 | `index()` | `index()` | `index()` | ✓ |
 | `loops()` | `loops()` | `loops()` | ✓ |
+
+### Full-Text Search Transform Steps
+
+Gated on the `full-text` feature.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `textScore()` | `text_score()` | `textScore()` | ✓ |
+
+`textScore()` reads the `f32` BM25 score the upstream `searchTextV` / `searchTextE` source step attached to the traverser sack and emits it as `Value::Float`. If a traverser arrives without a sack (e.g. it came from a non-FTS source), the step emits `Value::Null` rather than aborting the pipeline.
 
 ---
 
@@ -356,6 +377,36 @@ let result = compiled.execute();
 | `TextP.notStartingWith(str)` | `p::not_starting_with(str)` | `TextP.notStartingWith('str')` | ✓ |
 | `TextP.notEndingWith(str)` | `p::not_ending_with(str)` | `TextP.notEndingWith('str')` | ✓ |
 | `TextP.regex(pattern)` | `p::regex(pattern)` | `TextP.regex('pattern')` | ✓ |
+
+---
+
+## TextQ (Full-Text Query DSL)
+
+Gated on the `full-text` feature. `TextQ.*` expressions are only valid as the second argument of `g.searchTextV(...)` / `g.searchTextE(...)`. A bare string in that position desugars to `TextQ.match(...)`.
+
+| Gremlin | Backing `TextQuery` variant | Semantics |
+|---------|------------------------------|-----------|
+| `TextQ.match('foo bar')` | `Match(..)` | any term matches (OR) |
+| `TextQ.matchAll('foo bar')` | `MatchAll(..)` | all terms must match (AND) |
+| `TextQ.phrase('foo bar')` | `Phrase { slop: 0, .. }` | exact adjacent phrase |
+| `TextQ.prefix('foo')` | `Prefix(..)` | prefix expansion |
+| `TextQ.and(q1, q2, ...)` | `And(..)` | boolean AND of subqueries |
+| `TextQ.or(q1, q2, ...)` | `Or(..)` | boolean OR of subqueries |
+| `TextQ.not(q)` | `Not(..)` | boolean negation |
+
+Compound forms nest freely:
+
+```text
+g.searchTextV('body',
+  TextQ.and(
+    TextQ.match('raft'),
+    TextQ.or(TextQ.prefix('paxos'), TextQ.not(TextQ.phrase('byzantine fault')))
+  ),
+  20
+).textScore()
+```
+
+GQL does **not** expose `And/Or/Not`; use Gremlin or the Rust API for compound queries.
 
 ---
 

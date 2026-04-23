@@ -317,6 +317,37 @@ g.v().out().out().to_list()  // Faster
 
 ---
 
+## Full-Text Search
+
+Interstellar ships a Tantivy-backed full-text index (feature flag: `full-text`) reachable from the Rust API, Gremlin, and GQL.
+
+**Gremlin** — `searchTextV` / `searchTextE` start a traversal from a BM25-ranked hit list; `textScore()` reads the score back off the traverser sack:
+
+```rust
+graph.execute_script(
+    "g.searchTextV('body', 'raft consensus', 10).hasLabel('article').values('title')"
+)?;
+// Compound queries use the TextQ DSL:
+graph.execute_script(
+    "g.searchTextV('body', TextQ.phrase('distributed consensus'), 5).textScore()"
+)?;
+```
+
+**GQL** — eight `CALL` procedures (`interstellar.searchText{,All,Phrase,Prefix}{V,E}`) with `YIELD elem | elemId | score`. GQL requires a leading `MATCH`, so anchor against one row:
+
+```rust
+graph.gql(
+    "MATCH (anchor) WHERE id(anchor) = 0
+     CALL interstellar.searchTextV('body', 'raft', 5)
+     YIELD elemId, score
+     RETURN elemId, score"
+)?;
+```
+
+See the [Full-Text Search guide](full-text-search.md) for indexing, tokenization, and the full `TextQ` / `CALL` reference.
+
+---
+
 ## GQL-Specific Patterns
 
 ### Optional Matches
@@ -351,4 +382,5 @@ g.v().out().out().to_list()  // Faster
 - [Gremlin API](../api/gremlin.md) - Complete step reference
 - [GQL API](../api/gql.md) - Full GQL syntax
 - [Predicates](../api/predicates.md) - Filter functions
+- [Full-Text Search](full-text-search.md) - Indexing and BM25 queries
 - [Performance Guide](performance.md) - Optimization tips
