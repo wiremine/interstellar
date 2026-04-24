@@ -1188,3 +1188,29 @@ mod tests {
         assert!(format!("{}", query_err).contains("storage error"));
     }
 }
+
+// =============================================================================
+// SubscriptionError
+// =============================================================================
+
+/// Errors related to reactive streaming subscriptions.
+///
+/// These errors can occur during subscription lifecycle management.
+#[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+#[derive(Debug, thiserror::Error)]
+pub enum SubscriptionError {
+    /// The subscription was cancelled.
+    #[error("subscription cancelled")]
+    Cancelled,
+
+    /// The graph was dropped while the subscription was active.
+    #[error("graph dropped")]
+    GraphDropped,
+
+    /// The subscription's event channel is full and events are being dropped.
+    #[error("subscription channel full (capacity: {capacity})")]
+    ChannelFull {
+        /// The channel capacity that was exceeded.
+        capacity: usize,
+    },
+}

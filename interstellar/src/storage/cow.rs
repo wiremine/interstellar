@@ -221,8 +221,10 @@ impl Default for GraphState {
 /// // snap can be sent to another thread, outlive the graph, etc.
 /// ```
 pub struct Graph {
-    /// Current mutable state (protected by RwLock for thread safety)
-    state: RwLock<GraphState>,
+    /// Current mutable state (protected by RwLock for thread safety).
+    /// Wrapped in Arc to allow reactive snapshot factory closures to
+    /// capture a reference to the live graph state.
+    state: Arc<RwLock<GraphState>>,
 
     /// Schema for validation (optional)
     schema: RwLock<Option<GraphSchema>>,
@@ -246,6 +248,17 @@ pub struct Graph {
 
     #[cfg(feature = "full-text")]
     text_indexes_edge: RwLock<HashMap<String, std::sync::Arc<dyn crate::storage::text::TextIndex>>>,
+
+    /// Event bus for reactive streaming queries. Only present when
+    /// the `reactive` feature is enabled and not targeting WASM.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    event_bus: std::sync::Arc<crate::storage::events::EventBus>,
+
+    /// Subscription manager for reactive streaming queries. Only present when
+    /// the `reactive` feature is enabled and not targeting WASM.
+    /// Lazily initialized on first `subscribe()` call.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    subscription_manager: std::sync::Arc<crate::traversal::reactive::SubscriptionManager>,
 }
 
 impl Graph {
@@ -260,14 +273,35 @@ impl Graph {
     /// assert_eq!(graph.vertex_count(), 0);
     /// ```
     pub fn new() -> Self {
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let event_bus = std::sync::Arc::new(crate::storage::events::EventBus::new());
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let subscription_manager = {
+            let eb = event_bus.clone();
+            let event_sub_fn: std::sync::Arc<
+                dyn Fn() -> std::sync::mpsc::Receiver<crate::storage::events::GraphEvent>
+                    + Send
+                    + Sync,
+            > = std::sync::Arc::new(move || eb.subscribe());
+
+            std::sync::Arc::new(crate::traversal::reactive::SubscriptionManager::new(
+                event_sub_fn,
+            ))
+        };
+
         Self {
-            state: RwLock::new(GraphState::new()),
+            state: Arc::new(RwLock::new(GraphState::new())),
             schema: RwLock::new(None),
             indexes: RwLock::new(HashMap::new()),
             #[cfg(feature = "full-text")]
             text_indexes_vertex: RwLock::new(HashMap::new()),
             #[cfg(feature = "full-text")]
             text_indexes_edge: RwLock::new(HashMap::new()),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            event_bus,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager,
         }
     }
 
@@ -352,14 +386,35 @@ impl Graph {
     /// let graph = Graph::with_schema(schema);
     /// ```
     pub fn with_schema(schema: GraphSchema) -> Self {
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let event_bus = std::sync::Arc::new(crate::storage::events::EventBus::new());
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let subscription_manager = {
+            let eb = event_bus.clone();
+            let event_sub_fn: std::sync::Arc<
+                dyn Fn() -> std::sync::mpsc::Receiver<crate::storage::events::GraphEvent>
+                    + Send
+                    + Sync,
+            > = std::sync::Arc::new(move || eb.subscribe());
+
+            std::sync::Arc::new(crate::traversal::reactive::SubscriptionManager::new(
+                event_sub_fn,
+            ))
+        };
+
         Self {
-            state: RwLock::new(GraphState::new()),
+            state: Arc::new(RwLock::new(GraphState::new())),
             schema: RwLock::new(Some(schema)),
             indexes: RwLock::new(HashMap::new()),
             #[cfg(feature = "full-text")]
             text_indexes_vertex: RwLock::new(HashMap::new()),
             #[cfg(feature = "full-text")]
             text_indexes_edge: RwLock::new(HashMap::new()),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            event_bus,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager,
         }
     }
 
@@ -401,6 +456,29 @@ impl Graph {
         GraphSnapshot {
             state: Arc::new((*state).clone()),
             interner_snapshot,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager: self.subscription_manager.clone(),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            snapshot_fn: {
+                let state_arc = self.state.clone();
+                std::sync::Arc::new(move || {
+                    let state = state_arc.read();
+                    let interner_snapshot = Arc::new(state.interner.read().clone());
+                    let snap = GraphSnapshot {
+                        state: Arc::new((*state).clone()),
+                        interner_snapshot,
+                        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+                        subscription_manager: std::sync::Arc::new(
+                            crate::traversal::reactive::SubscriptionManager::placeholder(),
+                        ),
+                        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+                        snapshot_fn: std::sync::Arc::new(|| {
+                            panic!("nested snapshot_fn not supported")
+                        }),
+                    };
+                    Box::new(snap)
+                })
+            },
         }
     }
 
@@ -505,6 +583,24 @@ impl Graph {
     // =========================================================================
     // Read Operations (via current state)
     // =========================================================================
+
+    /// Get a reference to the event bus for subscribing to mutation events.
+    ///
+    /// Only available when the `reactive` feature is enabled.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub fn event_bus(&self) -> &crate::storage::events::EventBus {
+        &self.event_bus
+    }
+
+    /// Returns the subscription manager for reactive streaming queries.
+    ///
+    /// Only available when the `reactive` feature is enabled.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub fn subscription_manager(
+        &self,
+    ) -> &std::sync::Arc<crate::traversal::reactive::SubscriptionManager> {
+        &self.subscription_manager
+    }
 
     /// Returns the total number of vertices in the graph.
     pub fn vertex_count(&self) -> u64 {
@@ -1530,6 +1626,16 @@ impl Graph {
             let _ = self.text_index_vertex_insert(id, &properties);
         }
 
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::VertexAdded {
+                id,
+                label: label.to_string(),
+                properties,
+            });
+        }
+
         id
     }
 
@@ -1633,6 +1739,18 @@ impl Graph {
                 .map_err(|e| StorageError::IndexError(e.to_string()))?;
         }
 
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::EdgeAdded {
+                id: edge_id,
+                src,
+                dst,
+                label: label.to_string(),
+                properties,
+            });
+        }
+
         Ok(edge_id)
     }
 
@@ -1686,6 +1804,17 @@ impl Graph {
                 .map_err(|e| StorageError::IndexError(e.to_string()))?;
         }
 
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::VertexPropertyChanged {
+                id,
+                key: key.to_string(),
+                old_value,
+                new_value: value,
+            });
+        }
+
         Ok(())
     }
 
@@ -1734,6 +1863,17 @@ impl Graph {
                 .map_err(|e| StorageError::IndexError(e.to_string()))?;
         }
 
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::EdgePropertyChanged {
+                id,
+                key: key.to_string(),
+                old_value,
+                new_value: value,
+            });
+        }
+
         Ok(())
     }
 
@@ -1761,7 +1901,8 @@ impl Graph {
         let properties = node.properties.clone();
 
         // Collect edges to remove with their info for index updates
-        let edges_to_remove: Vec<(EdgeId, String, HashMap<String, Value>)> = node
+        #[allow(clippy::type_complexity)]
+        let edges_to_remove: Vec<(EdgeId, VertexId, VertexId, String, HashMap<String, Value>)> = node
             .out_edges
             .iter()
             .chain(node.in_edges.iter())
@@ -1773,7 +1914,7 @@ impl Graph {
                         .resolve(e.label_id)
                         .map(|s| s.to_string())
                         .unwrap_or_default();
-                    (edge_id, edge_label, e.properties.clone())
+                    (edge_id, e.src, e.dst, edge_label, e.properties.clone())
                 })
             })
             .collect();
@@ -1795,7 +1936,7 @@ impl Graph {
         }
 
         // Remove all incident edges
-        for (edge_id, _, _) in &edges_to_remove {
+        for (edge_id, _, _, _, _) in &edges_to_remove {
             Self::remove_edge_internal(&mut state, *edge_id, Some(id));
         }
 
@@ -1815,14 +1956,31 @@ impl Graph {
         }
 
         // Update property indexes - remove edges
-        for (edge_id, edge_label, edge_props) in edges_to_remove {
-            self.index_edge_remove(edge_id, &edge_label, &edge_props);
+        for (edge_id, _edge_src, _edge_dst, edge_label, edge_props) in &edges_to_remove {
+            self.index_edge_remove(*edge_id, edge_label, edge_props);
 
             // Update edge text indexes for cascaded edges.
             #[cfg(feature = "full-text")]
             {
-                let _ = self.text_index_edge_remove(edge_id);
+                let _ = self.text_index_edge_remove(*edge_id);
             }
+        }
+
+        // Emit reactive events
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            for (edge_id, edge_src, edge_dst, edge_label, _) in edges_to_remove {
+                self.event_bus.emit(crate::storage::events::GraphEvent::EdgeRemoved {
+                    id: edge_id,
+                    src: edge_src,
+                    dst: edge_dst,
+                    label: edge_label,
+                });
+            }
+            self.event_bus.emit(crate::storage::events::GraphEvent::VertexRemoved {
+                id,
+                label,
+            });
         }
 
         Ok(())
@@ -1838,13 +1996,15 @@ impl Graph {
 
         let edge = state.edges.get(&id).ok_or(StorageError::EdgeNotFound(id))?;
 
-        // Get label and properties for index removal
+        // Get label, endpoints, and properties for index removal / reactive events
         let label = state
             .interner
             .read()
             .resolve(edge.label_id)
             .map(|s| s.to_string())
             .unwrap_or_default();
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let (src, dst) = (edge.src, edge.dst);
         let properties = edge.properties.clone();
 
         Self::remove_edge_internal(&mut state, id, None);
@@ -1861,6 +2021,14 @@ impl Graph {
         #[cfg(feature = "full-text")]
         {
             let _ = self.text_index_edge_remove(id);
+        }
+
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::EdgeRemoved {
+                id, src, dst, label,
+            });
         }
 
         Ok(())
@@ -2100,13 +2268,24 @@ impl Graph {
         // Create batch context
         let mut ctx = BatchContext {
             state: &mut working_state,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            pending_events: Vec::new(),
         };
 
         // Execute user function
         let result = f(&mut ctx)?;
 
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let pending_events = std::mem::take(&mut ctx.pending_events);
+
         // If successful, apply the working state
         *self.state.write() = working_state;
+
+        // Emit batch event AFTER successful commit
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if !pending_events.is_empty() && self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::Batch(pending_events));
+        }
 
         Ok(result)
     }
@@ -4052,6 +4231,14 @@ pub struct GraphSnapshot {
     state: Arc<GraphState>,
     /// Cloned interner - snapshot-local, no shared lock
     interner_snapshot: Arc<StringInterner>,
+    /// Subscription manager reference for reactive queries.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    subscription_manager: std::sync::Arc<crate::traversal::reactive::SubscriptionManager>,
+    /// Factory that creates fresh snapshots for reactive re-evaluation.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    snapshot_fn: std::sync::Arc<
+        dyn Fn() -> Box<dyn crate::traversal::context::SnapshotLike + Send> + Send + Sync,
+    >,
 }
 
 impl GraphSnapshot {
@@ -4180,6 +4367,22 @@ impl crate::traversal::SnapshotLike for GraphSnapshot {
 
     fn arc_streamable(&self) -> std::sync::Arc<dyn StreamableStorage> {
         self.arc_streamable()
+    }
+
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    fn subscription_manager(&self) -> Option<&crate::traversal::reactive::SubscriptionManager> {
+        Some(&self.subscription_manager)
+    }
+
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    fn reactive_snapshot_fn(
+        &self,
+    ) -> Option<
+        std::sync::Arc<
+            dyn Fn() -> Box<dyn crate::traversal::context::SnapshotLike + Send> + Send + Sync,
+        >,
+    > {
+        Some(self.snapshot_fn.clone())
     }
 }
 
@@ -4582,6 +4785,8 @@ pub enum BatchError {
 /// when the batch closure returns successfully.
 pub struct BatchContext<'a> {
     state: &'a mut GraphState,
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub(crate) pending_events: Vec<crate::storage::events::GraphEvent>,
 }
 
 impl<'a> BatchContext<'a> {
@@ -4591,6 +4796,9 @@ impl<'a> BatchContext<'a> {
         self.state.next_vertex_id += 1;
 
         let label_id = self.state.interner.write().intern(label);
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let properties_clone = properties.clone();
 
         let node = Arc::new(NodeData {
             id,
@@ -4618,6 +4826,13 @@ impl<'a> BatchContext<'a> {
 
         self.state.version += 1;
 
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        self.pending_events.push(crate::storage::events::GraphEvent::VertexAdded {
+            id,
+            label: label.to_string(),
+            properties: properties_clone,
+        });
+
         id
     }
 
@@ -4640,6 +4855,9 @@ impl<'a> BatchContext<'a> {
         self.state.next_edge_id += 1;
 
         let label_id = self.state.interner.write().intern(label);
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let properties_clone = properties.clone();
 
         let edge = Arc::new(EdgeData {
             id: edge_id,
@@ -4679,6 +4897,15 @@ impl<'a> BatchContext<'a> {
             .update(label_id, Arc::new(new_bitmap));
 
         self.state.version += 1;
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        self.pending_events.push(crate::storage::events::GraphEvent::EdgeAdded {
+            id: edge_id,
+            src,
+            dst,
+            label: label.to_string(),
+            properties: properties_clone,
+        });
 
         Ok(edge_id)
     }

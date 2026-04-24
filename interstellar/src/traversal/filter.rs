@@ -134,6 +134,14 @@ impl HasLabelStep {
 // Use the macro to implement Step for HasLabelStep
 impl_filter_step!(HasLabelStep, "hasLabel");
 
+// Reactive introspection: expose label constraints for fast-rejection filtering.
+#[cfg(feature = "reactive")]
+impl crate::traversal::reactive::StepIntrospect for HasLabelStep {
+    fn label_constraints(&self) -> Option<Vec<String>> {
+        Some(self.labels.clone())
+    }
+}
+
 // -----------------------------------------------------------------------------
 // HasStep - filter by property existence
 // -----------------------------------------------------------------------------
@@ -209,6 +217,14 @@ impl HasStep {
 
 // Use the macro to implement Step for HasStep
 impl_filter_step!(HasStep, "has");
+
+// Reactive introspection: expose property key constraint.
+#[cfg(feature = "reactive")]
+impl crate::traversal::reactive::StepIntrospect for HasStep {
+    fn property_constraints(&self) -> Option<Vec<String>> {
+        Some(vec![self.key.clone()])
+    }
+}
 
 // -----------------------------------------------------------------------------
 // HasNotStep - filter by property absence
@@ -385,6 +401,14 @@ impl HasValueStep {
 
 // Use the macro to implement Step for HasValueStep
 impl_filter_step!(HasValueStep, "has");
+
+// Reactive introspection: expose property key constraint.
+#[cfg(feature = "reactive")]
+impl crate::traversal::reactive::StepIntrospect for HasValueStep {
+    fn property_constraints(&self) -> Option<Vec<String>> {
+        Some(vec![self.key.clone()])
+    }
+}
 
 // -----------------------------------------------------------------------------
 // FilterStep - generic filter with custom predicate
@@ -1478,6 +1502,14 @@ impl std::fmt::Debug for HasWhereStep {
 
 // Use the macro to implement Step for HasWhereStep
 impl_filter_step!(HasWhereStep, "has");
+
+// Reactive introspection: expose property key constraint.
+#[cfg(feature = "reactive")]
+impl crate::traversal::reactive::StepIntrospect for HasWhereStep {
+    fn property_constraints(&self) -> Option<Vec<String>> {
+        Some(vec![self.key.clone()])
+    }
+}
 
 // -----------------------------------------------------------------------------
 // IsStep - filter by testing the traverser's current value against a predicate

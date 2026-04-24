@@ -22,7 +22,8 @@ graphson = ["serde_json"]
 full-text = ["tantivy"]
 gql = ["pest", "pest_derive", "mathexpr"]
 gremlin = ["pest", "pest_derive"]
-full = ["mmap", "graphson", "gql", "gremlin", "full-text"]
+reactive = []  # No new dependencies — uses std::sync, parking_lot (already present)
+full = ["mmap", "graphson", "gql", "gremlin", "full-text", "reactive"]
 # WASM JavaScript bindings
 wasm = ["wasm-bindgen", "serde-wasm-bindgen", "js-sys"]
 

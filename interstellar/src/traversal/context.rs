@@ -95,6 +95,29 @@ pub trait SnapshotLike {
     fn arc_streamable(&self) -> Arc<dyn crate::storage::StreamableStorage> {
         panic!("arc_streamable() not implemented for this snapshot type - streaming not supported")
     }
+
+    /// Get a reference to the subscription manager for reactive queries.
+    ///
+    /// Returns `None` by default. Override for snapshot types that
+    /// support reactive subscriptions.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    fn subscription_manager(&self) -> Option<&crate::traversal::reactive::SubscriptionManager> {
+        None
+    }
+
+    /// Get a factory function that creates fresh snapshots of the current
+    /// graph state. Used by reactive subscriptions for re-evaluation.
+    ///
+    /// Returns `None` by default. Override for snapshot types that
+    /// support reactive subscriptions.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    fn reactive_snapshot_fn(
+        &self,
+    ) -> Option<
+        std::sync::Arc<dyn Fn() -> Box<dyn SnapshotLike + Send> + Send + Sync>,
+    > {
+        None
+    }
 }
 
 /// Execution context passed to steps at runtime.

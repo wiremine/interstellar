@@ -187,6 +187,13 @@ pub trait DynStep: Send + Sync {
 
     /// Returns true if this step is a barrier (must collect all inputs before producing output).
     fn is_barrier(&self) -> bool;
+
+    /// Downcast to a concrete type for introspection.
+    ///
+    /// Used by the reactive query matcher to extract filter constraints
+    /// from known step types (e.g., labels from `HasLabelStep`).
+    #[cfg(feature = "reactive")]
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Blanket implementation: every `Step` is also a `DynStep`.
@@ -221,6 +228,11 @@ impl<S: Step> DynStep for S {
 
     fn is_barrier(&self) -> bool {
         <Self as Step>::is_barrier(self)
+    }
+
+    #[cfg(feature = "reactive")]
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

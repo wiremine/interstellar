@@ -193,6 +193,14 @@ impl ValuesStep {
 // Use the macro to implement Step for ValuesStep (DynStep is provided via blanket impl)
 impl_flatmap_step!(ValuesStep, "values");
 
+// Reactive introspection: expose property key constraints.
+#[cfg(feature = "reactive")]
+impl crate::traversal::reactive::StepIntrospect for ValuesStep {
+    fn property_constraints(&self) -> Option<Vec<String>> {
+        Some(self.keys.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

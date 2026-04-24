@@ -3264,6 +3264,84 @@ impl<'g, In, Out> std::fmt::Debug for BoundTraversal<'g, In, Out> {
 }
 
 // -----------------------------------------------------------------------------
+// Reactive Subscription Extensions
+// -----------------------------------------------------------------------------
+
+#[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Subscribe to this traversal pattern reactively.
+    ///
+    /// Returns a [`Subscription`](crate::traversal::reactive::Subscription) that
+    /// yields [`SubscriptionEvent`](crate::traversal::reactive::SubscriptionEvent)s
+    /// whenever graph mutations cause elements to match or stop matching this
+    /// traversal pattern.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use interstellar::prelude::*;
+    ///
+    /// let graph = Graph::new();
+    /// let snapshot = graph.snapshot();
+    /// let g = snapshot.gremlin();
+    ///
+    /// let sub = g.v()
+    ///     .has_label("person")
+    ///     .has_where("age", p::gt(30))
+    ///     .subscribe();
+    ///
+    /// graph.add_vertex("person", props! { "name" => "Alice", "age" => 35i64 });
+    ///
+    /// let event = sub.recv().unwrap();
+    /// assert_eq!(event.event_type, SubscriptionEventType::Added);
+    /// ```
+    ///
+    /// # Backpressure
+    ///
+    /// Uses a bounded channel with capacity 1024. Events are dropped
+    /// (not blocking mutations) when the subscriber falls behind.
+    /// Use [`subscribe_with`](Self::subscribe_with) for custom capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the snapshot does not support reactive subscriptions
+    /// (i.e., `subscription_manager()` returns `None`).
+    pub fn subscribe(&self) -> crate::traversal::reactive::Subscription {
+        self.subscribe_with(crate::traversal::reactive::SubscribeOptions::default())
+    }
+
+    /// Subscribe with custom options.
+    ///
+    /// See [`SubscribeOptions`](crate::traversal::reactive::SubscribeOptions)
+    /// for available configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the snapshot does not support reactive subscriptions.
+    pub fn subscribe_with(
+        &self,
+        opts: crate::traversal::reactive::SubscribeOptions,
+    ) -> crate::traversal::reactive::Subscription {
+        let matcher = crate::traversal::reactive::QueryMatcher::compile(
+            self.traversal.steps(),
+            self.traversal.source(),
+        );
+
+        let manager = self
+            .snapshot
+            .subscription_manager()
+            .expect("snapshot does not support reactive subscriptions");
+
+        let snapshot_fn = self
+            .snapshot
+            .reactive_snapshot_fn()
+            .expect("snapshot does not support reactive snapshot factory");
+
+        manager.subscribe(matcher, opts, snapshot_fn)
+    }
+}
+
+// -----------------------------------------------------------------------------
 // TraversalExecutor - Executes traversals and produces results
 // -----------------------------------------------------------------------------
 

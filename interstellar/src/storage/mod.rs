@@ -76,6 +76,9 @@ pub mod cow_mmap;
 #[cfg(feature = "full-text")]
 pub mod text;
 
+#[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+pub mod events;
+
 // Re-export primary types (new names)
 pub use cow::{BatchContext, BatchError, Graph, GraphMutWrapper, GraphSnapshot, GraphState};
 

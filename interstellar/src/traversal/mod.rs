@@ -88,6 +88,9 @@ pub mod transform;
 pub mod traverser;
 pub mod typed;
 
+#[cfg(feature = "reactive")]
+pub mod reactive;
+
 // Internal modules (not re-exported directly)
 mod builder;
 mod pipeline;

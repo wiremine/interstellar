@@ -125,8 +125,10 @@ pub struct CowMmapGraph {
     /// Underlying persistent storage
     mmap: MmapGraph,
 
-    /// COW state for snapshot isolation
-    state: RwLock<GraphState>,
+    /// COW state for snapshot isolation.
+    /// Wrapped in Arc to allow reactive snapshot factory closures to
+    /// capture a reference to the live graph state.
+    state: Arc<RwLock<GraphState>>,
 
     /// Optional schema for validation
     schema: RwLock<Option<GraphSchema>>,
@@ -135,6 +137,14 @@ pub struct CowMmapGraph {
     /// Indexes are stored separately from state because they are mutable
     /// and don't need snapshot isolation (they always reflect current state).
     indexes: RwLock<HashMap<String, Box<dyn PropertyIndex>>>,
+
+    /// Event bus for reactive streaming queries.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    event_bus: std::sync::Arc<crate::storage::events::EventBus>,
+
+    /// Subscription manager for reactive streaming queries.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    subscription_manager: std::sync::Arc<crate::traversal::reactive::SubscriptionManager>,
 }
 
 impl CowMmapGraph {
@@ -163,11 +173,25 @@ impl CowMmapGraph {
         let mmap = MmapGraph::open(path)?;
         let state = Self::load_state_from_mmap(&mmap);
 
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let event_bus = std::sync::Arc::new(crate::storage::events::EventBus::new());
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let subscription_manager = {
+            let eb = event_bus.clone();
+            std::sync::Arc::new(crate::traversal::reactive::SubscriptionManager::new(
+                std::sync::Arc::new(move || eb.subscribe()),
+            ))
+        };
+
         Ok(Self {
             mmap,
-            state: RwLock::new(state),
+            state: Arc::new(RwLock::new(state)),
             schema: RwLock::new(None),
             indexes: RwLock::new(HashMap::new()),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            event_bus,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager,
         })
     }
 
@@ -200,11 +224,25 @@ impl CowMmapGraph {
         let mmap = MmapGraph::open(path)?;
         let state = Self::load_state_from_mmap(&mmap);
 
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let event_bus = std::sync::Arc::new(crate::storage::events::EventBus::new());
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let subscription_manager = {
+            let eb = event_bus.clone();
+            std::sync::Arc::new(crate::traversal::reactive::SubscriptionManager::new(
+                std::sync::Arc::new(move || eb.subscribe()),
+            ))
+        };
+
         Ok(Self {
             mmap,
-            state: RwLock::new(state),
+            state: Arc::new(RwLock::new(state)),
             schema: RwLock::new(Some(schema)),
             indexes: RwLock::new(HashMap::new()),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            event_bus,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager,
         })
     }
 
@@ -339,6 +377,29 @@ impl CowMmapGraph {
         CowMmapSnapshot {
             state: Arc::new((*state).clone()),
             interner_snapshot,
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager: self.subscription_manager.clone(),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            snapshot_fn: {
+                let state_arc = self.state.clone();
+                std::sync::Arc::new(move || {
+                    let state = state_arc.read();
+                    let interner_snapshot = Arc::new(state.interner.read().clone());
+                    let snap = CowMmapSnapshot {
+                        state: Arc::new((*state).clone()),
+                        interner_snapshot,
+                        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+                        subscription_manager: std::sync::Arc::new(
+                            crate::traversal::reactive::SubscriptionManager::placeholder(),
+                        ),
+                        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+                        snapshot_fn: std::sync::Arc::new(|| {
+                            panic!("nested snapshot_fn not supported")
+                        }),
+                    };
+                    Box::new(snap)
+                })
+            },
         }
     }
 
@@ -382,6 +443,20 @@ impl CowMmapGraph {
     /// The version increments with each mutation.
     pub fn version(&self) -> u64 {
         self.state.read().version
+    }
+
+    /// Get a reference to the event bus for subscribing to mutation events.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub fn event_bus(&self) -> &crate::storage::events::EventBus {
+        &self.event_bus
+    }
+
+    /// Returns the subscription manager for reactive streaming queries.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub fn subscription_manager(
+        &self,
+    ) -> &std::sync::Arc<crate::traversal::reactive::SubscriptionManager> {
+        &self.subscription_manager
     }
 
     // =========================================================================
@@ -1089,6 +1164,16 @@ impl CowMmapGraph {
         // Update property indexes
         self.index_vertex_insert(id, label, &properties);
 
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::VertexAdded {
+                id,
+                label: label.to_string(),
+                properties,
+            });
+        }
+
         Ok(id)
     }
 
@@ -1185,6 +1270,18 @@ impl CowMmapGraph {
         // Update property indexes
         self.index_edge_insert(id, label, &properties);
 
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::EdgeAdded {
+                id,
+                src,
+                dst,
+                label: label.to_string(),
+                properties,
+            });
+        }
+
         Ok(id)
     }
 
@@ -1230,7 +1327,18 @@ impl CowMmapGraph {
         self.update_vertex_property_in_indexes(id, &label, key, old_value.as_ref(), &value)?;
 
         // Write to disk
-        self.mmap.set_vertex_property(id, key, value)?;
+        self.mmap.set_vertex_property(id, key, value.clone())?;
+
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::VertexPropertyChanged {
+                id,
+                key: key.to_string(),
+                old_value,
+                new_value: value,
+            });
+        }
 
         Ok(())
     }
@@ -1274,7 +1382,18 @@ impl CowMmapGraph {
         self.update_edge_property_in_indexes(id, &label, key, old_value.as_ref(), &value)?;
 
         // Write to disk
-        self.mmap.set_edge_property(id, key, value)?;
+        self.mmap.set_edge_property(id, key, value.clone())?;
+
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::EdgePropertyChanged {
+                id,
+                key: key.to_string(),
+                old_value,
+                new_value: value,
+            });
+        }
 
         Ok(())
     }
@@ -1304,7 +1423,7 @@ impl CowMmapGraph {
         let properties = node.properties.clone();
 
         // Collect edges to remove with their info for index updates
-        let edges_to_remove: Vec<(EdgeId, String, HashMap<String, Value>)> = node
+        let edges_to_remove: Vec<(EdgeId, VertexId, VertexId, String, HashMap<String, Value>)> = node
             .out_edges
             .iter()
             .chain(node.in_edges.iter())
@@ -1316,13 +1435,13 @@ impl CowMmapGraph {
                         .resolve(e.label_id)
                         .map(|s| s.to_string())
                         .unwrap_or_default();
-                    (edge_id, edge_label, e.properties.clone())
+                    (edge_id, e.src, e.dst, edge_label, e.properties.clone())
                 })
             })
             .collect();
 
         // Remove incident edges from COW state
-        for (edge_id, _, _) in &edges_to_remove {
+        for (edge_id, _, _, _, _) in &edges_to_remove {
             // Clone the edge data we need before mutating state
             let edge_info = state.edges.get(edge_id).map(|e| (e.label_id, e.src, e.dst));
 
@@ -1369,12 +1488,29 @@ impl CowMmapGraph {
         self.index_vertex_remove(id, &label, &properties);
 
         // Update property indexes - remove edges
-        for (edge_id, edge_label, edge_props) in edges_to_remove {
-            self.index_edge_remove(edge_id, &edge_label, &edge_props);
+        for (edge_id, _edge_src, _edge_dst, edge_label, edge_props) in &edges_to_remove {
+            self.index_edge_remove(*edge_id, edge_label, edge_props);
         }
 
         // Write to disk
         self.mmap.remove_vertex(id)?;
+
+        // Emit reactive events
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            for (edge_id, edge_src, edge_dst, edge_label, _) in edges_to_remove {
+                self.event_bus.emit(crate::storage::events::GraphEvent::EdgeRemoved {
+                    id: edge_id,
+                    src: edge_src,
+                    dst: edge_dst,
+                    label: edge_label,
+                });
+            }
+            self.event_bus.emit(crate::storage::events::GraphEvent::VertexRemoved {
+                id,
+                label,
+            });
+        }
 
         Ok(())
     }
@@ -1394,13 +1530,15 @@ impl CowMmapGraph {
             .ok_or(StorageError::EdgeNotFound(id))?
             .clone();
 
-        // Get label and properties for index removal
+        // Get label, endpoints, and properties for index removal / reactive events
         let label = state
             .interner
             .read()
             .resolve(edge.label_id)
             .map(|s| s.to_string())
             .unwrap_or_default();
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let (src, dst) = (edge.src, edge.dst);
         let properties = edge.properties.clone();
 
         // Update source vertex's out_edges
@@ -1440,6 +1578,14 @@ impl CowMmapGraph {
 
         // Write to disk
         self.mmap.remove_edge(id)?;
+
+        // Emit reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        if self.event_bus.subscriber_count() > 0 {
+            self.event_bus.emit(crate::storage::events::GraphEvent::EdgeRemoved {
+                id, src, dst, label,
+            });
+        }
 
         Ok(())
     }
@@ -1486,6 +1632,8 @@ impl CowMmapGraph {
             graph: self,
             pending_state,
             operations: Vec::new(),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            pending_events: Vec::new(),
         };
 
         // Execute user's batch function
@@ -1502,6 +1650,12 @@ impl CowMmapGraph {
 
                 // Update COW state atomically
                 *self.state.write() = ctx.pending_state;
+
+                // Emit batch event AFTER successful commit
+                #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+                if !ctx.pending_events.is_empty() && self.event_bus.subscriber_count() > 0 {
+                    self.event_bus.emit(crate::storage::events::GraphEvent::Batch(ctx.pending_events));
+                }
 
                 Ok(result)
             }
@@ -2217,6 +2371,14 @@ pub struct CowMmapSnapshot {
     state: Arc<GraphState>,
     /// Cloned interner - snapshot-local, no shared lock
     interner_snapshot: Arc<StringInterner>,
+    /// Subscription manager reference for reactive queries.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    subscription_manager: std::sync::Arc<crate::traversal::reactive::SubscriptionManager>,
+    /// Factory that creates fresh snapshots for reactive re-evaluation.
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    snapshot_fn: std::sync::Arc<
+        dyn Fn() -> Box<dyn crate::traversal::context::SnapshotLike + Send> + Send + Sync,
+    >,
 }
 
 impl CowMmapSnapshot {
@@ -2303,6 +2465,22 @@ impl crate::traversal::SnapshotLike for CowMmapSnapshot {
     fn arc_streamable(&self) -> std::sync::Arc<dyn StreamableStorage> {
         self.arc_streamable()
     }
+
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    fn subscription_manager(&self) -> Option<&crate::traversal::reactive::SubscriptionManager> {
+        Some(&self.subscription_manager)
+    }
+
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    fn reactive_snapshot_fn(
+        &self,
+    ) -> Option<
+        std::sync::Arc<
+            dyn Fn() -> Box<dyn crate::traversal::context::SnapshotLike + Send> + Send + Sync,
+        >,
+    > {
+        Some(self.snapshot_fn.clone())
+    }
 }
 
 impl Clone for CowMmapSnapshot {
@@ -2310,6 +2488,10 @@ impl Clone for CowMmapSnapshot {
         Self {
             state: Arc::clone(&self.state),
             interner_snapshot: Arc::clone(&self.interner_snapshot),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            subscription_manager: self.subscription_manager.clone(),
+            #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+            snapshot_fn: self.snapshot_fn.clone(),
         }
     }
 }
@@ -2635,6 +2817,8 @@ pub struct CowMmapBatchContext<'g> {
     graph: &'g CowMmapGraph,
     pending_state: GraphState,
     operations: Vec<BatchOperation>,
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub(crate) pending_events: Vec<crate::storage::events::GraphEvent>,
 }
 
 impl<'g> CowMmapBatchContext<'g> {
@@ -2677,6 +2861,14 @@ impl<'g> CowMmapBatchContext<'g> {
 
         // Record operation
         self.operations.push(BatchOperation::AddVertex {
+            label: label.to_string(),
+            properties: properties.clone(),
+        });
+
+        // Record reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        self.pending_events.push(crate::storage::events::GraphEvent::VertexAdded {
+            id,
             label: label.to_string(),
             properties,
         });
@@ -2754,6 +2946,16 @@ impl<'g> CowMmapBatchContext<'g> {
             src,
             dst,
             label: label.to_string(),
+            properties: properties.clone(),
+        });
+
+        // Record reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        self.pending_events.push(crate::storage::events::GraphEvent::EdgeAdded {
+            id,
+            src,
+            dst,
+            label: label.to_string(),
             properties,
         });
 
@@ -2773,6 +2975,9 @@ impl<'g> CowMmapBatchContext<'g> {
             .get(&id)
             .ok_or(BatchError::VertexNotFound(id))?;
 
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let old_value = node.properties.get(key).cloned();
+
         let mut new_node = (**node).clone();
         new_node.properties.insert(key.to_string(), value.clone());
         self.pending_state.vertices = self.pending_state.vertices.update(id, Arc::new(new_node));
@@ -2782,7 +2987,15 @@ impl<'g> CowMmapBatchContext<'g> {
         self.operations.push(BatchOperation::SetVertexProperty {
             id,
             key: key.to_string(),
-            value,
+            value: value.clone(),
+        });
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        self.pending_events.push(crate::storage::events::GraphEvent::VertexPropertyChanged {
+            id,
+            key: key.to_string(),
+            old_value,
+            new_value: value,
         });
 
         Ok(())
@@ -2801,6 +3014,9 @@ impl<'g> CowMmapBatchContext<'g> {
             .get(&id)
             .ok_or(BatchError::EdgeNotFound(id))?;
 
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let old_value = edge.properties.get(key).cloned();
+
         let mut new_edge = (**edge).clone();
         new_edge.properties.insert(key.to_string(), value.clone());
         self.pending_state.edges = self.pending_state.edges.update(id, Arc::new(new_edge));
@@ -2810,7 +3026,15 @@ impl<'g> CowMmapBatchContext<'g> {
         self.operations.push(BatchOperation::SetEdgeProperty {
             id,
             key: key.to_string(),
-            value,
+            value: value.clone(),
+        });
+
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        self.pending_events.push(crate::storage::events::GraphEvent::EdgePropertyChanged {
+            id,
+            key: key.to_string(),
+            old_value,
+            new_value: value,
         });
 
         Ok(())
@@ -2825,12 +3049,40 @@ impl<'g> CowMmapBatchContext<'g> {
             .ok_or(BatchError::VertexNotFound(id))?
             .clone();
 
+        // Capture info for reactive events before mutation
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let vertex_label = self
+            .pending_state
+            .interner
+            .read()
+            .resolve(node.label_id)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
         // Collect edges to remove
         let edges_to_remove: Vec<EdgeId> = node
             .out_edges
             .iter()
             .chain(node.in_edges.iter())
             .copied()
+            .collect();
+
+        // Capture edge info for reactive events before removal
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        let edge_infos: Vec<(EdgeId, VertexId, VertexId, String)> = edges_to_remove
+            .iter()
+            .filter_map(|&edge_id| {
+                self.pending_state.edges.get(&edge_id).map(|e| {
+                    let elabel = self
+                        .pending_state
+                        .interner
+                        .read()
+                        .resolve(e.label_id)
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    (edge_id, e.src, e.dst, elabel)
+                })
+            })
             .collect();
 
         // Remove incident edges
@@ -2881,6 +3133,20 @@ impl<'g> CowMmapBatchContext<'g> {
 
         self.operations.push(BatchOperation::RemoveVertex { id });
 
+        // Record reactive events
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        {
+            for (eid, src, dst, elabel) in edge_infos {
+                self.pending_events.push(crate::storage::events::GraphEvent::EdgeRemoved {
+                    id: eid, src, dst, label: elabel,
+                });
+            }
+            self.pending_events.push(crate::storage::events::GraphEvent::VertexRemoved {
+                id,
+                label: vertex_label,
+            });
+        }
+
         Ok(())
     }
 
@@ -2929,6 +3195,24 @@ impl<'g> CowMmapBatchContext<'g> {
         self.pending_state.version += 1;
 
         self.operations.push(BatchOperation::RemoveEdge { id });
+
+        // Record reactive event
+        #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+        {
+            let elabel = self
+                .pending_state
+                .interner
+                .read()
+                .resolve(edge.label_id)
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            self.pending_events.push(crate::storage::events::GraphEvent::EdgeRemoved {
+                id,
+                src: edge.src,
+                dst: edge.dst,
+                label: elabel,
+            });
+        }
 
         Ok(())
     }

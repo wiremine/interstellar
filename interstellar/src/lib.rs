@@ -458,6 +458,17 @@ pub mod prelude {
         Path, PathElement, PathValue, Traversal, Traverser, __,
     };
     pub use crate::value::{EdgeId, ElementId, IntoVertexId, Value, ValueMap, VertexId};
+
+    // Reactive streaming query types
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub use crate::error::SubscriptionError;
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub use crate::storage::events::GraphEvent;
+    #[cfg(all(feature = "reactive", not(target_arch = "wasm32")))]
+    pub use crate::traversal::reactive::{
+        QueryMatcher, SubscribeOptions, Subscription, SubscriptionEvent, SubscriptionEventType,
+        SubscriptionId, SubscriptionManager,
+    };
 }
 
 pub use prelude::*;
