@@ -1423,6 +1423,7 @@ impl CowMmapGraph {
         let properties = node.properties.clone();
 
         // Collect edges to remove with their info for index updates
+        #[allow(clippy::type_complexity)]
         let edges_to_remove: Vec<(EdgeId, VertexId, VertexId, String, HashMap<String, Value>)> = node
             .out_edges
             .iter()
