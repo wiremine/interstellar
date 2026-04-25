@@ -237,21 +237,76 @@ impl fmt::Display for TraversalExplanation {
 
         writeln!(f)?;
 
+        // Check if any step has index information to show
+        let show_index_col = self.steps.iter().any(|s| s.has_filter_key);
+
+        // Compute description column width for index column alignment
+        let desc_width = if show_index_col {
+            self.steps
+                .iter()
+                .map(|s| s.description.as_deref().unwrap_or("").len())
+                .max()
+                .unwrap_or(11)
+                .max(11)
+        } else {
+            0 // not used
+        };
+
+        // Compute index column width
+        let idx_width = if show_index_col {
+            self.steps
+                .iter()
+                .filter_map(|s| {
+                    if s.index_hint.is_some() || s.has_filter_key {
+                        let text = match &s.index_hint {
+                            Some(hint) => hint.len(),
+                            None => 8, // "no index"
+                        };
+                        Some(text)
+                    } else {
+                        None
+                    }
+                })
+                .max()
+                .unwrap_or(5)
+                .max(5)
+        } else {
+            0
+        };
+
         // Table header
-        writeln!(
-            f,
-            "  #  {:<name_width$}  {:<cat_width$}  Description",
-            "Step", "Category",
-            name_width = name_width,
-            cat_width = cat_width,
-        )?;
-        let rule_len = 5 + name_width + 2 + cat_width + 2 + 11;
-        writeln!(f, "  {}", "─".repeat(rule_len))?;
+        if show_index_col {
+            writeln!(
+                f,
+                "  #  {:<name_width$}  {:<cat_width$}  {:<desc_width$}  Index",
+                "Step", "Category", "Description",
+                name_width = name_width,
+                cat_width = cat_width,
+                desc_width = desc_width,
+            )?;
+            let rule_len = 5 + name_width + 2 + cat_width + 2 + desc_width + 2 + idx_width;
+            writeln!(f, "  {}", "─".repeat(rule_len))?;
+        } else {
+            writeln!(
+                f,
+                "  #  {:<name_width$}  {:<cat_width$}  Description",
+                "Step", "Category",
+                name_width = name_width,
+                cat_width = cat_width,
+            )?;
+            let rule_len = 5 + name_width + 2 + cat_width + 2 + 11;
+            writeln!(f, "  {}", "─".repeat(rule_len))?;
+        }
 
         // Steps
         for step in &self.steps {
             // Barrier separator before barrier steps
             if step.is_barrier {
+                let rule_len = if show_index_col {
+                    5 + name_width + 2 + cat_width + 2 + desc_width + 2 + idx_width
+                } else {
+                    5 + name_width + 2 + cat_width + 2 + 11
+                };
                 writeln!(
                     f,
                     "  {0}── barrier {0}──",
@@ -261,22 +316,37 @@ impl fmt::Display for TraversalExplanation {
 
             let cat_str = format!("{}", step.category);
             let desc = step.description.as_deref().unwrap_or("");
-            let idx_info = match &step.index_hint {
-                Some(hint) => format!("  [idx: {hint}]"),
-                None if step.has_filter_key => "  [no index]".to_string(),
-                None => String::new(),
-            };
-            writeln!(
-                f,
-                "  {:<2} {:<name_width$}  {:<cat_width$}  {desc}{idx_info}",
-                step.index,
-                step.name,
-                cat_str,
-                name_width = name_width,
-                cat_width = cat_width,
-                desc = desc,
-                idx_info = idx_info,
-            )?;
+
+            if show_index_col {
+                let idx_str = match &step.index_hint {
+                    Some(hint) => hint.as_str(),
+                    None if step.has_filter_key => "no index",
+                    None => "",
+                };
+                writeln!(
+                    f,
+                    "  {:<2} {:<name_width$}  {:<cat_width$}  {:<desc_width$}  {idx_str}",
+                    step.index,
+                    step.name,
+                    cat_str,
+                    desc,
+                    name_width = name_width,
+                    cat_width = cat_width,
+                    desc_width = desc_width,
+                    idx_str = idx_str,
+                )?;
+            } else {
+                writeln!(
+                    f,
+                    "  {:<2} {:<name_width$}  {:<cat_width$}  {desc}",
+                    step.index,
+                    step.name,
+                    cat_str,
+                    name_width = name_width,
+                    cat_width = cat_width,
+                    desc = desc,
+                )?;
+            }
         }
 
         Ok(())
