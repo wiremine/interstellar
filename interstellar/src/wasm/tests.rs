@@ -430,3 +430,250 @@ fn test_max_step() {
     // Maximum should be 35
     assert_eq!(result.as_f64().unwrap() as i32, 35);
 }
+
+// =============================================================================
+// Algorithm Step Tests
+// =============================================================================
+
+/// Helper: build a small graph for algorithm tests.
+/// Returns (graph, alice_id, bob_id, charlie_id) where:
+/// alice --knows(weight=1)--> bob --knows(weight=2)--> charlie
+/// alice --knows(weight=10)--> charlie
+fn build_algo_graph() -> (Graph, u64, u64, u64) {
+    let graph = Graph::new();
+
+    let alice = graph.add_vertex("person", JsValue::NULL).unwrap();
+    let bob = graph.add_vertex("person", JsValue::NULL).unwrap();
+    let charlie = graph.add_vertex("person", JsValue::NULL).unwrap();
+
+    // alice -> bob (weight 1)
+    let props1 = js_sys::Object::new();
+    js_sys::Reflect::set(&props1, &"weight".into(), &JsValue::from(1.0f64)).unwrap();
+    graph
+        .add_edge(id_to_js(alice), id_to_js(bob), "knows", props1.into())
+        .unwrap();
+
+    // bob -> charlie (weight 2)
+    let props2 = js_sys::Object::new();
+    js_sys::Reflect::set(&props2, &"weight".into(), &JsValue::from(2.0f64)).unwrap();
+    graph
+        .add_edge(id_to_js(bob), id_to_js(charlie), "knows", props2.into())
+        .unwrap();
+
+    // alice -> charlie (weight 10)
+    let props3 = js_sys::Object::new();
+    js_sys::Reflect::set(&props3, &"weight".into(), &JsValue::from(10.0f64)).unwrap();
+    graph
+        .add_edge(id_to_js(alice), id_to_js(charlie), "knows", props3.into())
+        .unwrap();
+
+    (graph, alice, bob, charlie)
+}
+
+#[wasm_bindgen_test]
+fn test_shortest_path() {
+    let (graph, alice, _bob, charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let result = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .shortest_path(id_to_js(charlie))
+        .unwrap()
+        .to_list()
+        .unwrap();
+
+    let arr = js_sys::Array::from(&result);
+    // Should find a path (at least 1 result - the path list)
+    assert!(arr.length() >= 1);
+}
+
+#[wasm_bindgen_test]
+fn test_shortest_path_weighted() {
+    let (graph, alice, _bob, charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let result = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .shortest_path_weighted(id_to_js(charlie), "weight")
+        .unwrap()
+        .to_list()
+        .unwrap();
+
+    let arr = js_sys::Array::from(&result);
+    // Should find a weighted path
+    assert!(arr.length() >= 1);
+}
+
+#[wasm_bindgen_test]
+fn test_bfs() {
+    let (graph, alice, _bob, _charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let count = graph.v(Some(ids_arr)).unwrap().bfs(None).to_count();
+    // BFS from alice should find bob and charlie (at least 2 results)
+    assert!(count >= 2);
+}
+
+#[wasm_bindgen_test]
+fn test_dfs() {
+    let (graph, alice, _bob, _charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let count = graph.v(Some(ids_arr)).unwrap().dfs(None).to_count();
+    // DFS from alice should find bob and charlie (at least 2 results)
+    assert!(count >= 2);
+}
+
+#[wasm_bindgen_test]
+fn test_bidirectional_bfs() {
+    let (graph, alice, _bob, charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let result = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .bidirectional_bfs(id_to_js(charlie))
+        .unwrap()
+        .to_list()
+        .unwrap();
+
+    let arr = js_sys::Array::from(&result);
+    assert!(arr.length() >= 1);
+}
+
+#[wasm_bindgen_test]
+fn test_iddfs() {
+    let (graph, alice, _bob, charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let result = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .iddfs(id_to_js(charlie), 5)
+        .unwrap()
+        .to_list()
+        .unwrap();
+
+    let arr = js_sys::Array::from(&result);
+    assert!(arr.length() >= 1);
+}
+
+#[wasm_bindgen_test]
+fn test_astar() {
+    let (graph, alice, _bob, charlie) = build_algo_graph();
+
+    // Set heuristic properties on vertices (estimated distance to charlie)
+    graph
+        .set_vertex_property(id_to_js(alice), "h", JsValue::from(2.0f64))
+        .unwrap();
+    graph
+        .set_vertex_property(id_to_js(_bob), "h", JsValue::from(1.0f64))
+        .unwrap();
+    graph
+        .set_vertex_property(id_to_js(charlie), "h", JsValue::from(0.0f64))
+        .unwrap();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let result = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .astar(id_to_js(charlie), "weight", "h")
+        .unwrap()
+        .to_list()
+        .unwrap();
+
+    let arr = js_sys::Array::from(&result);
+    assert!(arr.length() >= 1);
+}
+
+#[wasm_bindgen_test]
+fn test_k_shortest_paths() {
+    let (graph, alice, _bob, charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let result = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .k_shortest_paths(id_to_js(charlie), 2, "weight")
+        .unwrap()
+        .to_list()
+        .unwrap();
+
+    let arr = js_sys::Array::from(&result);
+    // Should find up to 2 paths
+    assert!(arr.length() >= 1);
+}
+
+// =============================================================================
+// Geo Predicate Tests
+// =============================================================================
+
+#[wasm_bindgen_test]
+fn test_within_distance_predicate() {
+    let graph = Graph::new();
+
+    // Create a vertex with a geo location property (as a list [lon, lat])
+    let props1 = js_sys::Object::new();
+    let loc1 = js_sys::Array::new();
+    loc1.push(&JsValue::from(-122.4194f64)); // San Francisco
+    loc1.push(&JsValue::from(37.7749f64));
+    js_sys::Reflect::set(&props1, &"location".into(), &loc1.into()).unwrap();
+    js_sys::Reflect::set(&props1, &"name".into(), &"SF".into()).unwrap();
+    graph.add_vertex("city", props1.into()).unwrap();
+
+    let props2 = js_sys::Object::new();
+    let loc2 = js_sys::Array::new();
+    loc2.push(&JsValue::from(-73.9857f64)); // New York
+    loc2.push(&JsValue::from(40.7484f64));
+    js_sys::Reflect::set(&props2, &"location".into(), &loc2.into()).unwrap();
+    js_sys::Reflect::set(&props2, &"name".into(), &"NYC".into()).unwrap();
+    graph.add_vertex("city", props2.into()).unwrap();
+
+    // Search within 50km of SF - should find only SF
+    let pred = P::within_distance(-122.4194, 37.7749, 50.0);
+    let count = graph.v(None).unwrap().has_where("location", pred).to_count();
+    assert_eq!(count, 1);
+}
+
+// =============================================================================
+// Anonymous Factory Algorithm Tests
+// =============================================================================
+
+#[wasm_bindgen_test]
+fn test_anonymous_bfs() {
+    let (graph, alice, _bob, _charlie) = build_algo_graph();
+
+    // Use __.bfs() inside a union
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let count = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .union(vec![__::bfs(None)])
+        .to_count();
+    assert!(count >= 2);
+}
+
+#[wasm_bindgen_test]
+fn test_anonymous_dfs() {
+    let (graph, alice, _bob, _charlie) = build_algo_graph();
+
+    let ids_arr = js_sys::Array::new();
+    ids_arr.push(&id_to_js(alice));
+    let count = graph
+        .v(Some(ids_arr))
+        .unwrap()
+        .union(vec![__::dfs(None)])
+        .to_count();
+    assert!(count >= 2);
+}

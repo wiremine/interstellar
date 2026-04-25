@@ -15,8 +15,8 @@ use crate::wasm::types::{
     js_to_value, js_to_vertex_id,
 };
 
-#[cfg(feature = "gql")]
-use crate::wasm::types::values_to_js_array;
+#[cfg(any(feature = "gql", feature = "gremlin"))]
+use crate::wasm::types::{value_to_js, values_to_js_array};
 
 /// An in-memory property graph database.
 ///
@@ -409,6 +409,52 @@ impl Graph {
             .map_err(|e| JsError::new(&format!("GQL error: {}", e)))?;
 
         values_to_js_array(results)
+    }
+
+    // =========================================================================
+    // Gremlin Query Language
+    // =========================================================================
+
+    /// Execute a Gremlin query string.
+    ///
+    /// @param query - Gremlin query string
+    /// @returns Query results (array, single value, boolean, or string depending on terminal step)
+    ///
+    /// @example
+    /// ```typescript
+    /// const names = graph.gremlin("g.V().hasLabel('person').values('name').toList()");
+    /// const path = graph.gremlin("g.V(1n).shortestPath(5n).toList()");
+    /// ```
+    #[cfg(feature = "gremlin")]
+    pub fn gremlin(&self, query: &str) -> Result<JsValue, JsError> {
+        use crate::gremlin::{ExecutionResult, compile, parse};
+        use crate::traversal::GraphTraversalSource;
+
+        let snapshot = self.inner.snapshot();
+
+        // Parse the Gremlin query
+        let ast = parse(query)
+            .map_err(|e| JsError::new(&format!("Gremlin parse error: {}", e)))?;
+
+        // Compile with the snapshot
+        let g = GraphTraversalSource::from_snapshot(&snapshot);
+        let compiled = compile(&ast, &g)
+            .map_err(|e| JsError::new(&format!("Gremlin compile error: {}", e)))?;
+
+        // Execute and convert result
+        let result = compiled.execute();
+        match result {
+            ExecutionResult::List(values) => values_to_js_array(values),
+            ExecutionResult::Single(Some(value)) => value_to_js(&value),
+            ExecutionResult::Single(None) => Ok(JsValue::NULL),
+            ExecutionResult::Set(set) => {
+                let values: Vec<_> = set.into_iter().collect();
+                values_to_js_array(values)
+            }
+            ExecutionResult::Bool(b) => Ok(JsValue::from_bool(b)),
+            ExecutionResult::Unit => Ok(JsValue::NULL),
+            ExecutionResult::Explain(s) => Ok(JsValue::from_str(&s)),
+        }
     }
 }
 

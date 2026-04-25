@@ -254,4 +254,29 @@ impl P {
             inner: rust_p::not_pred(pred.inner),
         }
     }
+
+    // =========================================================================
+    // Geospatial Predicates
+    // =========================================================================
+
+    /// Check if a geo point property is within a given distance from a center point.
+    ///
+    /// @param lon - Center longitude
+    /// @param lat - Center latitude
+    /// @param distanceKm - Radius in kilometers
+    ///
+    /// @example
+    /// ```typescript
+    /// graph.V()
+    ///     .hasWhere('location', P.withinDistance(-122.4, 37.7, 5.0))
+    ///     .values('name')
+    ///     .toList();
+    /// ```
+    #[wasm_bindgen(js_name = "withinDistance")]
+    pub fn within_distance(lon: f64, lat: f64, distance_km: f64) -> Predicate {
+        use crate::geo::{Distance, Point};
+        let center = Point { lon, lat };
+        let radius = Distance::Kilometers(distance_km);
+        Predicate::new(rust_p::within_distance(center, radius))
+    }
 }

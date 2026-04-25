@@ -460,4 +460,43 @@ impl AnonymousFactory {
         let core_traversal = sub.into_core_traversal();
         t.add_step_internal(traversal::LocalStep::new(core_traversal))
     }
+
+    // =========================================================================
+    // Algorithm Steps
+    // =========================================================================
+
+    /// Find the shortest unweighted path to target.
+    #[wasm_bindgen(js_name = "shortestPath")]
+    pub fn shortest_path(target_id: JsValue) -> Result<Traversal, JsError> {
+        let target = crate::wasm::types::js_to_vertex_id(target_id)?;
+        Ok(Traversal::anonymous_with_step(
+            traversal::ShortestPathStep::new(target),
+        ))
+    }
+
+    /// Find the shortest weighted path (Dijkstra) to target.
+    #[wasm_bindgen(js_name = "shortestPathWeighted")]
+    pub fn shortest_path_weighted(
+        target_id: JsValue,
+        weight_property: &str,
+    ) -> Result<Traversal, JsError> {
+        let target = crate::wasm::types::js_to_vertex_id(target_id)?;
+        Ok(Traversal::anonymous_with_step(
+            traversal::DijkstraStep::new(target, weight_property.to_string()),
+        ))
+    }
+
+    /// Perform a breadth-first traversal.
+    pub fn bfs(max_depth: Option<u32>) -> Traversal {
+        Traversal::anonymous_with_step(
+            traversal::algorithm_steps::BfsTraversalStep::new(max_depth, None),
+        )
+    }
+
+    /// Perform a depth-first traversal.
+    pub fn dfs(max_depth: Option<u32>) -> Traversal {
+        Traversal::anonymous_with_step(
+            traversal::algorithm_steps::DfsTraversalStep::new(max_depth, None),
+        )
+    }
 }

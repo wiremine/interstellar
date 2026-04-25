@@ -1516,4 +1516,134 @@ impl Traversal {
     pub fn sum(self) -> Traversal {
         self.add_step_with_type(SumStep::new(), TraversalType::Value)
     }
+
+    // =========================================================================
+    // Algorithm Steps
+    // =========================================================================
+
+    /// Find the shortest unweighted path from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID (bigint)
+    /// @returns Path as a list of vertex IDs
+    #[wasm_bindgen(js_name = "shortestPath")]
+    pub fn shortest_path(self, target_id: JsValue) -> Result<Traversal, JsError> {
+        let target = js_to_vertex_id(target_id)?;
+        Ok(self.add_step_with_type(
+            traversal::ShortestPathStep::new(target),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find the shortest weighted path (Dijkstra) from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID (bigint)
+    /// @param weightProperty - Edge property to use as weight
+    /// @returns Path as a list of vertex IDs
+    #[wasm_bindgen(js_name = "shortestPathWeighted")]
+    pub fn shortest_path_weighted(
+        self,
+        target_id: JsValue,
+        weight_property: &str,
+    ) -> Result<Traversal, JsError> {
+        let target = js_to_vertex_id(target_id)?;
+        Ok(self.add_step_with_type(
+            traversal::DijkstraStep::new(target, weight_property.to_string()),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find shortest path using A* search with a heuristic property.
+    ///
+    /// @param targetId - Target vertex ID (bigint)
+    /// @param weightProperty - Edge property to use as weight
+    /// @param heuristicProperty - Vertex property with estimated distance to target
+    /// @returns Path as a list of vertex IDs
+    pub fn astar(
+        self,
+        target_id: JsValue,
+        weight_property: &str,
+        heuristic_property: &str,
+    ) -> Result<Traversal, JsError> {
+        let target = js_to_vertex_id(target_id)?;
+        Ok(self.add_step_with_type(
+            traversal::algorithm_steps::AstarStep::new(
+                target,
+                weight_property.to_string(),
+                heuristic_property.to_string(),
+            ),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find k shortest paths from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID (bigint)
+    /// @param k - Number of paths to find
+    /// @param weightProperty - Edge property to use as weight
+    /// @returns List of paths (each path is a list of vertex IDs)
+    #[wasm_bindgen(js_name = "kShortestPaths")]
+    pub fn k_shortest_paths(
+        self,
+        target_id: JsValue,
+        k: u32,
+        weight_property: &str,
+    ) -> Result<Traversal, JsError> {
+        let target = js_to_vertex_id(target_id)?;
+        Ok(self.add_step_with_type(
+            traversal::algorithm_steps::KShortestPathsStep::new(
+                target,
+                k as usize,
+                weight_property.to_string(),
+            ),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Perform a breadth-first traversal from current vertex.
+    ///
+    /// @param maxDepth - Optional maximum depth
+    /// @returns Vertices in BFS order
+    pub fn bfs(self, max_depth: Option<u32>) -> Traversal {
+        self.add_step_with_type(
+            traversal::algorithm_steps::BfsTraversalStep::new(max_depth, None),
+            TraversalType::Value,
+        )
+    }
+
+    /// Perform a depth-first traversal from current vertex.
+    ///
+    /// @param maxDepth - Optional maximum depth
+    /// @returns Vertices in DFS order
+    pub fn dfs(self, max_depth: Option<u32>) -> Traversal {
+        self.add_step_with_type(
+            traversal::algorithm_steps::DfsTraversalStep::new(max_depth, None),
+            TraversalType::Value,
+        )
+    }
+
+    /// Find path using bidirectional BFS from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID (bigint)
+    /// @returns Path as a list of vertex IDs
+    #[wasm_bindgen(js_name = "bidirectionalBfs")]
+    pub fn bidirectional_bfs(self, target_id: JsValue) -> Result<Traversal, JsError> {
+        let target = js_to_vertex_id(target_id)?;
+        Ok(self.add_step_with_type(
+            traversal::algorithm_steps::BidirectionalBfsStep::new(target),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find path using iterative deepening DFS from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID (bigint)
+    /// @param maxDepth - Maximum search depth
+    /// @returns Path as a list of vertex IDs
+    pub fn iddfs(self, target_id: JsValue, max_depth: u32) -> Result<Traversal, JsError> {
+        let target = js_to_vertex_id(target_id)?;
+        Ok(self.add_step_with_type(
+            traversal::algorithm_steps::IddfsStep::new(target, max_depth),
+            TraversalType::Value,
+        ))
+    }
 }
