@@ -205,7 +205,11 @@ fn format_source(source: &TraversalSource) -> String {
         }
         #[cfg(feature = "full-text")]
         TraversalSource::VerticesWithTextScore(pairs) => {
-            format!("textSearch(...) [{} results]", pairs.len())
+            format!("searchTextV(...) [{} results]", pairs.len())
+        }
+        #[cfg(feature = "full-text")]
+        TraversalSource::EdgesWithTextScore(pairs) => {
+            format!("searchTextE(...) [{} results]", pairs.len())
         }
     }
 }

@@ -4,6 +4,7 @@
 //! description of a traversal pipeline without executing it.
 //!
 //! Run: `cargo run -p interstellar --features gremlin --example explain`
+//! With full-text search: `cargo run -p interstellar --features "gremlin,full-text" --example explain`
 
 use interstellar::prelude::*;
 use interstellar::traversal::p;
@@ -266,4 +267,57 @@ fn main() {
         .explain();
     println!("{explanation}");
     println!("Note: The 'has' step on 'age' now shows an index hint!");
+
+    // -------------------------------------------------------------------------
+    // 15. Full-text search explain
+    // -------------------------------------------------------------------------
+    #[cfg(feature = "full-text")]
+    {
+        use interstellar::storage::text::TextIndexConfig;
+
+        println!("\n=== Example 15: Full-text search explain ===");
+        println!("Creating text index on article.body...\n");
+
+        graph
+            .create_text_index_v("body", TextIndexConfig::default())
+            .expect("create text index");
+
+        // Add some articles
+        graph.add_vertex(
+            "article",
+            HashMap::from([
+                ("title".into(), Value::from("Intro to Raft")),
+                (
+                    "body".into(),
+                    Value::from("Raft is a consensus algorithm for replicated logs"),
+                ),
+            ]),
+        );
+        graph.add_vertex(
+            "article",
+            HashMap::from([
+                ("title".into(), Value::from("Paxos Made Simple")),
+                (
+                    "body".into(),
+                    Value::from("Paxos is a family of protocols for consensus"),
+                ),
+            ]),
+        );
+
+        // Re-snapshot after adding data
+        let snap = graph.snapshot();
+        let g = interstellar::traversal::GraphTraversalSource::from_snapshot_with_graph(
+            &snap,
+            Arc::clone(&graph),
+        );
+
+        println!("Query: g.searchText('body', 'consensus', 5).hasLabel('article').values('title')\n");
+        let explanation = g
+            .search_text("body", "consensus", 5)
+            .expect("search_text")
+            .has_label("article")
+            .values("title")
+            .explain();
+        println!("{explanation}");
+    }
 }
