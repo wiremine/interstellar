@@ -8,6 +8,7 @@ use std::fmt;
 use crate::index::IndexSpec;
 use crate::traversal::step::DynStep;
 use crate::traversal::traverser::TraversalSource;
+use crate::value::Value;
 
 // =============================================================================
 // StepCategory
@@ -147,7 +148,7 @@ impl TraversalExplanation {
 
 /// Format anonymous traversal steps as a compact pipeline string.
 ///
-/// E.g. `__.out("knows").hasLabel("person")` becomes `"out(knows).hasLabel(person)"`.
+/// E.g. `__.out("knows").hasLabel("person")` becomes `out("knows").hasLabel("person")`.
 /// Used by `describe()` on branch/repeat steps.
 pub fn format_traversal_steps(steps: &[Box<dyn DynStep>]) -> String {
     if steps.is_empty() {
@@ -159,11 +160,22 @@ pub fn format_traversal_steps(steps: &[Box<dyn DynStep>]) -> String {
             let name = s.dyn_name();
             match s.describe() {
                 Some(desc) => format!("{name}({desc})"),
-                None => name.to_string(),
+                None => format!("{name}()"),
             }
         })
         .collect::<Vec<_>>()
         .join(".")
+}
+
+/// Format a `Value` concisely for explain output.
+pub fn format_value(v: &Value) -> String {
+    match v {
+        Value::String(s) => format!("\"{s}\""),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => format!("{v:?}"),
+    }
 }
 
 /// Format a `TraversalSource` for display.
@@ -262,18 +274,6 @@ impl fmt::Display for TraversalExplanation {
         // Check if any step has index information to show
         let show_index_col = self.steps.iter().any(|s| s.has_filter_key);
 
-        // Compute description column width for index column alignment
-        let desc_width = if show_index_col {
-            self.steps
-                .iter()
-                .map(|s| s.description.as_deref().unwrap_or("").len())
-                .max()
-                .unwrap_or(11)
-                .max(11)
-        } else {
-            0 // not used
-        };
-
         // Compute index column width
         let idx_width = if show_index_col {
             self.steps
@@ -296,17 +296,20 @@ impl fmt::Display for TraversalExplanation {
             0
         };
 
+        // Column prefix width: "  0  step      Category    "
+        let prefix_width = 5 + name_width + 2 + cat_width + 2;
+
         // Table header
         if show_index_col {
             writeln!(
                 f,
-                "  #  {:<name_width$}  {:<cat_width$}  {:<desc_width$}  Index",
-                "Step", "Category", "Description",
+                "  #  {:<name_width$}  {:<cat_width$}  {:<idx_width$}  Description",
+                "Step", "Category", "Index",
                 name_width = name_width,
                 cat_width = cat_width,
-                desc_width = desc_width,
+                idx_width = idx_width,
             )?;
-            let rule_len = 5 + name_width + 2 + cat_width + 2 + desc_width + 2 + idx_width;
+            let rule_len = prefix_width + idx_width + 2 + 11;
             writeln!(f, "  {}", "─".repeat(rule_len))?;
         } else {
             writeln!(
@@ -316,7 +319,7 @@ impl fmt::Display for TraversalExplanation {
                 name_width = name_width,
                 cat_width = cat_width,
             )?;
-            let rule_len = 5 + name_width + 2 + cat_width + 2 + 11;
+            let rule_len = prefix_width + 11;
             writeln!(f, "  {}", "─".repeat(rule_len))?;
         }
 
@@ -325,9 +328,9 @@ impl fmt::Display for TraversalExplanation {
             // Barrier separator before barrier steps
             if step.is_barrier {
                 let rule_len = if show_index_col {
-                    5 + name_width + 2 + cat_width + 2 + desc_width + 2 + idx_width
+                    prefix_width + idx_width + 2 + 11
                 } else {
-                    5 + name_width + 2 + cat_width + 2 + 11
+                    prefix_width + 11
                 };
                 writeln!(
                     f,
@@ -339,6 +342,10 @@ impl fmt::Display for TraversalExplanation {
             let cat_str = format!("{}", step.category);
             let desc = step.description.as_deref().unwrap_or("");
 
+            // Split description into first line and continuation lines
+            let mut desc_lines = desc.split('\n');
+            let first_line = desc_lines.next().unwrap_or("");
+
             if show_index_col {
                 let idx_str = match &step.index_hint {
                     Some(hint) => hint.as_str(),
@@ -347,27 +354,36 @@ impl fmt::Display for TraversalExplanation {
                 };
                 writeln!(
                     f,
-                    "  {:<2} {:<name_width$}  {:<cat_width$}  {:<desc_width$}  {idx_str}",
+                    "  {:<2} {:<name_width$}  {:<cat_width$}  {:<idx_width$}  {first_line}",
                     step.index,
                     step.name,
                     cat_str,
-                    desc,
+                    idx_str,
                     name_width = name_width,
                     cat_width = cat_width,
-                    desc_width = desc_width,
-                    idx_str = idx_str,
+                    idx_width = idx_width,
+                    first_line = first_line,
                 )?;
+                // Continuation lines indented to Description column
+                let indent = prefix_width + idx_width + 2;
+                for line in desc_lines {
+                    writeln!(f, "{:indent$}{line}", "", indent = indent, line = line)?;
+                }
             } else {
                 writeln!(
                     f,
-                    "  {:<2} {:<name_width$}  {:<cat_width$}  {desc}",
+                    "  {:<2} {:<name_width$}  {:<cat_width$}  {first_line}",
                     step.index,
                     step.name,
                     cat_str,
                     name_width = name_width,
                     cat_width = cat_width,
-                    desc = desc,
+                    first_line = first_line,
                 )?;
+                // Continuation lines indented to Description column
+                for line in desc_lines {
+                    writeln!(f, "{:prefix_width$}{line}", "", prefix_width = prefix_width, line = line)?;
+                }
             }
         }
 

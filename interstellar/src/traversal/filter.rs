@@ -132,7 +132,7 @@ impl HasLabelStep {
 }
 
 // Use the macro to implement Step for HasLabelStep
-impl_filter_step!(HasLabelStep, "hasLabel", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasLabelStep| Some(format!("labels: {:?}", s.labels)));
+impl_filter_step!(HasLabelStep, "hasLabel", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasLabelStep| Some(s.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", ")));
 
 // Reactive introspection: expose label constraints for fast-rejection filtering.
 #[cfg(feature = "reactive")]
@@ -216,7 +216,7 @@ impl HasStep {
 }
 
 // Use the macro to implement Step for HasStep
-impl_filter_step!(HasStep, "has", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasStep| Some(format!("key: {:?}", s.key)), filter_key = |s: &HasStep| Some(s.key.clone()));
+impl_filter_step!(HasStep, "has", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasStep| Some(format!("\"{}\"", s.key)), filter_key = |s: &HasStep| Some(s.key.clone()));
 
 // Reactive introspection: expose property key constraint.
 #[cfg(feature = "reactive")]
@@ -304,7 +304,7 @@ impl HasNotStep {
 }
 
 // Use the macro to implement Step for HasNotStep
-impl_filter_step!(HasNotStep, "hasNot", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasNotStep| Some(format!("key: {:?}", s.key)), filter_key = |s: &HasNotStep| Some(s.key.clone()));
+impl_filter_step!(HasNotStep, "hasNot", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasNotStep| Some(format!("\"{}\"", s.key)), filter_key = |s: &HasNotStep| Some(s.key.clone()));
 
 // -----------------------------------------------------------------------------
 // HasValueStep - filter by property value equality
@@ -400,7 +400,10 @@ impl HasValueStep {
 }
 
 // Use the macro to implement Step for HasValueStep
-impl_filter_step!(HasValueStep, "has", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasValueStep| Some(format!("key: {:?}, value: {:?}", s.key, s.value)), filter_key = |s: &HasValueStep| Some(s.key.clone()));
+impl_filter_step!(HasValueStep, "has", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasValueStep| {
+    use crate::traversal::explain::format_value;
+    Some(format!("\"{}\" = {}", s.key, format_value(&s.value)))
+}, filter_key = |s: &HasValueStep| Some(s.key.clone()));
 
 // Reactive introspection: expose property key constraint.
 #[cfg(feature = "reactive")]
@@ -1081,7 +1084,7 @@ impl Step for LimitStep {
     }
 
     fn describe(&self) -> Option<String> {
-        Some(format!("limit: {}", self.limit))
+        Some(format!("{}", self.limit))
     }
 
     fn apply_streaming(
@@ -1163,7 +1166,7 @@ impl Step for SkipStep {
     }
 
     fn describe(&self) -> Option<String> {
-        Some(format!("skip: {}", self.count))
+        Some(format!("{}", self.count))
     }
 
     fn apply_streaming(
@@ -1258,7 +1261,7 @@ impl Step for RangeStep {
     }
 
     fn describe(&self) -> Option<String> {
-        Some(format!("range: {}..{}", self.start, self.end))
+        Some(format!("{}..{}", self.start, self.end))
     }
 
     fn apply_streaming(
@@ -1418,7 +1421,11 @@ impl HasIdStep {
 }
 
 // Use the macro to implement Step for HasIdStep
-impl_filter_step!(HasIdStep, "hasId", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasIdStep| Some(format!("ids: {:?}", s.ids)));
+impl_filter_step!(HasIdStep, "hasId", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasIdStep| {
+    use crate::traversal::explain::format_value;
+    let ids: Vec<String> = s.ids.iter().map(format_value).collect();
+    Some(ids.join(", "))
+});
 
 // -----------------------------------------------------------------------------
 // HasWhereStep - filter by property value using a predicate
@@ -1545,7 +1552,7 @@ impl std::fmt::Debug for HasWhereStep {
 }
 
 // Use the macro to implement Step for HasWhereStep
-impl_filter_step!(HasWhereStep, "has", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasWhereStep| Some(format!("key: {:?}", s.key)), filter_key = |s: &HasWhereStep| Some(s.key.clone()));
+impl_filter_step!(HasWhereStep, "has", category = crate::traversal::explain::StepCategory::Filter, describe = |s: &HasWhereStep| Some(format!("\"{}\"", s.key)), filter_key = |s: &HasWhereStep| Some(s.key.clone()));
 
 // Reactive introspection: expose property key constraint.
 #[cfg(feature = "reactive")]
@@ -2053,7 +2060,7 @@ impl Step for CoinStep {
     }
 
     fn describe(&self) -> Option<String> {
-        Some(format!("p: {}", self.probability))
+        Some(format!("{}", self.probability))
     }
 
     fn apply_streaming(
@@ -2209,7 +2216,7 @@ impl Step for SampleStep {
     }
 
     fn describe(&self) -> Option<String> {
-        Some(format!("n: {}", self.count))
+        Some(format!("{}", self.count))
     }
 
     fn apply_streaming(

@@ -413,24 +413,24 @@ impl Step for RepeatStep {
 
     fn describe(&self) -> Option<String> {
         use crate::traversal::explain::format_traversal_steps;
-        let mut parts = Vec::new();
-        parts.push(format!(
+        let mut lines = Vec::new();
+        lines.push(format!(
             "body: {}",
             format_traversal_steps(self.sub.steps())
         ));
         if let Some(ref until_trav) = self.config.until {
-            parts.push(format!(
+            lines.push(format!(
                 "until: {}",
                 format_traversal_steps(until_trav.steps())
             ));
         }
         if let Some(n) = self.config.times {
-            parts.push(format!("times: {n}"));
+            lines.push(format!("times: {n}"));
         }
         if self.config.emit {
-            parts.push("emit".to_string());
+            lines.push("emit: true".to_string());
         }
-        Some(parts.join(", "))
+        Some(lines.join("\n"))
     }
 
     fn apply_streaming(

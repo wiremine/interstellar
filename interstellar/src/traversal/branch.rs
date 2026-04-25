@@ -658,12 +658,13 @@ impl Step for UnionStep {
 
     fn describe(&self) -> Option<String> {
         use crate::traversal::explain::format_traversal_steps;
-        let branches: Vec<String> = self
+        let lines: Vec<String> = self
             .branches
             .iter()
-            .map(|b| format_traversal_steps(b.steps()))
+            .enumerate()
+            .map(|(i, b)| format!("branch {}: {}", i + 1, format_traversal_steps(b.steps())))
             .collect();
-        Some(format!("[{}]", branches.join(" | ")))
+        Some(lines.join("\n"))
     }
 
     fn apply_streaming(
@@ -743,12 +744,13 @@ impl Step for CoalesceStep {
 
     fn describe(&self) -> Option<String> {
         use crate::traversal::explain::format_traversal_steps;
-        let branches: Vec<String> = self
+        let lines: Vec<String> = self
             .branches
             .iter()
-            .map(|b| format_traversal_steps(b.steps()))
+            .enumerate()
+            .map(|(i, b)| format!("branch {}: {}", i + 1, format_traversal_steps(b.steps())))
             .collect();
-        Some(format!("[{}]", branches.join(" | ")))
+        Some(lines.join("\n"))
     }
 
     fn apply_streaming(
@@ -847,7 +849,7 @@ impl Step for ChooseStep {
     fn describe(&self) -> Option<String> {
         use crate::traversal::explain::format_traversal_steps;
         Some(format!(
-            "if: {}, then: {}, else: {}",
+            "if: {}\nthen: {}\nelse: {}",
             format_traversal_steps(self.condition.steps()),
             format_traversal_steps(self.if_true.steps()),
             format_traversal_steps(self.if_false.steps()),

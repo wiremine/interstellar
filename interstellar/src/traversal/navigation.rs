@@ -135,7 +135,7 @@ impl Step for OutStep {
         if self.labels.is_empty() {
             None
         } else {
-            Some(format!("labels: {:?}", self.labels))
+            Some(self.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", "))
         }
     }
 
@@ -292,7 +292,7 @@ impl Step for InStep {
         if self.labels.is_empty() {
             None
         } else {
-            Some(format!("labels: {:?}", self.labels))
+            Some(self.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", "))
         }
     }
 
@@ -467,7 +467,7 @@ impl Step for BothStep {
         if self.labels.is_empty() {
             None
         } else {
-            Some(format!("labels: {:?}", self.labels))
+            Some(self.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", "))
         }
     }
 
@@ -619,7 +619,7 @@ impl Step for OutEStep {
         if self.labels.is_empty() {
             None
         } else {
-            Some(format!("labels: {:?}", self.labels))
+            Some(self.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", "))
         }
     }
 
@@ -781,7 +781,7 @@ impl Step for InEStep {
         if self.labels.is_empty() {
             None
         } else {
-            Some(format!("labels: {:?}", self.labels))
+            Some(self.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", "))
         }
     }
 
@@ -964,7 +964,7 @@ impl Step for BothEStep {
         if self.labels.is_empty() {
             None
         } else {
-            Some(format!("labels: {:?}", self.labels))
+            Some(self.labels.iter().map(|l| format!("\"{l}\"")).collect::<Vec<_>>().join(", "))
         }
     }
 
