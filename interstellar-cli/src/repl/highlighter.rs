@@ -21,6 +21,7 @@ const GQL_KEYWORDS: &[&str] = &[
     "MATCH", "WHERE", "RETURN", "CREATE", "DELETE", "DETACH", "SET", "REMOVE", "ORDER", "BY",
     "ASC", "DESC", "LIMIT", "SKIP", "OPTIONAL", "WITH", "UNION", "ALL", "UNWIND", "AS", "DISTINCT",
     "COUNT", "SUM", "AVG", "MIN", "MAX", "AND", "OR", "NOT", "IN", "IS", "NULL", "TRUE", "FALSE",
+    "CALL", "YIELD",
 ];
 
 /// Gremlin traversal methods to highlight (TinkerPop-style).
@@ -120,6 +121,20 @@ const GREMLIN_METHODS: &[&str] = &[
     "next",
     "iterate",
     "hasNext",
+    "explain",
+    // Algorithm
+    "shortestPath",
+    "kShortestPaths",
+    "bfs",
+    "dfs",
+    "bidirectionalBfs",
+    "iddfs",
+    // Modulator
+    "with",
+    // Full-text search
+    "searchTextV",
+    "searchTextE",
+    "textScore",
 ];
 
 /// Gremlin predicate functions to highlight (TinkerPop-style).
@@ -149,7 +164,7 @@ const GREMLIN_PREDICATES: &[&str] = &[
 /// Gremlin keywords and special identifiers.
 const GREMLIN_KEYWORDS: &[&str] = &[
     "true", "false", "null", // Predicate namespaces
-    "P", "TextP", // Anonymous traversal
+    "P", "TextP", "TextQ", // Anonymous traversal
     "__",
 ];
 

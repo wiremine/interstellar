@@ -16,7 +16,7 @@ name = "interstellar"
 path = "src/main.rs"
 
 [dependencies]
-interstellar = { version = "0.1.1", path = "../interstellar", features = ["mmap", "gremlin", "gql", "graphson"] }
+interstellar = { version = "0.1.1", path = "../interstellar", features = ["mmap", "gremlin", "gql", "graphson", "full-text"] }
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "1"
 anyhow = "1"

@@ -121,17 +121,35 @@ Edge Labels:
   mentored_by: 1
 ```
 
+### import
+
+Import data from GraphSON files.
+
+```bash
+interstellar import ./my.db data.json
+```
+
+### export
+
+Export database to GraphSON file.
+
+```bash
+interstellar export ./my.db output.json
+```
+
+### saved-query
+
+Manage saved queries (save, list, get, delete, run).
+
+```bash
+interstellar saved-query ./my.db list
+interstellar saved-query ./my.db save --name find_people --query "MATCH (n:Person) RETURN n"
+interstellar saved-query ./my.db run --name find_people
+```
+
 ## Planned Commands
 
 The following commands are planned for future releases:
-
-### import (Phase 4 - Planned)
-
-Import data from files (CSV, JSON).
-
-### export (Phase 4 - Planned)
-
-Export database to files.
 
 ### schema (Phase 5 - Planned)
 
@@ -161,6 +179,24 @@ RETURN n.name, n.title
 -- Aggregation
 MATCH (n:Character)-[:member_of]->(t:Team)
 RETURN t.name, count(n) AS members
+
+-- Shortest path between two vertices
+MATCH (a), (b) WHERE id(a) = 0 AND id(b) = 5
+CALL interstellar.shortestPath(a, b)
+YIELD path AS p, distance AS d
+RETURN p, d
+
+-- Dijkstra weighted shortest path
+MATCH (a), (b) WHERE id(a) = 0 AND id(b) = 5
+CALL interstellar.dijkstra(a, b, 'weight')
+YIELD path AS p, distance AS d
+RETURN p, d
+
+-- BFS traversal
+MATCH (a) WHERE id(a) = 0
+CALL interstellar.bfs(a)
+YIELD node AS v, depth AS d
+RETURN v, d
 ```
 
 ## Gremlin Scripting
@@ -202,6 +238,21 @@ g.v().has_label("person").has_where("age", gt(30)).to_list()
 
 // Anonymous traversals for branching
 g.v().union([A.out("knows"), A.out("works_with")]).to_list()
+
+// Shortest path (unweighted BFS)
+g.V(0).shortestPath(5).next()
+
+// Dijkstra weighted shortest path
+g.V(0).shortestPath(5).by('distance').next()
+
+// BFS traversal with depth limit
+g.V(0).bfs().with('maxDepth', 3).toList()
+
+// DFS traversal
+g.V(0).dfs().toList()
+
+// Inspect traversal plan without executing
+g.V().hasLabel('person').out('knows').values('name').explain()
 ```
 
 ### Available Traversal Steps
@@ -216,7 +267,13 @@ g.v().union([A.out("knows"), A.out("works_with")]).to_list()
 
 **Branch Steps:** `union()`, `choose()`, `coalesce()`, `optional()`, `repeat()`, `until()`, `times()`, `emit()`, `local()`
 
-**Terminal Steps:** `to_list()`, `first()`, `next()`, `count()`, `sum()`, `min()`, `max()`, `mean()`, `group()`, `group_count()`
+**Terminal Steps:** `to_list()`, `first()`, `next()`, `count()`, `sum()`, `min()`, `max()`, `mean()`, `group()`, `group_count()`, `explain()`
+
+**Algorithm Steps:** `shortestPath()`, `shortestPath().by('weight')`, `kShortestPaths()`, `bfs()`, `dfs()`, `bidirectionalBfs()`, `iddfs()`
+
+**Modulators:** `by()`, `with()`
+
+**Full-Text Search:** `searchTextV()`, `searchTextE()`, `textScore()`
 
 **Predicates:** `eq()`, `neq()`, `lt()`, `lte()`, `gt()`, `gte()`, `between()`, `inside()`, `outside()`, `within()`, `without()`, `containing()`, `starting_with()`, `ending_with()`, `regex()`
 
@@ -375,7 +432,7 @@ interstellar create ./royals.db --with-sample british_royals --no-repl
 - [x] Phase 1: Project Setup & Core Commands
 - [x] Phase 2: Interactive REPL
 - [x] Phase 3: Gremlin Mode
-- [ ] Phase 4: Import/Export
+- [x] Phase 4: Import/Export
 - [ ] Phase 5: Schema & Polish
 - [ ] Phase 6: Web UI
 

@@ -426,6 +426,24 @@ impl Repl {
         );
         println!();
         println!("Current mode: {:?}", self.mode);
+        println!();
+        println!("Gremlin Algorithm Steps:");
+        println!("  shortestPath(id)            Unweighted shortest path (BFS)");
+        println!("  shortestPath(id).by('w')    Dijkstra weighted shortest path");
+        println!("  shortestPath(id).by('w').with('heuristic', 'h')  A* pathfinding");
+        println!("  kShortestPaths(id, k).by('w')  Yen's k-shortest paths");
+        println!("  bfs() / dfs()               Traversal (with optional .with('maxDepth', n))");
+        println!("  bidirectionalBfs(id)        Bidirectional BFS shortest path");
+        println!("  iddfs(id, depth)            Iterative deepening DFS");
+        println!("  explain()                   Show traversal execution plan");
+        println!();
+        println!("GQL Algorithm Procedures:");
+        println!("  CALL interstellar.shortestPath(a, b)");
+        println!("  CALL interstellar.dijkstra(a, b, 'weight')");
+        println!("  CALL interstellar.bfs(a) / CALL interstellar.dfs(a)");
+        println!("  CALL interstellar.astar(a, b, 'weight', 'heuristic')");
+        println!("  CALL interstellar.bidirectionalBfs(a, b)");
+        println!("  CALL interstellar.iddfs(a, b, maxDepth)");
         Ok(())
     }
 
@@ -1081,6 +1099,24 @@ impl PersistentRepl {
             "Format: {:?}, Limit: {}, Timing: {}",
             self.settings.format, self.settings.limit, self.settings.timing
         );
+        println!();
+        println!("Gremlin Algorithm Steps:");
+        println!("  shortestPath(id)            Unweighted shortest path (BFS)");
+        println!("  shortestPath(id).by('w')    Dijkstra weighted shortest path");
+        println!("  shortestPath(id).by('w').with('heuristic', 'h')  A* pathfinding");
+        println!("  kShortestPaths(id, k).by('w')  Yen's k-shortest paths");
+        println!("  bfs() / dfs()               Traversal (with optional .with('maxDepth', n))");
+        println!("  bidirectionalBfs(id)        Bidirectional BFS shortest path");
+        println!("  iddfs(id, depth)            Iterative deepening DFS");
+        println!("  explain()                   Show traversal execution plan");
+        println!();
+        println!("GQL Algorithm Procedures:");
+        println!("  CALL interstellar.shortestPath(a, b)");
+        println!("  CALL interstellar.dijkstra(a, b, 'weight')");
+        println!("  CALL interstellar.bfs(a) / CALL interstellar.dfs(a)");
+        println!("  CALL interstellar.astar(a, b, 'weight', 'heuristic')");
+        println!("  CALL interstellar.bidirectionalBfs(a, b)");
+        println!("  CALL interstellar.iddfs(a, b, maxDepth)");
         Ok(())
     }
 
