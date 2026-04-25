@@ -118,6 +118,11 @@ impl<'g> GraphTraversalSource<'g> {
         }
     }
 
+    /// Create a `BoundTraversal` with the graph handle attached.
+    fn bound(&self, traversal: Traversal<(), Value>) -> BoundTraversal<'g, (), Value> {
+        BoundTraversal::new_with_graph(self.snapshot, traversal, self.graph.clone())
+    }
+
     /// Start traversal from all vertices.
     ///
     /// # Example
@@ -126,10 +131,7 @@ impl<'g> GraphTraversalSource<'g> {
     /// let results = g.v().to_list();
     /// ```
     pub fn v(&self) -> BoundTraversal<'g, (), Value> {
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::AllVertices),
-        )
+        self.bound(Traversal::with_source(TraversalSource::AllVertices))
     }
 
     /// Start traversal from specific vertex IDs.
@@ -145,10 +147,7 @@ impl<'g> GraphTraversalSource<'g> {
     where
         I: IntoIterator<Item = VertexId>,
     {
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::Vertices(ids.into_iter().collect())),
-        )
+        self.bound(Traversal::with_source(TraversalSource::Vertices(ids.into_iter().collect())))
     }
 
     /// Start traversal from all edges.
@@ -159,10 +158,7 @@ impl<'g> GraphTraversalSource<'g> {
     /// let results = g.e().to_list();
     /// ```
     pub fn e(&self) -> BoundTraversal<'g, (), Value> {
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::AllEdges),
-        )
+        self.bound(Traversal::with_source(TraversalSource::AllEdges))
     }
 
     /// Start traversal from specific edge IDs.
@@ -178,10 +174,7 @@ impl<'g> GraphTraversalSource<'g> {
     where
         I: IntoIterator<Item = EdgeId>,
     {
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::Edges(ids.into_iter().collect())),
-        )
+        self.bound(Traversal::with_source(TraversalSource::Edges(ids.into_iter().collect())))
     }
 
     /// Inject arbitrary values into the traversal.
@@ -201,10 +194,7 @@ impl<'g> GraphTraversalSource<'g> {
         T: Into<Value>,
     {
         let values: Vec<Value> = values.into_iter().map(Into::into).collect();
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::Inject(values)),
-        )
+        self.bound(Traversal::with_source(TraversalSource::Inject(values)))
     }
 
     /// Get the underlying graph storage reference.
@@ -278,8 +268,7 @@ impl<'g> GraphTraversalSource<'g> {
             .into_iter()
             .filter_map(|h| h.element.as_vertex().map(|v| (v, h.score)))
             .collect();
-        Ok(BoundTraversal::new(
-            self.snapshot,
+        Ok(self.bound(
             Traversal::with_source(TraversalSource::VerticesWithTextScore(scored)),
         ))
     }
@@ -333,8 +322,7 @@ impl<'g> GraphTraversalSource<'g> {
             .into_iter()
             .filter_map(|h| h.element.as_edge().map(|e| (e, h.score)))
             .collect();
-        Ok(BoundTraversal::new(
-            self.snapshot,
+        Ok(self.bound(
             Traversal::with_source(TraversalSource::EdgesWithTextScore(scored)),
         ))
     }
@@ -384,10 +372,7 @@ impl<'g> GraphTraversalSource<'g> {
             .map(|v| v.id)
             .collect();
 
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::Vertices(vertex_ids)),
-        )
+        self.bound(Traversal::with_source(TraversalSource::Vertices(vertex_ids)))
     }
 
     /// Start traversal from vertices matching a property range.
@@ -443,10 +428,7 @@ impl<'g> GraphTraversalSource<'g> {
             .map(|v| v.id)
             .collect();
 
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::Vertices(vertex_ids)),
-        )
+        self.bound(Traversal::with_source(TraversalSource::Vertices(vertex_ids)))
     }
 
     /// Start traversal from edges matching a property value.
@@ -490,10 +472,7 @@ impl<'g> GraphTraversalSource<'g> {
             .map(|e| e.id)
             .collect();
 
-        BoundTraversal::new(
-            self.snapshot,
-            Traversal::with_source(TraversalSource::Edges(edge_ids)),
-        )
+        self.bound(Traversal::with_source(TraversalSource::Edges(edge_ids)))
     }
 
     // -------------------------------------------------------------------------
@@ -521,7 +500,7 @@ impl<'g> GraphTraversalSource<'g> {
         // Create a traversal that starts with add_v step
         let mut traversal = Traversal::<(), Value>::with_source(TraversalSource::Inject(vec![]));
         traversal = traversal.add_step(AddVStep::new(label));
-        BoundTraversal::new(self.snapshot, traversal)
+        self.bound(traversal)
     }
 
     /// Start a traversal that creates a new edge.
@@ -571,6 +550,8 @@ pub struct BoundTraversal<'g, In, Out> {
     traversal: Traversal<In, Out>,
     /// Whether to automatically track paths for navigation steps
     track_paths: bool,
+    /// Optional handle to the live `Graph` for index-aware `explain()`.
+    graph: Option<Arc<Graph>>,
 }
 
 impl<'g, In, Out> BoundTraversal<'g, In, Out> {
@@ -580,6 +561,23 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             snapshot,
             traversal,
             track_paths: false,
+            graph: None,
+        }
+    }
+
+    /// Create a new bound traversal with a live `Graph` handle.
+    ///
+    /// The graph handle is used by `explain()` to report index usage.
+    pub(crate) fn new_with_graph(
+        snapshot: &'g dyn SnapshotLike,
+        traversal: Traversal<In, Out>,
+        graph: Option<Arc<Graph>>,
+    ) -> Self {
+        Self {
+            snapshot,
+            traversal,
+            track_paths: false,
+            graph,
         }
     }
 
@@ -631,6 +629,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             snapshot: self.snapshot,
             traversal: self.traversal.add_step(step),
             track_paths: self.track_paths,
+            graph: self.graph,
         }
     }
 
@@ -650,6 +649,7 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             snapshot: self.snapshot,
             traversal: self.traversal.append(anon),
             track_paths: self.track_paths,
+            graph: self.graph,
         }
     }
 
@@ -3249,6 +3249,7 @@ impl<'g, In, Out> Clone for BoundTraversal<'g, In, Out> {
             snapshot: self.snapshot,
             traversal: self.traversal.clone(),
             track_paths: self.track_paths,
+            graph: self.graph.clone(),
         }
     }
 }
@@ -3523,9 +3524,15 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
     /// println!("{}", explanation);
     /// ```
     pub fn explain(self) -> crate::traversal::explain::TraversalExplanation {
+        let indexes = self
+            .graph
+            .as_ref()
+            .map(|g| g.list_indexes())
+            .unwrap_or_default();
         crate::traversal::explain::TraversalExplanation::from_steps(
             self.traversal.source(),
             self.traversal.steps(),
+            &indexes,
         )
     }
 
@@ -4781,6 +4788,7 @@ impl<'g, In> BoundAddEdgeBuilder<'g, In> {
             snapshot: self.snapshot,
             traversal: self.traversal.add_step(step),
             track_paths: self.track_paths,
+            graph: None,
         }
     }
 

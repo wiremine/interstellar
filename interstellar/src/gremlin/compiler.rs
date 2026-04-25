@@ -22,6 +22,8 @@ pub enum ExecutionResult {
     Bool(bool),
     /// No result (from iterate())
     Unit,
+    /// Explanation string (from explain())
+    Explain(String),
 }
 
 /// A compiled traversal ready for execution.
@@ -51,6 +53,10 @@ impl<'g> CompiledTraversal<'g> {
                 ExecutionResult::Unit
             }
             Some(TerminalStep::HasNext { .. }) => ExecutionResult::Bool(self.traversal.has_next()),
+            Some(TerminalStep::Explain { .. }) => {
+                let explanation = self.traversal.explain();
+                ExecutionResult::Explain(explanation.to_string())
+            }
         }
     }
 
@@ -3505,6 +3511,53 @@ mod tests {
             }
         } else {
             panic!("Expected List result");
+        }
+    }
+
+    // ========================================================================
+    // Explain Terminal Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_explain_terminal() {
+        let ast = parse("g.V().out('knows').explain()").unwrap();
+        assert!(matches!(ast.terminal, Some(TerminalStep::Explain { .. })));
+    }
+
+    #[test]
+    fn test_compile_explain_basic() {
+        let graph = test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.gremlin();
+
+        let ast = parse("g.V().hasLabel('person').out('knows').values('name').explain()").unwrap();
+        let compiled = compile(&ast, &g).unwrap();
+        let result = compiled.execute();
+
+        if let ExecutionResult::Explain(text) = result {
+            assert!(text.contains("Traversal Explanation"), "Output:\n{text}");
+            assert!(text.contains("hasLabel"), "Output:\n{text}");
+            assert!(text.contains("out"), "Output:\n{text}");
+            assert!(text.contains("values"), "Output:\n{text}");
+        } else {
+            panic!("Expected Explain result, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_compile_explain_empty_traversal() {
+        let graph = test_graph();
+        let snapshot = graph.snapshot();
+        let g = snapshot.gremlin();
+
+        let ast = parse("g.V().explain()").unwrap();
+        let compiled = compile(&ast, &g).unwrap();
+        let result = compiled.execute();
+
+        if let ExecutionResult::Explain(text) = result {
+            assert!(text.contains("Traversal Explanation"));
+        } else {
+            panic!("Expected Explain result");
         }
     }
 }

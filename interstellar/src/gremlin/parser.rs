@@ -688,6 +688,7 @@ fn build_terminal(pair: Pair<Rule>) -> Result<TerminalStep, ParseError> {
         Rule::to_set_step => Ok(TerminalStep::ToSet { span }),
         Rule::iterate_step => Ok(TerminalStep::Iterate { span }),
         Rule::has_next_step => Ok(TerminalStep::HasNext { span }),
+        Rule::explain_step => Ok(TerminalStep::Explain { span }),
         _ => Err(ParseError::Syntax(format!(
             "Unknown terminal step: {:?}",
             inner.as_rule()

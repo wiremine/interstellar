@@ -100,6 +100,8 @@ pub enum TerminalStep {
     Iterate { span: Span },
     /// .hasNext()
     HasNext { span: Span },
+    /// .explain()
+    Explain { span: Span },
 }
 
 /// Individual traversal steps.

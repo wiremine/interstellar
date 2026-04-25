@@ -152,6 +152,14 @@ pub trait Step: Clone + Send + Sync + 'static {
     fn category(&self) -> crate::traversal::explain::StepCategory {
         crate::traversal::explain::StepCategory::Other
     }
+
+    /// Returns the property key this filter step operates on, if any.
+    ///
+    /// Used by `explain()` to match filter steps against available indexes.
+    /// Override for filter steps like `has("age", ...)` to return `Some("age")`.
+    fn filter_key(&self) -> Option<String> {
+        None
+    }
 }
 
 // =============================================================================
@@ -209,6 +217,9 @@ pub trait DynStep: Send + Sync {
     /// Returns the category of this step for classification in `explain()`.
     fn category(&self) -> crate::traversal::explain::StepCategory;
 
+    /// Returns the property key this filter step operates on, if any.
+    fn filter_key(&self) -> Option<String>;
+
     /// Downcast to a concrete type for introspection.
     ///
     /// Used by the reactive query matcher to extract filter constraints
@@ -257,6 +268,10 @@ impl<S: Step> DynStep for S {
 
     fn category(&self) -> crate::traversal::explain::StepCategory {
         <Self as Step>::category(self)
+    }
+
+    fn filter_key(&self) -> Option<String> {
+        <Self as Step>::filter_key(self)
     }
 
     #[cfg(feature = "reactive")]
@@ -375,9 +390,98 @@ macro_rules! impl_filter_step {
             }
         }
     };
-}
+    ($step:ty, $name:literal, category = $cat:expr, describe = $desc:expr) => {
+        impl $crate::traversal::step::Step for $step {
+            type Iter<'a>
+                = impl Iterator<Item = $crate::traversal::Traverser> + 'a
+            where
+                Self: 'a;
 
-/// Helper macro to implement `Step` for flatmap steps (1:N mappings).
+            fn apply<'a>(
+                &'a self,
+                ctx: &'a $crate::traversal::ExecutionContext<'a>,
+                input: Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a>,
+            ) -> Self::Iter<'a> {
+                let step = self.clone();
+                input.filter(move |t| step.matches(ctx, t))
+            }
+
+            fn apply_streaming(
+                &self,
+                ctx: $crate::traversal::StreamingContext,
+                input: $crate::traversal::Traverser,
+            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + Send + 'static> {
+                let step = self.clone();
+                if step.matches_streaming(&ctx, &input) {
+                    Box::new(std::iter::once(input))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+
+            fn name(&self) -> &'static str {
+                $name
+            }
+
+            fn category(&self) -> $crate::traversal::explain::StepCategory {
+                $cat
+            }
+
+            fn describe(&self) -> Option<String> {
+                #[allow(clippy::redundant_closure_call)]
+                ($desc)(self)
+            }
+        }
+    };
+    ($step:ty, $name:literal, category = $cat:expr, describe = $desc:expr, filter_key = $fk:expr) => {
+        impl $crate::traversal::step::Step for $step {
+            type Iter<'a>
+                = impl Iterator<Item = $crate::traversal::Traverser> + 'a
+            where
+                Self: 'a;
+
+            fn apply<'a>(
+                &'a self,
+                ctx: &'a $crate::traversal::ExecutionContext<'a>,
+                input: Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a>,
+            ) -> Self::Iter<'a> {
+                let step = self.clone();
+                input.filter(move |t| step.matches(ctx, t))
+            }
+
+            fn apply_streaming(
+                &self,
+                ctx: $crate::traversal::StreamingContext,
+                input: $crate::traversal::Traverser,
+            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + Send + 'static> {
+                let step = self.clone();
+                if step.matches_streaming(&ctx, &input) {
+                    Box::new(std::iter::once(input))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+
+            fn name(&self) -> &'static str {
+                $name
+            }
+
+            fn category(&self) -> $crate::traversal::explain::StepCategory {
+                $cat
+            }
+
+            fn describe(&self) -> Option<String> {
+                #[allow(clippy::redundant_closure_call)]
+                ($desc)(self)
+            }
+
+            fn filter_key(&self) -> Option<String> {
+                #[allow(clippy::redundant_closure_call)]
+                ($fk)(self)
+            }
+        }
+    };
+}
 ///
 /// Flatmap steps expand each input traverser into zero or more output traversers.
 /// The step struct must:
@@ -467,6 +571,44 @@ macro_rules! impl_flatmap_step {
 
             fn category(&self) -> $crate::traversal::explain::StepCategory {
                 $cat
+            }
+        }
+    };
+    ($step:ty, $name:literal, category = $cat:expr, describe = $desc:expr) => {
+        impl $crate::traversal::step::Step for $step {
+            type Iter<'a>
+                = impl Iterator<Item = $crate::traversal::Traverser> + 'a
+            where
+                Self: 'a;
+
+            fn apply<'a>(
+                &'a self,
+                ctx: &'a $crate::traversal::ExecutionContext<'a>,
+                input: Box<dyn Iterator<Item = $crate::traversal::Traverser> + 'a>,
+            ) -> Self::Iter<'a> {
+                let step = self.clone();
+                input.flat_map(move |t| step.expand(ctx, t))
+            }
+
+            fn apply_streaming(
+                &self,
+                ctx: $crate::traversal::StreamingContext,
+                input: $crate::traversal::Traverser,
+            ) -> Box<dyn Iterator<Item = $crate::traversal::Traverser> + Send + 'static> {
+                self.expand_streaming(&ctx, input)
+            }
+
+            fn name(&self) -> &'static str {
+                $name
+            }
+
+            fn category(&self) -> $crate::traversal::explain::StepCategory {
+                $cat
+            }
+
+            fn describe(&self) -> Option<String> {
+                #[allow(clippy::redundant_closure_call)]
+                ($desc)(self)
             }
         }
     };

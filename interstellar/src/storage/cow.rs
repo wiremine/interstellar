@@ -2536,6 +2536,12 @@ impl Graph {
             Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
                 ExecutionResult::Bool(!final_results.is_empty())
             }
+            Some(crate::gremlin::TerminalStep::Explain { .. }) => {
+                // explain() should not go through the mutation path;
+                // fall back to returning the list (callers should use
+                // CompiledTraversal::execute() for explain).
+                ExecutionResult::List(final_results)
+            }
         })
     }
 
@@ -2727,6 +2733,9 @@ impl Graph {
                         Some(crate::gremlin::TerminalStep::Iterate { .. }) => ExecutionResult::Unit,
                         Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
                             ExecutionResult::Bool(!final_results.is_empty())
+                        }
+                        Some(crate::gremlin::TerminalStep::Explain { .. }) => {
+                            ExecutionResult::List(final_results)
                         }
                     };
                 }

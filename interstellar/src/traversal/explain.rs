@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use crate::index::IndexSpec;
 use crate::traversal::step::DynStep;
 use crate::traversal::traverser::TraversalSource;
 
@@ -68,6 +69,10 @@ pub struct StepExplanation {
     pub category: StepCategory,
     /// Optional human-readable description of step configuration
     pub description: Option<String>,
+    /// Index hint: which index (if any) covers this step's filter key
+    pub index_hint: Option<String>,
+    /// Whether this step has a filter key (for showing [no index] hint)
+    pub has_filter_key: bool,
 }
 
 // =============================================================================
@@ -102,16 +107,29 @@ impl TraversalExplanation {
     pub fn from_steps(
         source: Option<&TraversalSource>,
         steps: &[Box<dyn DynStep>],
+        indexes: &[IndexSpec],
     ) -> Self {
         let step_explanations: Vec<StepExplanation> = steps
             .iter()
             .enumerate()
-            .map(|(i, step)| StepExplanation {
-                name: step.dyn_name(),
-                index: i,
-                is_barrier: step.is_barrier(),
-                category: step.category(),
-                description: step.describe(),
+            .map(|(i, step)| {
+                let filter_key = step.filter_key();
+                let index_hint = filter_key.as_deref().and_then(|key| {
+                    indexes
+                        .iter()
+                        .find(|idx| idx.property == key)
+                        .map(|idx| format!("{} ({:?})", idx.name, idx.index_type))
+                });
+
+                StepExplanation {
+                    name: step.dyn_name(),
+                    index: i,
+                    is_barrier: step.is_barrier(),
+                    category: step.category(),
+                    description: step.describe(),
+                    index_hint,
+                    has_filter_key: filter_key.is_some(),
+                }
             })
             .collect();
 
@@ -169,31 +187,96 @@ impl fmt::Display for TraversalExplanation {
             writeln!(f, "Source: (anonymous)")?;
         }
 
-        if self.has_barriers {
-            writeln!(f, "Barriers: Yes (streaming disabled)")?;
-        } else {
-            writeln!(f, "Barriers: No")?;
+        if self.steps.is_empty() {
+            writeln!(f, "Steps:  (none)")?;
+            return Ok(());
         }
+
+        // Compute column widths
+        let name_width = self
+            .steps
+            .iter()
+            .map(|s| s.name.len())
+            .max()
+            .unwrap_or(4)
+            .max(4);
+        let cat_width = self
+            .steps
+            .iter()
+            .map(|s| format!("{}", s.category).len())
+            .max()
+            .unwrap_or(8)
+            .max(8);
+
+        // Summary line: count by category
+        let mut cat_counts: Vec<(StepCategory, usize)> = Vec::new();
+        for step in &self.steps {
+            if let Some(entry) = cat_counts.iter_mut().find(|(c, _)| *c == step.category) {
+                entry.1 += 1;
+            } else {
+                cat_counts.push((step.category, 1));
+            }
+        }
+        let barrier_count = self.steps.iter().filter(|s| s.is_barrier).count();
+        let summary_parts: Vec<String> = cat_counts
+            .iter()
+            .map(|(cat, n)| format!("{n} {cat}"))
+            .collect();
+        let barrier_note = if barrier_count > 0 {
+            format!(", {} barrier", barrier_count)
+        } else {
+            String::new()
+        };
+        writeln!(
+            f,
+            "Steps:  {} ({}{})",
+            self.step_count,
+            summary_parts.join(", "),
+            barrier_note,
+        )?;
 
         writeln!(f)?;
 
-        if self.steps.is_empty() {
-            writeln!(f, "Steps: (none)")?;
-        } else {
-            writeln!(f, "Steps ({}):", self.step_count)?;
-            for step in &self.steps {
-                let barrier_marker = if step.is_barrier { "  BARRIER" } else { "" };
-                let desc = step
-                    .description
-                    .as_deref()
-                    .map(|d| format!("  {d}"))
-                    .unwrap_or_default();
+        // Table header
+        writeln!(
+            f,
+            "  #  {:<name_width$}  {:<cat_width$}  Description",
+            "Step", "Category",
+            name_width = name_width,
+            cat_width = cat_width,
+        )?;
+        let rule_len = 5 + name_width + 2 + cat_width + 2 + 11;
+        writeln!(f, "  {}", "─".repeat(rule_len))?;
+
+        // Steps
+        for step in &self.steps {
+            // Barrier separator before barrier steps
+            if step.is_barrier {
                 writeln!(
                     f,
-                    "  [{:>2}] {:<12} {:<12}{barrier_marker}{desc}",
-                    step.index, step.name, step.category,
+                    "  {0}── barrier {0}──",
+                    "─".repeat((rule_len.saturating_sub(13)) / 2)
                 )?;
             }
+
+            let cat_str = format!("{}", step.category);
+            let desc = step.description.as_deref().unwrap_or("");
+            let idx_info = match &step.index_hint {
+                Some(hint) => format!("  [idx: {hint}]"),
+                None if step.has_filter_key => "  [no index]".to_string(),
+                None => String::new(),
+            };
+            writeln!(
+                f,
+                "  {:<2} {:<name_width$}  {:<cat_width$}  {desc}{idx_info}",
+                step.index,
+                step.name,
+                cat_str,
+                name_width = name_width,
+                cat_width = cat_width,
+                desc = desc,
+                idx_info = idx_info,
+            )?;
         }
 
         Ok(())
@@ -253,7 +336,7 @@ mod tests {
 
     #[test]
     fn explanation_empty() {
-        let exp = TraversalExplanation::from_steps(None, &[]);
+        let exp = TraversalExplanation::from_steps(None, &[], &[]);
         assert_eq!(exp.step_count, 0);
         assert!(!exp.has_barriers);
         assert!(exp.source.is_none());
@@ -261,7 +344,7 @@ mod tests {
 
     #[test]
     fn explanation_display_empty() {
-        let exp = TraversalExplanation::from_steps(None, &[]);
+        let exp = TraversalExplanation::from_steps(None, &[], &[]);
         let display = format!("{exp}");
         assert!(display.contains("(anonymous)"));
         assert!(display.contains("(none)"));
@@ -270,7 +353,7 @@ mod tests {
     #[test]
     fn explanation_display_with_source() {
         let exp =
-            TraversalExplanation::from_steps(Some(&TraversalSource::AllVertices), &[]);
+            TraversalExplanation::from_steps(Some(&TraversalSource::AllVertices), &[], &[]);
         let display = format!("{exp}");
         assert!(display.contains("V() [all vertices]"));
     }
