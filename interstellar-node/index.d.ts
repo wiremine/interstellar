@@ -324,6 +324,96 @@ export declare class P {
    * @param p - Predicate to negate
    */
   static not(pred: Predicate): Predicate
+  /**
+   * Test if a geometry is within a given distance of a point.
+   *
+   * @param lon - Longitude of center point
+   * @param lat - Latitude of center point
+   * @param distanceKm - Radius in kilometers
+   *
+   * @example
+   * ```javascript
+   * graph.V()
+   *     .hasWhere('location', P.withinDistance(-122.4, 37.7, 5.0))
+   *     .values('name')
+   *     .toList();
+   * ```
+   */
+  static withinDistance(lon: number, lat: number, distanceKm: number): Predicate
+}
+export type JsTextQuery = TextQuery
+/**
+ * A structured text search query.
+ *
+ * Use the `TextQ` factory to create instances.
+ */
+export declare class TextQuery { }
+/**
+ * Factory for creating structured text search queries.
+ *
+ * @example
+ * ```javascript
+ * import { Graph, TextQ } from '@interstellar/node';
+ *
+ * // Simple match query
+ * graph.searchTextQueryV('description', TextQ.match('graph database'), 10);
+ *
+ * // Phrase query
+ * graph.searchTextQueryV('description', TextQ.phrase('graph database', 0), 10);
+ *
+ * // Boolean AND
+ * graph.searchTextQueryV('description', TextQ.and([
+ *     TextQ.match('graph'),
+ *     TextQ.match('database'),
+ * ]), 10);
+ * ```
+ */
+export declare class TextQ {
+  /**
+   * Free-text match query (OR of terms by default).
+   *
+   * @param text - Search text
+   */
+  static match(text: string): TextQuery
+  /**
+   * All terms must match (AND of terms).
+   *
+   * @param text - Search text
+   */
+  static matchAll(text: string): TextQuery
+  /**
+   * Phrase query: terms must appear in order.
+   *
+   * @param text - Phrase text
+   * @param slop - Positional slop (0 = strict adjacency)
+   */
+  static phrase(text: string, slop?: number | undefined | null): TextQuery
+  /**
+   * Prefix match on a single term.
+   *
+   * @param prefix - Term prefix
+   */
+  static prefix(prefix: string): TextQuery
+  /**
+   * Boolean AND: all subqueries must match.
+   *
+   * @param queries - Array of TextQuery objects
+   */
+  static and(queries: Array<TextQuery>): TextQuery
+  /**
+   * Boolean OR: any subquery can match.
+   *
+   * @param queries - Array of TextQuery objects
+   */
+  static or(queries: Array<TextQuery>): TextQuery
+  /**
+   * Boolean NOT: negate a query.
+   *
+   * Must be combined with a positive clause at the top level.
+   *
+   * @param query - Query to negate
+   */
+  static not(query: TextQuery): TextQuery
 }
 export type JsTraversal = Traversal
 /**
@@ -536,6 +626,75 @@ export declare class Traversal {
    * @param traversal - Traversal to execute locally
    */
   local(traversal: Traversal): Traversal
+  /**
+   * Find the shortest path (unweighted BFS) from current vertex to target.
+   *
+   * @param targetId - Target vertex ID
+   * @returns Path as a list of vertex IDs
+   */
+  shortestPath(targetId: unknown): Traversal
+  /**
+   * Find the shortest weighted path (Dijkstra) from current vertex to target.
+   *
+   * @param targetId - Target vertex ID
+   * @param weightProperty - Edge property to use as weight
+   * @returns Path as a list of vertex IDs
+   */
+  shortestPathWeighted(targetId: unknown, weightProperty: string): Traversal
+  /**
+   * Find shortest path using A* search with a heuristic property.
+   *
+   * @param targetId - Target vertex ID
+   * @param weightProperty - Edge property to use as weight
+   * @param heuristicProperty - Vertex property with estimated distance to target
+   * @returns Path as a list of vertex IDs
+   */
+  astar(targetId: unknown, weightProperty: string, heuristicProperty: string): Traversal
+  /**
+   * Find k shortest paths from current vertex to target.
+   *
+   * @param targetId - Target vertex ID
+   * @param k - Number of paths to find
+   * @param weightProperty - Edge property to use as weight
+   * @returns List of paths (each path is a list of vertex IDs)
+   */
+  kShortestPaths(targetId: unknown, k: number, weightProperty: string): Traversal
+  /**
+   * Perform a breadth-first traversal from current vertex.
+   *
+   * @param maxDepth - Optional maximum depth
+   * @returns Vertices in BFS order
+   */
+  bfs(maxDepth?: number | undefined | null): Traversal
+  /**
+   * Perform a depth-first traversal from current vertex.
+   *
+   * @param maxDepth - Optional maximum depth
+   * @returns Vertices in DFS order
+   */
+  dfs(maxDepth?: number | undefined | null): Traversal
+  /**
+   * Find path using bidirectional BFS from current vertex to target.
+   *
+   * @param targetId - Target vertex ID
+   * @returns Path as a list of vertex IDs
+   */
+  bidirectionalBfs(targetId: unknown): Traversal
+  /**
+   * Find path using iterative deepening DFS from current vertex to target.
+   *
+   * @param targetId - Target vertex ID
+   * @param maxDepth - Maximum search depth
+   * @returns Path as a list of vertex IDs
+   */
+  iddfs(targetId: unknown, maxDepth: number): Traversal
+  /**
+   * Extract the BM25 text relevance score from the current traverser.
+   *
+   * Must follow a searchText or searchTextE step.
+   * @returns Relevance score as a float
+   */
+  textScore(): Traversal
   /**
    * Set a property on the current element.
    *

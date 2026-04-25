@@ -392,6 +392,194 @@ impl JsGraph {
 }
 
 // ============================================================================
+// Full-Text Search Source Steps
+// ============================================================================
+
+#[cfg(feature = "full-text")]
+#[napi]
+impl JsGraph {
+    /// Search vertices by full-text index.
+    ///
+    /// Returns a traversal starting from the top-k matching vertices, ordered
+    /// by BM25 relevance. Use `.textScore()` to extract the score.
+    ///
+    /// @param property - Indexed property name
+    /// @param query - Search query string
+    /// @param k - Maximum number of results
+    /// @returns A traversal over matching vertices
+    ///
+    /// @example
+    /// ```javascript
+    /// graph.createTextIndexV('description');
+    /// const results = graph.searchTextV('description', 'graph database', 10)
+    ///     .values('name')
+    ///     .toList();
+    /// ```
+    #[napi(js_name = "searchTextV")]
+    pub fn search_text_v(&self, property: String, query: String, k: u32) -> Result<JsTraversal> {
+        use interstellar::storage::text::TextQuery;
+        let scored = self
+            .backend
+            .search_text_v(&property, &TextQuery::Match(query), k as usize)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        Ok(JsTraversal::from_scored_vertices_backend(
+            self.backend.clone(),
+            scored,
+        ))
+    }
+
+    /// Search vertices by full-text index with a structured TextQuery.
+    ///
+    /// @param property - Indexed property name
+    /// @param query - TextQuery object (use TextQ factory)
+    /// @param k - Maximum number of results
+    /// @returns A traversal over matching vertices
+    #[napi(js_name = "searchTextQueryV")]
+    pub fn search_text_query_v(
+        &self,
+        property: String,
+        query: &crate::text_query::JsTextQuery,
+        k: u32,
+    ) -> Result<JsTraversal> {
+        let scored = self
+            .backend
+            .search_text_v(&property, &query.inner, k as usize)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        Ok(JsTraversal::from_scored_vertices_backend(
+            self.backend.clone(),
+            scored,
+        ))
+    }
+
+    /// Search edges by full-text index.
+    ///
+    /// @param property - Indexed property name
+    /// @param query - Search query string
+    /// @param k - Maximum number of results
+    /// @returns A traversal over matching edges
+    #[napi(js_name = "searchTextE")]
+    pub fn search_text_e(&self, property: String, query: String, k: u32) -> Result<JsTraversal> {
+        use interstellar::storage::text::TextQuery;
+        let scored = self
+            .backend
+            .search_text_e(&property, &TextQuery::Match(query), k as usize)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        Ok(JsTraversal::from_scored_edges_backend(
+            self.backend.clone(),
+            scored,
+        ))
+    }
+
+    /// Search edges by full-text index with a structured TextQuery.
+    ///
+    /// @param property - Indexed property name
+    /// @param query - TextQuery object (use TextQ factory)
+    /// @param k - Maximum number of results
+    /// @returns A traversal over matching edges
+    #[napi(js_name = "searchTextQueryE")]
+    pub fn search_text_query_e(
+        &self,
+        property: String,
+        query: &crate::text_query::JsTextQuery,
+        k: u32,
+    ) -> Result<JsTraversal> {
+        let scored = self
+            .backend
+            .search_text_e(&property, &query.inner, k as usize)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        Ok(JsTraversal::from_scored_edges_backend(
+            self.backend.clone(),
+            scored,
+        ))
+    }
+
+    /// Create a full-text index on a vertex property.
+    ///
+    /// Existing vertices with string values at this property are back-filled.
+    ///
+    /// @param property - Property name to index
+    #[napi(js_name = "createTextIndexV")]
+    pub fn create_text_index_v(&self, property: String) -> Result<()> {
+        self.backend
+            .create_text_index_v(&property)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Create a full-text index on an edge property.
+    ///
+    /// Existing edges with string values at this property are back-filled.
+    ///
+    /// @param property - Property name to index
+    #[napi(js_name = "createTextIndexE")]
+    pub fn create_text_index_e(&self, property: String) -> Result<()> {
+        self.backend
+            .create_text_index_e(&property)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+}
+
+// ============================================================================
+// Gremlin Query Execution
+// ============================================================================
+
+#[cfg(feature = "gremlin")]
+#[napi]
+impl JsGraph {
+    /// Execute a Gremlin query string.
+    ///
+    /// Parses and executes a Gremlin traversal query, returning the results.
+    /// Supports all Gremlin steps including algorithm steps (shortestPath,
+    /// kShortestPaths, bfs, dfs, etc.) and full-text search.
+    ///
+    /// @param query - Gremlin query string (e.g., "g.V().out().hasLabel('person')")
+    /// @returns Query results (array, single value, boolean, or string depending on terminal step)
+    ///
+    /// @example
+    /// ```javascript
+    /// const names = graph.gremlin("g.V().hasLabel('person').values('name').toList()");
+    /// const path = graph.gremlin("g.V(1n).shortestPath(5n).toList()");
+    /// ```
+    #[napi]
+    pub fn gremlin(&self, env: Env, query: String) -> Result<JsUnknown> {
+        self.backend.with_snapshot(|snapshot| {
+            // Parse the Gremlin query
+            let ast = interstellar::gremlin::parse(&query)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+            // Compile with the snapshot
+            let g = interstellar::traversal::GraphTraversalSource::from_snapshot(snapshot);
+            let compiled = interstellar::gremlin::compile(&ast, &g)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+            // Execute and convert result
+            let result = compiled.execute();
+            execution_result_to_js(env, result)
+        })
+    }
+}
+
+/// Convert a Gremlin ExecutionResult to a JavaScript value.
+#[cfg(feature = "gremlin")]
+fn execution_result_to_js(
+    env: Env,
+    result: interstellar::gremlin::ExecutionResult,
+) -> Result<JsUnknown> {
+    use interstellar::gremlin::ExecutionResult;
+    match result {
+        ExecutionResult::List(values) => crate::value::values_to_js_array(env, values),
+        ExecutionResult::Single(Some(value)) => crate::value::value_to_js(env, &value),
+        ExecutionResult::Single(None) => Ok(env.get_null()?.into_unknown()),
+        ExecutionResult::Set(set) => {
+            let values: Vec<_> = set.into_iter().collect();
+            crate::value::values_to_js_array(env, values)
+        }
+        ExecutionResult::Bool(b) => Ok(env.get_boolean(b)?.into_unknown()),
+        ExecutionResult::Unit => Ok(env.get_null()?.into_unknown()),
+        ExecutionResult::Explain(s) => Ok(env.create_string(&s)?.into_unknown()),
+    }
+}
+
+// ============================================================================
 // Saved Query Methods (mmap-backed persistent graphs only)
 // ============================================================================
 

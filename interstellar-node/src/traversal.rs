@@ -192,6 +192,92 @@ impl GraphBackend {
                 .to_string(),
         ))
     }
+
+    /// Create a full-text index on a vertex property.
+    #[cfg(feature = "full-text")]
+    pub(crate) fn create_text_index_v(
+        &self,
+        property: &str,
+    ) -> std::result::Result<(), interstellar::storage::text::TextIndexError> {
+        use interstellar::storage::text::TextIndexConfig;
+        match self {
+            GraphBackend::InMemory(graph) => graph.create_text_index_v(property, TextIndexConfig::default()),
+            #[cfg(feature = "mmap")]
+            GraphBackend::Mmap(graph) => {
+                graph.mmap_graph().create_text_index_v(property, TextIndexConfig::default())
+            }
+        }
+    }
+
+    /// Create a full-text index on an edge property.
+    #[cfg(feature = "full-text")]
+    pub(crate) fn create_text_index_e(
+        &self,
+        property: &str,
+    ) -> std::result::Result<(), interstellar::storage::text::TextIndexError> {
+        use interstellar::storage::text::TextIndexConfig;
+        match self {
+            GraphBackend::InMemory(graph) => graph.create_text_index_e(property, TextIndexConfig::default()),
+            #[cfg(feature = "mmap")]
+            GraphBackend::Mmap(graph) => {
+                graph.mmap_graph().create_text_index_e(property, TextIndexConfig::default())
+            }
+        }
+    }
+
+    /// Execute a full-text search on vertices and return matched vertex IDs with scores.
+    #[cfg(feature = "full-text")]
+    pub(crate) fn search_text_v(
+        &self,
+        property: &str,
+        query: &interstellar::storage::text::TextQuery,
+        k: usize,
+    ) -> std::result::Result<Vec<(VertexId, f32)>, interstellar::storage::text::TextIndexError> {
+        let index = match self {
+            GraphBackend::InMemory(graph) => graph.text_index_v(property),
+            #[cfg(feature = "mmap")]
+            GraphBackend::Mmap(graph) => graph.mmap_graph().text_index_v(property),
+        };
+        let index = index.ok_or_else(|| {
+            interstellar::storage::text::TextIndexError::Storage(
+                interstellar::error::StorageError::IndexError(
+                    format!("no vertex text index for property {property:?}"),
+                ),
+            )
+        })?;
+        let hits = index.search(query, k)?;
+        Ok(hits
+            .into_iter()
+            .filter_map(|h| h.element.as_vertex().map(|v| (v, h.score)))
+            .collect())
+    }
+
+    /// Execute a full-text search on edges and return matched edge IDs with scores.
+    #[cfg(feature = "full-text")]
+    pub(crate) fn search_text_e(
+        &self,
+        property: &str,
+        query: &interstellar::storage::text::TextQuery,
+        k: usize,
+    ) -> std::result::Result<Vec<(EdgeId, f32)>, interstellar::storage::text::TextIndexError> {
+        let index = match self {
+            GraphBackend::InMemory(graph) => graph.text_index_e(property),
+            #[cfg(feature = "mmap")]
+            GraphBackend::Mmap(graph) => graph.mmap_graph().text_index_e(property),
+        };
+        let index = index.ok_or_else(|| {
+            interstellar::storage::text::TextIndexError::Storage(
+                interstellar::error::StorageError::IndexError(
+                    format!("no edge text index for property {property:?}"),
+                ),
+            )
+        })?;
+        let hits = index.search(query, k)?;
+        Ok(hits
+            .into_iter()
+            .filter_map(|h| h.element.as_edge().map(|e| (e, h.score)))
+            .collect())
+    }
 }
 
 // ============================================================================
@@ -362,6 +448,12 @@ pub(crate) enum TraversalSource {
     AllEdges,
     EdgeIds(Vec<EdgeId>),
     Injected(Vec<Value>),
+    /// Vertices with BM25 text scores (from FTS source steps)
+    #[cfg(feature = "full-text")]
+    ScoredVertices(Vec<(VertexId, f32)>),
+    /// Edges with BM25 text scores (from FTS source steps)
+    #[cfg(feature = "full-text")]
+    ScoredEdges(Vec<(EdgeId, f32)>),
     /// Anonymous traversal - no source, just steps (used with branch steps)
     Anonymous,
 }
@@ -443,6 +535,34 @@ impl JsTraversal {
         }
     }
 
+    /// Create a traversal from scored vertex FTS results.
+    #[cfg(feature = "full-text")]
+    pub(crate) fn from_scored_vertices_backend(
+        backend: GraphBackend,
+        scored: Vec<(VertexId, f32)>,
+    ) -> Self {
+        Self {
+            graph: backend,
+            source: TraversalSource::ScoredVertices(scored),
+            steps: Vec::new(),
+            output_type: TraversalType::Vertex,
+        }
+    }
+
+    /// Create a traversal from scored edge FTS results.
+    #[cfg(feature = "full-text")]
+    pub(crate) fn from_scored_edges_backend(
+        backend: GraphBackend,
+        scored: Vec<(EdgeId, f32)>,
+    ) -> Self {
+        Self {
+            graph: backend,
+            source: TraversalSource::ScoredEdges(scored),
+            steps: Vec::new(),
+            output_type: TraversalType::Edge,
+        }
+    }
+
     /// Create an anonymous traversal with a single step.
     pub(crate) fn anonymous_with_step<S: DynStep + 'static>(step: S) -> Self {
         Self {
@@ -450,6 +570,19 @@ impl JsTraversal {
             source: TraversalSource::Anonymous,
             steps: vec![Box::new(step)],
             output_type: TraversalType::Value,
+        }
+    }
+
+    /// Create an anonymous traversal with a single step and explicit output type.
+    pub(crate) fn anonymous_with_step_typed<S: DynStep + 'static>(
+        step: S,
+        output_type: TraversalType,
+    ) -> Self {
+        Self {
+            graph: GraphBackend::InMemory(Arc::new(InnerGraph::new())),
+            source: TraversalSource::Anonymous,
+            steps: vec![Box::new(step)],
+            output_type,
         }
     }
 
@@ -535,6 +668,18 @@ impl JsTraversal {
                 TraversalSource::Injected(values) => {
                     Box::new(values.iter().cloned().map(Traverser::new))
                 }
+                #[cfg(feature = "full-text")]
+                TraversalSource::ScoredVertices(scored) => Box::new(scored.iter().map(|(id, score)| {
+                    let mut t = Traverser::from_vertex(*id);
+                    t.set_sack(*score);
+                    t
+                })),
+                #[cfg(feature = "full-text")]
+                TraversalSource::ScoredEdges(scored) => Box::new(scored.iter().map(|(id, score)| {
+                    let mut t = Traverser::from_edge(*id);
+                    t.set_sack(*score);
+                    t
+                })),
                 TraversalSource::Anonymous => {
                     return Vec::new();
                 }
@@ -1080,6 +1225,159 @@ impl JsTraversal {
         self.clone().add_step(traversal::LocalStep::new(
             traversal.clone().into_core_traversal(),
         ))
+    }
+
+    // =========================================================================
+    // Algorithm Steps
+    // =========================================================================
+
+    /// Find the shortest path (unweighted BFS) from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID
+    /// @returns Path as a list of vertex IDs
+    #[napi(js_name = "shortestPath")]
+    pub fn shortest_path(&self, env: Env, target_id: JsUnknown) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(self.clone().add_step_with_type(
+            interstellar::traversal::ShortestPathStep::new(target),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find the shortest weighted path (Dijkstra) from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID
+    /// @param weightProperty - Edge property to use as weight
+    /// @returns Path as a list of vertex IDs
+    #[napi(js_name = "shortestPathWeighted")]
+    pub fn shortest_path_weighted(
+        &self,
+        env: Env,
+        target_id: JsUnknown,
+        weight_property: String,
+    ) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(self.clone().add_step_with_type(
+            interstellar::traversal::DijkstraStep::new(target, weight_property),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find shortest path using A* search with a heuristic property.
+    ///
+    /// @param targetId - Target vertex ID
+    /// @param weightProperty - Edge property to use as weight
+    /// @param heuristicProperty - Vertex property with estimated distance to target
+    /// @returns Path as a list of vertex IDs
+    #[napi]
+    pub fn astar(
+        &self,
+        env: Env,
+        target_id: JsUnknown,
+        weight_property: String,
+        heuristic_property: String,
+    ) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(self.clone().add_step_with_type(
+            interstellar::traversal::algorithm_steps::AstarStep::new(
+                target,
+                weight_property,
+                heuristic_property,
+            ),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find k shortest paths from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID
+    /// @param k - Number of paths to find
+    /// @param weightProperty - Edge property to use as weight
+    /// @returns List of paths (each path is a list of vertex IDs)
+    #[napi(js_name = "kShortestPaths")]
+    pub fn k_shortest_paths(
+        &self,
+        env: Env,
+        target_id: JsUnknown,
+        k: u32,
+        weight_property: String,
+    ) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(self.clone().add_step_with_type(
+            interstellar::traversal::algorithm_steps::KShortestPathsStep::new(
+                target,
+                k as usize,
+                weight_property,
+            ),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Perform a breadth-first traversal from current vertex.
+    ///
+    /// @param maxDepth - Optional maximum depth
+    /// @returns Vertices in BFS order
+    #[napi]
+    pub fn bfs(&self, max_depth: Option<u32>) -> JsTraversal {
+        self.clone().add_step_with_type(
+            interstellar::traversal::algorithm_steps::BfsTraversalStep::new(max_depth, None),
+            TraversalType::Value,
+        )
+    }
+
+    /// Perform a depth-first traversal from current vertex.
+    ///
+    /// @param maxDepth - Optional maximum depth
+    /// @returns Vertices in DFS order
+    #[napi]
+    pub fn dfs(&self, max_depth: Option<u32>) -> JsTraversal {
+        self.clone().add_step_with_type(
+            interstellar::traversal::algorithm_steps::DfsTraversalStep::new(max_depth, None),
+            TraversalType::Value,
+        )
+    }
+
+    /// Find path using bidirectional BFS from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID
+    /// @returns Path as a list of vertex IDs
+    #[napi(js_name = "bidirectionalBfs")]
+    pub fn bidirectional_bfs(&self, env: Env, target_id: JsUnknown) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(self.clone().add_step_with_type(
+            interstellar::traversal::algorithm_steps::BidirectionalBfsStep::new(target),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find path using iterative deepening DFS from current vertex to target.
+    ///
+    /// @param targetId - Target vertex ID
+    /// @param maxDepth - Maximum search depth
+    /// @returns Path as a list of vertex IDs
+    #[napi]
+    pub fn iddfs(&self, env: Env, target_id: JsUnknown, max_depth: u32) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(self.clone().add_step_with_type(
+            interstellar::traversal::algorithm_steps::IddfsStep::new(target, max_depth),
+            TraversalType::Value,
+        ))
+    }
+
+    // =========================================================================
+    // Full-Text Search Steps
+    // =========================================================================
+
+    /// Extract the BM25 text relevance score from the current traverser.
+    ///
+    /// Must follow a searchText or searchTextE step.
+    /// @returns Relevance score as a float
+    #[cfg(feature = "full-text")]
+    #[napi(js_name = "textScore")]
+    pub fn text_score(&self) -> JsTraversal {
+        use interstellar::traversal::transform::TextScoreStep;
+        self.clone()
+            .add_step_with_type(TextScoreStep::new(), TraversalType::Value)
     }
 
     // =========================================================================

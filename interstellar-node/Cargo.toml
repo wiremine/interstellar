@@ -28,7 +28,9 @@ napi-derive = "2"
 napi-build = "2"
 
 [features]
-default = ["mmap"]
+default = ["mmap", "full-text", "gremlin"]
 mmap = ["interstellar/mmap"]
 graphson = ["interstellar/graphson"]
 gql = ["interstellar/gql"]
+full-text = ["interstellar/full-text"]
+gremlin = ["interstellar/gremlin"]

@@ -310,10 +310,12 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { __, Graph, Predicate, P, Traversal } = nativeBinding
+const { __, Graph, Predicate, P, TextQuery, TextQ, Traversal } = nativeBinding
 
 module.exports.__ = __
 module.exports.Graph = Graph
 module.exports.Predicate = Predicate
 module.exports.P = P
+module.exports.TextQuery = TextQuery
+module.exports.TextQ = TextQ
 module.exports.Traversal = Traversal

@@ -25,7 +25,7 @@ use napi_derive::napi;
 use interstellar::traversal;
 
 use crate::predicate::JsPredicate;
-use crate::traversal::{CountStep, FoldStep, JsTraversal, SumStep};
+use crate::traversal::{CountStep, FoldStep, JsTraversal, SumStep, TraversalType};
 use crate::value::{js_array_to_strings, js_to_value};
 
 /// Anonymous traversal factory.
@@ -406,5 +406,63 @@ impl AnonymousFactory {
         JsTraversal::anonymous_with_step(traversal::LocalStep::new(
             traversal.clone().into_core_traversal(),
         ))
+    }
+
+    // =========================================================================
+    // Algorithm Steps
+    // =========================================================================
+
+    /// Find the shortest path (unweighted BFS) to target.
+    #[napi(js_name = "shortestPath")]
+    pub fn shortest_path(env: Env, target_id: JsUnknown) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(JsTraversal::anonymous_with_step_typed(
+            interstellar::traversal::ShortestPathStep::new(target),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Find the shortest weighted path (Dijkstra) to target.
+    #[napi(js_name = "shortestPathWeighted")]
+    pub fn shortest_path_weighted(
+        env: Env,
+        target_id: JsUnknown,
+        weight_property: String,
+    ) -> Result<JsTraversal> {
+        let target = crate::value::js_to_vertex_id(env, target_id)?;
+        Ok(JsTraversal::anonymous_with_step_typed(
+            interstellar::traversal::DijkstraStep::new(target, weight_property),
+            TraversalType::Value,
+        ))
+    }
+
+    /// Perform a breadth-first traversal.
+    #[napi]
+    pub fn bfs(max_depth: Option<u32>) -> JsTraversal {
+        JsTraversal::anonymous_with_step_typed(
+            interstellar::traversal::algorithm_steps::BfsTraversalStep::new(max_depth, None),
+            TraversalType::Value,
+        )
+    }
+
+    /// Perform a depth-first traversal.
+    #[napi]
+    pub fn dfs(max_depth: Option<u32>) -> JsTraversal {
+        JsTraversal::anonymous_with_step_typed(
+            interstellar::traversal::algorithm_steps::DfsTraversalStep::new(max_depth, None),
+            TraversalType::Value,
+        )
+    }
+
+    // =========================================================================
+    // Full-Text Search Steps
+    // =========================================================================
+
+    /// Extract the BM25 text relevance score.
+    #[cfg(feature = "full-text")]
+    #[napi(js_name = "textScore")]
+    pub fn text_score() -> JsTraversal {
+        use interstellar::traversal::transform::TextScoreStep;
+        JsTraversal::anonymous_with_step_typed(TextScoreStep::new(), TraversalType::Value)
     }
 }

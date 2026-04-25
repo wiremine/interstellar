@@ -42,6 +42,8 @@ mod anonymous;
 mod error;
 mod graph;
 mod predicate;
+#[cfg(feature = "full-text")]
+mod text_query;
 mod traversal;
 mod value;
 
@@ -49,4 +51,6 @@ mod value;
 pub use anonymous::AnonymousFactory;
 pub use graph::JsGraph;
 pub use predicate::{JsPredicate, P};
+#[cfg(feature = "full-text")]
+pub use text_query::{JsTextQuery, TextQ};
 pub use traversal::JsTraversal;

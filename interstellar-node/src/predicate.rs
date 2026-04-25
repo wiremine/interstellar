@@ -268,4 +268,29 @@ impl P {
             inner: rust_p::not_pred(pred.inner.clone_box()),
         }
     }
+
+    // =========================================================================
+    // Geospatial Predicates
+    // =========================================================================
+
+    /// Test if a geometry is within a given distance of a point.
+    ///
+    /// @param lon - Longitude of center point
+    /// @param lat - Latitude of center point
+    /// @param distanceKm - Radius in kilometers
+    ///
+    /// @example
+    /// ```javascript
+    /// graph.V()
+    ///     .hasWhere('location', P.withinDistance(-122.4, 37.7, 5.0))
+    ///     .values('name')
+    ///     .toList();
+    /// ```
+    #[napi(js_name = "withinDistance")]
+    pub fn within_distance(lon: f64, lat: f64, distance_km: f64) -> JsPredicate {
+        use interstellar::geo::{Distance, Point};
+        let center = Point { lon, lat };
+        let radius = Distance::Kilometers(distance_km);
+        JsPredicate::new(rust_p::within_distance(center, radius))
+    }
 }
