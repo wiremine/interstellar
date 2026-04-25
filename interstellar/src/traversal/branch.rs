@@ -205,6 +205,11 @@ impl Step for WhereStep {
         crate::traversal::explain::StepCategory::Filter
     }
 
+    fn describe(&self) -> Option<String> {
+        use crate::traversal::explain::format_traversal_steps;
+        Some(format_traversal_steps(self.sub.steps()))
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -270,6 +275,11 @@ impl Step for NotStep {
 
     fn category(&self) -> crate::traversal::explain::StepCategory {
         crate::traversal::explain::StepCategory::Filter
+    }
+
+    fn describe(&self) -> Option<String> {
+        use crate::traversal::explain::format_traversal_steps;
+        Some(format_traversal_steps(self.sub.steps()))
     }
 
     fn apply_streaming(
@@ -646,6 +656,16 @@ impl Step for UnionStep {
         crate::traversal::explain::StepCategory::Branch
     }
 
+    fn describe(&self) -> Option<String> {
+        use crate::traversal::explain::format_traversal_steps;
+        let branches: Vec<String> = self
+            .branches
+            .iter()
+            .map(|b| format_traversal_steps(b.steps()))
+            .collect();
+        Some(format!("[{}]", branches.join(" | ")))
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -719,6 +739,16 @@ impl Step for CoalesceStep {
 
     fn category(&self) -> crate::traversal::explain::StepCategory {
         crate::traversal::explain::StepCategory::Branch
+    }
+
+    fn describe(&self) -> Option<String> {
+        use crate::traversal::explain::format_traversal_steps;
+        let branches: Vec<String> = self
+            .branches
+            .iter()
+            .map(|b| format_traversal_steps(b.steps()))
+            .collect();
+        Some(format!("[{}]", branches.join(" | ")))
     }
 
     fn apply_streaming(
@@ -812,6 +842,16 @@ impl Step for ChooseStep {
 
     fn category(&self) -> crate::traversal::explain::StepCategory {
         crate::traversal::explain::StepCategory::Branch
+    }
+
+    fn describe(&self) -> Option<String> {
+        use crate::traversal::explain::format_traversal_steps;
+        Some(format!(
+            "if: {}, then: {}, else: {}",
+            format_traversal_steps(self.condition.steps()),
+            format_traversal_steps(self.if_true.steps()),
+            format_traversal_steps(self.if_false.steps()),
+        ))
     }
 
     fn apply_streaming(

@@ -145,8 +145,30 @@ impl TraversalExplanation {
     }
 }
 
+/// Format anonymous traversal steps as a compact pipeline string.
+///
+/// E.g. `__.out("knows").hasLabel("person")` becomes `"out(knows).hasLabel(person)"`.
+/// Used by `describe()` on branch/repeat steps.
+pub fn format_traversal_steps(steps: &[Box<dyn DynStep>]) -> String {
+    if steps.is_empty() {
+        return "identity".to_string();
+    }
+    steps
+        .iter()
+        .map(|s| {
+            let name = s.dyn_name();
+            match s.describe() {
+                Some(desc) => format!("{name}({desc})"),
+                None => name.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 /// Format a `TraversalSource` for display.
 fn format_source(source: &TraversalSource) -> String {
+
     match source {
         TraversalSource::AllVertices => "V() [all vertices]".to_string(),
         TraversalSource::Vertices(ids) => {
