@@ -35,6 +35,8 @@ Practical guides for common tasks:
 - [Querying](guides/querying.md) - Query patterns and techniques
 - [Mutations](guides/mutations.md) - Adding, updating, and deleting data
 - [Full-Text Search](guides/full-text-search.md) - Tantivy-backed text indexes (`full-text` feature)
+- [Algorithms](guides/algorithms.md) - BFS, DFS, Dijkstra, A*, k-shortest paths, and more
+- [Geospatial](guides/geospatial.md) - Point/Polygon values, R-tree index, spatial queries
 - [Performance](guides/performance.md) - Optimization and tuning
 - [Testing](guides/testing.md) - Testing graph-based code
 
@@ -60,6 +62,8 @@ Detailed reference material:
 | Use persistent storage | [Storage Backends](concepts/storage-backends.md) |
 | Improve query performance | [Performance Guide](guides/performance.md) |
 | Add full-text search | [Full-Text Search](guides/full-text-search.md) |
+| Run graph algorithms | [Algorithms Guide](guides/algorithms.md) |
+| Use geospatial queries | [Geospatial Guide](guides/geospatial.md) |
 
 ---
 

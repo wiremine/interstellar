@@ -1,13 +1,10 @@
 //! # Graph Algorithms Example
 //!
-//! Demonstrates all traversal and pathfinding algorithms in Interstellar:
-//! - BFS and DFS iterators
-//! - Bidirectional BFS
-//! - Iterative Deepening DFS (IDDFS)
-//! - Unweighted shortest path
-//! - Dijkstra's weighted shortest path
-//! - A* with a heuristic
-//! - Yen's k-shortest paths
+//! Demonstrates all traversal and pathfinding algorithms in Interstellar
+//! using three interfaces:
+//! 1. Standalone Rust `algorithms::` module API
+//! 2. Gremlin fluent Rust API (`shortest_path_to()`, `bfs_traversal()`, etc.)
+//! 3. Gremlin text parser (`shortestPath()`, `bfs()`, etc.)
 //!
 //! Run: `cargo run --example algorithms`
 
@@ -16,6 +13,8 @@ use interstellar::algorithms::{
     astar, bidirectional_bfs, dijkstra, dijkstra_all, iddfs, k_shortest_paths,
     shortest_path_unweighted, Bfs, Dfs, Direction,
 };
+#[cfg(feature = "gremlin")]
+use interstellar::gremlin::ExecutionResult;
 use interstellar::storage::Graph;
 use interstellar::value::{Value, VertexId};
 use interstellar::GraphAccess;
@@ -275,6 +274,139 @@ fn main() {
     match shortest_path_unweighted(&graph, la, seattle, Direction::Out, None) {
         Ok(path) => println!("  Found reverse path with {} hops", path.edges.len()),
         Err(e) => println!("  Expected error: {}", e),
+    }
+
+    // =========================================================================
+    // Part 2: Gremlin Fluent API
+    // =========================================================================
+    println!("\n\n=== Gremlin Fluent API ===\n");
+
+    let snapshot = graph.snapshot();
+    let g = snapshot.gremlin();
+
+    // -- Shortest path (unweighted) --
+    println!("-- shortest_path_to: Seattle -> LA --\n");
+    let result = g.v_ids([seattle]).shortest_path_to(la).next();
+    if let Some(Value::List(path)) = result {
+        let names: Vec<String> = path.iter().map(|v| {
+            if let Value::Vertex(vid) = v { vertex_name(&graph, *vid) } else { "?".into() }
+        }).collect();
+        println!("  Path: {}", names.join(" -> "));
+    }
+
+    // -- Dijkstra (weighted) --
+    println!("\n-- dijkstra_to: Seattle -> LA --\n");
+    let result = g.v_ids([seattle]).dijkstra_to(la, "distance").next();
+    if let Some(Value::Map(map)) = result {
+        if let Some(Value::Float(w)) = map.get("weight") {
+            println!("  Distance: {}", w);
+        }
+    }
+
+    // -- BFS traversal --
+    println!("\n-- bfs_traversal from Seattle (max depth 2) --\n");
+    let results = g.v_ids([seattle]).bfs_traversal(Some(2), None).to_list();
+    println!("  Vertices visited: {}", results.len());
+
+    // -- DFS traversal --
+    println!("\n-- dfs_traversal from Seattle --\n");
+    let results = g.v_ids([seattle]).dfs_traversal(None, None).to_list();
+    println!("  Vertices visited: {}", results.len());
+
+    // -- Bidirectional BFS --
+    println!("\n-- bidirectional_bfs_to: Seattle -> LA --\n");
+    let result = g.v_ids([seattle]).bidirectional_bfs_to(la).next();
+    if let Some(Value::List(path)) = result {
+        println!("  Path length: {} hops", path.len() - 1);
+    }
+
+    // -- IDDFS --
+    println!("\n-- iddfs_to: Seattle -> LA (max depth 5) --\n");
+    let result = g.v_ids([seattle]).iddfs_to(la, 5).next();
+    if let Some(Value::List(path)) = result {
+        println!("  Path length: {} hops", path.len() - 1);
+    }
+
+    // =========================================================================
+    // Part 3: Gremlin Text Parser
+    // =========================================================================
+    #[cfg(feature = "gremlin")]
+    {
+        println!("\n\n=== Gremlin Text Parser ===\n");
+
+        // -- shortestPath (unweighted) --
+        println!("-- shortestPath: Seattle -> LA --\n");
+        let query = format!("g.V({}).shortestPath({}).next()", seattle.0, la.0);
+        match graph.query(&query) {
+            Ok(ExecutionResult::Single(Some(Value::List(path)))) => {
+                let names: Vec<String> = path.iter().map(|v| {
+                    if let Value::Vertex(vid) = v { vertex_name(&graph, *vid) } else { "?".into() }
+                }).collect();
+                println!("  Path: {}", names.join(" -> "));
+            }
+            Ok(other) => println!("  Result: {:?}", other),
+            Err(e) => println!("  Error: {}", e),
+        }
+
+        // -- shortestPath with by('distance') → Dijkstra --
+        println!("\n-- shortestPath.by('distance') (Dijkstra): Seattle -> LA --\n");
+        let query = format!(
+            "g.V({}).shortestPath({}).by('distance').next()",
+            seattle.0, la.0
+        );
+        match graph.query(&query) {
+            Ok(ExecutionResult::Single(Some(Value::Map(map)))) => {
+                if let Some(Value::Float(w)) = map.get("weight") {
+                    println!("  Distance: {}", w);
+                }
+            }
+            Ok(other) => println!("  Result: {:?}", other),
+            Err(e) => println!("  Error: {}", e),
+        }
+
+        // -- bfs() --
+        println!("\n-- bfs().with('maxDepth', 2) from Seattle --\n");
+        let query = format!("g.V({}).bfs().with('maxDepth', 2).toList()", seattle.0);
+        match graph.query(&query) {
+            Ok(ExecutionResult::List(results)) => {
+                println!("  Vertices visited: {}", results.len());
+            }
+            Ok(other) => println!("  Result: {:?}", other),
+            Err(e) => println!("  Error: {}", e),
+        }
+
+        // -- dfs() --
+        println!("\n-- dfs() from Seattle --\n");
+        let query = format!("g.V({}).dfs().toList()", seattle.0);
+        match graph.query(&query) {
+            Ok(ExecutionResult::List(results)) => {
+                println!("  Vertices visited: {}", results.len());
+            }
+            Ok(other) => println!("  Result: {:?}", other),
+            Err(e) => println!("  Error: {}", e),
+        }
+
+        // -- bidirectionalBfs() --
+        println!("\n-- bidirectionalBfs: Seattle -> LA --\n");
+        let query = format!("g.V({}).bidirectionalBfs({}).next()", seattle.0, la.0);
+        match graph.query(&query) {
+            Ok(ExecutionResult::Single(Some(Value::List(path)))) => {
+                println!("  Path length: {} hops", path.len() - 1);
+            }
+            Ok(other) => println!("  Result: {:?}", other),
+            Err(e) => println!("  Error: {}", e),
+        }
+
+        // -- iddfs() --
+        println!("\n-- iddfs: Seattle -> LA (max depth 5) --\n");
+        let query = format!("g.V({}).iddfs({}, 5).next()", seattle.0, la.0);
+        match graph.query(&query) {
+            Ok(ExecutionResult::Single(Some(Value::List(path)))) => {
+                println!("  Path length: {} hops", path.len() - 1);
+            }
+            Ok(other) => println!("  Result: {:?}", other),
+            Err(e) => println!("  Error: {}", e),
+        }
     }
 
     println!("\n=== Done ===");

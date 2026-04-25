@@ -10,11 +10,24 @@ Run examples with Cargo:
 # Basic examples
 cargo run --example quickstart_gremlin
 cargo run --example quickstart_gql
+cargo run --example quickstart_gremlin_script
+cargo run --example algorithms
+cargo run --example explain
 
 # Examples requiring features
 cargo run --example storage --features mmap
+cargo run --example query_storage --features mmap
 cargo run --example nba --features mmap
 cargo run --example quickstart_text_search --features full-text
+cargo run --example geo_cities --features geospatial
+cargo run --example geo_text_search --features "full-text,geospatial"
+cargo run --example reactive_queries --features reactive
+cargo run --example reactive_geo --features "reactive,geospatial"
+
+# All features
+cargo run --example shortest_path_cities --all-features
+cargo run --example graphson
+cargo run --example marvel
 ```
 
 ---
@@ -75,6 +88,162 @@ cargo run --example quickstart_text_search --features full-text
 
 See also the [Full-Text Search guide](../guides/full-text-search.md).
 
+### quickstart_gremlin_script
+
+**File:** `examples/quickstart_gremlin_script.rs`
+
+Demonstrates executing Gremlin queries as text strings, including variable assignment, multi-statement scripts, and error handling.
+
+```bash
+cargo run --example quickstart_gremlin_script
+```
+
+**What it covers:**
+- `graph.query()` and `graph.mutate()` for string-based Gremlin execution
+- Variable binding across statements
+- Error handling for invalid queries
+
+---
+
+## Algorithm Examples
+
+### algorithms
+
+**File:** `examples/algorithms.rs`
+
+Demonstrates all graph algorithms using the standalone Rust API, the Gremlin fluent API, and Gremlin text queries.
+
+```bash
+cargo run --example algorithms
+```
+
+**What it covers:**
+- BFS and DFS iterators with depth limits and label filters
+- Unweighted shortest path, Dijkstra, A*, k-shortest paths
+- Bidirectional BFS and IDDFS
+- Gremlin fluent API: `shortest_path_to()`, `dijkstra_to()`, `bfs_traversal()`, `dfs_traversal()`, etc.
+- Gremlin text parser: `shortestPath()`, `bfs()`, `dfs()`, etc.
+- Error handling for missing vertices and unreachable targets
+
+### shortest_path_cities
+
+**File:** `examples/shortest_path_cities.rs`
+**Requires:** geospatial features
+
+Geospatial pathfinding example with European cities: Dijkstra and A\* with haversine-based heuristic.
+
+```bash
+cargo run --example shortest_path_cities --all-features
+```
+
+**What it covers:**
+- Building a geospatial city network
+- Dijkstra with distance weights
+- A\* with geographic (haversine) heuristic
+- Combining geospatial queries with pathfinding
+
+### explain
+
+**File:** `examples/explain.rs`
+
+Demonstrates the `explain()` terminal step that describes a traversal pipeline without executing it.
+
+```bash
+cargo run --example explain
+```
+
+**What it covers:**
+- `explain()` for inspecting traversal structure
+- Viewing step names, categories, and descriptions
+- Debugging traversal pipelines
+
+---
+
+## Geospatial Examples
+
+### geo_cities
+
+**File:** `examples/geo_cities.rs`
+**Requires:** `geospatial` feature
+
+Demonstrates geospatial indexing and queries with city data.
+
+```bash
+cargo run --example geo_cities --features geospatial
+```
+
+**What it covers:**
+- Point values on vertices
+- R-tree spatial index
+- `withinDistance`, `bbox`, `containedBy` queries
+
+### geo_text_search
+
+**File:** `examples/geo_text_search.rs`
+**Requires:** `full-text` and `geospatial` features
+
+Combines full-text search with geospatial queries.
+
+```bash
+cargo run --example geo_text_search --features "full-text,geospatial"
+```
+
+**What it covers:**
+- Text index and R-tree index on the same label
+- Chaining text search results with geospatial filters
+
+---
+
+## Reactive Examples
+
+### reactive_queries
+
+**File:** `examples/reactive_queries.rs`
+**Requires:** `reactive` feature
+
+Demonstrates reactive streaming subscriptions that push results as the graph changes.
+
+```bash
+cargo run --example reactive_queries --features reactive
+```
+
+**What it covers:**
+- Subscribing to graph change events
+- Streaming query results in real time
+
+### reactive_geo
+
+**File:** `examples/reactive_geo.rs`
+**Requires:** `reactive` and `geospatial` features
+
+Combines reactive subscriptions with geospatial queries.
+
+```bash
+cargo run --example reactive_geo --features "reactive,geospatial"
+```
+
+**What it covers:**
+- Reactive geospatial event streaming
+
+---
+
+## Import/Export Examples
+
+### graphson
+
+**File:** `examples/graphson.rs`
+
+Demonstrates GraphSON 3.0 import and export for graph data interchange.
+
+```bash
+cargo run --example graphson
+```
+
+**What it covers:**
+- GraphSON 3.0 format serialization
+- Round-trip import/export
+- Schema metadata handling
+
 ---
 
 ## Storage Examples
@@ -95,6 +264,22 @@ cargo run --example storage --features mmap
 - Data durability across restarts
 - Batch mode for high-performance writes
 - When to use persistent vs. in-memory storage
+
+### query_storage
+
+**File:** `examples/query_storage.rs`
+**Requires:** `mmap` feature
+
+Demonstrates saving and managing named queries in persistent storage.
+
+```bash
+cargo run --example query_storage --features mmap
+```
+
+**What it covers:**
+- Saving named query templates
+- Reloading queries from persistent storage
+- Parameterized query execution
 
 ---
 

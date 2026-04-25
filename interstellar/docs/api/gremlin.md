@@ -317,7 +317,7 @@ Gated on the `full-text` feature.
 |---------|------|--------|--------|
 | `as(label)` | `as_(label)` | `as('label')` | ✓ |
 | `by()` | `.by_*()` methods | `.by(...)` | ✓ |
-| `with()` | - | - | - |
+| `with()` | - | `with('key', value)` | Parser |
 | `option(key, traversal)` | `.option(key, traversal)` | - | Rust |
 | `option(none)` | `.option_none(traversal)` | - | Rust |
 | - | `with_path()` | - | Rust |
@@ -526,6 +526,146 @@ pub enum ExecutionResult {
 
 ---
 
+## Algorithm Steps
+
+Algorithm steps perform graph traversals and pathfinding starting from the current vertex. They are available both as fluent Rust API methods and in the Gremlin text parser.
+
+See the [Algorithms Guide](../guides/algorithms.md) for detailed usage, common types, and when to use each algorithm.
+
+### Shortest Path (Unweighted)
+
+BFS-based shortest path returning a list of vertex IDs.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `shortestPath(targetId)` | `shortest_path_to(target)` | `shortestPath(id)` | ✓ |
+
+```rust
+// Rust fluent API
+let path = g.v_ids([source]).shortest_path_to(target).next();
+
+// Gremlin script
+graph.query("g.V(1).shortestPath(4).next()")?;
+```
+
+### Dijkstra (Weighted Shortest Path)
+
+Weighted shortest path using the `by()` modulator to specify the weight property. Returns a map with `"path"` and `"weight"`.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `shortestPath(targetId).by('weight')` | `dijkstra_to(target, "weight")` | `shortestPath(id).by('prop')` | ✓ |
+
+```rust
+// Rust fluent API
+let result = g.v_ids([source]).dijkstra_to(target, "distance").next();
+
+// Gremlin script
+graph.query("g.V(1).shortestPath(4).by('distance').next()")?;
+```
+
+### A* (Heuristic Shortest Path)
+
+A\* pathfinding using `by()` for the weight property and `with('heuristic', 'prop')` for the heuristic vertex property. The heuristic property should contain pre-computed estimated distances to the target. Missing property defaults to 0.0 (Dijkstra behavior). Returns a map with `"path"` and `"weight"`.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `shortestPath(id).by('w').with('heuristic', 'h')` | `astar_to(target, "w", "h")` | `shortestPath(id).by('w').with('heuristic', 'h')` | ✓ |
+
+```rust
+// Rust fluent API
+let result = g.v_ids([source]).astar_to(target, "distance", "est_dist").next();
+
+// Gremlin script
+graph.query("g.V(1).shortestPath(4).by('distance').with('heuristic', 'est_dist').next()")?;
+```
+
+### K-Shortest Paths
+
+Yen's k-shortest loopless paths. The `by()` modulator specifies the weight property. Returns a list of maps, each with `"path"` and `"weight"`.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `kShortestPaths(targetId, k).by('w')` | `k_shortest_paths_to(target, k, "w")` | `kShortestPaths(id, k).by('prop')` | ✓ |
+
+```rust
+// Rust fluent API
+let paths = g.v_ids([source]).k_shortest_paths_to(target, 3, "distance").to_list();
+
+// Gremlin script
+graph.query("g.V(1).kShortestPaths(4, 3).by('distance').toList()")?;
+```
+
+### BFS Traversal
+
+Breadth-first traversal yielding maps with `"vertex"` and `"depth"` for each reachable vertex. Supports `with('maxDepth', n)` and `with('edgeLabels', [...])` modulators.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `bfs()` | `bfs_traversal(None, None)` | `bfs()` | ✓ |
+| `bfs().with('maxDepth', n)` | `bfs_traversal(Some(n), None)` | `bfs().with('maxDepth', n)` | ✓ |
+| `bfs().with('edgeLabels', [...])` | `bfs_traversal(None, Some(labels))` | `bfs().with('edgeLabels', ['l1'])` | ✓ |
+
+```rust
+// Rust fluent API
+let results = g.v_ids([source]).bfs_traversal(Some(3), None).to_list();
+
+// Gremlin script
+graph.query("g.V(1).bfs().with('maxDepth', 3).toList()")?;
+```
+
+### DFS Traversal
+
+Depth-first traversal yielding maps with `"vertex"` and `"depth"`. Same modulators as BFS.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `dfs()` | `dfs_traversal(None, None)` | `dfs()` | ✓ |
+| `dfs().with('maxDepth', n)` | `dfs_traversal(Some(n), None)` | `dfs().with('maxDepth', n)` | ✓ |
+| `dfs().with('edgeLabels', [...])` | `dfs_traversal(None, Some(labels))` | `dfs().with('edgeLabels', ['l1'])` | ✓ |
+
+```rust
+// Rust fluent API
+let results = g.v_ids([source]).dfs_traversal(Some(5), None).to_list();
+
+// Gremlin script
+graph.query("g.V(1).dfs().with('maxDepth', 5).toList()")?;
+```
+
+### Bidirectional BFS
+
+Expands frontiers from both source and target simultaneously. Returns a list of vertex IDs.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `bidirectionalBfs(targetId)` | `bidirectional_bfs_to(target)` | `bidirectionalBfs(id)` | ✓ |
+
+```rust
+// Rust fluent API
+let path = g.v_ids([source]).bidirectional_bfs_to(target).next();
+
+// Gremlin script
+graph.query("g.V(1).bidirectionalBfs(4).next()")?;
+```
+
+### IDDFS (Iterative Deepening DFS)
+
+Combines DFS space efficiency with BFS shortest-path optimality. Returns a list of vertex IDs.
+
+| Gremlin | Rust | Parser | Status |
+|---------|------|--------|--------|
+| `iddfs(targetId, maxDepth)` | `iddfs_to(target, max_depth)` | `iddfs(id, depth)` | ✓ |
+
+```rust
+// Rust fluent API
+let path = g.v_ids([source]).iddfs_to(target, 10).next();
+
+// Gremlin script
+graph.query("g.V(1).iddfs(4, 10).next()")?;
+```
+
+---
+
 ## Unsupported Gremlin Features
 
 | Feature | Reason |
@@ -553,12 +693,13 @@ pub enum ExecutionResult {
 | Navigation (E→V) | 4 | 4 | 4 |
 | Filter Steps | ~30 | ~34 | ~25 |
 | Transform/Map Steps | ~30 | ~32 | ~28 |
+| Algorithm Steps | 8 | 8 | 8 |
 | Aggregation Steps | 6 | 6 | 0 |
 | Branch Steps | 7 | 8 | 5 |
 | Repeat Steps | 6 | 7 | 6 |
 | Side Effect Steps | 6 | 7 | 5 |
 | Mutation Steps | 10 | 10 | 9 |
-| Modulator Steps | 5 | 6 | 2 |
+| Modulator Steps | 5 | 6 | 3 |
 | Terminal Steps | 8 | 15 | 6 |
 | Predicates (P.) | 14 | 14 | 14 |
 | Text Predicates | 7 | 7 | 7 |

@@ -1459,6 +1459,82 @@ RETURN {
 
 **Keys:** Must be identifiers (unquoted) or string literals
 
+### CALL Procedures (Graph Algorithms)
+
+Interstellar exposes graph algorithms as CALL procedures. These work with both the graph-bound and snapshot-only entry points.
+
+See the [Algorithms Guide](../guides/algorithms.md) for detailed usage, algorithm selection, and the Rust API.
+
+| Procedure | Arguments | YIELD columns | Description |
+|-----------|-----------|---------------|-------------|
+| `interstellar.shortestPath(src, tgt)` | 2 vertices | `path`, `distance` | Unweighted BFS shortest path |
+| `interstellar.dijkstra(src, tgt, prop)` | 2 vertices + weight property | `path`, `distance` | Dijkstra weighted shortest path |
+| `interstellar.bfs(src)` | 1 vertex | `node`, `depth` | BFS traversal (all reachable vertices) |
+| `interstellar.dfs(src [, maxDepth])` | 1 vertex + optional depth | `node`, `depth` | DFS traversal with optional depth limit |
+| `interstellar.astar(src, tgt, w, h)` | 2 vertices + weight + heuristic properties | `path`, `distance` | A\* pathfinding |
+| `interstellar.bidirectionalBfs(src, tgt)` | 2 vertices | `path`, `distance` | Bidirectional BFS shortest path |
+| `interstellar.iddfs(src, tgt, maxDepth)` | 2 vertices + max depth | `path`, `distance` | Iterative deepening DFS |
+
+#### Examples
+
+```sql
+-- Unweighted shortest path
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.shortestPath(a, b)
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+```sql
+-- Dijkstra weighted shortest path
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.dijkstra(a, b, 'weight')
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+```sql
+-- BFS traversal
+MATCH (a) WHERE id(a) = 1
+CALL interstellar.bfs(a)
+YIELD node AS v, depth AS d
+RETURN v, d
+```
+
+```sql
+-- DFS traversal with depth limit
+MATCH (a) WHERE id(a) = 1
+CALL interstellar.dfs(a, 3)
+YIELD node AS v, depth AS d
+RETURN v, d
+```
+
+```sql
+-- A* with heuristic property
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.astar(a, b, 'weight', 'estimatedDist')
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+```sql
+-- Bidirectional BFS
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.bidirectionalBfs(a, b)
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+```sql
+-- IDDFS with max depth
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.iddfs(a, b, 10)
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+All pathfinding procedures return empty results (no rows) when no path exists between source and target.
+
 ### CALL Procedures (Full-Text Search)
 
 Gated on the `full-text` feature and only dispatched through the graph-bound entry point ([`Graph::gql`](https://docs.rs/interstellar/latest/interstellar/storage/struct.Graph.html#method.gql) / [`Graph::gql_with_params`](https://docs.rs/interstellar/latest/interstellar/storage/struct.Graph.html#method.gql_with_params)). The snapshot-only [`gql::compile`](https://docs.rs/interstellar/latest/interstellar/gql/fn.compile.html) path returns `ProcedureArgumentError` with an actionable message — it has no `Graph` handle to dispatch against.
@@ -1872,7 +1948,7 @@ The current GQL implementation has the following limitations:
 | `LOAD CSV` | Not supported | No external data import |
 | Multiple graphs | Not supported | Single graph queries only |
 | Returning paths directly | Partial | Use `WITH PATH` + `path()` function |
-| `CALL` procedures | Partial | Built-in FTS procedures only — see [CALL Procedures (Full-Text Search)](#call-procedures-full-text-search). No user-defined procedures. |
+| `CALL` procedures | Partial | Built-in algorithm and FTS procedures only — see [CALL Procedures (Graph Algorithms)](#call-procedures-graph-algorithms) and [CALL Procedures (Full-Text Search)](#call-procedures-full-text-search). No user-defined procedures. |
 | Pattern comprehensions | Not supported | `[(p)-[:KNOWS]->(f) | f.name]` syntax |
 
 ### Partial Support
