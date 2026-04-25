@@ -109,6 +109,7 @@ impl TraversalExplanation {
         source: Option<&TraversalSource>,
         steps: &[Box<dyn DynStep>],
         indexes: &[IndexSpec],
+        text_indexes: &[String],
     ) -> Self {
         let step_explanations: Vec<StepExplanation> = steps
             .iter()
@@ -116,10 +117,19 @@ impl TraversalExplanation {
             .map(|(i, step)| {
                 let filter_key = step.filter_key();
                 let index_hint = filter_key.as_deref().and_then(|key| {
+                    // Check property indexes first
                     indexes
                         .iter()
                         .find(|idx| idx.property == key)
                         .map(|idx| format!("{} ({:?})", idx.name, idx.index_type))
+                        // Then check text indexes
+                        .or_else(|| {
+                            if text_indexes.iter().any(|t| t == key) {
+                                Some("full-text".to_string())
+                            } else {
+                                None
+                            }
+                        })
                 });
 
                 StepExplanation {
@@ -448,7 +458,7 @@ mod tests {
 
     #[test]
     fn explanation_empty() {
-        let exp = TraversalExplanation::from_steps(None, &[], &[]);
+        let exp = TraversalExplanation::from_steps(None, &[], &[], &[]);
         assert_eq!(exp.step_count, 0);
         assert!(!exp.has_barriers);
         assert!(exp.source.is_none());
@@ -456,7 +466,7 @@ mod tests {
 
     #[test]
     fn explanation_display_empty() {
-        let exp = TraversalExplanation::from_steps(None, &[], &[]);
+        let exp = TraversalExplanation::from_steps(None, &[], &[], &[]);
         let display = format!("{exp}");
         assert!(display.contains("(anonymous)"));
         assert!(display.contains("(none)"));
@@ -465,7 +475,7 @@ mod tests {
     #[test]
     fn explanation_display_with_source() {
         let exp =
-            TraversalExplanation::from_steps(Some(&TraversalSource::AllVertices), &[], &[]);
+            TraversalExplanation::from_steps(Some(&TraversalSource::AllVertices), &[], &[], &[]);
         let display = format!("{exp}");
         assert!(display.contains("V() [all vertices]"));
     }

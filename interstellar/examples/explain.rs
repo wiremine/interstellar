@@ -319,5 +319,14 @@ fn main() {
             .values("title")
             .explain();
         println!("{explanation}");
+
+        println!("Query: g.V().hasLabel('article').has('body').values('title')\n");
+        let explanation = g
+            .v()
+            .has_label("article")
+            .has("body")
+            .values("title")
+            .explain();
+        println!("{explanation}");
     }
 }

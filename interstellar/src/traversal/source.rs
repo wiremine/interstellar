@@ -3529,10 +3529,23 @@ impl<'g, In, Out> BoundTraversal<'g, In, Out> {
             .as_ref()
             .map(|g| g.list_indexes())
             .unwrap_or_default();
+        #[cfg(feature = "full-text")]
+        let text_indexes = self
+            .graph
+            .as_ref()
+            .map(|g| {
+                let mut all = g.list_text_indexes_v();
+                all.extend(g.list_text_indexes_e());
+                all
+            })
+            .unwrap_or_default();
+        #[cfg(not(feature = "full-text"))]
+        let text_indexes: Vec<String> = Vec::new();
         crate::traversal::explain::TraversalExplanation::from_steps(
             self.traversal.source(),
             self.traversal.steps(),
             &indexes,
+            &text_indexes,
         )
     }
 

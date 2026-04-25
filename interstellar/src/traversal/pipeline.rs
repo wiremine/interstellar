@@ -256,7 +256,7 @@ impl<In, Out> Traversal<In, Out> {
     /// println!("{}", explanation);
     /// ```
     pub fn explain(&self) -> crate::traversal::explain::TraversalExplanation {
-        crate::traversal::explain::TraversalExplanation::from_steps(None, &self.steps, &[])
+        crate::traversal::explain::TraversalExplanation::from_steps(None, &self.steps, &[], &[])
     }
 }
 
