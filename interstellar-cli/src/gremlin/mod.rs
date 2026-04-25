@@ -216,6 +216,7 @@ pub fn format_result(result: &ExecutionResult) -> String {
         ExecutionResult::Set(values) => format_value_set(values),
         ExecutionResult::Bool(b) => b.to_string(),
         ExecutionResult::Unit => "(executed)".to_string(),
+        ExecutionResult::Explain(s) => s.clone(),
     }
 }
 

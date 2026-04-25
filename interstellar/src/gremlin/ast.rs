@@ -312,6 +312,41 @@ pub enum Step {
     /// profile(), profile('metrics')
     Profile { key: Option<String>, span: Span },
 
+    // ========== Algorithm Steps ==========
+    /// shortestPath(targetId) - unweighted shortest path to target
+    /// Optionally followed by .by('weight') for Dijkstra, and
+    /// .with('heuristic', 'prop') for A*.
+    ShortestPath {
+        target: Literal,
+        span: Span,
+    },
+    /// kShortestPaths(targetId, k) - Yen's k-shortest loopless paths
+    /// Followed by .by('weight') for the weight property.
+    KShortestPaths {
+        target: Literal,
+        k: u64,
+        span: Span,
+    },
+    /// bfs() - breadth-first search traversal from current vertex
+    /// Optional .with('maxDepth', n), .with('edgeLabels', ['l1', 'l2'])
+    BfsTraversal { span: Span },
+    /// dfs() - depth-first search traversal from current vertex
+    /// Optional .with('maxDepth', n), .with('edgeLabels', ['l1', 'l2'])
+    DfsTraversal { span: Span },
+    /// bidirectionalBfs(targetId) - bidirectional BFS shortest path
+    BidirectionalBfs {
+        target: Literal,
+        span: Span,
+    },
+    /// iddfs(targetId, maxDepth) - iterative deepening DFS
+    Iddfs {
+        target: Literal,
+        max_depth: u32,
+        span: Span,
+    },
+    /// with('key', value) - configuration modulator for algorithm steps
+    With { args: WithArgs, span: Span },
+
     // ========== Mutation Steps ==========
     /// addV('label') - inline (not source)
     AddV { label: String, span: Span },
@@ -462,6 +497,15 @@ pub enum FromToArgs {
     Id(Literal),
     /// from(variable) - reference to a script variable
     Variable(String),
+}
+
+/// Arguments for with() modulator.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WithArgs {
+    /// Configuration key (e.g., "heuristic", "maxDepth", "direction", "edgeLabels", "k")
+    pub key: String,
+    /// Configuration value
+    pub value: Literal,
 }
 
 /// Predicate for filtering.

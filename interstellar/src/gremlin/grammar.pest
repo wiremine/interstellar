@@ -138,7 +138,11 @@ step_body = {
     // Side effect
     as_step | aggregate_step | store_step | cap_step | side_effect_step | profile_step |
     // Mutation
-    add_v_inline_step | add_e_inline_step | property_step | from_step | to_step | drop_step
+    add_v_inline_step | add_e_inline_step | property_step | from_step | to_step | drop_step |
+    // Algorithm
+    shortest_path_step | k_shortest_paths_step |
+    bfs_traversal_step | dfs_traversal_step |
+    bidirectional_bfs_step | iddfs_step | with_step
 }
 
 // ============================================================
@@ -327,6 +331,25 @@ to_step = { "to" ~ "(" ~ from_to_arg ~ ")" }
 // from/to can accept: anonymous traversal, string label, variable reference, or value (id)
 from_to_arg = { anonymous_traversal | string | variable_ref | value }
 drop_step = { "drop" ~ "(" ~ ")" }
+
+// ============================================================
+// Algorithm Steps
+// ============================================================
+
+// shortestPath(targetId) - unweighted shortest path; followed by .by('weight') for Dijkstra
+shortest_path_step = { "shortestPath" ~ "(" ~ value ~ ")" }
+// kShortestPaths(targetId, k) - Yen's k-shortest paths; followed by .by('weight')
+k_shortest_paths_step = { "kShortestPaths" ~ "(" ~ value ~ "," ~ integer ~ ")" }
+// bfs() - breadth-first search from current vertex
+bfs_traversal_step = { "bfs" ~ "(" ~ ")" }
+// dfs() - depth-first search from current vertex
+dfs_traversal_step = { "dfs" ~ "(" ~ ")" }
+// bidirectionalBfs(targetId) - bidirectional BFS shortest path
+bidirectional_bfs_step = { "bidirectionalBfs" ~ "(" ~ value ~ ")" }
+// iddfs(targetId, maxDepth) - iterative deepening DFS
+iddfs_step = { "iddfs" ~ "(" ~ value ~ "," ~ integer ~ ")" }
+// with('key', value) - configuration modulator for algorithm steps
+with_step = { "with" ~ "(" ~ string ~ "," ~ value ~ ")" }
 
 // ============================================================
 // Terminal Steps

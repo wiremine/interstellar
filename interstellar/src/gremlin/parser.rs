@@ -653,6 +653,66 @@ fn build_step(pair: Pair<Rule>) -> Result<Step, ParseError> {
         }
         Rule::drop_step => Ok(Step::Drop { span }),
 
+        // Algorithm steps
+        Rule::shortest_path_step => {
+            let target = build_value(inner.into_inner().next().ok_or_else(|| {
+                ParseError::Syntax("shortestPath requires target vertex ID".to_string())
+            })?)?;
+            Ok(Step::ShortestPath { target, span })
+        }
+        Rule::k_shortest_paths_step => {
+            let mut inners = inner.into_inner();
+            let target = build_value(inners.next().ok_or_else(|| {
+                ParseError::Syntax("kShortestPaths requires target vertex ID".to_string())
+            })?)?;
+            let k_pair = inners.next().ok_or_else(|| {
+                ParseError::Syntax("kShortestPaths requires k value".to_string())
+            })?;
+            let k: u64 = k_pair.as_str().parse().map_err(|_| {
+                ParseError::Syntax(format!("Invalid k value: {}", k_pair.as_str()))
+            })?;
+            Ok(Step::KShortestPaths { target, k, span })
+        }
+        Rule::bfs_traversal_step => Ok(Step::BfsTraversal { span }),
+        Rule::dfs_traversal_step => Ok(Step::DfsTraversal { span }),
+        Rule::bidirectional_bfs_step => {
+            let target = build_value(inner.into_inner().next().ok_or_else(|| {
+                ParseError::Syntax("bidirectionalBfs requires target vertex ID".to_string())
+            })?)?;
+            Ok(Step::BidirectionalBfs { target, span })
+        }
+        Rule::iddfs_step => {
+            let mut inners = inner.into_inner();
+            let target = build_value(inners.next().ok_or_else(|| {
+                ParseError::Syntax("iddfs requires target vertex ID".to_string())
+            })?)?;
+            let depth_pair = inners.next().ok_or_else(|| {
+                ParseError::Syntax("iddfs requires maxDepth value".to_string())
+            })?;
+            let max_depth: u32 = depth_pair.as_str().parse().map_err(|_| {
+                ParseError::Syntax(format!("Invalid maxDepth value: {}", depth_pair.as_str()))
+            })?;
+            Ok(Step::Iddfs {
+                target,
+                max_depth,
+                span,
+            })
+        }
+        Rule::with_step => {
+            let mut inners = inner.into_inner();
+            let key_pair = inners.next().ok_or_else(|| {
+                ParseError::Syntax("with() requires key string".to_string())
+            })?;
+            let key = parse_string_value(key_pair)?;
+            let value = build_value(inners.next().ok_or_else(|| {
+                ParseError::Syntax("with() requires value".to_string())
+            })?)?;
+            Ok(Step::With {
+                args: WithArgs { key, value },
+                span,
+            })
+        }
+
         _ => Err(ParseError::Syntax(format!(
             "Unknown step: {:?}",
             inner.as_rule()

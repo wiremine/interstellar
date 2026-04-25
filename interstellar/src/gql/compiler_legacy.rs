@@ -2617,6 +2617,121 @@ impl<'a, S: SnapshotLike + ?Sized> Compiler<'a, S> {
                 Ok(results)
             }
 
+            "interstellar.dfs" => {
+                // Args: source (VertexId)
+                // Optional: maxDepth (Int)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let max_depth = if args.len() > 1 {
+                    Some(self.extract_int_arg(name, args, 1, "maxDepth")? as u32)
+                } else {
+                    None
+                };
+
+                use crate::traversal::algorithm_steps::{expand_from_storage, StepDirection};
+
+                // DFS traversal yielding (node, depth)
+                let mut results = Vec::new();
+                let mut visited = std::collections::HashSet::new();
+                let mut stack = vec![(source, 0i64)];
+
+                while let Some((vid, depth)) = stack.pop() {
+                    if !visited.insert(vid) {
+                        continue;
+                    }
+                    let mut row = HashMap::new();
+                    self.bind_yield(&mut row, yield_items, "node", Value::Vertex(vid));
+                    self.bind_yield(&mut row, yield_items, "depth", Value::Int(depth));
+                    results.push(row);
+
+                    if let Some(max) = max_depth {
+                        if depth >= max as i64 {
+                            continue;
+                        }
+                    }
+                    let neighbors = expand_from_storage(storage, vid, StepDirection::Out);
+                    for (neighbor, _, _) in neighbors.into_iter().rev() {
+                        if !visited.contains(&neighbor) {
+                            stack.push((neighbor, depth + 1));
+                        }
+                    }
+                }
+
+                Ok(results)
+            }
+
+            "interstellar.astar" => {
+                // Args: source (VertexId), target (VertexId), weightProperty (String),
+                //       heuristicProperty (String)
+                // Optional: direction (String) - defaults to "OUT"
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let target = self.extract_vertex_id_arg(name, args, 1, "target")?;
+                let weight_prop = self.extract_string_arg(name, args, 2, "weightProperty")?;
+                let heuristic_prop =
+                    self.extract_string_arg(name, args, 3, "heuristicProperty")?;
+
+                use crate::traversal::algorithm_steps::astar_on_storage;
+                use crate::traversal::algorithm_steps::StepDirection;
+
+                match astar_on_storage(
+                    storage, source, target, &weight_prop, &heuristic_prop, StepDirection::Out,
+                ) {
+                    Some(Value::Map(map)) => {
+                        let path = map.get("path").cloned().unwrap_or(Value::List(Vec::new()));
+                        let weight = map.get("weight").cloned().unwrap_or(Value::Float(0.0));
+                        let mut row = HashMap::new();
+                        self.bind_yield(&mut row, yield_items, "path", path);
+                        self.bind_yield(&mut row, yield_items, "distance", weight);
+                        Ok(vec![row])
+                    }
+                    _ => Ok(vec![]),
+                }
+            }
+
+            "interstellar.bidirectionalBfs" => {
+                // Args: source (VertexId), target (VertexId)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let target = self.extract_vertex_id_arg(name, args, 1, "target")?;
+
+                use crate::traversal::algorithm_steps::bidirectional_bfs_on_storage;
+
+                match bidirectional_bfs_on_storage(storage, source, target) {
+                    Some(path_value) => {
+                        let distance = match &path_value {
+                            Value::List(v) => Value::Int(v.len() as i64 - 1),
+                            _ => Value::Int(0),
+                        };
+                        let mut row = HashMap::new();
+                        self.bind_yield(&mut row, yield_items, "path", path_value);
+                        self.bind_yield(&mut row, yield_items, "distance", distance);
+                        Ok(vec![row])
+                    }
+                    None => Ok(vec![]),
+                }
+            }
+
+            "interstellar.iddfs" => {
+                // Args: source (VertexId), target (VertexId), maxDepth (Int)
+                let source = self.extract_vertex_id_arg(name, args, 0, "source")?;
+                let target = self.extract_vertex_id_arg(name, args, 1, "target")?;
+                let max_depth = self.extract_int_arg(name, args, 2, "maxDepth")? as u32;
+
+                use crate::traversal::algorithm_steps::iddfs_on_storage;
+
+                match iddfs_on_storage(storage, source, target, max_depth) {
+                    Some(path_value) => {
+                        let distance = match &path_value {
+                            Value::List(v) => Value::Int(v.len() as i64 - 1),
+                            _ => Value::Int(0),
+                        };
+                        let mut row = HashMap::new();
+                        self.bind_yield(&mut row, yield_items, "path", path_value);
+                        self.bind_yield(&mut row, yield_items, "distance", distance);
+                        Ok(vec![row])
+                    }
+                    None => Ok(vec![]),
+                }
+            }
+
             // -----------------------------------------------------------------
             // spec-55c Layer 5 — full-text search CALL procedures
             // -----------------------------------------------------------------

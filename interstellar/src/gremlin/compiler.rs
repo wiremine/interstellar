@@ -534,12 +534,100 @@ fn compile_steps<'g>(
                 i = j;
                 continue;
             }
+            // Algorithm steps with by()/with() lookahead
+            Step::ShortestPath { target, .. } => {
+                let mut by_steps = Vec::new();
+                let mut with_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() {
+                    match &steps[j] {
+                        Step::By { args, .. } => { by_steps.push(args.clone()); j += 1; }
+                        Step::With { args, .. } => { with_steps.push(args.clone()); j += 1; }
+                        _ => break,
+                    }
+                }
+                traversal = compile_shortest_path(traversal, target, &by_steps, &with_steps)?;
+                i = j;
+                continue;
+            }
+            Step::KShortestPaths { target, k, .. } => {
+                let mut by_steps = Vec::new();
+                let mut with_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() {
+                    match &steps[j] {
+                        Step::By { args, .. } => { by_steps.push(args.clone()); j += 1; }
+                        Step::With { args, .. } => { with_steps.push(args.clone()); j += 1; }
+                        _ => break,
+                    }
+                }
+                traversal = compile_k_shortest_paths(traversal, target, *k, &by_steps, &with_steps)?;
+                i = j;
+                continue;
+            }
+            Step::BfsTraversal { .. } => {
+                let mut with_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() {
+                    if let Step::With { args, .. } = &steps[j] {
+                        with_steps.push(args.clone());
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+                traversal = compile_bfs_traversal(traversal, &with_steps)?;
+                i = j;
+                continue;
+            }
+            Step::DfsTraversal { .. } => {
+                let mut with_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() {
+                    if let Step::With { args, .. } = &steps[j] {
+                        with_steps.push(args.clone());
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+                traversal = compile_dfs_traversal(traversal, &with_steps)?;
+                i = j;
+                continue;
+            }
+            Step::BidirectionalBfs { target, .. } => {
+                let mut with_steps = Vec::new();
+                let mut j = i + 1;
+                while j < steps.len() {
+                    if let Step::With { args, .. } = &steps[j] {
+                        with_steps.push(args.clone());
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+                traversal = compile_bidirectional_bfs(traversal, target, &with_steps)?;
+                i = j;
+                continue;
+            }
+            Step::Iddfs { target, max_depth, .. } => {
+                traversal = compile_iddfs(traversal, target, *max_depth)?;
+                i += 1;
+                continue;
+            }
+            Step::With { .. } => {
+                // with() should have been consumed by algorithm step
+                return Err(CompileError::MissingPrecedingStep {
+                    step: "with".to_string(),
+                    required: "shortestPath, kShortestPaths, bfs, dfs, bidirectionalBfs".to_string(),
+                });
+            }
             Step::By { .. } => {
                 // by() should have been consumed by order/project/math/etc.
                 // If we get here, it's orphaned
                 return Err(CompileError::MissingPrecedingStep {
                     step: "by".to_string(),
-                    required: "order, project, group, math".to_string(),
+                    required: "order, project, group, math, shortestPath, kShortestPaths".to_string(),
                 });
             }
             Step::From { .. } => {
@@ -901,7 +989,14 @@ fn compile_step<'g>(
         | Step::By { .. }
         | Step::AddE { .. }
         | Step::From { .. }
-        | Step::To { .. } => {
+        | Step::To { .. }
+        | Step::ShortestPath { .. }
+        | Step::KShortestPaths { .. }
+        | Step::BfsTraversal { .. }
+        | Step::DfsTraversal { .. }
+        | Step::BidirectionalBfs { .. }
+        | Step::Iddfs { .. }
+        | Step::With { .. } => {
             unreachable!("Should be handled by compile_steps lookahead")
         }
     }
@@ -1286,6 +1381,162 @@ fn compile_repeat<'g>(
             message: "repeat() requires times() or until() to terminate".to_string(),
         })
     }
+}
+
+// ============================================================
+// Algorithm Step Compilation
+// ============================================================
+
+/// Extract a vertex ID from a Literal.
+fn literal_to_vertex_id(lit: &Literal) -> Result<VertexId, CompileError> {
+    match lit {
+        Literal::Int(n) => Ok(VertexId(*n as u64)),
+        Literal::String(s) => s.parse::<u64>().map(VertexId).map_err(|_| {
+            CompileError::InvalidArguments {
+                step: "algorithm".to_string(),
+                message: format!("Invalid vertex ID: {}", s),
+            }
+        }),
+        _ => Err(CompileError::TypeMismatch {
+            message: "Algorithm step requires integer vertex ID".to_string(),
+        }),
+    }
+}
+
+/// Extract a with() config value by key from a list of WithArgs.
+fn get_with_value<'a>(with_steps: &'a [WithArgs], key: &str) -> Option<&'a Literal> {
+    with_steps.iter().find(|w| w.key == key).map(|w| &w.value)
+}
+
+/// Compile shortestPath(target) with optional by('weight') and with('heuristic', 'prop').
+///
+/// - No by(): unweighted BFS shortest path
+/// - by('weight'): Dijkstra weighted shortest path
+/// - by('weight').with('heuristic', 'prop'): A* with property-based heuristic
+fn compile_shortest_path<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    target: &Literal,
+    by_steps: &[ByArgs],
+    with_steps: &[WithArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let target_id = literal_to_vertex_id(target)?;
+
+    // Check for weight property from by() modulator
+    let weight_prop = by_steps.first().and_then(|by| match by {
+        ByArgs::Key(k) => Some(k.clone()),
+        _ => None,
+    });
+
+    // Check for heuristic property from with()
+    let heuristic_prop = get_with_value(with_steps, "heuristic").and_then(|lit| match lit {
+        Literal::String(s) => Some(s.clone()),
+        _ => None,
+    });
+
+    match (weight_prop, heuristic_prop) {
+        (None, _) => {
+            // Unweighted shortest path (BFS)
+            Ok(traversal.shortest_path_to(target_id))
+        }
+        (Some(wp), None) => {
+            // Dijkstra weighted shortest path
+            Ok(traversal.dijkstra_to(target_id, &wp))
+        }
+        (Some(wp), Some(hp)) => {
+            // A* with property-based heuristic
+            Ok(traversal.astar_to(target_id, &wp, &hp))
+        }
+    }
+}
+
+/// Compile kShortestPaths(target, k) with by('weight').
+fn compile_k_shortest_paths<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    target: &Literal,
+    k: u64,
+    by_steps: &[ByArgs],
+    _with_steps: &[WithArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let target_id = literal_to_vertex_id(target)?;
+    let weight_prop = by_steps.first().and_then(|by| match by {
+        ByArgs::Key(k) => Some(k.clone()),
+        _ => None,
+    });
+    let wp = weight_prop.ok_or_else(|| CompileError::InvalidArguments {
+        step: "kShortestPaths".to_string(),
+        message: "kShortestPaths requires .by('weightProperty')".to_string(),
+    })?;
+    Ok(traversal.k_shortest_paths_to(target_id, k as usize, &wp))
+}
+
+/// Compile bfs() with optional with('maxDepth', n), with('edgeLabels', [...]).
+fn compile_bfs_traversal<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    with_steps: &[WithArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let max_depth = get_with_value(with_steps, "maxDepth").and_then(|lit| match lit {
+        Literal::Int(n) => Some(*n as u32),
+        _ => None,
+    });
+    let edge_labels = get_with_value(with_steps, "edgeLabels").and_then(|lit| match lit {
+        Literal::List(items) => {
+            let labels: Vec<String> = items
+                .iter()
+                .filter_map(|item| match item {
+                    Literal::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect();
+            if labels.is_empty() { None } else { Some(labels) }
+        }
+        _ => None,
+    });
+    Ok(traversal.bfs_traversal(max_depth, edge_labels))
+}
+
+/// Compile dfs() with optional with('maxDepth', n), with('edgeLabels', [...]).
+fn compile_dfs_traversal<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    with_steps: &[WithArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let max_depth = get_with_value(with_steps, "maxDepth").and_then(|lit| match lit {
+        Literal::Int(n) => Some(*n as u32),
+        _ => None,
+    });
+    let edge_labels = get_with_value(with_steps, "edgeLabels").and_then(|lit| match lit {
+        Literal::List(items) => {
+            let labels: Vec<String> = items
+                .iter()
+                .filter_map(|item| match item {
+                    Literal::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect();
+            if labels.is_empty() { None } else { Some(labels) }
+        }
+        _ => None,
+    });
+    Ok(traversal.dfs_traversal(max_depth, edge_labels))
+}
+
+/// Compile bidirectionalBfs(target).
+fn compile_bidirectional_bfs<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    target: &Literal,
+    _with_steps: &[WithArgs],
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let target_id = literal_to_vertex_id(target)?;
+    Ok(traversal.bidirectional_bfs_to(target_id))
+}
+
+/// Compile iddfs(target, maxDepth).
+fn compile_iddfs<'g>(
+    traversal: BoundTraversal<'g, (), Value>,
+    target: &Literal,
+    max_depth: u32,
+) -> Result<BoundTraversal<'g, (), Value>, CompileError> {
+    let target_id = literal_to_vertex_id(target)?;
+    Ok(traversal.iddfs_to(target_id, max_depth))
 }
 
 /// Compile an anonymous traversal.
@@ -1855,6 +2106,13 @@ impl Step {
             Step::To { .. } => "to",
             Step::Drop { .. } => "drop",
             Step::TextScore { .. } => "textScore",
+            Step::ShortestPath { .. } => "shortestPath",
+            Step::KShortestPaths { .. } => "kShortestPaths",
+            Step::BfsTraversal { .. } => "bfs",
+            Step::DfsTraversal { .. } => "dfs",
+            Step::BidirectionalBfs { .. } => "bidirectionalBfs",
+            Step::Iddfs { .. } => "iddfs",
+            Step::With { .. } => "with",
         }
     }
 }

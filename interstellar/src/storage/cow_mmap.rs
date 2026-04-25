@@ -1944,6 +1944,9 @@ impl CowMmapGraph {
             Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
                 ExecutionResult::Bool(!final_results.is_empty())
             }
+            Some(crate::gremlin::TerminalStep::Explain { .. }) => {
+                ExecutionResult::Explain("explain not supported in mmap backend".to_string())
+            }
         })
     }
 
@@ -2126,6 +2129,11 @@ impl CowMmapGraph {
                         Some(crate::gremlin::TerminalStep::Iterate { .. }) => ExecutionResult::Unit,
                         Some(crate::gremlin::TerminalStep::HasNext { .. }) => {
                             ExecutionResult::Bool(!final_results.is_empty())
+                        }
+                        Some(crate::gremlin::TerminalStep::Explain { .. }) => {
+                            ExecutionResult::Explain(
+                                "explain not supported in mmap backend".to_string(),
+                            )
                         }
                     };
                 }

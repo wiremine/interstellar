@@ -1571,6 +1571,98 @@ impl<'g, In> BoundTraversal<'g, In, Value> {
         self.add_step(DijkstraStep::new(target, weight_property.to_string()))
     }
 
+    /// Compute A* shortest path from the current vertex to the target.
+    ///
+    /// Uses Dijkstra with a property-based heuristic. The heuristic vertex
+    /// property should contain an estimated distance to the target (must be
+    /// admissible — never overestimate). If a vertex lacks the property, the
+    /// heuristic defaults to 0.0 (Dijkstra behavior).
+    ///
+    /// Emits a `Value::Map` with "path" (List of vertex IDs) and "weight" (Float).
+    pub fn astar_to(
+        self,
+        target: VertexId,
+        weight_property: &str,
+        heuristic_property: &str,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::AstarStep;
+        self.add_step(AstarStep::new(
+            target,
+            weight_property.to_string(),
+            heuristic_property.to_string(),
+        ))
+    }
+
+    /// Find the K shortest loopless paths from the current vertex to the target.
+    ///
+    /// Uses Yen's algorithm with the named weight property.
+    /// Emits a `Value::List` of maps, each with "path" and "weight" keys.
+    pub fn k_shortest_paths_to(
+        self,
+        target: VertexId,
+        k: usize,
+        weight_property: &str,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::KShortestPathsStep;
+        self.add_step(KShortestPathsStep::new(
+            target,
+            k,
+            weight_property.to_string(),
+        ))
+    }
+
+    /// Perform a BFS traversal from the current vertex.
+    ///
+    /// Emits `Value::Map` with "vertex" and "depth" keys for each reachable vertex.
+    /// Optional max depth and edge label filters.
+    pub fn bfs_traversal(
+        self,
+        max_depth: Option<u32>,
+        edge_labels: Option<Vec<String>>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::BfsTraversalStep;
+        self.add_step(BfsTraversalStep::new(max_depth, edge_labels))
+    }
+
+    /// Perform a DFS traversal from the current vertex.
+    ///
+    /// Emits `Value::Map` with "vertex" and "depth" keys for each reachable vertex.
+    /// Optional max depth and edge label filters.
+    pub fn dfs_traversal(
+        self,
+        max_depth: Option<u32>,
+        edge_labels: Option<Vec<String>>,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::DfsTraversalStep;
+        self.add_step(DfsTraversalStep::new(max_depth, edge_labels))
+    }
+
+    /// Compute bidirectional BFS shortest path from the current vertex to the target.
+    ///
+    /// Expands frontiers from both source and target simultaneously. Often much
+    /// faster than plain BFS on large-diameter graphs.
+    /// Emits a `Value::List` of vertex IDs representing the path.
+    pub fn bidirectional_bfs_to(
+        self,
+        target: VertexId,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::BidirectionalBfsStep;
+        self.add_step(BidirectionalBfsStep::new(target))
+    }
+
+    /// Compute IDDFS (Iterative Deepening DFS) shortest path to the target.
+    ///
+    /// Combines DFS space efficiency with BFS shortest-path optimality.
+    /// Emits a `Value::List` of vertex IDs representing the path.
+    pub fn iddfs_to(
+        self,
+        target: VertexId,
+        max_depth: u32,
+    ) -> BoundTraversal<'g, In, Value> {
+        use crate::traversal::algorithm_steps::IddfsStep;
+        self.add_step(IddfsStep::new(target, max_depth))
+    }
+
     /// Traverse to outgoing edges.
     ///
     /// From each vertex traverser, returns all outgoing edges (as edge elements).

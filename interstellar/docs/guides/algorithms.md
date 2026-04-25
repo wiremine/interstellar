@@ -324,6 +324,159 @@ match dijkstra(&graph, source, target, &wf, Direction::Out) {
 
 ---
 
+## Gremlin Query Language
+
+All algorithms are available as first-class Gremlin steps. Use `by()` modulators for weight properties and `with()` for additional configuration.
+
+### shortestPath (unweighted)
+
+```gremlin
+g.V(1).shortestPath(4)
+```
+
+Returns a list of vertex IDs along the shortest unweighted path (BFS-based).
+
+### Dijkstra (weighted shortestPath)
+
+Add a `by('weight')` modulator to switch from BFS to Dijkstra:
+
+```gremlin
+g.V(1).shortestPath(4).by('weight')
+```
+
+### A*
+
+Add both `by('weight')` and `with('heuristic', 'propertyName')` to use A\*. The heuristic property should contain pre-computed estimated distances to the target on each vertex. If a vertex lacks the property, the heuristic defaults to 0.0 (Dijkstra behavior).
+
+```gremlin
+g.V(1).shortestPath(4).by('weight').with('heuristic', 'estimatedDist')
+```
+
+### K-Shortest Paths
+
+```gremlin
+g.V(1).kShortestPaths(4, 3).by('weight')
+```
+
+Finds up to `k` shortest loopless paths. The `by()` modulator specifies the weight property.
+
+### BFS Traversal
+
+```gremlin
+g.V(1).bfs()
+g.V(1).bfs().with('maxDepth', 3)
+g.V(1).bfs().with('edgeLabels', ['knows', 'follows'])
+```
+
+### DFS Traversal
+
+```gremlin
+g.V(1).dfs()
+g.V(1).dfs().with('maxDepth', 5)
+g.V(1).dfs().with('edgeLabels', ['knows'])
+```
+
+### Bidirectional BFS
+
+```gremlin
+g.V(1).bidirectionalBfs(4)
+```
+
+### IDDFS (Iterative Deepening DFS)
+
+```gremlin
+g.V(1).iddfs(4, 10)
+```
+
+The second argument is the maximum depth.
+
+---
+
+## GQL CALL Procedures
+
+Algorithms are also accessible via GQL `CALL` procedures. All procedure names are prefixed with `interstellar.`.
+
+### interstellar.shortestPath(source, target)
+
+Unweighted BFS shortest path. Yields `path` (list of vertex IDs) and `distance` (hop count).
+
+```sql
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.shortestPath(a, b)
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+### interstellar.dijkstra(source, target, weightProperty)
+
+Weighted shortest path. Yields `path` and `distance` (total weight).
+
+```sql
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.dijkstra(a, b, 'weight')
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+### interstellar.bfs(source)
+
+Breadth-first traversal. Yields `node` (vertex) and `depth` for each visited vertex.
+
+```sql
+MATCH (a) WHERE id(a) = 1
+CALL interstellar.bfs(a)
+YIELD node AS v, depth AS d
+RETURN v, d
+```
+
+### interstellar.dfs(source [, maxDepth])
+
+Depth-first traversal with optional depth limit. Yields `node` and `depth`.
+
+```sql
+MATCH (a) WHERE id(a) = 1
+CALL interstellar.dfs(a, 3)
+YIELD node AS v, depth AS d
+RETURN v, d
+```
+
+### interstellar.astar(source, target, weightProperty, heuristicProperty)
+
+A\* pathfinding using a vertex property as the heuristic. Yields `path` and `distance`.
+
+```sql
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.astar(a, b, 'weight', 'estimatedDist')
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+### interstellar.bidirectionalBfs(source, target)
+
+Bidirectional BFS shortest path. Yields `path` and `distance`.
+
+```sql
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.bidirectionalBfs(a, b)
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+### interstellar.iddfs(source, target, maxDepth)
+
+Iterative deepening DFS. Yields `path` and `distance`.
+
+```sql
+MATCH (a), (b) WHERE id(a) = 1 AND id(b) = 4
+CALL interstellar.iddfs(a, b, 10)
+YIELD path AS p, distance AS d
+RETURN p, d
+```
+
+All CALL procedures return empty results (no rows) when no path exists between source and target.
+
+---
+
 ## Full Example
 
 See [`examples/algorithms.rs`](../../examples/algorithms.rs) for a complete runnable example that builds a city road network and demonstrates every algorithm.
