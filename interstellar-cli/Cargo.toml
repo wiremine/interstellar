@@ -1,6 +1,6 @@
 [package]
 name = "interstellar-cli"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Command-line interface for the Interstellar graph database"
 license = "MIT"
@@ -16,7 +16,7 @@ name = "interstellar"
 path = "src/main.rs"
 
 [dependencies]
-interstellar = { version = "0.1.1", path = "../interstellar", features = ["mmap", "gremlin", "gql", "graphson", "full-text"] }
+interstellar = { version = "0.2.0", path = "../interstellar", features = ["mmap", "gremlin", "gql", "graphson", "full-text"] }
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "1"
 anyhow = "1"

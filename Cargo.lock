@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "interstellar"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "crc32fast",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "interstellar-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1033,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "interstellar-node"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "interstellar",
  "napi",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "interstellar-wasm"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "interstellar",
  "wasm-bindgen",

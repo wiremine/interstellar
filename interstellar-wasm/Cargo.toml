@@ -1,6 +1,6 @@
 [package]
 name = "interstellar-wasm"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "WebAssembly bindings for Interstellar graph database"
 license = "MIT OR Apache-2.0"
@@ -15,7 +15,7 @@ rust-version = "1.75"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-interstellar = { version = "0.1.1", path = "../interstellar", features = ["wasm", "graphson"] }
+interstellar = { version = "0.2.0", path = "../interstellar", features = ["wasm", "graphson"] }
 wasm-bindgen = "0.2"
 
 [dev-dependencies]

@@ -1,6 +1,6 @@
 [package]
 name = "interstellar-node"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Native Node.js bindings for Interstellar graph database"
 license = "MIT OR Apache-2.0"
@@ -15,7 +15,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-interstellar = { version = "0.1.1", path = "../interstellar" }
+interstellar = { version = "0.2.0", path = "../interstellar" }
 napi = { version = "2", default-features = false, features = [
     "napi8",
     "async",
