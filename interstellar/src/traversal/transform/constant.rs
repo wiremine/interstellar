@@ -75,6 +75,10 @@ impl crate::traversal::step::Step for ConstantStep {
         "constant"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,

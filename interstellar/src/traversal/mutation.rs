@@ -150,6 +150,10 @@ impl Step for AddVStep {
         "addV"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -278,6 +282,10 @@ impl Step for PropertyStep {
         "property"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -359,6 +367,10 @@ impl Step for DropStep {
 
     fn name(&self) -> &'static str {
         "drop"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
     }
 
     fn apply_streaming(
@@ -605,6 +617,10 @@ impl Step for AddEStep {
 
     fn name(&self) -> &'static str {
         "addE"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
     }
 
     fn apply_streaming(

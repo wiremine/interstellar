@@ -89,6 +89,10 @@ where
         "map"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -199,6 +203,10 @@ where
 
     fn name(&self) -> &'static str {
         "flatMap"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -869,6 +877,10 @@ impl crate::traversal::step::Step for ProjectStep {
         "project"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -1350,6 +1362,10 @@ impl crate::traversal::step::Step for MathStep {
 
     fn name(&self) -> &'static str {
         "math"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(

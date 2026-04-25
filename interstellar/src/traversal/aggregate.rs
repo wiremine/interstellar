@@ -413,6 +413,10 @@ impl Step for GroupStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Aggregation
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -840,6 +844,10 @@ impl Step for GroupCountStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Aggregation
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -1077,6 +1085,10 @@ impl Step for CountStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Aggregation
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -1214,6 +1226,10 @@ impl Step for MinStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Aggregation
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -1327,6 +1343,10 @@ impl Step for MaxStep {
 
     fn is_barrier(&self) -> bool {
         true
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Aggregation
     }
 
     fn apply_streaming(

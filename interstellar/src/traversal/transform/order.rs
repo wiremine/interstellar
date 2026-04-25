@@ -260,6 +260,10 @@ impl Step for OrderStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,

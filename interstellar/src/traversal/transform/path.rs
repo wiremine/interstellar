@@ -62,6 +62,10 @@ impl crate::traversal::step::Step for PathStep {
         "path"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -150,6 +154,10 @@ impl crate::traversal::step::Step for AsStep {
 
     fn name(&self) -> &'static str {
         "as"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Modulator
     }
 
     fn apply_streaming(
@@ -297,6 +305,10 @@ impl crate::traversal::step::Step for SelectStep {
         "select"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -400,6 +412,10 @@ impl crate::traversal::step::Step for SelectKeysStep {
         "select_keys"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -475,6 +491,10 @@ impl crate::traversal::step::Step for SelectValuesStep {
 
     fn name(&self) -> &'static str {
         "select_values"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(

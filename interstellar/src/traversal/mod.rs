@@ -74,6 +74,7 @@ pub mod algorithm_steps;
 pub mod anonymous;
 pub mod branch;
 pub mod context;
+pub mod explain;
 pub mod filter;
 pub mod markers;
 pub mod mutation;

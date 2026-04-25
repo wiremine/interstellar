@@ -201,6 +201,10 @@ impl Step for WhereStep {
         "where"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -262,6 +266,10 @@ impl Step for NotStep {
 
     fn name(&self) -> &'static str {
         "not"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
     }
 
     fn apply_streaming(
@@ -333,6 +341,10 @@ impl Step for WhereNeqStep {
 
     fn name(&self) -> &'static str {
         "where_neq"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
     }
 
     fn apply_streaming(
@@ -410,6 +422,10 @@ impl Step for WhereEqStep {
         "where_eq"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -478,6 +494,10 @@ impl Step for AndStep {
         "and"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -543,6 +563,10 @@ impl Step for OrStep {
 
     fn name(&self) -> &'static str {
         "or"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
     }
 
     fn apply_streaming(
@@ -618,6 +642,10 @@ impl Step for UnionStep {
         "union"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Branch
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -687,6 +715,10 @@ impl Step for CoalesceStep {
 
     fn name(&self) -> &'static str {
         "coalesce"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Branch
     }
 
     fn apply_streaming(
@@ -778,6 +810,10 @@ impl Step for ChooseStep {
         "choose"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Branch
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -854,6 +890,10 @@ impl Step for OptionalStep {
         "optional"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Branch
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -921,6 +961,10 @@ impl Step for LocalStep {
 
     fn name(&self) -> &'static str {
         "local"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Branch
     }
 
     fn apply_streaming(
@@ -1113,6 +1157,10 @@ impl Step for BranchStep {
 
     fn name(&self) -> &'static str {
         "branch"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Branch
     }
 
     fn apply_streaming(

@@ -79,6 +79,10 @@ impl crate::traversal::step::Step for IdStep {
         "id"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -174,6 +178,10 @@ impl crate::traversal::step::Step for LabelStep {
         "label"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -263,6 +271,10 @@ impl crate::traversal::step::Step for KeyStep {
         "key"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -342,6 +354,10 @@ impl crate::traversal::step::Step for ValueStep {
 
     fn name(&self) -> &'static str {
         "value"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -433,6 +449,10 @@ impl crate::traversal::step::Step for LoopsStep {
 
     fn name(&self) -> &'static str {
         "loops"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -534,6 +554,10 @@ impl crate::traversal::step::Step for IndexStep {
 
     fn name(&self) -> &'static str {
         "index"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(

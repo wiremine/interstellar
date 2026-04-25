@@ -129,6 +129,10 @@ impl Step for StoreStep {
         "store"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -240,6 +244,10 @@ impl Step for AggregateStep {
 
     fn is_barrier(&self) -> bool {
         true
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
     }
 
     fn apply_streaming(
@@ -381,6 +389,10 @@ impl Step for CapStep {
         "cap"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -494,6 +506,10 @@ impl Step for SideEffectStep {
 
     fn name(&self) -> &'static str {
         "sideEffect"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
     }
 
     fn apply_streaming(
@@ -637,6 +653,10 @@ impl Step for ProfileStep {
 
     fn name(&self) -> &'static str {
         "profile"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::SideEffect
     }
 
     fn apply_streaming(

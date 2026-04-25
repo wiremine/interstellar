@@ -89,6 +89,10 @@ impl crate::traversal::step::Step for FoldStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -203,6 +207,10 @@ impl crate::traversal::step::Step for SumStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -281,6 +289,10 @@ impl crate::traversal::step::Step for CountLocalStep {
 
     fn name(&self) -> &'static str {
         "count(local)"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -382,6 +394,10 @@ impl crate::traversal::step::Step for SumLocalStep {
 
     fn name(&self) -> &'static str {
         "sum(local)"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -529,7 +545,7 @@ impl UnfoldStep {
 }
 
 // Use the macro to implement Step for UnfoldStep
-impl_flatmap_step!(UnfoldStep, "unfold");
+impl_flatmap_step!(UnfoldStep, "unfold", category = crate::traversal::explain::StepCategory::Transform);
 
 // -----------------------------------------------------------------------------
 // MeanStep - calculate arithmetic mean of numeric values
@@ -626,6 +642,10 @@ impl crate::traversal::step::Step for MeanStep {
 
     fn name(&self) -> &'static str {
         "mean"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(

@@ -132,7 +132,7 @@ impl HasLabelStep {
 }
 
 // Use the macro to implement Step for HasLabelStep
-impl_filter_step!(HasLabelStep, "hasLabel");
+impl_filter_step!(HasLabelStep, "hasLabel", category = crate::traversal::explain::StepCategory::Filter);
 
 // Reactive introspection: expose label constraints for fast-rejection filtering.
 #[cfg(feature = "reactive")]
@@ -216,7 +216,7 @@ impl HasStep {
 }
 
 // Use the macro to implement Step for HasStep
-impl_filter_step!(HasStep, "has");
+impl_filter_step!(HasStep, "has", category = crate::traversal::explain::StepCategory::Filter);
 
 // Reactive introspection: expose property key constraint.
 #[cfg(feature = "reactive")]
@@ -304,7 +304,7 @@ impl HasNotStep {
 }
 
 // Use the macro to implement Step for HasNotStep
-impl_filter_step!(HasNotStep, "hasNot");
+impl_filter_step!(HasNotStep, "hasNot", category = crate::traversal::explain::StepCategory::Filter);
 
 // -----------------------------------------------------------------------------
 // HasValueStep - filter by property value equality
@@ -400,7 +400,7 @@ impl HasValueStep {
 }
 
 // Use the macro to implement Step for HasValueStep
-impl_filter_step!(HasValueStep, "has");
+impl_filter_step!(HasValueStep, "has", category = crate::traversal::explain::StepCategory::Filter);
 
 // Reactive introspection: expose property key constraint.
 #[cfg(feature = "reactive")]
@@ -504,6 +504,10 @@ where
         "filter"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -602,6 +606,10 @@ impl Step for DedupStep {
 
     fn is_barrier(&self) -> bool {
         true
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
     }
 
     fn apply_streaming(
@@ -732,6 +740,10 @@ impl Step for DedupByKeyStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -853,6 +865,10 @@ impl Step for DedupByLabelStep {
 
     fn is_barrier(&self) -> bool {
         true
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
     }
 
     fn apply_streaming(
@@ -978,6 +994,10 @@ impl Step for DedupByTraversalStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -1056,6 +1076,14 @@ impl Step for LimitStep {
         "limit"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
+    fn describe(&self) -> Option<String> {
+        Some(format!("limit: {}", self.limit))
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -1128,6 +1156,14 @@ impl Step for SkipStep {
 
     fn name(&self) -> &'static str {
         "skip"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
+    fn describe(&self) -> Option<String> {
+        Some(format!("skip: {}", self.count))
     }
 
     fn apply_streaming(
@@ -1215,6 +1251,14 @@ impl Step for RangeStep {
 
     fn name(&self) -> &'static str {
         "range"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
+    fn describe(&self) -> Option<String> {
+        Some(format!("range: {}..{}", self.start, self.end))
     }
 
     fn apply_streaming(
@@ -1374,7 +1418,7 @@ impl HasIdStep {
 }
 
 // Use the macro to implement Step for HasIdStep
-impl_filter_step!(HasIdStep, "hasId");
+impl_filter_step!(HasIdStep, "hasId", category = crate::traversal::explain::StepCategory::Filter);
 
 // -----------------------------------------------------------------------------
 // HasWhereStep - filter by property value using a predicate
@@ -1501,7 +1545,7 @@ impl std::fmt::Debug for HasWhereStep {
 }
 
 // Use the macro to implement Step for HasWhereStep
-impl_filter_step!(HasWhereStep, "has");
+impl_filter_step!(HasWhereStep, "has", category = crate::traversal::explain::StepCategory::Filter);
 
 // Reactive introspection: expose property key constraint.
 #[cfg(feature = "reactive")]
@@ -1598,7 +1642,7 @@ impl std::fmt::Debug for IsStep {
 }
 
 // Use the macro to implement Step for IsStep
-impl_filter_step!(IsStep, "is");
+impl_filter_step!(IsStep, "is", category = crate::traversal::explain::StepCategory::Filter);
 
 // -----------------------------------------------------------------------------
 // SimplePathStep - Filter to paths with no repeated elements
@@ -1672,7 +1716,7 @@ impl Default for SimplePathStep {
 }
 
 // Use the macro to implement Step for SimplePathStep
-impl_filter_step!(SimplePathStep, "simplePath");
+impl_filter_step!(SimplePathStep, "simplePath", category = crate::traversal::explain::StepCategory::Filter);
 
 // -----------------------------------------------------------------------------
 // CyclicPathStep - Filter to paths with at least one repeated element
@@ -1746,7 +1790,7 @@ impl Default for CyclicPathStep {
 }
 
 // Use the macro to implement Step for CyclicPathStep
-impl_filter_step!(CyclicPathStep, "cyclicPath");
+impl_filter_step!(CyclicPathStep, "cyclicPath", category = crate::traversal::explain::StepCategory::Filter);
 
 // -----------------------------------------------------------------------------
 // TailStep - returns the last n elements from the traversal
@@ -1858,6 +1902,14 @@ impl Step for TailStep {
 
     fn is_barrier(&self) -> bool {
         true
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
+    fn describe(&self) -> Option<String> {
+        Some(format!("tail: {}", self.count))
     }
 
     fn apply_streaming(
@@ -1994,6 +2046,10 @@ impl Step for CoinStep {
 
     fn name(&self) -> &'static str {
         "coin"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
     }
 
     fn apply_streaming(
@@ -2144,6 +2200,10 @@ impl Step for SampleStep {
         true
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Filter
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,
@@ -2271,7 +2331,7 @@ impl HasKeyStep {
 }
 
 // Use the macro to implement Step for HasKeyStep
-impl_filter_step!(HasKeyStep, "hasKey");
+impl_filter_step!(HasKeyStep, "hasKey", category = crate::traversal::explain::StepCategory::Filter);
 
 // HasPropValueStep - filter property maps by value
 // -----------------------------------------------------------------------------
@@ -2390,7 +2450,7 @@ impl HasPropValueStep {
 }
 
 // Use the macro to implement Step for HasPropValueStep
-impl_filter_step!(HasPropValueStep, "hasValue");
+impl_filter_step!(HasPropValueStep, "hasValue", category = crate::traversal::explain::StepCategory::Filter);
 
 // WherePStep - filter current value against a predicate
 // -----------------------------------------------------------------------------
@@ -2481,7 +2541,7 @@ impl std::fmt::Debug for WherePStep {
 }
 
 // Use the macro to implement Step for WherePStep
-impl_filter_step!(WherePStep, "where");
+impl_filter_step!(WherePStep, "where", category = crate::traversal::explain::StepCategory::Filter);
 
 // -----------------------------------------------------------------------------
 // Tests

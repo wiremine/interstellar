@@ -191,7 +191,7 @@ impl ValuesStep {
 }
 
 // Use the macro to implement Step for ValuesStep (DynStep is provided via blanket impl)
-impl_flatmap_step!(ValuesStep, "values");
+impl_flatmap_step!(ValuesStep, "values", category = crate::traversal::explain::StepCategory::Transform);
 
 // Reactive introspection: expose property key constraints.
 #[cfg(feature = "reactive")]

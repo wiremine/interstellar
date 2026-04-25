@@ -111,6 +111,10 @@ impl Step for ShortestPathStep {
         "shortestPath"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -233,6 +237,10 @@ impl Step for DijkstraStep {
 
     fn name(&self) -> &'static str {
         "dijkstra"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
     }
 
     fn apply_streaming(

@@ -457,6 +457,7 @@ pub mod prelude {
         p, BoundTraversal, CloneSack, ExecutionContext, GraphTraversalSource, GroupKey, GroupValue,
         Path, PathElement, PathValue, Traversal, Traverser, __,
     };
+    pub use crate::traversal::explain::{StepCategory, StepExplanation, TraversalExplanation};
     pub use crate::value::{EdgeId, ElementId, IntoVertexId, Value, ValueMap, VertexId};
 
     // Reactive streaming query types

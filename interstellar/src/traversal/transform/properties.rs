@@ -202,6 +202,10 @@ impl crate::traversal::step::Step for PropertiesStep {
         "properties"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -444,6 +448,10 @@ impl crate::traversal::step::Step for ValueMapStep {
 
     fn name(&self) -> &'static str {
         "valueMap"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -704,6 +712,10 @@ impl crate::traversal::step::Step for ElementMapStep {
 
     fn name(&self) -> &'static str {
         "elementMap"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(
@@ -971,6 +983,10 @@ impl crate::traversal::step::Step for PropertyMapStep {
 
     fn name(&self) -> &'static str {
         "propertyMap"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
     }
 
     fn apply_streaming(

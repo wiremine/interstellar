@@ -63,6 +63,10 @@ impl crate::traversal::step::Step for TextScoreStep {
         "text_score"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Transform
+    }
+
     fn apply_streaming(
         &self,
         _ctx: crate::traversal::context::StreamingContext,

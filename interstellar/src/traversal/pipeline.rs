@@ -245,6 +245,19 @@ impl<In, Out> Traversal<In, Out> {
     pub fn steps(&self) -> &[Box<dyn DynStep>] {
         &self.steps
     }
+
+    /// Return a structured explanation of this anonymous traversal without executing it.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use interstellar::traversal::__;
+    /// let explanation = __.out().has_label("person").explain();
+    /// println!("{}", explanation);
+    /// ```
+    pub fn explain(&self) -> crate::traversal::explain::TraversalExplanation {
+        crate::traversal::explain::TraversalExplanation::from_steps(None, &self.steps)
+    }
 }
 
 // -----------------------------------------------------------------------------

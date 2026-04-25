@@ -3512,6 +3512,23 @@ impl ExactSizeIterator for TraversalExecutor<'_> {
 // -----------------------------------------------------------------------------
 
 impl<'g, In, Out> BoundTraversal<'g, In, Out> {
+    /// Return a structured explanation of this traversal without executing it.
+    ///
+    /// This is a terminal method that consumes the traversal.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let explanation = g.v().out().has_label("person").explain();
+    /// println!("{}", explanation);
+    /// ```
+    pub fn explain(self) -> crate::traversal::explain::TraversalExplanation {
+        crate::traversal::explain::TraversalExplanation::from_steps(
+            self.traversal.source(),
+            self.traversal.steps(),
+        )
+    }
+
     /// Execute and collect all values into a list.
     ///
     /// # Example

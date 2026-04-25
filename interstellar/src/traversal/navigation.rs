@@ -127,6 +127,18 @@ impl Step for OutStep {
         "out"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
+    fn describe(&self) -> Option<String> {
+        if self.labels.is_empty() {
+            None
+        } else {
+            Some(format!("labels: {:?}", self.labels))
+        }
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -270,6 +282,18 @@ impl Step for InStep {
 
     fn name(&self) -> &'static str {
         "in"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
+    fn describe(&self) -> Option<String> {
+        if self.labels.is_empty() {
+            None
+        } else {
+            Some(format!("labels: {:?}", self.labels))
+        }
     }
 
     fn apply_streaming(
@@ -435,6 +459,18 @@ impl Step for BothStep {
         "both"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
+    fn describe(&self) -> Option<String> {
+        if self.labels.is_empty() {
+            None
+        } else {
+            Some(format!("labels: {:?}", self.labels))
+        }
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -573,6 +609,18 @@ impl Step for OutEStep {
 
     fn name(&self) -> &'static str {
         "outE"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
+    fn describe(&self) -> Option<String> {
+        if self.labels.is_empty() {
+            None
+        } else {
+            Some(format!("labels: {:?}", self.labels))
+        }
     }
 
     fn apply_streaming(
@@ -723,6 +771,18 @@ impl Step for InEStep {
 
     fn name(&self) -> &'static str {
         "inE"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
+    fn describe(&self) -> Option<String> {
+        if self.labels.is_empty() {
+            None
+        } else {
+            Some(format!("labels: {:?}", self.labels))
+        }
     }
 
     fn apply_streaming(
@@ -896,6 +956,18 @@ impl Step for BothEStep {
         "bothE"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
+    fn describe(&self) -> Option<String> {
+        if self.labels.is_empty() {
+            None
+        } else {
+            Some(format!("labels: {:?}", self.labels))
+        }
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -1035,6 +1107,10 @@ impl Step for OutVStep {
         "outV"
     }
 
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
+    }
+
     fn apply_streaming(
         &self,
         ctx: crate::traversal::context::StreamingContext,
@@ -1120,6 +1196,10 @@ impl Step for InVStep {
 
     fn name(&self) -> &'static str {
         "inV"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
     }
 
     fn apply_streaming(
@@ -1219,6 +1299,10 @@ impl Step for BothVStep {
 
     fn name(&self) -> &'static str {
         "bothV"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
     }
 
     fn apply_streaming(
@@ -1352,6 +1436,10 @@ impl Step for OtherVStep {
 
     fn name(&self) -> &'static str {
         "otherV"
+    }
+
+    fn category(&self) -> crate::traversal::explain::StepCategory {
+        crate::traversal::explain::StepCategory::Navigation
     }
 
     fn apply_streaming(
